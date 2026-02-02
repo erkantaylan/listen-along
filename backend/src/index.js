@@ -27,7 +27,10 @@ app.use(cors(corsOptions));
 app.use(express.json());
 
 // Serve static frontend files
-app.use(express.static(path.join(__dirname, '../../frontend')));
+// In Docker: /app/src/index.js -> /app/frontend (../frontend)
+// Local dev: backend/src/index.js -> frontend (../../frontend)
+const frontendPath = process.env.FRONTEND_PATH || path.join(__dirname, '../frontend');
+app.use(express.static(frontendPath));
 
 // Socket.IO setup with CORS
 const io = new Server(server, {
@@ -139,7 +142,12 @@ app.get('/api/lobbies/:id', (req, res) => {
 
 // Serve lobby page
 app.get('/lobby/:id', (req, res) => {
-  res.sendFile(path.join(__dirname, '../../frontend/index.html'));
+  res.sendFile(path.join(frontendPath, 'index.html'));
+});
+
+// Serve index for root
+app.get('/', (req, res) => {
+  res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
 // Set up playback sync handlers
