@@ -940,6 +940,24 @@ html, body {
   color: var(--text-muted);
 }
 
+.dashboard-lobby-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-small {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+}
+
+.btn-danger {
+  background: #dc3545;
+}
+
+.btn-danger:hover {
+  background: #c82333;
+}
+
 .dashboard-empty {
   text-align: center;
   padding: 2rem;

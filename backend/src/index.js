@@ -232,6 +232,32 @@ app.get('/api/dashboard/stats', dashboardAuth, (req, res) => {
   res.json(stats);
 });
 
+// Delete a lobby (dashboard only)
+app.delete('/api/dashboard/lobbies/:id', dashboardAuth, (req, res) => {
+  const lobbyId = req.params.id;
+  const lobbyData = lobby.getLobby(lobbyId);
+
+  if (!lobbyData) {
+    return res.status(404).json({ error: 'Lobby not found' });
+  }
+
+  // Notify all users in the lobby that it's being closed
+  io.to(lobbyId).emit('lobby:closed', { message: 'This lobby has been closed by an administrator.' });
+
+  // Disconnect all sockets from the room
+  io.in(lobbyId).socketsLeave(lobbyId);
+
+  // Clean up playback and queue state
+  playback.cleanupLobby(lobbyId);
+  deleteQueue(lobbyId);
+
+  // Delete the lobby
+  lobby.deleteLobby(lobbyId);
+
+  console.log(`Lobby ${lobbyId} deleted via dashboard`);
+  res.json({ success: true });
+});
+
 // Serve lobby page
 app.get('/lobby/:id', (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
