@@ -269,7 +269,83 @@ io.on('connection', (socket) => {
   // Add song to queue
   socket.on('queue:add', async ({ lobbyId, query, url, title, duration, addedBy, thumbnail }) => {
     const queue = getQueue(lobbyId);
+    const inputUrl = url || query;
 
+    // Check if this is a playlist URL
+    if (inputUrl && ytdlp.isPlaylistUrl(inputUrl)) {
+      try {
+        socket.emit('queue:adding', { status: 'Loading playlist...' });
+
+        const playlist = await ytdlp.getPlaylistItems(inputUrl);
+        const items = playlist.items;
+
+        if (items.length === 0) {
+          socket.emit('queue:error', { message: 'Playlist is empty' });
+          return;
+        }
+
+        console.log(`Adding playlist "${playlist.title}" (${items.length} items) to lobby ${lobbyId}`);
+
+        // Notify about playlist size
+        if (playlist.limited) {
+          socket.emit('queue:playlist-info', {
+            message: `Playlist has ${playlist.total} videos, adding first ${items.length}`,
+            total: playlist.total,
+            adding: items.length
+          });
+        }
+
+        // Add each video to the queue with progress updates
+        const wasEmpty = queue.getSongs().length === 0;
+        let firstSong = null;
+
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+
+          // Emit progress
+          socket.emit('queue:playlist-progress', {
+            current: i + 1,
+            total: items.length,
+            title: item.title
+          });
+
+          const song = queue.addSong({
+            url: item.url,
+            title: item.title,
+            duration: item.duration,
+            addedBy
+          });
+
+          if (i === 0) {
+            firstSong = song;
+          }
+        }
+
+        console.log(`Playlist "${playlist.title}" added to lobby ${lobbyId}`);
+
+        // Broadcast updated queue to all in lobby
+        io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+
+        // Notify completion
+        socket.emit('queue:playlist-complete', {
+          playlistTitle: playlist.title,
+          added: items.length
+        });
+
+        // If this was the first song(s) and nothing was playing, start playback
+        if (wasEmpty && firstSong) {
+          playback.setTrack(lobbyId, firstSong, true, io);
+        }
+
+        return;
+      } catch (err) {
+        console.error('Playlist fetch error:', err);
+        socket.emit('queue:error', { message: `Failed to load playlist: ${err.message}` });
+        return;
+      }
+    }
+
+    // Regular single video handling
     // If query is provided, fetch metadata first
     if (query && !title) {
       try {

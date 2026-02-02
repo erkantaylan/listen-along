@@ -205,10 +205,92 @@ function checkAvailable() {
   });
 }
 
+/**
+ * Check if a URL is a YouTube playlist
+ * @param {string} url - URL to check
+ * @returns {boolean} True if URL contains playlist parameter
+ */
+function isPlaylistUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.searchParams.has('list');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Extract playlist items without downloading
+ * @param {string} url - YouTube playlist URL
+ * @param {number} limit - Maximum number of items to return (default 50)
+ * @returns {Promise<Array<Object>>} Array of video metadata objects
+ */
+function getPlaylistItems(url, limit = 50) {
+  return new Promise((resolve, reject) => {
+    const args = [
+      '--flat-playlist',     // Don't download, just list
+      '-J',                  // JSON output for entire playlist
+      '--no-warnings',
+      url
+    ];
+
+    const proc = spawn('yt-dlp', args);
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    proc.stderr.on('data', (data) => {
+      stderr += data.toString();
+    });
+
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        const error = parseError(stderr, code);
+        return reject(error);
+      }
+
+      try {
+        const playlist = JSON.parse(stdout);
+        const entries = playlist.entries || [];
+
+        // Limit the number of items
+        const limitedEntries = entries.slice(0, limit);
+
+        const items = limitedEntries.map(entry => ({
+          id: entry.id,
+          title: entry.title || 'Unknown',
+          duration: entry.duration || 0,
+          url: entry.url || `https://www.youtube.com/watch?v=${entry.id}`,
+          uploader: entry.uploader || playlist.uploader || 'Unknown'
+        }));
+
+        resolve({
+          title: playlist.title || 'Playlist',
+          items,
+          total: entries.length,
+          limited: entries.length > limit
+        });
+      } catch (e) {
+        reject(new Error('Failed to parse playlist data'));
+      }
+    });
+
+    proc.on('error', (err) => {
+      reject(new Error(`Failed to spawn yt-dlp: ${err.message}`));
+    });
+  });
+}
+
 module.exports = {
   getMetadata,
   createAudioStream,
   createTranscodedStream,
   parseError,
-  checkAvailable
+  checkAvailable,
+  isPlaylistUrl,
+  getPlaylistItems
 };

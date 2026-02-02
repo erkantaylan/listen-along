@@ -1,8 +1,46 @@
 const { describe, it, mock } = require('node:test');
 const assert = require('node:assert');
-const { parseError } = require('./ytdlp');
+const { parseError, isPlaylistUrl } = require('./ytdlp');
 
 describe('ytdlp', () => {
+  describe('isPlaylistUrl', () => {
+    it('detects YouTube playlist URL with list parameter', () => {
+      const url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf';
+      assert.strictEqual(isPlaylistUrl(url), true);
+    });
+
+    it('detects YouTube playlist URL without video', () => {
+      const url = 'https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf';
+      assert.strictEqual(isPlaylistUrl(url), true);
+    });
+
+    it('returns false for regular video URL', () => {
+      const url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+      assert.strictEqual(isPlaylistUrl(url), false);
+    });
+
+    it('returns false for short YouTube URL', () => {
+      const url = 'https://youtu.be/dQw4w9WgXcQ';
+      assert.strictEqual(isPlaylistUrl(url), false);
+    });
+
+    it('returns false for null input', () => {
+      assert.strictEqual(isPlaylistUrl(null), false);
+    });
+
+    it('returns false for undefined input', () => {
+      assert.strictEqual(isPlaylistUrl(undefined), false);
+    });
+
+    it('returns false for non-URL string', () => {
+      assert.strictEqual(isPlaylistUrl('not a url'), false);
+    });
+
+    it('returns false for empty string', () => {
+      assert.strictEqual(isPlaylistUrl(''), false);
+    });
+  });
+
   describe('parseError', () => {
     it('detects video unavailable', () => {
       const err = parseError('ERROR: Video unavailable', 1);
