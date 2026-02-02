@@ -162,8 +162,44 @@ app.get('/api/lobbies/:id', (req, res) => {
   });
 });
 
+// Dashboard stats endpoint
+app.get('/api/dashboard/stats', (req, res) => {
+  const stats = {
+    totalLobbies: lobby.lobbies.size,
+    totalUsers: 0,
+    uptime: process.uptime(),
+    memoryUsage: process.memoryUsage(),
+    lobbies: []
+  };
+
+  for (const [lobbyId, lobbyData] of lobby.lobbies) {
+    const userCount = lobbyData.users.size;
+    stats.totalUsers += userCount;
+
+    const queue = getQueue(lobbyId);
+    const playbackState = playback.getState(lobbyId);
+
+    stats.lobbies.push({
+      id: lobbyId,
+      userCount,
+      queueLength: queue.getSongs().length,
+      currentTrack: playbackState?.currentTrack?.title || null,
+      isPlaying: playbackState?.isPlaying || false,
+      createdAt: lobbyData.createdAt,
+      lastActivity: lobbyData.lastActivity
+    });
+  }
+
+  res.json(stats);
+});
+
 // Serve lobby page
 app.get('/lobby/:id', (req, res) => {
+  res.sendFile(path.join(frontendPath, 'index.html'));
+});
+
+// Serve dashboard page
+app.get('/dashboard', (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 

@@ -23,6 +23,7 @@
     // Views
     landingView: document.getElementById('landing-view'),
     lobbyView: document.getElementById('lobby-view'),
+    dashboardView: document.getElementById('dashboard-view'),
 
     // Landing
     createLobbyBtn: document.getElementById('create-lobby-btn'),
@@ -70,14 +71,29 @@
     toastContainer: document.getElementById('toast-container'),
 
     // Version
-    versionDisplay: document.getElementById('version-display')
+    versionDisplay: document.getElementById('version-display'),
+
+    // Dashboard
+    dashboardUptime: document.getElementById('dashboard-uptime'),
+    statLobbies: document.getElementById('stat-lobbies'),
+    statUsers: document.getElementById('stat-users'),
+    statMemory: document.getElementById('stat-memory'),
+    dashboardLobbyList: document.getElementById('dashboard-lobby-list')
   };
 
   // Socket.IO Connection
   let socket = null;
 
+  // Dashboard state
+  let dashboardInterval = null;
+
   // Initialize Application
   function init() {
+    // Check for dashboard route first (no socket needed)
+    if (checkUrlForDashboard()) {
+      return;
+    }
+
     setupSocket();
     setupEventListeners();
     checkUrlForLobby();
@@ -183,6 +199,15 @@
     window.addEventListener('popstate', handlePopState);
   }
 
+  // Check URL for Dashboard
+  function checkUrlForDashboard() {
+    if (window.location.pathname === '/dashboard') {
+      showView('dashboard');
+      return true;
+    }
+    return false;
+  }
+
   // Check URL for Lobby ID
   function checkUrlForLobby() {
     const path = window.location.pathname;
@@ -191,6 +216,80 @@
       state.lobbyId = match[1];
       joinLobby(state.lobbyId);
     }
+  }
+
+  // Fetch and display dashboard stats
+  function fetchDashboardStats() {
+    fetch('/api/dashboard/stats')
+      .then(res => res.json())
+      .then(data => {
+        if (elements.statLobbies) {
+          elements.statLobbies.textContent = data.totalLobbies;
+        }
+        if (elements.statUsers) {
+          elements.statUsers.textContent = data.totalUsers;
+        }
+        if (elements.statMemory) {
+          const memMB = Math.round(data.memoryUsage.heapUsed / 1024 / 1024);
+          elements.statMemory.textContent = memMB;
+        }
+        if (elements.dashboardUptime) {
+          elements.dashboardUptime.textContent = `Uptime: ${formatUptime(data.uptime)}`;
+        }
+        if (elements.dashboardLobbyList) {
+          updateDashboardLobbies(data.lobbies);
+        }
+      })
+      .catch(err => {
+        console.error('Failed to fetch dashboard stats:', err);
+      });
+  }
+
+  // Update dashboard lobby list
+  function updateDashboardLobbies(lobbies) {
+    if (!lobbies || lobbies.length === 0) {
+      elements.dashboardLobbyList.innerHTML = '<li class="dashboard-empty">No active lobbies</li>';
+      return;
+    }
+
+    elements.dashboardLobbyList.innerHTML = lobbies.map(lobby => {
+      const age = formatAge(lobby.createdAt);
+      return `
+        <li class="dashboard-lobby-item">
+          <div class="dashboard-lobby-id">${escapeHtml(lobby.id)}</div>
+          <div class="dashboard-lobby-info">
+            <span class="dashboard-lobby-users">${lobby.userCount} user${lobby.userCount !== 1 ? 's' : ''}</span>
+            <span class="dashboard-lobby-queue">${lobby.queueLength} in queue</span>
+            ${lobby.currentTrack ? `<span class="dashboard-lobby-track ${lobby.isPlaying ? 'playing' : ''}">${escapeHtml(lobby.currentTrack)}</span>` : ''}
+          </div>
+          <div class="dashboard-lobby-age">${age}</div>
+        </li>
+      `;
+    }).join('');
+  }
+
+  // Format uptime as human readable
+  function formatUptime(seconds) {
+    const days = Math.floor(seconds / 86400);
+    const hours = Math.floor((seconds % 86400) / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+
+    if (days > 0) return `${days}d ${hours}h`;
+    if (hours > 0) return `${hours}h ${mins}m`;
+    if (mins > 0) return `${mins}m ${secs}s`;
+    return `${secs}s`;
+  }
+
+  // Format age from timestamp
+  function formatAge(timestamp) {
+    const age = Date.now() - timestamp;
+    const mins = Math.floor(age / 60000);
+    const hours = Math.floor(age / 3600000);
+
+    if (hours > 0) return `${hours}h ago`;
+    if (mins > 0) return `${mins}m ago`;
+    return 'just now';
   }
 
   // Audio Player Setup
@@ -347,11 +446,24 @@
   function showView(viewName) {
     elements.landingView.classList.remove('active');
     elements.lobbyView.classList.remove('active');
+    if (elements.dashboardView) {
+      elements.dashboardView.classList.remove('active');
+    }
+
+    // Stop dashboard polling when leaving
+    if (dashboardInterval) {
+      clearInterval(dashboardInterval);
+      dashboardInterval = null;
+    }
 
     if (viewName === 'landing') {
       elements.landingView.classList.add('active');
     } else if (viewName === 'lobby') {
       elements.lobbyView.classList.add('active');
+    } else if (viewName === 'dashboard' && elements.dashboardView) {
+      elements.dashboardView.classList.add('active');
+      fetchDashboardStats();
+      dashboardInterval = setInterval(fetchDashboardStats, 2000);
     }
   }
 

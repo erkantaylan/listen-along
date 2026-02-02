@@ -130,6 +130,36 @@
     </div>
   </div>
 
+  <!-- Dashboard View -->
+  <div id="dashboard-view" class="view">
+    <header class="dashboard-header">
+      <h1>Dashboard</h1>
+      <span id="dashboard-uptime" class="dashboard-uptime"></span>
+    </header>
+    <main class="dashboard-content">
+      <div class="dashboard-stats">
+        <div class="stat-card">
+          <span class="stat-value" id="stat-lobbies">0</span>
+          <span class="stat-label">Active Lobbies</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value" id="stat-users">0</span>
+          <span class="stat-label">Connected Users</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value" id="stat-memory">0</span>
+          <span class="stat-label">Memory (MB)</span>
+        </div>
+      </div>
+      <section class="dashboard-lobbies">
+        <h2>Active Lobbies</h2>
+        <ul id="dashboard-lobby-list" class="dashboard-lobby-list">
+          <li class="dashboard-empty">No active lobbies</li>
+        </ul>
+      </section>
+    </main>
+  </div>
+
   <!-- Toast Container -->
   <div id="toast-container" class="toast-container"></div>
 

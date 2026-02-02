@@ -824,3 +824,126 @@ html, body {
     transform: translateX(-50%) scale(1.02);
   }
 }
+
+/* Dashboard View */
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+  padding-top: calc(1rem + var(--safe-area-top));
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--bg-surface);
+}
+
+.dashboard-header h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.dashboard-uptime {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.dashboard-content {
+  flex: 1;
+  padding: 1.5rem;
+  overflow-y: auto;
+}
+
+.dashboard-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.stat-card {
+  background: var(--bg-elevated);
+  border-radius: var(--border-radius-lg);
+  padding: 1.25rem;
+  text-align: center;
+}
+
+.stat-value {
+  display: block;
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--primary);
+  margin-bottom: 0.25rem;
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.dashboard-lobbies h2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  color: var(--text-secondary);
+}
+
+.dashboard-lobby-list {
+  list-style: none;
+}
+
+.dashboard-lobby-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background: var(--bg-elevated);
+  border-radius: var(--border-radius);
+  margin-bottom: 0.75rem;
+}
+
+.dashboard-lobby-id {
+  font-family: monospace;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--primary);
+  background: var(--bg-surface);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.dashboard-lobby-info {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.dashboard-lobby-track {
+  color: var(--text-muted);
+  font-style: italic;
+  max-width: 200px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dashboard-lobby-track.playing::before {
+  content: '▶ ';
+  color: var(--primary);
+}
+
+.dashboard-lobby-age {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.dashboard-empty {
+  text-align: center;
+  padding: 2rem;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  border-radius: var(--border-radius);
+}
