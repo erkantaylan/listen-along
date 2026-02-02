@@ -8,8 +8,8 @@ function generateLobbyId() {
   return uuidv4().substring(0, 8);
 }
 
-function createLobby(hostId = null) {
-  const id = generateLobbyId();
+function createLobby(hostId = null, customId = null) {
+  const id = customId || generateLobbyId();
   const lobby = {
     id,
     hostId,
