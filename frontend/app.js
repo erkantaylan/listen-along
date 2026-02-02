@@ -355,7 +355,7 @@
 
     // If we have a track and it's different or audio has no src, set it up
     if (data.track && data.track.url) {
-      const streamUrl = `/api/stream?url=${encodeURIComponent(data.track.url)}`;
+      const streamUrl = `/api/stream?q=${encodeURIComponent(data.track.url)}`;
 
       // Check if we need to change the source
       if (!audio.src || !audio.src.includes(encodeURIComponent(data.track.url))) {
