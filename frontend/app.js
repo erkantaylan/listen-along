@@ -183,7 +183,7 @@
     });
 
     audio.addEventListener('ended', () => {
-      socket.emit('playback:ended');
+      socket.emit('playback:ended', { lobbyId: state.lobbyId });
     });
 
     audio.addEventListener('play', () => {

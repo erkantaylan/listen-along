@@ -338,6 +338,81 @@ io.on('connection', (socket) => {
     io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
   });
 
+  // Toggle playback (play/pause)
+  socket.on('playback:toggle', ({ lobbyId }) => {
+    const state = playback.getState(lobbyId);
+    if (!state) return;
+
+    if (state.isPlaying) {
+      playback.pause(lobbyId, io);
+    } else {
+      // If no current track, try to play first song in queue
+      if (!state.currentTrack) {
+        const queue = getQueue(lobbyId);
+        const song = queue.getCurrentSong();
+        if (song) {
+          playback.setTrack(lobbyId, song, true, io);
+        }
+      } else {
+        playback.resume(lobbyId, io);
+      }
+    }
+  });
+
+  // Skip to next track
+  socket.on('playback:next', ({ lobbyId }) => {
+    const queue = getQueue(lobbyId);
+    const finished = queue.advanceQueue();
+    if (finished) {
+      console.log(`Skipped track in lobby ${lobbyId}: ${finished.title}`);
+    }
+
+    const nextSong = queue.getCurrentSong();
+    if (nextSong) {
+      playback.setTrack(lobbyId, nextSong, true, io);
+    } else {
+      // No more songs, stop playback
+      playback.setTrack(lobbyId, null, false, io);
+    }
+
+    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+  });
+
+  // Go to previous track (restart current song)
+  socket.on('playback:previous', ({ lobbyId }) => {
+    const state = playback.getState(lobbyId);
+    if (!state || !state.currentTrack) return;
+
+    // Restart current song from beginning
+    playback.seek(lobbyId, 0, io);
+    if (!state.isPlaying) {
+      playback.resume(lobbyId, io);
+    }
+  });
+
+  // Handle track ended - auto-advance to next song
+  socket.on('playback:ended', ({ lobbyId }) => {
+    if (!lobbyId) return;
+
+    const queue = getQueue(lobbyId);
+    const finished = queue.advanceQueue();
+    if (finished) {
+      console.log(`Track ended in lobby ${lobbyId}: ${finished.title}`);
+    }
+
+    const nextSong = queue.getCurrentSong();
+    if (nextSong) {
+      playback.setTrack(lobbyId, nextSong, true, io);
+      console.log(`Auto-advancing to next track: ${nextSong.title}`);
+    } else {
+      // No more songs, stop playback
+      playback.setTrack(lobbyId, null, false, io);
+      console.log(`Queue empty in lobby ${lobbyId}`);
+    }
+
+    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+  });
+
   socket.on('disconnect', (reason) => {
     console.log(`Client disconnected: ${socket.id} (${reason})`);
     if (currentLobby) {

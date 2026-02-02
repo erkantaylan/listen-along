@@ -300,10 +300,7 @@ function setupSocketHandlers(io) {
       }
     });
 
-    // Track ended (reported by client)
-    socket.on('playback:ended', ({ lobbyId }) => {
-      trackEnded(lobbyId, io);
-    });
+    // Note: playback:ended is handled in index.js to coordinate with queue
   });
 }
 
