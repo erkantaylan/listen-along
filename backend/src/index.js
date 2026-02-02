@@ -9,6 +9,7 @@ const ytdlp = require('./ytdlp');
 const playback = require('./playback');
 const lobby = require('./lobby');
 const { getQueue, deleteQueue } = require('./queue');
+const pkg = require('../package.json');
 
 const PORT = process.env.PORT || 3000;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
@@ -45,6 +46,14 @@ app.get('/health', async (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     ytdlp: ytdlpAvailable ? 'available' : 'unavailable'
+  });
+});
+
+// Version endpoint
+app.get('/api/version', (req, res) => {
+  res.json({
+    version: process.env.VERSION || pkg.version,
+    name: pkg.name
   });
 });
 

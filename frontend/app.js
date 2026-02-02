@@ -63,7 +63,10 @@
     audioPlayer: document.getElementById('audio-player'),
 
     // Toast
-    toastContainer: document.getElementById('toast-container')
+    toastContainer: document.getElementById('toast-container'),
+
+    // Version
+    versionDisplay: document.getElementById('version-display')
   };
 
   // Socket.IO Connection
@@ -75,6 +78,21 @@
     setupEventListeners();
     checkUrlForLobby();
     setupAudioPlayer();
+    fetchVersion();
+  }
+
+  // Fetch and display version
+  function fetchVersion() {
+    fetch('/api/version')
+      .then(res => res.json())
+      .then(data => {
+        if (data.version && elements.versionDisplay) {
+          elements.versionDisplay.textContent = `v${data.version}`;
+        }
+      })
+      .catch(() => {
+        // Silently ignore version fetch errors
+      });
   }
 
   // Socket.IO Setup

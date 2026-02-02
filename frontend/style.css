@@ -111,9 +111,18 @@ html, body {
 }
 
 .landing-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
   padding: 1.5rem;
   padding-bottom: calc(1.5rem + var(--safe-area-bottom));
   text-align: center;
+}
+
+.landing-footer .version-text {
+  color: var(--text-muted);
+  font-size: 0.75rem;
 }
 
 .landing-footer a {
