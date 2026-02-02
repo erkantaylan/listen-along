@@ -12,7 +12,9 @@
     queue: [],
     listeners: [],
     userId: generateUserId(),
-    username: generateUsername()
+    username: generateUsername(),
+    audioUnlocked: false,
+    pendingPlay: null
   };
 
   // DOM Elements
@@ -210,7 +212,9 @@
 
     audio.addEventListener('play', () => {
       state.isPlaying = true;
+      state.audioUnlocked = true;
       updatePlayButton();
+      hideUnlockPrompt();
     });
 
     audio.addEventListener('pause', () => {
@@ -222,6 +226,118 @@
       console.error('Audio error:', e);
       showToast('Error playing audio', 'error');
     });
+
+    // Mobile Safari unlock detection
+    setupAudioUnlock();
+  }
+
+  // Mobile Safari audio unlock handling
+  function setupAudioUnlock() {
+    // Detect iOS Safari
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+
+    if (isIOS || isSafari) {
+      // On iOS/Safari, try to unlock audio on any user interaction
+      const unlockAudio = () => {
+        if (state.audioUnlocked) return;
+
+        const audio = elements.audioPlayer;
+        // Create a silent play to unlock audio
+        const silentPlay = audio.play();
+        if (silentPlay) {
+          silentPlay.then(() => {
+            audio.pause();
+            state.audioUnlocked = true;
+            console.log('Audio unlocked via user gesture');
+            hideUnlockPrompt();
+            // If there was a pending play, execute it now
+            if (state.pendingPlay) {
+              const pending = state.pendingPlay;
+              state.pendingPlay = null;
+              playAudioWithUnlock(pending.src, pending.position, pending.shouldPlay);
+            }
+          }).catch(() => {
+            // Still locked, will be unlocked on explicit play button tap
+          });
+        }
+      };
+
+      // Unlock on various user interactions
+      ['touchstart', 'touchend', 'click'].forEach(event => {
+        document.addEventListener(event, unlockAudio, { once: false, passive: true });
+      });
+    }
+  }
+
+  // Try to play audio, handling Safari restrictions
+  function playAudioWithUnlock(src, position, shouldPlay) {
+    const audio = elements.audioPlayer;
+
+    if (src && audio.src !== src) {
+      audio.src = src;
+    }
+
+    if (position !== undefined && isFinite(position)) {
+      audio.currentTime = position;
+    }
+
+    if (shouldPlay) {
+      const playPromise = audio.play();
+      if (playPromise) {
+        playPromise.catch(e => {
+          console.log('Autoplay blocked:', e);
+          // Show user-friendly message for Safari users
+          if (e.name === 'NotAllowedError') {
+            state.pendingPlay = { src: audio.src, position: audio.currentTime, shouldPlay: true };
+            showUnlockPrompt();
+          }
+        });
+      }
+    }
+  }
+
+  // Show a prompt for Safari users to tap to enable audio
+  function showUnlockPrompt() {
+    if (document.getElementById('audio-unlock-prompt')) return;
+
+    const prompt = document.createElement('div');
+    prompt.id = 'audio-unlock-prompt';
+    prompt.className = 'audio-unlock-prompt';
+    prompt.innerHTML = `
+      <div class="unlock-content">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+          <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+        </svg>
+        <span>Tap to enable audio</span>
+      </div>
+    `;
+
+    prompt.addEventListener('click', () => {
+      const audio = elements.audioPlayer;
+      if (state.pendingPlay) {
+        audio.src = state.pendingPlay.src;
+        audio.currentTime = state.pendingPlay.position || 0;
+      }
+      audio.play().then(() => {
+        state.audioUnlocked = true;
+        state.pendingPlay = null;
+        hideUnlockPrompt();
+      }).catch(e => {
+        console.error('Play failed even with user gesture:', e);
+        showToast('Could not play audio. Try again.', 'error');
+      });
+    });
+
+    document.body.appendChild(prompt);
+  }
+
+  function hideUnlockPrompt() {
+    const prompt = document.getElementById('audio-unlock-prompt');
+    if (prompt) {
+      prompt.remove();
+    }
   }
 
   // View Management
@@ -361,9 +477,7 @@
     }
 
     if (data.isPlaying && data.audioUrl) {
-      elements.audioPlayer.src = data.audioUrl;
-      elements.audioPlayer.currentTime = data.position || 0;
-      elements.audioPlayer.play().catch(e => console.log('Autoplay blocked:', e));
+      playAudioWithUnlock(data.audioUrl, data.position || 0, true);
     } else {
       elements.audioPlayer.pause();
     }
@@ -383,11 +497,12 @@
       if (!audio.src || !audio.src.includes(encodeURIComponent(data.track.url))) {
         state.currentTrack = data.track;
         updateNowPlaying(data.track);
-        audio.src = streamUrl;
-        audio.currentTime = serverPosition;
 
         if (data.isPlaying) {
-          audio.play().catch(e => console.log('Autoplay blocked:', e));
+          playAudioWithUnlock(streamUrl, serverPosition, true);
+        } else {
+          audio.src = streamUrl;
+          audio.currentTime = serverPosition;
         }
         return;
       }
@@ -401,7 +516,7 @@
 
     // Sync play/pause state
     if (data.isPlaying && audio.paused) {
-      audio.play().catch(e => console.log('Autoplay blocked:', e));
+      playAudioWithUnlock(audio.src, audio.currentTime, true);
     } else if (!data.isPlaying && !audio.paused) {
       audio.pause();
     }
@@ -415,8 +530,7 @@
     updateQueue();
 
     if (data.audioUrl) {
-      elements.audioPlayer.src = data.audioUrl;
-      elements.audioPlayer.play().catch(e => console.log('Autoplay blocked:', e));
+      playAudioWithUnlock(data.audioUrl, 0, true);
     }
   }
 

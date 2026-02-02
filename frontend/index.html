@@ -131,7 +131,8 @@
   <div id="toast-container" class="toast-container"></div>
 
   <!-- Audio Element (hidden) -->
-  <audio id="audio-player" preload="auto"></audio>
+  <!-- playsinline is required for iOS Safari to play inline instead of fullscreen -->
+  <audio id="audio-player" preload="auto" playsinline></audio>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="/app.js"></script>
