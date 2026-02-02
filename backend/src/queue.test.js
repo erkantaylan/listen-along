@@ -128,6 +128,35 @@ describe('Queue class', () => {
     queue.clear();
     assert.strictEqual(queue.getSongs().length, 0);
   });
+
+  test('moveCurrentToEnd moves first song to end', () => {
+    queue.addSong({ url: 'url1', title: 'Song 1' });
+    queue.addSong({ url: 'url2', title: 'Song 2' });
+    queue.addSong({ url: 'url3', title: 'Song 3' });
+
+    const moved = queue.moveCurrentToEnd();
+
+    assert.strictEqual(moved.title, 'Song 1');
+    const songs = queue.getSongs();
+    assert.strictEqual(songs.length, 3);
+    assert.strictEqual(songs[0].title, 'Song 2');
+    assert.strictEqual(songs[1].title, 'Song 3');
+    assert.strictEqual(songs[2].title, 'Song 1');
+  });
+
+  test('moveCurrentToEnd returns null for empty queue', () => {
+    assert.strictEqual(queue.moveCurrentToEnd(), null);
+  });
+
+  test('moveCurrentToEnd works with single song queue', () => {
+    queue.addSong({ url: 'url1', title: 'Song 1' });
+
+    const moved = queue.moveCurrentToEnd();
+
+    assert.strictEqual(moved.title, 'Song 1');
+    assert.strictEqual(queue.getSongs().length, 1);
+    assert.strictEqual(queue.getCurrentSong().title, 'Song 1');
+  });
 });
 
 describe('Queue store functions', () => {
