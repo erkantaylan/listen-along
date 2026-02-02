@@ -409,8 +409,9 @@
     elements.trackTitle.textContent = track.title || 'Unknown Track';
     elements.trackArtist.textContent = track.artist || '';
 
-    if (track.thumbnail) {
-      elements.albumArt.innerHTML = `<img src="${track.thumbnail}" alt="Album art">`;
+    const thumbUrl = sanitizeUrl(track.thumbnail);
+    if (thumbUrl) {
+      elements.albumArt.innerHTML = `<img src="${thumbUrl}" alt="Album art">`;
     } else {
       elements.albumArt.innerHTML = `
         <div class="placeholder-art">
@@ -442,10 +443,12 @@
       return;
     }
 
-    elements.queueList.innerHTML = state.queue.map((song, index) => `
+    elements.queueList.innerHTML = state.queue.map((song, index) => {
+      const thumbUrl = sanitizeUrl(song.thumbnail);
+      return `
       <li class="queue-item ${state.currentTrack && state.currentTrack.id === song.id ? 'playing' : ''}" data-index="${index}">
         <div class="queue-item-thumb">
-          ${song.thumbnail ? `<img src="${song.thumbnail}" alt="">` : ''}
+          ${thumbUrl ? `<img src="${thumbUrl}" alt="">` : ''}
         </div>
         <div class="queue-item-info">
           <div class="queue-item-title">${escapeHtml(song.title)}</div>
@@ -454,8 +457,8 @@
         <button class="btn-icon queue-item-remove" aria-label="Remove from queue" onclick="window.app.removeSong(${index})">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
         </button>
-      </li>
-    `).join('');
+      </li>`;
+    }).join('');
   }
 
   function updateListeners() {
@@ -543,6 +546,19 @@
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  function sanitizeUrl(url) {
+    if (!url) return '';
+    try {
+      const parsed = new URL(url, window.location.origin);
+      if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+        return url;
+      }
+    } catch (e) {
+      return '';
+    }
+    return '';
   }
 
   function getInitials(name) {
