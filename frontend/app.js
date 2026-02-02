@@ -2,18 +2,83 @@
 (function() {
   'use strict';
 
+  // localStorage Keys
+  const STORAGE_KEYS = {
+    USER_ID: 'listen-userId',
+    USERNAME: 'listen-username',
+    LAST_LOBBY: 'listen-lastLobby',
+    REPEAT_MODE: 'listen-repeatMode',
+    SHUFFLE_ENABLED: 'listen-shuffleEnabled'
+  };
+
+  // localStorage Helpers
+  function storageGet(key) {
+    try {
+      return localStorage.getItem(key);
+    } catch (e) {
+      console.warn('localStorage unavailable:', e);
+      return null;
+    }
+  }
+
+  function storageSet(key, value) {
+    try {
+      localStorage.setItem(key, value);
+    } catch (e) {
+      console.warn('localStorage unavailable:', e);
+    }
+  }
+
+  function storageRemove(key) {
+    try {
+      localStorage.removeItem(key);
+    } catch (e) {
+      console.warn('localStorage unavailable:', e);
+    }
+  }
+
+  // Load persisted user identity or generate new
+  function getOrCreateUserId() {
+    const stored = storageGet(STORAGE_KEYS.USER_ID);
+    if (stored) return stored;
+    const newId = 'user_' + Math.random().toString(36).substr(2, 9);
+    storageSet(STORAGE_KEYS.USER_ID, newId);
+    return newId;
+  }
+
+  function getOrCreateUsername() {
+    const stored = storageGet(STORAGE_KEYS.USERNAME);
+    if (stored) return stored;
+    const adjectives = ['Happy', 'Chill', 'Groovy', 'Funky', 'Cool', 'Mellow'];
+    const nouns = ['Listener', 'DJ', 'Vibes', 'Beat', 'Rhythm', 'Sound'];
+    const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
+    const noun = nouns[Math.floor(Math.random() * nouns.length)];
+    const newUsername = `${adj}${noun}${Math.floor(Math.random() * 100)}`;
+    storageSet(STORAGE_KEYS.USERNAME, newUsername);
+    return newUsername;
+  }
+
+  // Load persisted preferences
+  function getStoredRepeatMode() {
+    return storageGet(STORAGE_KEYS.REPEAT_MODE) || 'off';
+  }
+
+  function getStoredShuffleEnabled() {
+    return storageGet(STORAGE_KEYS.SHUFFLE_ENABLED) === 'true';
+  }
+
   // App State
   const state = {
     lobbyId: null,
     isHost: false,
     isPlaying: false,
-    isShuffleEnabled: false,
+    isShuffleEnabled: getStoredShuffleEnabled(),
     currentTrack: null,
     queue: [],
     listeners: [],
-    userId: generateUserId(),
-    username: generateUsername(),
-    repeatMode: 'off', // 'off', 'all', 'one'
+    userId: getOrCreateUserId(),
+    username: getOrCreateUsername(),
+    repeatMode: getStoredRepeatMode(),
     audioUnlocked: false,
     pendingPlay: null
   };
@@ -215,6 +280,65 @@
     if (match) {
       state.lobbyId = match[1];
       joinLobby(state.lobbyId);
+    } else {
+      // No lobby in URL, check if we have a remembered lobby to rejoin
+      checkForLastLobby();
+    }
+  }
+
+  // Check for last visited lobby and offer to rejoin
+  function checkForLastLobby() {
+    const lastLobby = storageGet(STORAGE_KEYS.LAST_LOBBY);
+    if (!lastLobby) return;
+
+    // Show rejoin prompt
+    showRejoinPrompt(lastLobby);
+  }
+
+  // Show prompt to rejoin last lobby
+  function showRejoinPrompt(lobbyId) {
+    // Don't show if there's already a prompt
+    if (document.getElementById('rejoin-prompt')) return;
+
+    const prompt = document.createElement('div');
+    prompt.id = 'rejoin-prompt';
+    prompt.className = 'rejoin-prompt';
+    prompt.innerHTML = `
+      <div class="rejoin-content">
+        <p>Rejoin your last lobby?</p>
+        <div class="rejoin-lobby-id">${escapeHtml(lobbyId)}</div>
+        <div class="rejoin-actions">
+          <button class="btn rejoin-btn" id="rejoin-yes">Rejoin</button>
+          <button class="btn btn-secondary rejoin-btn" id="rejoin-no">No thanks</button>
+        </div>
+      </div>
+    `;
+
+    // Insert after landing view or at the start of main content
+    const landingView = elements.landingView;
+    if (landingView) {
+      landingView.appendChild(prompt);
+    }
+
+    // Event handlers
+    document.getElementById('rejoin-yes').addEventListener('click', () => {
+      hideRejoinPrompt();
+      window.history.pushState({ lobbyId }, '', `/lobby/${lobbyId}`);
+      state.lobbyId = lobbyId;
+      joinLobby(lobbyId);
+    });
+
+    document.getElementById('rejoin-no').addEventListener('click', () => {
+      hideRejoinPrompt();
+      // Clear stored lobby so we don't ask again
+      storageRemove(STORAGE_KEYS.LAST_LOBBY);
+    });
+  }
+
+  function hideRejoinPrompt() {
+    const prompt = document.getElementById('rejoin-prompt');
+    if (prompt) {
+      prompt.remove();
     }
   }
 
@@ -515,6 +639,9 @@
     state.lobbyId = data.lobbyId;
     state.isHost = true;
 
+    // Save lobby to localStorage for future rejoin
+    storageSet(STORAGE_KEYS.LAST_LOBBY, data.lobbyId);
+
     elements.createLobbyBtn.disabled = false;
     elements.createLobbyBtn.textContent = 'Create Lobby';
 
@@ -533,6 +660,11 @@
     state.listeners = data.listeners || data.users || [];
     state.currentTrack = data.currentTrack || null;
 
+    // Save lobby to localStorage for future rejoin
+    storageSet(STORAGE_KEYS.LAST_LOBBY, data.lobbyId);
+    // Hide rejoin prompt if it was showing
+    hideRejoinPrompt();
+
     elements.lobbyName.textContent = `Lobby ${data.lobbyId}`;
 
     showView('lobby');
@@ -550,6 +682,13 @@
   function handleLobbyError(data) {
     elements.createLobbyBtn.disabled = false;
     elements.createLobbyBtn.textContent = 'Create Lobby';
+
+    // If lobby not found, clear it from localStorage
+    if (data.message && data.message.toLowerCase().includes('not found')) {
+      storageRemove(STORAGE_KEYS.LAST_LOBBY);
+      hideRejoinPrompt();
+    }
+
     showToast(data.message || 'Lobby error', 'error');
   }
 
@@ -607,6 +746,8 @@
     // Update repeat mode if provided
     if (data.repeatMode !== undefined && data.repeatMode !== state.repeatMode) {
       state.repeatMode = data.repeatMode;
+      // Persist preference
+      storageSet(STORAGE_KEYS.REPEAT_MODE, data.repeatMode);
       updateRepeatButton();
     }
 
@@ -657,6 +798,8 @@
 
   function handleShuffleState(data) {
     state.isShuffleEnabled = data.shuffleEnabled;
+    // Persist preference
+    storageSet(STORAGE_KEYS.SHUFFLE_ENABLED, String(data.shuffleEnabled));
     updateShuffleButton();
   }
 
@@ -865,18 +1008,6 @@
   }
 
   // Utility Functions
-  function generateUserId() {
-    return 'user_' + Math.random().toString(36).substr(2, 9);
-  }
-
-  function generateUsername() {
-    const adjectives = ['Happy', 'Chill', 'Groovy', 'Funky', 'Cool', 'Mellow'];
-    const nouns = ['Listener', 'DJ', 'Vibes', 'Beat', 'Rhythm', 'Sound'];
-    const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
-    const noun = nouns[Math.floor(Math.random() * nouns.length)];
-    return `${adj}${noun}${Math.floor(Math.random() * 100)}`;
-  }
-
   function formatTime(seconds) {
     if (!seconds || !isFinite(seconds)) return '0:00';
     const mins = Math.floor(seconds / 60);
