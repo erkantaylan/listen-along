@@ -5,6 +5,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const path = require('path');
+const crypto = require('crypto');
 const ytdlp = require('./ytdlp');
 const playback = require('./playback');
 const lobby = require('./lobby');
@@ -13,6 +14,22 @@ const pkg = require('../package.json');
 
 const PORT = process.env.PORT || 3000;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
+
+// Dashboard authentication
+let DASHBOARD_USER = process.env.DASHBOARD_USER;
+let DASHBOARD_PASS = process.env.DASHBOARD_PASS;
+
+// Generate random credentials if not set
+if (!DASHBOARD_USER || !DASHBOARD_PASS) {
+  DASHBOARD_USER = DASHBOARD_USER || 'admin';
+  DASHBOARD_PASS = DASHBOARD_PASS || crypto.randomBytes(16).toString('hex');
+  console.log('='.repeat(60));
+  console.log('Dashboard credentials (auto-generated):');
+  console.log(`  Username: ${DASHBOARD_USER}`);
+  console.log(`  Password: ${DASHBOARD_PASS}`);
+  console.log('Set DASHBOARD_USER and DASHBOARD_PASS env vars to customize.');
+  console.log('='.repeat(60));
+}
 
 const app = express();
 const server = http.createServer(app);
@@ -162,8 +179,28 @@ app.get('/api/lobbies/:id', (req, res) => {
   });
 });
 
+// Dashboard basic authentication middleware
+const dashboardAuth = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Basic ')) {
+    res.setHeader('WWW-Authenticate', 'Basic realm="Dashboard"');
+    return res.status(401).send('Authentication required');
+  }
+
+  const credentials = Buffer.from(authHeader.slice(6), 'base64').toString();
+  const [user, pass] = credentials.split(':');
+
+  if (user === DASHBOARD_USER && pass === DASHBOARD_PASS) {
+    next();
+  } else {
+    res.setHeader('WWW-Authenticate', 'Basic realm="Dashboard"');
+    res.status(401).send('Invalid credentials');
+  }
+};
+
 // Dashboard stats endpoint
-app.get('/api/dashboard/stats', (req, res) => {
+app.get('/api/dashboard/stats', dashboardAuth, (req, res) => {
   const stats = {
     totalLobbies: lobby.lobbies.size,
     totalUsers: 0,
@@ -199,7 +236,7 @@ app.get('/lobby/:id', (req, res) => {
 });
 
 // Serve dashboard page
-app.get('/dashboard', (req, res) => {
+app.get('/dashboard', dashboardAuth, (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
