@@ -82,14 +82,32 @@ async function createTables() {
     )
   `;
 
+  const createSongsTable = `
+    CREATE TABLE IF NOT EXISTS songs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      url TEXT NOT NULL UNIQUE,
+      title TEXT DEFAULT 'Unknown',
+      duration REAL DEFAULT 0,
+      file_path TEXT,
+      thumbnail_url TEXT,
+      status VARCHAR(20) DEFAULT 'pending',
+      error_message TEXT,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
+    )
+  `;
+
   const createIndexes = `
     CREATE INDEX IF NOT EXISTS idx_queue_songs_lobby ON queue_songs(lobby_id, sort_order);
     CREATE INDEX IF NOT EXISTS idx_lobbies_last_activity ON lobbies(last_activity);
+    CREATE INDEX IF NOT EXISTS idx_songs_url ON songs(url);
+    CREATE INDEX IF NOT EXISTS idx_songs_status ON songs(status);
   `;
 
   await pool.query(createLobbiesTable);
   await pool.query(createPlaybackStateTable);
   await pool.query(createQueueSongsTable);
+  await pool.query(createSongsTable);
   await pool.query(createIndexes);
 
   console.log('Database tables initialized');

@@ -11,6 +11,7 @@ const playback = require('./playback');
 const lobby = require('./lobby');
 const { getQueue, getQueueAsync, deleteQueue } = require('./queue');
 const db = require('./db');
+const downloader = require('./downloader');
 const pkg = require('../package.json');
 
 const PORT = process.env.PORT || 3000;
@@ -64,7 +65,8 @@ app.get('/health', async (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     ytdlp: ytdlpAvailable ? 'available' : 'unavailable',
-    database: db.isAvailable() ? 'connected' : 'unavailable'
+    database: db.isAvailable() ? 'connected' : 'unavailable',
+    songCache: db.isAvailable() ? 'enabled' : 'disabled'
   });
 });
 
@@ -95,7 +97,7 @@ app.get('/api/metadata', async (req, res) => {
   }
 });
 
-// Stream audio
+// Stream audio - serves cached files when available, falls back to live transcoding
 app.get('/api/stream', async (req, res) => {
   const { q } = req.query;
   if (!q) {
@@ -103,8 +105,62 @@ app.get('/api/stream', async (req, res) => {
   }
 
   try {
+    // Check if we have a cached version
+    const cachedSong = await downloader.getCachedSong(q);
+
+    if (cachedSong && cachedSong.status === 'ready' && downloader.isCachedFileValid(cachedSong.file_path)) {
+      // Serve from cache
+      console.log(`Serving cached song: ${q}`);
+
+      const { stream, size } = downloader.createCachedStream(cachedSong.file_path);
+
+      // Set response headers for cached file
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Content-Length', size);
+      res.setHeader('Cache-Control', 'public, max-age=31536000');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
+
+      // Handle Range requests for cached files
+      const range = req.headers.range;
+      if (range) {
+        const parts = range.replace(/bytes=/, '').split('-');
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : size - 1;
+        const chunkSize = (end - start) + 1;
+
+        res.status(206);
+        res.setHeader('Content-Range', `bytes ${start}-${end}/${size}`);
+        res.setHeader('Content-Length', chunkSize);
+
+        const rangeStream = require('fs').createReadStream(cachedSong.file_path, { start, end });
+        rangeStream.pipe(res);
+
+        req.on('close', () => {
+          rangeStream.destroy();
+        });
+
+        return;
+      }
+
+      stream.pipe(res);
+
+      req.on('close', () => {
+        stream.destroy();
+      });
+
+      return;
+    }
+
+    // Fall back to live transcoding
     // Get metadata first to validate the video exists
     await ytdlp.getMetadata(q);
+
+    // Start background download for future requests
+    downloader.startDownload(q).catch(err => {
+      console.error('Background download failed:', err.message);
+    });
 
     // Set response headers for audio streaming
     // Safari requires specific headers for audio playback
@@ -230,6 +286,54 @@ app.get('/api/dashboard/stats', dashboardAuth, (req, res) => {
   }
 
   res.json(stats);
+});
+
+// Cache stats endpoint (dashboard only)
+app.get('/api/dashboard/cache', dashboardAuth, async (req, res) => {
+  if (!db.isAvailable()) {
+    return res.json({
+      enabled: false,
+      message: 'Database not available - caching disabled'
+    });
+  }
+
+  try {
+    const stats = await db.query(`
+      SELECT
+        status,
+        COUNT(*) as count
+      FROM songs
+      GROUP BY status
+    `);
+
+    const statusCounts = {};
+    for (const row of stats.rows) {
+      statusCounts[row.status] = parseInt(row.count);
+    }
+
+    const totalSize = await db.query(`
+      SELECT COUNT(*) as total,
+             SUM(duration) as total_duration
+      FROM songs
+      WHERE status = 'ready'
+    `);
+
+    res.json({
+      enabled: true,
+      songsPath: downloader.SONGS_PATH,
+      stats: {
+        pending: statusCounts.pending || 0,
+        downloading: statusCounts.downloading || 0,
+        ready: statusCounts.ready || 0,
+        error: statusCounts.error || 0,
+        totalCached: parseInt(totalSize.rows[0]?.total) || 0,
+        totalDuration: parseFloat(totalSize.rows[0]?.total_duration) || 0
+      }
+    });
+  } catch (err) {
+    console.error('Cache stats error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch cache stats' });
+  }
 });
 
 // Delete a lobby (dashboard only)
@@ -447,6 +551,14 @@ io.on('connection', (socket) => {
             addedBy
           });
 
+          // Start background download for each song
+          downloader.startDownload(item.url, {
+            title: item.title,
+            duration: item.duration
+          }).catch(err => {
+            console.error(`Background download failed for playlist item: ${err.message}`);
+          });
+
           if (i === 0) {
             firstSong = song;
           }
@@ -500,6 +612,15 @@ io.on('connection', (socket) => {
 
     const song = queue.addSong({ url: url || query, title: title || 'Unknown', duration, addedBy, thumbnail });
     console.log(`Song added to lobby ${lobbyId}: ${song.title}`);
+
+    // Start background download for the song
+    downloader.startDownload(url || query, {
+      title: title || 'Unknown',
+      duration,
+      thumbnail
+    }).catch(err => {
+      console.error(`Background download failed: ${err.message}`);
+    });
 
     // Broadcast updated queue to all in lobby
     io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
@@ -696,6 +817,18 @@ async function start() {
   const dbAvailable = await db.init();
   if (dbAvailable) {
     console.log('Database persistence enabled');
+
+    // Run initial cache cleanup
+    downloader.cleanupOldSongs().catch(err => {
+      console.error('Initial cache cleanup failed:', err.message);
+    });
+
+    // Schedule periodic cache cleanup (every 6 hours)
+    setInterval(() => {
+      downloader.cleanupOldSongs().catch(err => {
+        console.error('Periodic cache cleanup failed:', err.message);
+      });
+    }, 6 * 60 * 60 * 1000);
   } else {
     console.log('Running in memory-only mode');
   }
@@ -703,6 +836,9 @@ async function start() {
   server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Health check: http://localhost:${PORT}/health`);
+    if (dbAvailable) {
+      console.log(`Song cache: ${downloader.SONGS_PATH}`);
+    }
   });
 }
 
