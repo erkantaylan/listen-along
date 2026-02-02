@@ -24,7 +24,7 @@ function initLobby(lobbyId) {
 
   const state = {
     lobbyId,
-    currentTrack: null,      // { id, title, duration, url, addedBy }
+    currentTrack: null,      // { id, title, duration, url, addedBy, thumbnail }
     position: 0,             // Current position in seconds
     isPlaying: false,
     startedAt: null,         // Server timestamp when playback started

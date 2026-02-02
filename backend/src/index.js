@@ -267,7 +267,7 @@ io.on('connection', (socket) => {
   });
 
   // Add song to queue
-  socket.on('queue:add', async ({ lobbyId, query, url, title, duration, addedBy }) => {
+  socket.on('queue:add', async ({ lobbyId, query, url, title, duration, addedBy, thumbnail }) => {
     const queue = getQueue(lobbyId);
 
     // If query is provided, fetch metadata first
@@ -279,6 +279,7 @@ io.on('connection', (socket) => {
           url = metadata.url || query;
           title = metadata.title || 'Unknown';
           duration = metadata.duration;
+          thumbnail = metadata.thumbnail;
         } else {
           socket.emit('queue:error', { message: 'Could not fetch video metadata' });
           return;
@@ -290,7 +291,7 @@ io.on('connection', (socket) => {
       }
     }
 
-    const song = queue.addSong({ url: url || query, title: title || 'Unknown', duration, addedBy });
+    const song = queue.addSong({ url: url || query, title: title || 'Unknown', duration, addedBy, thumbnail });
     console.log(`Song added to lobby ${lobbyId}: ${song.title}`);
 
     // Broadcast updated queue to all in lobby

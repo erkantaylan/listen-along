@@ -9,13 +9,14 @@ class Queue {
     this.songs = [];
   }
 
-  addSong({ url, title, duration, addedBy }) {
+  addSong({ url, title, duration, addedBy, thumbnail }) {
     const song = {
       id: uuidv4(),
       url,
       title: title || 'Unknown',
       duration: duration || 0,
       addedBy: addedBy || 'anonymous',
+      thumbnail: thumbnail || null,
       addedAt: Date.now()
     };
     this.songs.push(song);
