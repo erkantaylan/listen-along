@@ -218,18 +218,41 @@ io.on('connection', (socket) => {
   });
 
   // Handle joining a lobby room (integrates with lobby system)
-  socket.on('lobby:join', ({ lobbyId }) => {
+  socket.on('lobby:join', ({ lobbyId, username }) => {
+    // Check if lobby exists, create if not (for direct URL access)
+    let lobbyData = lobby.getLobby(lobbyId);
+    if (!lobbyData) {
+      lobbyData = lobby.createLobby(lobbyId);
+    }
+
     if (currentLobby) {
       socket.leave(currentLobby);
+      lobby.leaveLobby(currentLobby, socket.id);
     }
+
+    const result = lobby.joinLobby(lobbyId, socket.id, username || 'Anonymous');
     currentLobby = lobbyId;
     socket.join(lobbyId);
-    console.log(`Client ${socket.id} joined lobby ${lobbyId}`);
+
+    // Send joined confirmation to the user
+    socket.emit('lobby:joined', {
+      lobbyId,
+      user: result.user,
+      users: lobby.getLobbyUsers(lobbyId)
+    });
+
+    // Notify others in lobby
+    socket.to(lobbyId).emit('lobby:user-joined', {
+      user: result.user,
+      users: lobby.getLobbyUsers(lobbyId)
+    });
+
+    console.log(`User ${username} joined lobby ${lobbyId}`);
 
     // Send current playback state to new user joining mid-song
-    const state = playback.getJoinState(lobbyId);
-    if (state) {
-      socket.emit('playback:sync', state);
+    const playbackState = playback.getJoinState(lobbyId);
+    if (playbackState) {
+      socket.emit('playback:sync', playbackState);
     }
 
     // Send current queue state to new joiner

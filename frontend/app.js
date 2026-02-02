@@ -274,7 +274,8 @@
     state.lobbyId = data.lobbyId;
     state.isHost = data.isHost || false;
     state.queue = data.queue || [];
-    state.listeners = data.listeners || [];
+    // Handle both 'listeners' and 'users' from backend
+    state.listeners = data.listeners || data.users || [];
     state.currentTrack = data.currentTrack || null;
 
     elements.lobbyName.textContent = `Lobby ${data.lobbyId}`;
@@ -298,7 +299,12 @@
   }
 
   function handleUserJoined(data) {
-    state.listeners.push(data.user);
+    // Use full users list from server if available, otherwise add single user
+    if (data.users) {
+      state.listeners = data.users;
+    } else {
+      state.listeners.push(data.user);
+    }
     updateListeners();
     showToast(`${data.user.username} joined`, 'success');
   }

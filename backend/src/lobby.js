@@ -8,11 +8,11 @@ function generateLobbyId() {
   return uuidv4().substring(0, 8);
 }
 
-function createLobby(hostId) {
-  const id = generateLobbyId();
+function createLobby(customId = null) {
+  const id = customId || generateLobbyId();
   const lobby = {
     id,
-    hostId,
+    hostId: null,
     users: new Map(),
     createdAt: Date.now(),
     lastActivity: Date.now()
