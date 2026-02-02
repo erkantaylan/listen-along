@@ -352,11 +352,36 @@
   function handlePlaybackSync(data) {
     const audio = elements.audioPlayer;
     const serverPosition = data.position || 0;
-    const drift = Math.abs(audio.currentTime - serverPosition);
 
-    // Only sync if drift is more than 1 second
+    // If we have a track and it's different or audio has no src, set it up
+    if (data.track && data.track.url) {
+      const streamUrl = `/api/stream?url=${encodeURIComponent(data.track.url)}`;
+
+      // Check if we need to change the source
+      if (!audio.src || !audio.src.includes(encodeURIComponent(data.track.url))) {
+        state.currentTrack = data.track;
+        updateNowPlaying(data.track);
+        audio.src = streamUrl;
+        audio.currentTime = serverPosition;
+
+        if (data.isPlaying) {
+          audio.play().catch(e => console.log('Autoplay blocked:', e));
+        }
+        return;
+      }
+    }
+
+    // Sync position if drift is more than 1 second
+    const drift = Math.abs(audio.currentTime - serverPosition);
     if (drift > 1) {
       audio.currentTime = serverPosition;
+    }
+
+    // Sync play/pause state
+    if (data.isPlaying && audio.paused) {
+      audio.play().catch(e => console.log('Autoplay blocked:', e));
+    } else if (!data.isPlaying && !audio.paused) {
+      audio.pause();
     }
   }
 
