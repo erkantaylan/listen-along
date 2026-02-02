@@ -144,7 +144,16 @@
     statLobbies: document.getElementById('stat-lobbies'),
     statUsers: document.getElementById('stat-users'),
     statMemory: document.getElementById('stat-memory'),
-    dashboardLobbyList: document.getElementById('dashboard-lobby-list')
+    dashboardLobbyList: document.getElementById('dashboard-lobby-list'),
+
+    // Cache Management
+    cacheReady: document.getElementById('cache-ready'),
+    cacheDownloading: document.getElementById('cache-downloading'),
+    cachePending: document.getElementById('cache-pending'),
+    cacheError: document.getElementById('cache-error'),
+    cacheDuration: document.getElementById('cache-duration'),
+    cacheSongList: document.getElementById('cache-song-list'),
+    nukeCacheBtn: document.getElementById('nuke-cache-btn')
   };
 
   // Socket.IO Connection
@@ -426,6 +435,135 @@
     return 'just now';
   }
 
+  // Fetch and display cache stats
+  function fetchCacheStats() {
+    fetch('/api/dashboard/cache')
+      .then(res => res.json())
+      .then(data => {
+        if (!data.enabled) {
+          if (elements.cacheSongList) {
+            elements.cacheSongList.innerHTML = '<li class="dashboard-empty">Caching disabled (no database)</li>';
+          }
+          return;
+        }
+
+        if (elements.cacheReady) elements.cacheReady.textContent = data.stats.ready;
+        if (elements.cacheDownloading) elements.cacheDownloading.textContent = data.stats.downloading;
+        if (elements.cachePending) elements.cachePending.textContent = data.stats.pending;
+        if (elements.cacheError) elements.cacheError.textContent = data.stats.error;
+        if (elements.cacheDuration) {
+          elements.cacheDuration.textContent = formatDuration(data.stats.totalDuration);
+        }
+      })
+      .catch(err => {
+        console.error('Failed to fetch cache stats:', err);
+      });
+  }
+
+  // Format duration in seconds to human readable
+  function formatDuration(seconds) {
+    if (!seconds || seconds === 0) return '0:00';
+    const hours = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+
+    if (hours > 0) {
+      return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  }
+
+  // Fetch and display cached songs
+  function fetchCachedSongs() {
+    fetch('/api/dashboard/cache/songs')
+      .then(res => res.json())
+      .then(data => {
+        updateCacheSongList(data.songs);
+      })
+      .catch(err => {
+        console.error('Failed to fetch cached songs:', err);
+      });
+  }
+
+  // Update cache song list
+  function updateCacheSongList(songs) {
+    if (!elements.cacheSongList) return;
+
+    if (!songs || songs.length === 0) {
+      elements.cacheSongList.innerHTML = '<li class="dashboard-empty">No cached songs</li>';
+      return;
+    }
+
+    elements.cacheSongList.innerHTML = songs.map(song => {
+      const duration = formatDuration(song.duration);
+      const statusClass = song.status;
+      const thumbnail = song.thumbnail_url
+        ? `<img class="cache-song-thumb" src="${escapeHtml(song.thumbnail_url)}" alt="">`
+        : `<div class="cache-song-thumb-placeholder"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div>`;
+
+      return `
+        <li class="cache-song-item">
+          ${thumbnail}
+          <div class="cache-song-info">
+            <div class="cache-song-title">${escapeHtml(song.title || 'Unknown')}</div>
+            <div class="cache-song-meta">
+              <span>${duration}</span>
+              <span class="cache-song-status ${statusClass}">${song.status}</span>
+            </div>
+          </div>
+          <div class="cache-song-actions">
+            ${song.status === 'ready' ? `<button class="btn-icon" onclick="window.playCachedSong('${escapeHtml(song.url)}')" title="Play"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>` : ''}
+            <button class="btn-icon" onclick="window.deleteCachedSong('${escapeHtml(song.id)}')" title="Delete"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>
+          </div>
+        </li>
+      `;
+    }).join('');
+  }
+
+  // Delete a single cached song
+  function deleteCachedSong(songId) {
+    if (!confirm('Delete this cached song?')) return;
+
+    fetch(`/api/dashboard/cache/songs/${songId}`, { method: 'DELETE' })
+      .then(res => {
+        if (res.ok) {
+          fetchCacheStats();
+          fetchCachedSongs();
+        } else {
+          alert('Failed to delete song');
+        }
+      })
+      .catch(() => alert('Failed to delete song'));
+  }
+
+  // Delete all cached songs
+  function nukeAllCachedSongs() {
+    if (!confirm('Delete ALL cached songs? This cannot be undone.')) return;
+
+    fetch('/api/dashboard/cache/songs', { method: 'DELETE' })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          fetchCacheStats();
+          fetchCachedSongs();
+          alert(`Deleted ${data.deleted} cached songs`);
+        } else {
+          alert('Failed to delete songs');
+        }
+      })
+      .catch(() => alert('Failed to delete songs'));
+  }
+
+  // Play a cached song (opens in a new lobby or uses existing)
+  function playCachedSong(url) {
+    // For now, copy the URL to clipboard so user can add it to a lobby
+    navigator.clipboard.writeText(url).then(() => {
+      alert('Song URL copied to clipboard. Create or join a lobby to play it.');
+    }).catch(() => {
+      prompt('Copy this URL to add to a lobby:', url);
+    });
+  }
+
   // Audio Player Setup
   function setupAudioPlayer() {
     const audio = elements.audioPlayer;
@@ -597,7 +735,16 @@
     } else if (viewName === 'dashboard' && elements.dashboardView) {
       elements.dashboardView.classList.add('active');
       fetchDashboardStats();
-      dashboardInterval = setInterval(fetchDashboardStats, 2000);
+      fetchCacheStats();
+      fetchCachedSongs();
+      // Set up nuke button listener
+      if (elements.nukeCacheBtn) {
+        elements.nukeCacheBtn.onclick = nukeAllCachedSongs;
+      }
+      dashboardInterval = setInterval(() => {
+        fetchDashboardStats();
+        fetchCacheStats();
+      }, 2000);
     }
   }
 
@@ -1196,6 +1343,8 @@
   };
   window.dashboardJoinLobby = dashboardJoinLobby;
   window.dashboardRemoveLobby = dashboardRemoveLobby;
+  window.deleteCachedSong = deleteCachedSong;
+  window.playCachedSong = playCachedSong;
 
   // Initialize on DOM ready
   if (document.readyState === 'loading') {

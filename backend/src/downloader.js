@@ -370,6 +370,88 @@ async function getDownloadStatuses(urls) {
 }
 
 /**
+ * Get all cached songs
+ * @returns {Promise<Array>} Array of song records
+ */
+async function getAllSongs() {
+  if (!db.isAvailable()) return [];
+
+  try {
+    const result = await db.query(
+      'SELECT id, url, title, duration, file_path, thumbnail_url, status, error_message, created_at, updated_at FROM songs ORDER BY updated_at DESC'
+    );
+    return result.rows;
+  } catch (err) {
+    console.error('Error fetching all songs:', err.message);
+    return [];
+  }
+}
+
+/**
+ * Delete a single cached song by ID
+ * @param {string} songId - Song UUID
+ * @returns {Promise<boolean>} True if deleted, false if not found
+ */
+async function deleteSong(songId) {
+  if (!db.isAvailable()) return false;
+
+  try {
+    // Get file path first
+    const result = await db.query('SELECT file_path FROM songs WHERE id = $1', [songId]);
+    if (result.rows.length === 0) return false;
+
+    const filePath = result.rows[0].file_path;
+
+    // Delete file if it exists
+    if (filePath && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    // Delete database record
+    await db.query('DELETE FROM songs WHERE id = $1', [songId]);
+    console.log(`Deleted cached song: ${songId}`);
+    return true;
+  } catch (err) {
+    console.error('Error deleting song:', err.message);
+    return false;
+  }
+}
+
+/**
+ * Delete all cached songs
+ * @returns {Promise<number>} Number of songs deleted
+ */
+async function deleteAllSongs() {
+  if (!db.isAvailable()) return 0;
+
+  try {
+    // Get all file paths
+    const result = await db.query('SELECT id, file_path FROM songs');
+    let deleted = 0;
+
+    // Delete all files
+    for (const song of result.rows) {
+      if (song.file_path && fs.existsSync(song.file_path)) {
+        try {
+          fs.unlinkSync(song.file_path);
+        } catch (err) {
+          console.error(`Failed to delete file: ${song.file_path}`, err.message);
+        }
+      }
+      deleted++;
+    }
+
+    // Delete all database records
+    await db.query('DELETE FROM songs');
+    console.log(`Deleted all ${deleted} cached songs`);
+    return deleted;
+  } catch (err) {
+    console.error('Error deleting all songs:', err.message);
+    return 0;
+  }
+}
+
+/**
  * Clean up old cached songs (older than maxAge)
  * @param {number} maxAge - Maximum age in milliseconds (default 7 days)
  */
@@ -413,6 +495,9 @@ module.exports = {
   startDownload,
   getDownloadStatus,
   getDownloadStatuses,
+  getAllSongs,
+  deleteSong,
+  deleteAllSongs,
   cleanupOldSongs,
   downloadEvents,
   SONGS_PATH

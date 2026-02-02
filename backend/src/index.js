@@ -357,6 +357,44 @@ app.get('/api/dashboard/cache', dashboardAuth, async (req, res) => {
   }
 });
 
+// List all cached songs (dashboard only)
+app.get('/api/dashboard/cache/songs', dashboardAuth, async (req, res) => {
+  try {
+    const songs = await downloader.getAllSongs();
+    res.json({ songs });
+  } catch (err) {
+    console.error('List songs error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch cached songs' });
+  }
+});
+
+// Delete a single cached song (dashboard only)
+app.delete('/api/dashboard/cache/songs/:id', dashboardAuth, async (req, res) => {
+  const songId = req.params.id;
+  try {
+    const deleted = await downloader.deleteSong(songId);
+    if (deleted) {
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ error: 'Song not found' });
+    }
+  } catch (err) {
+    console.error('Delete song error:', err.message);
+    res.status(500).json({ error: 'Failed to delete song' });
+  }
+});
+
+// Delete all cached songs (dashboard only)
+app.delete('/api/dashboard/cache/songs', dashboardAuth, async (req, res) => {
+  try {
+    const count = await downloader.deleteAllSongs();
+    res.json({ success: true, deleted: count });
+  } catch (err) {
+    console.error('Delete all songs error:', err.message);
+    res.status(500).json({ error: 'Failed to delete songs' });
+  }
+});
+
 // Delete a lobby (dashboard only)
 app.delete('/api/dashboard/lobbies/:id', dashboardAuth, (req, res) => {
   const lobbyId = req.params.id;

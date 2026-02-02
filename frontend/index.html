@@ -157,6 +157,37 @@
           <li class="dashboard-empty">No active lobbies</li>
         </ul>
       </section>
+      <section class="dashboard-cache">
+        <div class="cache-header">
+          <h2>Song Cache</h2>
+          <button id="nuke-cache-btn" class="btn btn-danger btn-small">Clear All</button>
+        </div>
+        <div class="cache-stats">
+          <div class="cache-stat">
+            <span class="cache-stat-value" id="cache-ready">0</span>
+            <span class="cache-stat-label">Ready</span>
+          </div>
+          <div class="cache-stat">
+            <span class="cache-stat-value" id="cache-downloading">0</span>
+            <span class="cache-stat-label">Downloading</span>
+          </div>
+          <div class="cache-stat">
+            <span class="cache-stat-value" id="cache-pending">0</span>
+            <span class="cache-stat-label">Pending</span>
+          </div>
+          <div class="cache-stat">
+            <span class="cache-stat-value" id="cache-error">0</span>
+            <span class="cache-stat-label">Error</span>
+          </div>
+          <div class="cache-stat">
+            <span class="cache-stat-value" id="cache-duration">0:00</span>
+            <span class="cache-stat-label">Total Duration</span>
+          </div>
+        </div>
+        <ul id="cache-song-list" class="cache-song-list">
+          <li class="dashboard-empty">No cached songs</li>
+        </ul>
+      </section>
     </main>
   </div>
 
