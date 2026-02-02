@@ -267,13 +267,39 @@ io.on('connection', (socket) => {
   });
 
   // Add song to queue
-  socket.on('queue:add', ({ lobbyId, url, title, duration, addedBy }) => {
+  socket.on('queue:add', async ({ lobbyId, query, url, title, duration, addedBy }) => {
     const queue = getQueue(lobbyId);
-    const song = queue.addSong({ url, title, duration, addedBy });
+
+    // If query is provided, fetch metadata first
+    if (query && !title) {
+      try {
+        socket.emit('queue:adding', { status: 'fetching metadata...' });
+        const metadata = await ytdlp.getMetadata(query);
+        if (metadata) {
+          url = metadata.url || query;
+          title = metadata.title || 'Unknown';
+          duration = metadata.duration;
+        } else {
+          socket.emit('queue:error', { message: 'Could not fetch video metadata' });
+          return;
+        }
+      } catch (err) {
+        console.error('Metadata fetch error:', err);
+        socket.emit('queue:error', { message: 'Failed to fetch video info' });
+        return;
+      }
+    }
+
+    const song = queue.addSong({ url: url || query, title: title || 'Unknown', duration, addedBy });
     console.log(`Song added to lobby ${lobbyId}: ${song.title}`);
 
     // Broadcast updated queue to all in lobby
     io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+
+    // If this is the first song and nothing is playing, start playback
+    if (queue.getSongs().length === 1) {
+      playback.setTrack(lobbyId, song, true, io);
+    }
   });
 
   // Remove song from queue

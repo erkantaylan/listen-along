@@ -111,8 +111,10 @@
     socket.on('lobby:user-left', handleUserLeft);
 
     // Queue Events
-    socket.on('queue:updated', handleQueueUpdated);
+    socket.on('queue:update', handleQueueUpdated);
     socket.on('queue:song-added', handleSongAdded);
+    socket.on('queue:error', (data) => showToast(data.message, 'error'));
+    socket.on('queue:adding', (data) => showToast(data.status, 'info'));
 
     // Playback Events
     socket.on('playback:state', handlePlaybackState);
@@ -315,8 +317,11 @@
   }
 
   function handleQueueUpdated(data) {
-    state.queue = data.queue;
+    state.queue = data.songs || data.queue || [];
     updateQueue();
+    if (data.songs && data.songs.length > 0) {
+      showToast(`Queue updated: ${data.songs.length} song(s)`, 'success');
+    }
   }
 
   function handleSongAdded(data) {
