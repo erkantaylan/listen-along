@@ -158,6 +158,23 @@ io.on('connection', (socket) => {
   console.log(`Client connected: ${socket.id}`);
   let currentLobby = null;
 
+  // Create a new lobby
+  socket.on('lobby:create', ({ username }) => {
+    const newLobby = lobby.createLobby();
+    const result = lobby.joinLobby(newLobby.id, socket.id, username || 'Anonymous');
+
+    currentLobby = newLobby.id;
+    socket.join(newLobby.id);
+
+    socket.emit('lobby:created', {
+      lobbyId: newLobby.id,
+      user: result.user,
+      users: lobby.getLobbyUsers(newLobby.id)
+    });
+
+    console.log(`Lobby ${newLobby.id} created by ${username}`);
+  });
+
   socket.on('join-lobby', ({ lobbyId, username }) => {
     const result = lobby.joinLobby(lobbyId, socket.id, username);
     if (!result) {
