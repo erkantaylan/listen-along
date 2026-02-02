@@ -2,15 +2,128 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#1db954">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Listen to music with friends in sync">
   <title>listen-along</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main id="app">
-    <h1>listen-along</h1>
-    <p>Create a lobby and listen to music with friends.</p>
-  </main>
+  <!-- Landing View -->
+  <div id="landing-view" class="view active">
+    <main class="landing-content">
+      <div class="logo">
+        <div class="logo-icon"></div>
+        <h1>listen-along</h1>
+      </div>
+      <p class="tagline">Listen to music with friends, in sync.</p>
+      <button id="create-lobby-btn" class="btn btn-primary btn-large">
+        Create Lobby
+      </button>
+      <div class="join-section">
+        <p>Have a link? Just paste it in your browser.</p>
+      </div>
+    </main>
+  </div>
+
+  <!-- Lobby View -->
+  <div id="lobby-view" class="view">
+    <header class="lobby-header">
+      <button id="back-btn" class="btn-icon" aria-label="Leave lobby">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+      </button>
+      <div class="lobby-info">
+        <h2 id="lobby-name">Lobby</h2>
+        <span id="user-count" class="user-count">0 listeners</span>
+      </div>
+      <button id="share-btn" class="btn-icon" aria-label="Share lobby">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>
+      </button>
+    </header>
+
+    <!-- Now Playing Section -->
+    <section class="now-playing">
+      <div class="album-art" id="album-art">
+        <div class="placeholder-art">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+        </div>
+      </div>
+      <div class="track-info">
+        <h3 id="track-title" class="track-title">No track playing</h3>
+        <p id="track-artist" class="track-artist">Add a song to get started</p>
+      </div>
+      <div class="progress-container">
+        <input type="range" id="progress-bar" class="progress-bar" min="0" max="100" value="0">
+        <div class="time-display">
+          <span id="current-time">0:00</span>
+          <span id="duration">0:00</span>
+        </div>
+      </div>
+      <div class="playback-controls">
+        <button id="prev-btn" class="btn-icon btn-control" aria-label="Previous">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+        </button>
+        <button id="play-btn" class="btn-icon btn-play" aria-label="Play">
+          <svg viewBox="0 0 24 24" fill="currentColor" id="play-icon"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+        <button id="next-btn" class="btn-icon btn-control" aria-label="Next">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- Bottom Navigation -->
+    <nav class="bottom-nav">
+      <button class="nav-item active" data-tab="queue">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
+        <span>Queue</span>
+      </button>
+      <button class="nav-item" data-tab="listeners">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+        <span>Listeners</span>
+      </button>
+    </nav>
+
+    <!-- Tab Content -->
+    <div class="tab-content">
+      <!-- Queue Tab -->
+      <section id="queue-tab" class="tab-panel active">
+        <div class="add-song">
+          <input type="text" id="song-input" placeholder="Paste YouTube URL or search..." autocomplete="off">
+          <button id="add-song-btn" class="btn btn-primary" aria-label="Add song">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+          </button>
+        </div>
+        <ul id="queue-list" class="queue-list">
+          <li class="queue-empty">
+            <p>Queue is empty</p>
+            <p class="hint">Add a song to get started</p>
+          </li>
+        </ul>
+      </section>
+
+      <!-- Listeners Tab -->
+      <section id="listeners-tab" class="tab-panel">
+        <ul id="listeners-list" class="listeners-list">
+          <li class="listener-empty">
+            <p>No one else is here yet</p>
+            <p class="hint">Share the lobby link to invite friends</p>
+          </li>
+        </ul>
+      </section>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Audio Element (hidden) -->
+  <audio id="audio-player" preload="auto"></audio>
+
   <script src="/socket.io/socket.io.js"></script>
   <script src="app.js"></script>
 </body>
