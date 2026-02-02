@@ -110,6 +110,29 @@ html, body {
   font-size: 0.875rem;
 }
 
+.landing-footer {
+  padding: 1.5rem;
+  padding-bottom: calc(1.5rem + var(--safe-area-bottom));
+  text-align: center;
+}
+
+.landing-footer a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition: color var(--transition);
+}
+
+.landing-footer a:hover {
+  color: var(--text-secondary);
+}
+
+.landing-footer svg {
+  width: 24px;
+  height: 24px;
+}
+
 /* Buttons */
 .btn {
   display: inline-flex;
