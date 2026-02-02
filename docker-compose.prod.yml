@@ -4,34 +4,51 @@ services:
       context: .
       dockerfile: docker/Dockerfile
     restart: unless-stopped
+    ports:
+      - "3000:3000"
     environment:
       - NODE_ENV=production
       - PORT=3000
       - DATABASE_URL=postgres://listen:listen@postgres:5432/listen
+      - SONGS_PATH=/data/songs
+      - COVERS_PATH=/data/covers
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - songs_data:/data/songs
+      - covers_data:/data/covers
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 30s
+    networks:
+      - listen-network
 
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
-      - POSTGRES_USER=listen
-      - POSTGRES_PASSWORD=listen
-      - POSTGRES_DB=listen
+      POSTGRES_USER: listen
+      POSTGRES_PASSWORD: listen
+      POSTGRES_DB: listen
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U listen"]
+      test: ["CMD-SHELL", "pg_isready -U listen -d listen"]
       interval: 5s
       timeout: 5s
-      retries: 5
-    restart: unless-stopped
+      retries: 10
+    networks:
+      - listen-network
+
+networks:
+  listen-network:
+    driver: bridge
 
 volumes:
   postgres_data:
+  songs_data:
+  covers_data:
