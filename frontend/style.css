@@ -777,3 +777,50 @@ html, body {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Audio unlock prompt for mobile Safari */
+.audio-unlock-prompt {
+  position: fixed;
+  bottom: calc(100px + var(--safe-area-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1001;
+  animation: unlock-pulse 2s ease-in-out infinite;
+}
+
+.audio-unlock-prompt .unlock-content {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: var(--primary);
+  color: var(--bg-dark);
+  padding: 1rem 1.5rem;
+  border-radius: 50px;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(29, 185, 84, 0.4);
+  transition: transform var(--transition), box-shadow var(--transition);
+}
+
+.audio-unlock-prompt .unlock-content:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 24px rgba(29, 185, 84, 0.5);
+}
+
+.audio-unlock-prompt .unlock-content:active {
+  transform: scale(0.98);
+}
+
+.audio-unlock-prompt svg {
+  flex-shrink: 0;
+}
+
+@keyframes unlock-pulse {
+  0%, 100% {
+    transform: translateX(-50%) scale(1);
+  }
+  50% {
+    transform: translateX(-50%) scale(1.02);
+  }
+}

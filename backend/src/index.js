@@ -88,9 +88,22 @@ app.get('/api/stream', async (req, res) => {
     await ytdlp.getMetadata(q);
 
     // Set response headers for audio streaming
+    // Safari requires specific headers for audio playback
     res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Transfer-Encoding', 'chunked');
+    res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Cache-Control', 'no-cache');
+    // Allow cross-origin requests for audio
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
+
+    // Handle Range requests (required for Safari)
+    const range = req.headers.range;
+    if (range) {
+      // For live transcoded streams, we can't truly seek, but we need to
+      // respond properly to Range requests for Safari compatibility
+      // Return 200 with full content for range requests on live streams
+      console.log('Range request received:', range);
+    }
 
     const { stream, kill, getError } = ytdlp.createTranscodedStream(q);
 
