@@ -7,6 +7,7 @@ const cors = require('cors');
 const path = require('path');
 const ytdlp = require('./ytdlp');
 const playback = require('./playback');
+const lobby = require('./lobby');
 
 const PORT = process.env.PORT || 3000;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
@@ -113,12 +114,78 @@ app.get('/api/stream', async (req, res) => {
   }
 });
 
+// Create a new lobby
+app.post('/api/lobbies', (req, res) => {
+  const newLobby = lobby.createLobby(null);
+  res.json({
+    id: newLobby.id,
+    link: `/lobby/${newLobby.id}`
+  });
+});
+
+// Get lobby info
+app.get('/api/lobbies/:id', (req, res) => {
+  const lobbyData = lobby.getLobby(req.params.id);
+  if (!lobbyData) {
+    return res.status(404).json({ error: 'Lobby not found' });
+  }
+  res.json({
+    id: lobbyData.id,
+    userCount: lobbyData.users.size,
+    users: lobby.getLobbyUsers(req.params.id)
+  });
+});
+
+// Serve lobby page
+app.get('/lobby/:id', (req, res) => {
+  res.sendFile(path.join(__dirname, '../../frontend/index.html'));
+});
+
 // Set up playback sync handlers
 playback.setupSocketHandlers(io);
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {
   console.log(`Client connected: ${socket.id}`);
+  let currentLobby = null;
+
+  socket.on('join-lobby', ({ lobbyId, username }) => {
+    const result = lobby.joinLobby(lobbyId, socket.id, username);
+    if (!result) {
+      socket.emit('error', { message: 'Lobby not found' });
+      return;
+    }
+
+    currentLobby = lobbyId;
+    socket.join(lobbyId);
+
+    // Notify the joining user
+    socket.emit('joined-lobby', {
+      lobbyId,
+      user: result.user,
+      users: lobby.getLobbyUsers(lobbyId)
+    });
+
+    // Broadcast to others in the lobby
+    socket.to(lobbyId).emit('user-joined', {
+      user: result.user,
+      users: lobby.getLobbyUsers(lobbyId)
+    });
+
+    // Send current playback state to new user joining mid-song
+    const state = playback.getJoinState(lobbyId);
+    if (state) {
+      socket.emit('playback:sync', state);
+    }
+
+    console.log(`User ${result.user.username} joined lobby ${lobbyId}`);
+  });
+
+  socket.on('leave-lobby', () => {
+    if (currentLobby) {
+      handleLeave(socket, currentLobby);
+    }
+  });
 
   // Handle joining a lobby room (integrates with lobby system)
   socket.on('lobby:join', ({ lobbyId }) => {
@@ -139,8 +206,23 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', (reason) => {
     console.log(`Client disconnected: ${socket.id} (${reason})`);
+    if (currentLobby) {
+      handleLeave(socket, currentLobby);
+    }
   });
 });
+
+function handleLeave(socket, lobbyId) {
+  const user = lobby.leaveLobby(lobbyId, socket.id);
+  if (user) {
+    socket.leave(lobbyId);
+    socket.to(lobbyId).emit('user-left', {
+      user,
+      users: lobby.getLobbyUsers(lobbyId)
+    });
+    console.log(`User ${user.username} left lobby ${lobbyId}`);
+  }
+}
 
 // Start server
 server.listen(PORT, () => {
