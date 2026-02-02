@@ -11,6 +11,9 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - DATABASE_URL=postgres://listen:listen@postgres:5432/listen
+      - SONGS_PATH=/data/songs
+    volumes:
+      - songs_data:/data/songs
     depends_on:
       postgres:
         condition: service_healthy
@@ -33,3 +36,4 @@ services:
 
 volumes:
   postgres_data:
+  songs_data:
