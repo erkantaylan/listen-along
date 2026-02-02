@@ -338,6 +338,52 @@ io.on('connection', (socket) => {
     io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
   });
 
+  // Handle track ended - coordinates playback and queue with repeat modes
+  socket.on('playback:ended', () => {
+    if (!currentLobby) return;
+
+    const lobbyId = currentLobby;
+    const repeatMode = playback.getRepeatMode(lobbyId);
+    const queue = getQueue(lobbyId);
+
+    // For repeat-one mode, playback.js handles restarting the track
+    if (repeatMode === 'one') {
+      playback.trackEnded(lobbyId, io);
+      return;
+    }
+
+    // Get current track before advancing
+    const currentSong = queue.getCurrentSong();
+    if (!currentSong) {
+      playback.trackEnded(lobbyId, io);
+      return;
+    }
+
+    if (repeatMode === 'all') {
+      // Move current song to end of queue (circular)
+      queue.moveCurrentToEnd();
+    } else {
+      // Normal mode: remove current song
+      queue.advanceQueue();
+    }
+
+    // Get next song to play
+    const nextSong = queue.getCurrentSong();
+
+    // Update queue state for all clients
+    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+
+    if (nextSong) {
+      // Play next track
+      playback.setTrack(lobbyId, nextSong, true, io);
+      console.log(`Playing next song in lobby ${lobbyId}: ${nextSong.title} (repeat: ${repeatMode})`);
+    } else {
+      // Queue empty - stop playback
+      playback.trackEnded(lobbyId, io);
+      console.log(`Queue empty in lobby ${lobbyId}`);
+    }
+  });
+
   socket.on('disconnect', (reason) => {
     console.log(`Client disconnected: ${socket.id} (${reason})`);
     if (currentLobby) {

@@ -51,6 +51,16 @@ class Queue {
     return this.songs.shift() || null;
   }
 
+  /**
+   * Move current song (first) to end of queue - for repeat-all mode
+   */
+  moveCurrentToEnd() {
+    if (this.songs.length === 0) return null;
+    const current = this.songs.shift();
+    this.songs.push(current);
+    return current;
+  }
+
   clear() {
     this.songs = [];
   }

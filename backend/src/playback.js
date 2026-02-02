@@ -29,6 +29,7 @@ function initLobby(lobbyId) {
     isPlaying: false,
     startedAt: null,         // Server timestamp when playback started
     syncTimer: null,         // Interval for sync broadcasts
+    repeatMode: 'off',       // 'off', 'all', 'one'
   };
 
   lobbyPlayback.set(lobbyId, state);
@@ -64,6 +65,7 @@ function buildSyncMessage(state) {
     track: state.currentTrack,
     position: getCurrentPosition(state),
     isPlaying: state.isPlaying,
+    repeatMode: state.repeatMode,
     serverTime: Date.now(),
   };
 }
@@ -150,12 +152,21 @@ function seek(lobbyId, position, io) {
 }
 
 /**
- * Handle track ended - auto-advance to next
+ * Handle track ended - auto-advance to next or repeat
  * Emits 'trackEnded' event for queue system to provide next track
  */
 function trackEnded(lobbyId, io) {
   const state = getState(lobbyId);
   if (!state) return null;
+
+  // Handle repeat one mode - restart the same track
+  if (state.repeatMode === 'one' && state.currentTrack) {
+    state.position = 0;
+    state.startedAt = Date.now();
+    state.isPlaying = true;
+    broadcastSync(lobbyId, io);
+    return { lobbyId, repeated: true, track: state.currentTrack };
+  }
 
   // Reset playback state
   state.isPlaying = false;
@@ -163,13 +174,40 @@ function trackEnded(lobbyId, io) {
   state.startedAt = null;
   stopSyncTimer(lobbyId);
 
-  // Emit event for queue system to handle
+  // Emit event for queue system to handle (includes repeat mode for 'all')
   io.to(lobbyId).emit('playback:trackEnded', {
     lobbyId,
     endedTrack: state.currentTrack,
+    repeatMode: state.repeatMode,
   });
 
-  return { lobbyId, endedTrack: state.currentTrack };
+  return { lobbyId, endedTrack: state.currentTrack, repeatMode: state.repeatMode };
+}
+
+/**
+ * Set repeat mode for a lobby
+ */
+function setRepeatMode(lobbyId, mode, io) {
+  const state = getState(lobbyId);
+  if (!state) return null;
+
+  const validModes = ['off', 'all', 'one'];
+  if (!validModes.includes(mode)) {
+    return null;
+  }
+
+  state.repeatMode = mode;
+  broadcastSync(lobbyId, io);
+
+  return { lobbyId, repeatMode: mode };
+}
+
+/**
+ * Get current repeat mode for a lobby
+ */
+function getRepeatMode(lobbyId) {
+  const state = getState(lobbyId);
+  return state ? state.repeatMode : 'off';
 }
 
 /**
@@ -300,9 +338,11 @@ function setupSocketHandlers(io) {
       }
     });
 
-    // Track ended (reported by client)
-    socket.on('playback:ended', ({ lobbyId }) => {
-      trackEnded(lobbyId, io);
+    // Note: playback:ended is handled in index.js to coordinate with queue
+
+    // Set repeat mode
+    socket.on('playback:setRepeat', ({ lobbyId, mode }) => {
+      setRepeatMode(lobbyId, mode, io);
     });
   });
 }
@@ -317,6 +357,8 @@ module.exports = {
   seek,
   trackEnded,
   setTrack,
+  setRepeatMode,
+  getRepeatMode,
   getJoinState,
   cleanupLobby,
   setupSocketHandlers,

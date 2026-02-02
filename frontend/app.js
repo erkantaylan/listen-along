@@ -11,7 +11,8 @@
     queue: [],
     listeners: [],
     userId: generateUserId(),
-    username: generateUsername()
+    username: generateUsername(),
+    repeatMode: 'off' // 'off', 'all', 'one'
   };
 
   // DOM Elements
@@ -41,6 +42,7 @@
     playBtn: document.getElementById('play-btn'),
     prevBtn: document.getElementById('prev-btn'),
     nextBtn: document.getElementById('next-btn'),
+    repeatBtn: document.getElementById('repeat-btn'),
 
     // Bottom Nav
     navItems: document.querySelectorAll('.nav-item'),
@@ -137,6 +139,7 @@
     elements.playBtn.addEventListener('click', togglePlayback);
     elements.prevBtn.addEventListener('click', playPrevious);
     elements.nextBtn.addEventListener('click', playNext);
+    elements.repeatBtn.addEventListener('click', cycleRepeatMode);
 
     // Progress Bar
     elements.progressBar.addEventListener('input', seekTo);
@@ -353,6 +356,12 @@
     const audio = elements.audioPlayer;
     const serverPosition = data.position || 0;
 
+    // Update repeat mode if provided
+    if (data.repeatMode !== undefined && data.repeatMode !== state.repeatMode) {
+      state.repeatMode = data.repeatMode;
+      updateRepeatButton();
+    }
+
     // If we have a track and it's different or audio has no src, set it up
     if (data.track && data.track.url) {
       const streamUrl = `/api/stream?q=${encodeURIComponent(data.track.url)}`;
@@ -411,6 +420,13 @@
     socket.emit('playback:next', { lobbyId: state.lobbyId });
   }
 
+  function cycleRepeatMode() {
+    const modes = ['off', 'all', 'one'];
+    const currentIndex = modes.indexOf(state.repeatMode);
+    const nextMode = modes[(currentIndex + 1) % modes.length];
+    socket.emit('playback:setRepeat', { lobbyId: state.lobbyId, mode: nextMode });
+  }
+
   function seekTo() {
     const percent = elements.progressBar.value;
     const duration = elements.audioPlayer.duration;
@@ -466,6 +482,16 @@
       icon.innerHTML = '<path d="M8 5v14l11-7z"/>';
       elements.playBtn.setAttribute('aria-label', 'Play');
     }
+  }
+
+  function updateRepeatButton() {
+    elements.repeatBtn.dataset.mode = state.repeatMode;
+    const labels = {
+      'off': 'Repeat off',
+      'all': 'Repeat all',
+      'one': 'Repeat one'
+    };
+    elements.repeatBtn.setAttribute('aria-label', labels[state.repeatMode]);
   }
 
   function updateQueue() {
@@ -531,7 +557,9 @@
       </div>
     `;
     state.isPlaying = false;
+    state.repeatMode = 'off';
     updatePlayButton();
+    updateRepeatButton();
     updateQueue();
     updateListeners();
   }
