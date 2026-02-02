@@ -886,7 +886,7 @@
     elements.trackTitle.textContent = track.title || 'Unknown Track';
     elements.trackArtist.textContent = track.artist || '';
 
-    const thumbUrl = sanitizeUrl(track.thumbnail);
+    const thumbUrl = track.id ? getCoverUrl(track.id, track.thumbnail) : sanitizeUrl(track.thumbnail);
     if (thumbUrl) {
       elements.albumArt.innerHTML = `<img src="${thumbUrl}" alt="Album art">`;
     } else {
@@ -945,7 +945,7 @@
     }
 
     elements.queueList.innerHTML = state.queue.map((song, index) => {
-      const thumbUrl = sanitizeUrl(song.thumbnail);
+      const thumbUrl = song.id ? getCoverUrl(song.id, song.thumbnail) : sanitizeUrl(song.thumbnail);
       return `
       <li class="queue-item ${state.currentTrack && state.currentTrack.id === song.id ? 'playing' : ''}" data-index="${index}">
         <div class="queue-item-thumb">
@@ -1052,6 +1052,12 @@
       return '';
     }
     return '';
+  }
+
+  function getCoverUrl(songId, thumbnailUrl) {
+    if (!songId) return sanitizeUrl(thumbnailUrl);
+    const fallback = thumbnailUrl ? encodeURIComponent(thumbnailUrl) : '';
+    return `/api/covers/${songId}${fallback ? `?fallback=${fallback}` : ''}`;
   }
 
   function getInitials(name) {

@@ -265,7 +265,8 @@ function getPlaylistItems(url, limit = 50) {
           title: entry.title || 'Unknown',
           duration: entry.duration || 0,
           url: entry.url || `https://www.youtube.com/watch?v=${entry.id}`,
-          uploader: entry.uploader || playlist.uploader || 'Unknown'
+          uploader: entry.uploader || playlist.uploader || 'Unknown',
+          thumbnail: entry.thumbnail || `https://i.ytimg.com/vi/${entry.id}/hqdefault.jpg`
         }));
 
         resolve({

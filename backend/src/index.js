@@ -12,6 +12,7 @@ const lobby = require('./lobby');
 const { getQueue, getQueueAsync, deleteQueue } = require('./queue');
 const db = require('./db');
 const downloader = require('./downloader');
+const covers = require('./covers');
 const pkg = require('../package.json');
 
 const PORT = process.env.PORT || 3000;
@@ -235,6 +236,26 @@ app.get('/api/lobbies/:id', (req, res) => {
     userCount: lobbyData.users.size,
     users: lobby.getLobbyUsers(req.params.id)
   });
+});
+
+// Get cached cover art for a song
+app.get('/api/covers/:id', (req, res) => {
+  const songId = req.params.id;
+  const fallbackUrl = req.query.fallback;
+
+  const cached = covers.getCachedCover(songId);
+  if (cached) {
+    res.setHeader('Content-Type', cached.contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
+    return res.sendFile(cached.path);
+  }
+
+  // Not cached - redirect to fallback URL if provided
+  if (fallbackUrl) {
+    return res.redirect(fallbackUrl);
+  }
+
+  res.status(404).json({ error: 'Cover not found' });
 });
 
 // Dashboard basic authentication middleware
@@ -548,7 +569,8 @@ io.on('connection', (socket) => {
             url: item.url,
             title: item.title,
             duration: item.duration,
-            addedBy
+            addedBy,
+            thumbnail: item.thumbnail
           });
 
           // Start background download for each song
@@ -558,6 +580,11 @@ io.on('connection', (socket) => {
           }).catch(err => {
             console.error(`Background download failed for playlist item: ${err.message}`);
           });
+
+          // Cache thumbnail in background (non-blocking)
+          if (item.thumbnail) {
+            covers.cacheCover(song.id, item.thumbnail).catch(() => {});
+          }
 
           if (i === 0) {
             firstSong = song;
@@ -621,6 +648,13 @@ io.on('connection', (socket) => {
     }).catch(err => {
       console.error(`Background download failed: ${err.message}`);
     });
+
+    // Cache thumbnail in background (non-blocking)
+    if (thumbnail) {
+      covers.cacheCover(song.id, thumbnail).catch(err => {
+        console.error(`Failed to cache cover for ${song.id}:`, err.message);
+      });
+    }
 
     // Broadcast updated queue to all in lobby
     io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
