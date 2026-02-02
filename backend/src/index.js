@@ -248,7 +248,7 @@ io.on('connection', (socket) => {
     // Check if lobby exists, create if not (for direct URL access)
     let lobbyData = lobby.getLobby(lobbyId);
     if (!lobbyData) {
-      lobbyData = lobby.createLobby(lobbyId);
+      lobbyData = lobby.createLobby(null, lobbyId);
     }
 
     if (currentLobby) {
@@ -257,6 +257,10 @@ io.on('connection', (socket) => {
     }
 
     const result = lobby.joinLobby(lobbyId, socket.id, username || 'Anonymous');
+    if (!result) {
+      socket.emit('lobby:error', { message: 'Failed to join lobby' });
+      return;
+    }
     currentLobby = lobbyId;
     socket.join(lobbyId);
 
