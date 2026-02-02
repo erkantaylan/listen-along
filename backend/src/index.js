@@ -6,6 +6,7 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const path = require('path');
 const ytdlp = require('./ytdlp');
+const playback = require('./playback');
 
 const PORT = process.env.PORT || 3000;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
@@ -112,9 +113,29 @@ app.get('/api/stream', async (req, res) => {
   }
 });
 
+// Set up playback sync handlers
+playback.setupSocketHandlers(io);
+
 // Socket.IO connection handling
 io.on('connection', (socket) => {
   console.log(`Client connected: ${socket.id}`);
+
+  // Handle joining a lobby room (integrates with lobby system)
+  socket.on('lobby:join', ({ lobbyId }) => {
+    socket.join(lobbyId);
+    console.log(`Client ${socket.id} joined lobby ${lobbyId}`);
+
+    // Send current playback state to new user joining mid-song
+    const state = playback.getJoinState(lobbyId);
+    if (state) {
+      socket.emit('playback:sync', state);
+    }
+  });
+
+  socket.on('lobby:leave', ({ lobbyId }) => {
+    socket.leave(lobbyId);
+    console.log(`Client ${socket.id} left lobby ${lobbyId}`);
+  });
 
   socket.on('disconnect', (reason) => {
     console.log(`Client disconnected: ${socket.id} (${reason})`);
