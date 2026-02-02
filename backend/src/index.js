@@ -8,6 +8,7 @@ const path = require('path');
 const ytdlp = require('./ytdlp');
 const playback = require('./playback');
 const lobby = require('./lobby');
+const { getQueue, deleteQueue } = require('./queue');
 
 const PORT = process.env.PORT || 3000;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
@@ -178,6 +179,10 @@ io.on('connection', (socket) => {
       socket.emit('playback:sync', state);
     }
 
+    // Send current queue state to new joiner
+    const queue = getQueue(lobbyId);
+    socket.emit('queue:update', { lobbyId, songs: queue.getSongs() });
+
     console.log(`User ${result.user.username} joined lobby ${lobbyId}`);
   });
 
@@ -189,6 +194,10 @@ io.on('connection', (socket) => {
 
   // Handle joining a lobby room (integrates with lobby system)
   socket.on('lobby:join', ({ lobbyId }) => {
+    if (currentLobby) {
+      socket.leave(currentLobby);
+    }
+    currentLobby = lobbyId;
     socket.join(lobbyId);
     console.log(`Client ${socket.id} joined lobby ${lobbyId}`);
 
@@ -197,11 +206,62 @@ io.on('connection', (socket) => {
     if (state) {
       socket.emit('playback:sync', state);
     }
+
+    // Send current queue state to new joiner
+    const queue = getQueue(lobbyId);
+    socket.emit('queue:update', { lobbyId, songs: queue.getSongs() });
   });
 
   socket.on('lobby:leave', ({ lobbyId }) => {
     socket.leave(lobbyId);
     console.log(`Client ${socket.id} left lobby ${lobbyId}`);
+    currentLobby = null;
+  });
+
+  // Add song to queue
+  socket.on('queue:add', ({ lobbyId, url, title, duration, addedBy }) => {
+    const queue = getQueue(lobbyId);
+    const song = queue.addSong({ url, title, duration, addedBy });
+    console.log(`Song added to lobby ${lobbyId}: ${song.title}`);
+
+    // Broadcast updated queue to all in lobby
+    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+  });
+
+  // Remove song from queue
+  socket.on('queue:remove', ({ lobbyId, songId }) => {
+    const queue = getQueue(lobbyId);
+    const removed = queue.removeSong(songId);
+    if (removed) {
+      console.log(`Song removed from lobby ${lobbyId}: ${removed.title}`);
+      io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+    }
+  });
+
+  // Reorder song in queue
+  socket.on('queue:reorder', ({ lobbyId, songId, newIndex }) => {
+    const queue = getQueue(lobbyId);
+    const success = queue.reorderSong(songId, newIndex);
+    if (success) {
+      console.log(`Song reordered in lobby ${lobbyId}: moved to position ${newIndex}`);
+      io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+    }
+  });
+
+  // Get current queue state
+  socket.on('queue:get', (lobbyId) => {
+    const queue = getQueue(lobbyId);
+    socket.emit('queue:update', { lobbyId, songs: queue.getSongs() });
+  });
+
+  // Advance to next song (when current song ends)
+  socket.on('queue:next', (lobbyId) => {
+    const queue = getQueue(lobbyId);
+    const finished = queue.advanceQueue();
+    if (finished) {
+      console.log(`Song finished in lobby ${lobbyId}: ${finished.title}`);
+    }
+    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
   });
 
   socket.on('disconnect', (reason) => {
