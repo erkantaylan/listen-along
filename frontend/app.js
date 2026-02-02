@@ -7,6 +7,7 @@
     lobbyId: null,
     isHost: false,
     isPlaying: false,
+    isShuffleEnabled: false,
     currentTrack: null,
     queue: [],
     listeners: [],
@@ -38,6 +39,7 @@
     duration: document.getElementById('duration'),
 
     // Playback Controls
+    shuffleBtn: document.getElementById('shuffle-btn'),
     playBtn: document.getElementById('play-btn'),
     prevBtn: document.getElementById('prev-btn'),
     nextBtn: document.getElementById('next-btn'),
@@ -120,6 +122,7 @@
     socket.on('playback:state', handlePlaybackState);
     socket.on('playback:sync', handlePlaybackSync);
     socket.on('playback:track-changed', handleTrackChanged);
+    socket.on('playback:shuffle', handleShuffleState);
   }
 
   // Event Listeners Setup
@@ -134,6 +137,7 @@
     elements.shareBtn.addEventListener('click', shareLobby);
 
     // Playback Controls
+    elements.shuffleBtn.addEventListener('click', toggleShuffle);
     elements.playBtn.addEventListener('click', togglePlayback);
     elements.prevBtn.addEventListener('click', playPrevious);
     elements.nextBtn.addEventListener('click', playNext);
@@ -398,7 +402,21 @@
     }
   }
 
+  function handleShuffleState(data) {
+    state.isShuffleEnabled = data.shuffleEnabled;
+    updateShuffleButton();
+  }
+
   // Playback Controls
+  function toggleShuffle() {
+    const newShuffleState = !state.isShuffleEnabled;
+    socket.emit('playback:shuffle', {
+      lobbyId: state.lobbyId,
+      enabled: newShuffleState,
+      queueLength: state.queue.length
+    });
+  }
+
   function togglePlayback() {
     socket.emit('playback:toggle', { lobbyId: state.lobbyId });
   }
@@ -468,6 +486,16 @@
     }
   }
 
+  function updateShuffleButton() {
+    if (state.isShuffleEnabled) {
+      elements.shuffleBtn.classList.add('active');
+      elements.shuffleBtn.setAttribute('aria-pressed', 'true');
+    } else {
+      elements.shuffleBtn.classList.remove('active');
+      elements.shuffleBtn.setAttribute('aria-pressed', 'false');
+    }
+  }
+
   function updateQueue() {
     if (state.queue.length === 0) {
       elements.queueList.innerHTML = `
@@ -531,7 +559,9 @@
       </div>
     `;
     state.isPlaying = false;
+    state.isShuffleEnabled = false;
     updatePlayButton();
+    updateShuffleButton();
     updateQueue();
     updateListeners();
   }

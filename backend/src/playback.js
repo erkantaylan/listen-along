@@ -29,6 +29,9 @@ function initLobby(lobbyId) {
     isPlaying: false,
     startedAt: null,         // Server timestamp when playback started
     syncTimer: null,         // Interval for sync broadcasts
+    shuffleEnabled: false,   // Shuffle mode toggle
+    shuffledIndices: [],     // Shuffled playback order (indices into queue)
+    shuffleIndex: 0,         // Current position in shuffled order
   };
 
   lobbyPlayback.set(lobbyId, state);
@@ -253,6 +256,95 @@ function cleanupLobby(lobbyId) {
 }
 
 /**
+ * Fisher-Yates shuffle algorithm
+ */
+function shuffleArray(array) {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+/**
+ * Toggle shuffle mode
+ */
+function toggleShuffle(lobbyId, enabled, queueLength, io) {
+  const state = getState(lobbyId);
+  if (!state) return null;
+
+  state.shuffleEnabled = enabled;
+
+  if (enabled && queueLength > 0) {
+    // Generate shuffled indices (0 to queueLength-1)
+    const indices = Array.from({ length: queueLength }, (_, i) => i);
+    state.shuffledIndices = shuffleArray(indices);
+    state.shuffleIndex = 0;
+  } else {
+    state.shuffledIndices = [];
+    state.shuffleIndex = 0;
+  }
+
+  // Broadcast shuffle state to all clients
+  io.to(lobbyId).emit('playback:shuffle', {
+    lobbyId,
+    shuffleEnabled: state.shuffleEnabled,
+  });
+
+  return { shuffleEnabled: state.shuffleEnabled };
+}
+
+/**
+ * Get shuffle state for a lobby
+ */
+function getShuffleState(lobbyId) {
+  const state = getState(lobbyId);
+  if (!state) return { shuffleEnabled: false };
+  return { shuffleEnabled: state.shuffleEnabled };
+}
+
+/**
+ * Get next song index when shuffle is enabled
+ * Returns the queue index of the next song to play
+ */
+function getNextShuffleIndex(lobbyId, queueLength) {
+  const state = getState(lobbyId);
+  if (!state || !state.shuffleEnabled || queueLength === 0) {
+    return null;
+  }
+
+  // Move to next position in shuffle order
+  state.shuffleIndex = (state.shuffleIndex + 1) % state.shuffledIndices.length;
+
+  // If we've gone through all songs, reshuffle
+  if (state.shuffleIndex === 0) {
+    const indices = Array.from({ length: queueLength }, (_, i) => i);
+    state.shuffledIndices = shuffleArray(indices);
+  }
+
+  return state.shuffledIndices[state.shuffleIndex];
+}
+
+/**
+ * Update shuffle indices when queue changes
+ */
+function updateShuffleForQueueChange(lobbyId, queueLength) {
+  const state = getState(lobbyId);
+  if (!state || !state.shuffleEnabled) return;
+
+  // Regenerate shuffle indices for new queue length
+  if (queueLength > 0) {
+    const indices = Array.from({ length: queueLength }, (_, i) => i);
+    state.shuffledIndices = shuffleArray(indices);
+    state.shuffleIndex = 0;
+  } else {
+    state.shuffledIndices = [];
+    state.shuffleIndex = 0;
+  }
+}
+
+/**
  * Set up socket handlers for playback events
  */
 function setupSocketHandlers(io) {
@@ -304,6 +396,17 @@ function setupSocketHandlers(io) {
     socket.on('playback:ended', ({ lobbyId }) => {
       trackEnded(lobbyId, io);
     });
+
+    // Toggle shuffle mode
+    socket.on('playback:shuffle', ({ lobbyId, enabled, queueLength }) => {
+      toggleShuffle(lobbyId, enabled, queueLength, io);
+    });
+
+    // Get shuffle state (on join)
+    socket.on('playback:getShuffleState', (lobbyId, callback) => {
+      const shuffleState = getShuffleState(lobbyId);
+      if (callback) callback(shuffleState);
+    });
   });
 }
 
@@ -320,6 +423,10 @@ module.exports = {
   getJoinState,
   cleanupLobby,
   setupSocketHandlers,
+  toggleShuffle,
+  getShuffleState,
+  getNextShuffleIndex,
+  updateShuffleForQueueChange,
   // Exported for testing
   SYNC_INTERVAL,
 };

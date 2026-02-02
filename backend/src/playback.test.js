@@ -220,4 +220,93 @@ describe('Playback Module', () => {
       assert.equal(playback.getState('test-lobby'), null);
     });
   });
+
+  describe('shuffle', () => {
+    test('toggleShuffle enables shuffle mode', () => {
+      const io = createMockIo();
+      playback.initLobby('test-lobby');
+
+      const result = playback.toggleShuffle('test-lobby', true, 5, io);
+
+      assert.equal(result.shuffleEnabled, true);
+      const state = playback.getState('test-lobby');
+      assert.equal(state.shuffleEnabled, true);
+      assert.equal(state.shuffledIndices.length, 5);
+    });
+
+    test('toggleShuffle disables shuffle mode', () => {
+      const io = createMockIo();
+      playback.initLobby('test-lobby');
+
+      playback.toggleShuffle('test-lobby', true, 5, io);
+      const result = playback.toggleShuffle('test-lobby', false, 5, io);
+
+      assert.equal(result.shuffleEnabled, false);
+      const state = playback.getState('test-lobby');
+      assert.equal(state.shuffleEnabled, false);
+      assert.equal(state.shuffledIndices.length, 0);
+    });
+
+    test('toggleShuffle broadcasts to lobby', () => {
+      const io = createMockIo();
+      playback.initLobby('test-lobby');
+
+      playback.toggleShuffle('test-lobby', true, 5, io);
+
+      const shuffleEmit = io.emits.find(e => e.event === 'playback:shuffle');
+      assert(shuffleEmit);
+      assert.equal(shuffleEmit.room, 'test-lobby');
+      assert.equal(shuffleEmit.data.shuffleEnabled, true);
+    });
+
+    test('getShuffleState returns shuffle state', () => {
+      const io = createMockIo();
+      playback.initLobby('test-lobby');
+      playback.toggleShuffle('test-lobby', true, 5, io);
+
+      const state = playback.getShuffleState('test-lobby');
+
+      assert.equal(state.shuffleEnabled, true);
+    });
+
+    test('getShuffleState returns false for uninitialized lobby', () => {
+      const state = playback.getShuffleState('non-existent');
+
+      assert.equal(state.shuffleEnabled, false);
+    });
+
+    test('getNextShuffleIndex returns index from shuffled order', () => {
+      const io = createMockIo();
+      playback.initLobby('test-lobby');
+      playback.toggleShuffle('test-lobby', true, 5, io);
+
+      const nextIndex = playback.getNextShuffleIndex('test-lobby', 5);
+
+      assert(nextIndex !== null);
+      assert(nextIndex >= 0 && nextIndex < 5);
+    });
+
+    test('getNextShuffleIndex returns null when shuffle disabled', () => {
+      const io = createMockIo();
+      playback.initLobby('test-lobby');
+
+      const nextIndex = playback.getNextShuffleIndex('test-lobby', 5);
+
+      assert.equal(nextIndex, null);
+    });
+
+    test('updateShuffleForQueueChange regenerates indices', () => {
+      const io = createMockIo();
+      playback.initLobby('test-lobby');
+      playback.toggleShuffle('test-lobby', true, 3, io);
+
+      const stateBefore = playback.getState('test-lobby');
+      assert.equal(stateBefore.shuffledIndices.length, 3);
+
+      playback.updateShuffleForQueueChange('test-lobby', 5);
+
+      const stateAfter = playback.getState('test-lobby');
+      assert.equal(stateAfter.shuffledIndices.length, 5);
+    });
+  });
 });

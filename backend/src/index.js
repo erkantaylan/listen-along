@@ -208,6 +208,10 @@ io.on('connection', (socket) => {
     const queue = getQueue(lobbyId);
     socket.emit('queue:update', { lobbyId, songs: queue.getSongs() });
 
+    // Send current shuffle state to new joiner
+    const shuffleState = playback.getShuffleState(lobbyId);
+    socket.emit('playback:shuffle', { lobbyId, shuffleEnabled: shuffleState.shuffleEnabled });
+
     console.log(`User ${result.user.username} joined lobby ${lobbyId}`);
   });
 
@@ -408,9 +412,27 @@ io.on('connection', (socket) => {
   // Advance to next song (when current song ends)
   socket.on('queue:next', (lobbyId) => {
     const queue = getQueue(lobbyId);
-    const finished = queue.advanceQueue();
-    if (finished) {
-      console.log(`Song finished in lobby ${lobbyId}: ${finished.title}`);
+    const shuffleState = playback.getShuffleState(lobbyId);
+    const songs = queue.getSongs();
+
+    if (shuffleState.shuffleEnabled && songs.length > 1) {
+      // Shuffle mode: get next index from shuffle order
+      const nextIndex = playback.getNextShuffleIndex(lobbyId, songs.length);
+      if (nextIndex !== null && songs[nextIndex]) {
+        const nextSong = songs[nextIndex];
+        console.log(`Shuffle: playing song at index ${nextIndex} in lobby ${lobbyId}: ${nextSong.title}`);
+        playback.setTrack(lobbyId, nextSong, true, io);
+      }
+    } else {
+      // Normal mode: advance queue (removes first song)
+      const finished = queue.advanceQueue();
+      if (finished) {
+        console.log(`Song finished in lobby ${lobbyId}: ${finished.title}`);
+      }
+      const currentSong = queue.getCurrentSong();
+      if (currentSong) {
+        playback.setTrack(lobbyId, currentSong, true, io);
+      }
     }
     io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
   });

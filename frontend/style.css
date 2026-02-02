@@ -355,6 +355,27 @@ html, body {
   height: 32px;
 }
 
+/* Shuffle Button Active State */
+.btn-control.active {
+  color: var(--accent);
+}
+
+.btn-control.active::after {
+  content: '';
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+#shuffle-btn {
+  position: relative;
+}
+
 /* Bottom Navigation */
 .bottom-nav {
   display: flex;
