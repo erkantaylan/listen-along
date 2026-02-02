@@ -9,7 +9,8 @@ const crypto = require('crypto');
 const ytdlp = require('./ytdlp');
 const playback = require('./playback');
 const lobby = require('./lobby');
-const { getQueue, deleteQueue } = require('./queue');
+const { getQueue, getQueueAsync, deleteQueue } = require('./queue');
+const db = require('./db');
 const pkg = require('../package.json');
 
 const PORT = process.env.PORT || 3000;
@@ -62,7 +63,8 @@ app.get('/health', async (req, res) => {
     status: 'ok',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    ytdlp: ytdlpAvailable ? 'available' : 'unavailable'
+    ytdlp: ytdlpAvailable ? 'available' : 'unavailable',
+    database: db.isAvailable() ? 'connected' : 'unavailable'
   });
 });
 
@@ -662,10 +664,25 @@ function handleLeave(socket, lobbyId) {
   }
 }
 
-// Start server
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/health`);
+// Initialize database and start server
+async function start() {
+  // Initialize database if DATABASE_URL is set
+  const dbAvailable = await db.init();
+  if (dbAvailable) {
+    console.log('Database persistence enabled');
+  } else {
+    console.log('Running in memory-only mode');
+  }
+
+  server.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log(`Health check: http://localhost:${PORT}/health`);
+  });
+}
+
+start().catch(err => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
 });
 
 // Graceful shutdown handling

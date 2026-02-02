@@ -8,6 +8,8 @@
  * - Play/pause state
  */
 
+const db = require('./db');
+
 // Playback state per lobby
 const lobbyPlayback = new Map();
 
@@ -37,6 +39,80 @@ function initLobby(lobbyId) {
 
   lobbyPlayback.set(lobbyId, state);
   return state;
+}
+
+/**
+ * Initialize playback state from database if available
+ */
+async function initLobbyFromDB(lobbyId) {
+  if (lobbyPlayback.has(lobbyId)) {
+    return lobbyPlayback.get(lobbyId);
+  }
+
+  const state = initLobby(lobbyId);
+
+  if (db.isAvailable()) {
+    try {
+      const result = await db.query(
+        'SELECT current_track, position, is_playing, shuffle_enabled, shuffled_indices, shuffle_index, repeat_mode FROM playback_state WHERE lobby_id = $1',
+        [lobbyId]
+      );
+
+      if (result.rows.length > 0) {
+        const row = result.rows[0];
+        state.currentTrack = row.current_track;
+        state.position = parseFloat(row.position) || 0;
+        // Note: is_playing from DB indicates if it was playing when persisted
+        // We start paused to avoid sync issues on reconnect
+        state.isPlaying = false;
+        state.shuffleEnabled = row.shuffle_enabled || false;
+        state.shuffledIndices = row.shuffled_indices || [];
+        state.shuffleIndex = row.shuffle_index || 0;
+        state.repeatMode = row.repeat_mode || 'off';
+      }
+    } catch (err) {
+      console.error('Failed to load playback state from DB:', err.message);
+    }
+  }
+
+  return state;
+}
+
+/**
+ * Persist playback state to database
+ */
+async function persistState(lobbyId) {
+  if (!db.isAvailable()) return;
+
+  const state = getState(lobbyId);
+  if (!state) return;
+
+  try {
+    await db.query(
+      `INSERT INTO playback_state (lobby_id, current_track, position, is_playing, shuffle_enabled, shuffled_indices, shuffle_index, repeat_mode)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (lobby_id) DO UPDATE SET
+         current_track = $2,
+         position = $3,
+         is_playing = $4,
+         shuffle_enabled = $5,
+         shuffled_indices = $6,
+         shuffle_index = $7,
+         repeat_mode = $8`,
+      [
+        lobbyId,
+        state.currentTrack ? JSON.stringify(state.currentTrack) : null,
+        getCurrentPosition(state),
+        state.isPlaying,
+        state.shuffleEnabled,
+        JSON.stringify(state.shuffledIndices),
+        state.shuffleIndex,
+        state.repeatMode
+      ]
+    );
+  } catch (err) {
+    console.error('Failed to persist playback state:', err.message);
+  }
 }
 
 /**
@@ -97,6 +173,9 @@ function play(lobbyId, track, io) {
   // Broadcast immediate state update
   broadcastSync(lobbyId, io);
 
+  // Persist state
+  persistState(lobbyId);
+
   return buildSyncMessage(state);
 }
 
@@ -118,6 +197,9 @@ function pause(lobbyId, io) {
   // Broadcast pause state
   broadcastSync(lobbyId, io);
 
+  // Persist state
+  persistState(lobbyId);
+
   return buildSyncMessage(state);
 }
 
@@ -133,6 +215,9 @@ function resume(lobbyId, io) {
 
   startSyncTimer(lobbyId, io);
   broadcastSync(lobbyId, io);
+
+  // Persist state
+  persistState(lobbyId);
 
   return buildSyncMessage(state);
 }
@@ -151,6 +236,9 @@ function seek(lobbyId, position, io) {
 
   broadcastSync(lobbyId, io);
 
+  // Persist state
+  persistState(lobbyId);
+
   return buildSyncMessage(state);
 }
 
@@ -168,6 +256,7 @@ function trackEnded(lobbyId, io) {
     state.startedAt = Date.now();
     state.isPlaying = true;
     broadcastSync(lobbyId, io);
+    persistState(lobbyId);
     return { lobbyId, repeated: true, track: state.currentTrack };
   }
 
@@ -183,6 +272,9 @@ function trackEnded(lobbyId, io) {
     endedTrack: state.currentTrack,
     repeatMode: state.repeatMode,
   });
+
+  // Persist state
+  persistState(lobbyId);
 
   return { lobbyId, endedTrack: state.currentTrack, repeatMode: state.repeatMode };
 }
@@ -201,6 +293,9 @@ function setRepeatMode(lobbyId, mode, io) {
 
   state.repeatMode = mode;
   broadcastSync(lobbyId, io);
+
+  // Persist state
+  persistState(lobbyId);
 
   return { lobbyId, repeatMode: mode };
 }
@@ -232,6 +327,9 @@ function setTrack(lobbyId, track, autoPlay, io) {
   }
 
   broadcastSync(lobbyId, io);
+
+  // Persist state
+  persistState(lobbyId);
 
   return buildSyncMessage(state);
 }
@@ -330,6 +428,9 @@ function toggleShuffle(lobbyId, enabled, queueLength, io) {
     shuffleEnabled: state.shuffleEnabled,
   });
 
+  // Persist state
+  persistState(lobbyId);
+
   return { shuffleEnabled: state.shuffleEnabled };
 }
 
@@ -361,6 +462,9 @@ function getNextShuffleIndex(lobbyId, queueLength) {
     state.shuffledIndices = shuffleArray(indices);
   }
 
+  // Persist state
+  persistState(lobbyId);
+
   return state.shuffledIndices[state.shuffleIndex];
 }
 
@@ -380,6 +484,9 @@ function updateShuffleForQueueChange(lobbyId, queueLength) {
     state.shuffledIndices = [];
     state.shuffleIndex = 0;
   }
+
+  // Persist state
+  persistState(lobbyId);
 }
 
 /**
@@ -452,6 +559,7 @@ function setupSocketHandlers(io) {
 
 module.exports = {
   initLobby,
+  initLobbyFromDB,
   getState,
   getCurrentPosition,
   play,
