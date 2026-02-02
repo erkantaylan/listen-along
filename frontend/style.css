@@ -563,6 +563,91 @@ html, body {
   color: var(--text-muted);
 }
 
+.queue-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Download Status Indicator on Thumbnail */
+.queue-item-status {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  font-size: 0.75rem;
+  line-height: 1;
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: 3px;
+  padding: 2px 4px;
+}
+
+.queue-item-status.ready {
+  color: var(--primary);
+}
+
+.queue-item-status.downloading {
+  animation: pulse-download 1.5s ease-in-out infinite;
+}
+
+.queue-item-status.pending {
+  opacity: 0.7;
+}
+
+.queue-item-status.error {
+  color: #e74c3c;
+}
+
+@keyframes pulse-download {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Download Status Badge */
+.queue-item-badge {
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.queue-item-badge.pending {
+  background: var(--bg-surface);
+  color: var(--text-muted);
+}
+
+.queue-item-badge.downloading {
+  background: rgba(29, 185, 84, 0.2);
+  color: var(--primary);
+}
+
+.queue-item-badge.error {
+  background: rgba(231, 76, 60, 0.2);
+  color: #e74c3c;
+}
+
+/* Download Progress Bar */
+.queue-item-progress {
+  margin-top: 0.375rem;
+  height: 3px;
+  background: var(--bg-surface);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.queue-item-progress-bar {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+/* Make thumbnail relative for status positioning */
+.queue-item-thumb {
+  position: relative;
+}
+
 .queue-empty, .listener-empty {
   text-align: center;
   padding: 3rem 1rem;

@@ -6,8 +6,15 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const EventEmitter = require('events');
 const db = require('./db');
 const { v4: uuidv4 } = require('uuid');
+
+// Event emitter for download progress
+const downloadEvents = new EventEmitter();
+
+// Track active downloads with their progress
+const activeDownloads = new Map();
 
 // Directory for cached songs
 const SONGS_PATH = process.env.SONGS_PATH || '/data/songs';
@@ -73,9 +80,10 @@ function createCachedStream(filePath) {
  * Start background download of a song
  * @param {string} url - YouTube URL
  * @param {Object} metadata - Song metadata (title, duration, thumbnail)
+ * @param {string} lobbyId - Optional lobby ID for progress events
  * @returns {Promise<string>} Song ID
  */
-async function startDownload(url, metadata = {}) {
+async function startDownload(url, metadata = {}, lobbyId = null) {
   if (!db.isAvailable()) {
     console.log('Database not available, skipping download');
     return null;
@@ -86,6 +94,14 @@ async function startDownload(url, metadata = {}) {
   if (existing) {
     if (existing.status === 'ready' && isCachedFileValid(existing.file_path)) {
       console.log(`Song already cached: ${url}`);
+      // Emit ready status for already cached songs
+      downloadEvents.emit('status', {
+        url,
+        songId: existing.id,
+        status: 'ready',
+        percent: 100,
+        lobbyId
+      });
       return existing.id;
     }
     if (existing.status === 'downloading') {
@@ -115,8 +131,17 @@ async function startDownload(url, metadata = {}) {
     return null;
   }
 
+  // Emit pending status
+  downloadEvents.emit('status', {
+    url,
+    songId,
+    status: 'pending',
+    percent: 0,
+    lobbyId
+  });
+
   // Start download in background
-  downloadSong(songId, url).catch(err => {
+  downloadSong(songId, url, lobbyId).catch(err => {
     console.error(`Download failed for ${url}:`, err.message);
   });
 
@@ -127,9 +152,13 @@ async function startDownload(url, metadata = {}) {
  * Download and transcode a song
  * @param {string} songId - Song ID in database
  * @param {string} url - YouTube URL
+ * @param {string} lobbyId - Optional lobby ID for progress events
  */
-async function downloadSong(songId, url) {
+async function downloadSong(songId, url, lobbyId = null) {
   const outputPath = path.join(SONGS_PATH, `${songId}.mp3`);
+
+  // Track this download
+  activeDownloads.set(url, { songId, status: 'downloading', percent: 0 });
 
   try {
     // Update status to downloading
@@ -137,6 +166,15 @@ async function downloadSong(songId, url) {
       'UPDATE songs SET status = $1, updated_at = $2 WHERE id = $3',
       ['downloading', Date.now(), songId]
     );
+
+    // Emit downloading status
+    downloadEvents.emit('status', {
+      url,
+      songId,
+      status: 'downloading',
+      percent: 0,
+      lobbyId
+    });
 
     console.log(`Starting download: ${url}`);
 
@@ -170,9 +208,30 @@ async function downloadSong(songId, url) {
 
       let ytdlpError = '';
       let ffmpegError = '';
+      let lastProgressEmit = 0;
 
       ytdlp.stderr.on('data', (data) => {
-        ytdlpError += data.toString();
+        const output = data.toString();
+        ytdlpError += output;
+
+        // Parse yt-dlp download progress (e.g., "[download]  50.0% of 5.00MiB")
+        const progressMatch = output.match(/\[download\]\s+([\d.]+)%/);
+        if (progressMatch) {
+          const percent = Math.min(Math.round(parseFloat(progressMatch[1]) * 0.9), 90); // Cap at 90% during download
+          const now = Date.now();
+          // Throttle progress updates to every 500ms
+          if (now - lastProgressEmit > 500) {
+            lastProgressEmit = now;
+            activeDownloads.set(url, { songId, status: 'downloading', percent });
+            downloadEvents.emit('progress', {
+              url,
+              songId,
+              status: 'downloading',
+              percent,
+              lobbyId
+            });
+          }
+        }
       });
 
       ffmpeg.stderr.on('data', (data) => {
@@ -182,6 +241,16 @@ async function downloadSong(songId, url) {
       ytdlp.on('close', (code) => {
         if (code !== 0 && code !== null) {
           ffmpeg.stdin.end();
+        } else {
+          // yt-dlp finished, now transcoding (90-100%)
+          activeDownloads.set(url, { songId, status: 'downloading', percent: 95 });
+          downloadEvents.emit('progress', {
+            url,
+            songId,
+            status: 'downloading',
+            percent: 95,
+            lobbyId
+          });
         }
       });
 
@@ -213,6 +282,16 @@ async function downloadSong(songId, url) {
       ['ready', outputPath, Date.now(), songId]
     );
 
+    // Update tracking and emit complete
+    activeDownloads.set(url, { songId, status: 'ready', percent: 100 });
+    downloadEvents.emit('status', {
+      url,
+      songId,
+      status: 'ready',
+      percent: 100,
+      lobbyId
+    });
+
     console.log(`Download complete: ${url} -> ${outputPath}`);
 
   } catch (err) {
@@ -221,6 +300,16 @@ async function downloadSong(songId, url) {
       'UPDATE songs SET status = $1, error_message = $2, updated_at = $3 WHERE id = $4',
       ['error', err.message, Date.now(), songId]
     );
+
+    // Update tracking and emit error
+    activeDownloads.set(url, { songId, status: 'error', percent: 0 });
+    downloadEvents.emit('status', {
+      url,
+      songId,
+      status: 'error',
+      error: err.message,
+      lobbyId
+    });
 
     // Clean up partial file
     try {
@@ -232,6 +321,9 @@ async function downloadSong(songId, url) {
     }
 
     throw err;
+  } finally {
+    // Clean up tracking after a delay
+    setTimeout(() => activeDownloads.delete(url), 60000);
   }
 }
 
@@ -241,15 +333,40 @@ async function downloadSong(songId, url) {
  * @returns {Promise<Object|null>} Status info or null
  */
 async function getDownloadStatus(url) {
+  // Check active downloads first for real-time progress
+  const active = activeDownloads.get(url);
+  if (active) {
+    return {
+      id: active.songId,
+      status: active.status,
+      percent: active.percent,
+      ready: active.status === 'ready'
+    };
+  }
+
   const song = await getCachedSong(url);
   if (!song) return null;
 
   return {
     id: song.id,
     status: song.status,
+    percent: song.status === 'ready' ? 100 : 0,
     ready: song.status === 'ready' && isCachedFileValid(song.file_path),
     error: song.error_message
   };
+}
+
+/**
+ * Get download status for multiple URLs
+ * @param {string[]} urls - Array of YouTube URLs
+ * @returns {Promise<Object>} Map of url -> status
+ */
+async function getDownloadStatuses(urls) {
+  const statuses = {};
+  for (const url of urls) {
+    statuses[url] = await getDownloadStatus(url);
+  }
+  return statuses;
 }
 
 /**
@@ -295,6 +412,8 @@ module.exports = {
   createCachedStream,
   startDownload,
   getDownloadStatus,
+  getDownloadStatuses,
   cleanupOldSongs,
+  downloadEvents,
   SONGS_PATH
 };

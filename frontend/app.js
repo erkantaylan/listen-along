@@ -80,7 +80,8 @@
     username: getOrCreateUsername(),
     repeatMode: getStoredRepeatMode(),
     audioUnlocked: false,
-    pendingPlay: null
+    pendingPlay: null,
+    downloadStatus: {} // Map of url -> { status, percent }
   };
 
   // DOM Elements
@@ -227,6 +228,10 @@
     socket.on('playback:sync', handlePlaybackSync);
     socket.on('playback:track-changed', handleTrackChanged);
     socket.on('playback:shuffle', handleShuffleState);
+
+    // Download Events
+    socket.on('download:status', handleDownloadStatus);
+    socket.on('download:progress', handleDownloadProgress);
   }
 
   // Event Listeners Setup
@@ -614,6 +619,7 @@
     state.queue = [];
     state.listeners = [];
     state.currentTrack = null;
+    state.downloadStatus = {};
 
     elements.audioPlayer.pause();
     elements.audioPlayer.src = '';
@@ -823,6 +829,43 @@
     updateShuffleButton();
   }
 
+  function handleDownloadStatus(data) {
+    state.downloadStatus[data.url] = {
+      status: data.status,
+      percent: data.percent || 0,
+      error: data.error
+    };
+    updateQueue();
+  }
+
+  function handleDownloadProgress(data) {
+    if (state.downloadStatus[data.url]) {
+      state.downloadStatus[data.url].percent = data.percent;
+    } else {
+      state.downloadStatus[data.url] = {
+        status: 'downloading',
+        percent: data.percent
+      };
+    }
+    updateQueueProgress(data.url, data.percent);
+  }
+
+  // Optimized progress update without full re-render
+  function updateQueueProgress(url, percent) {
+    const queueItems = elements.queueList.querySelectorAll('.queue-item');
+    for (const item of queueItems) {
+      const progressBar = item.querySelector('.queue-item-progress-bar');
+      if (progressBar && item.dataset.url === url) {
+        progressBar.style.width = `${percent}%`;
+        const percentText = item.querySelector('.queue-item-percent');
+        if (percentText) {
+          percentText.textContent = `${percent}%`;
+        }
+        break;
+      }
+    }
+  }
+
   // Playback Controls
   function toggleShuffle() {
     const newShuffleState = !state.isShuffleEnabled;
@@ -946,20 +989,62 @@
 
     elements.queueList.innerHTML = state.queue.map((song, index) => {
       const thumbUrl = song.id ? getCoverUrl(song.id, song.thumbnail) : sanitizeUrl(song.thumbnail);
+      const downloadInfo = state.downloadStatus[song.url];
+      const downloadHtml = getDownloadStatusHtml(downloadInfo, song.url);
+
       return `
-      <li class="queue-item ${state.currentTrack && state.currentTrack.id === song.id ? 'playing' : ''}" data-index="${index}">
+      <li class="queue-item ${state.currentTrack && state.currentTrack.id === song.id ? 'playing' : ''}" data-index="${index}" data-url="${escapeHtml(song.url)}">
         <div class="queue-item-thumb">
           ${thumbUrl ? `<img src="${thumbUrl}" alt="">` : ''}
+          ${downloadHtml.icon}
         </div>
         <div class="queue-item-info">
           <div class="queue-item-title">${escapeHtml(song.title)}</div>
-          <div class="queue-item-duration">${song.duration || ''}</div>
+          <div class="queue-item-meta">
+            <span class="queue-item-duration">${song.duration || ''}</span>
+            ${downloadHtml.badge}
+          </div>
+          ${downloadHtml.progressBar}
         </div>
         <button class="btn-icon queue-item-remove" aria-label="Remove from queue" onclick="window.app.removeSong(${index})">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
         </button>
       </li>`;
     }).join('');
+  }
+
+  function getDownloadStatusHtml(downloadInfo, url) {
+    if (!downloadInfo) {
+      return { icon: '', badge: '', progressBar: '' };
+    }
+
+    const status = downloadInfo.status;
+    const percent = downloadInfo.percent || 0;
+
+    let icon = '';
+    let badge = '';
+    let progressBar = '';
+
+    switch (status) {
+      case 'pending':
+        icon = '<span class="queue-item-status pending" title="Pending download">⏳</span>';
+        badge = '<span class="queue-item-badge pending">pending</span>';
+        break;
+      case 'downloading':
+        icon = '<span class="queue-item-status downloading" title="Downloading">📥</span>';
+        badge = `<span class="queue-item-badge downloading"><span class="queue-item-percent">${percent}%</span></span>`;
+        progressBar = `<div class="queue-item-progress"><div class="queue-item-progress-bar" style="width: ${percent}%"></div></div>`;
+        break;
+      case 'ready':
+        icon = '<span class="queue-item-status ready" title="Ready">✓</span>';
+        break;
+      case 'error':
+        icon = '<span class="queue-item-status error" title="Download failed">❌</span>';
+        badge = '<span class="queue-item-badge error">error</span>';
+        break;
+    }
+
+    return { icon, badge, progressBar };
   }
 
   function updateListeners() {

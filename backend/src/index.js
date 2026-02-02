@@ -401,6 +401,29 @@ app.get('/', (req, res) => {
 // Set up playback sync handlers
 playback.setupSocketHandlers(io);
 
+// Set up download progress event handlers
+downloader.downloadEvents.on('status', (data) => {
+  if (data.lobbyId) {
+    io.to(data.lobbyId).emit('download:status', {
+      url: data.url,
+      songId: data.songId,
+      status: data.status,
+      percent: data.percent || 0,
+      error: data.error
+    });
+  }
+});
+
+downloader.downloadEvents.on('progress', (data) => {
+  if (data.lobbyId) {
+    io.to(data.lobbyId).emit('download:progress', {
+      url: data.url,
+      songId: data.songId,
+      percent: data.percent
+    });
+  }
+});
+
 // Socket.IO connection handling
 io.on('connection', (socket) => {
   console.log(`Client connected: ${socket.id}`);
@@ -577,7 +600,7 @@ io.on('connection', (socket) => {
           downloader.startDownload(item.url, {
             title: item.title,
             duration: item.duration
-          }).catch(err => {
+          }, lobbyId).catch(err => {
             console.error(`Background download failed for playlist item: ${err.message}`);
           });
 
@@ -645,7 +668,7 @@ io.on('connection', (socket) => {
       title: title || 'Unknown',
       duration,
       thumbnail
-    }).catch(err => {
+    }, lobbyId).catch(err => {
       console.error(`Background download failed: ${err.message}`);
     });
 
