@@ -104,7 +104,8 @@ async function joinLobby(lobbyId, socketId, username) {
   const user = {
     socketId,
     username: username || `User-${socketId.substring(0, 4)}`,
-    joinedAt: Date.now()
+    joinedAt: Date.now(),
+    mode: 'listening' // 'listening' or 'lobby'
   };
 
   let users = lobbyUsers.get(lobbyId);
@@ -138,6 +139,30 @@ function getLobbyUsers(lobbyId) {
   const users = lobbyUsers.get(lobbyId);
   if (!users) return [];
   return Array.from(users.values());
+}
+
+function setUserMode(lobbyId, socketId, mode) {
+  const users = lobbyUsers.get(lobbyId);
+  if (!users) return null;
+
+  const user = users.get(socketId);
+  if (!user) return null;
+
+  // Validate mode
+  if (mode !== 'listening' && mode !== 'lobby') {
+    return null;
+  }
+
+  user.mode = mode;
+  return user;
+}
+
+function getUserMode(lobbyId, socketId) {
+  const users = lobbyUsers.get(lobbyId);
+  if (!users) return null;
+
+  const user = users.get(socketId);
+  return user ? user.mode : null;
 }
 
 async function deleteLobby(id) {
@@ -241,7 +266,8 @@ function joinLobbySync(lobbyId, socketId, username) {
   const user = {
     socketId,
     username: username || `User-${socketId.substring(0, 4)}`,
-    joinedAt: Date.now()
+    joinedAt: Date.now(),
+    mode: 'listening' // 'listening' or 'lobby'
   };
 
   let users = lobbyUsers.get(lobbyId);
@@ -281,6 +307,8 @@ module.exports = {
   joinLobby: joinLobbySync,
   leaveLobby: leaveLobbySync,
   getLobbyUsers,
+  setUserMode,
+  getUserMode,
   deleteLobby: deleteLobbySync,
   lobbies,
   // Async versions for production use with database
