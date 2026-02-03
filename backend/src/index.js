@@ -583,6 +583,25 @@ io.on('connection', (socket) => {
     currentLobby = null;
   });
 
+  // Set user mode (listening or lobby)
+  socket.on('mode:set', ({ lobbyId, mode }) => {
+    if (!lobbyId) lobbyId = currentLobby;
+    if (!lobbyId) return;
+
+    const user = lobby.setUserMode(lobbyId, socket.id, mode);
+    if (user) {
+      console.log(`User ${user.username} switched to ${mode} mode in lobby ${lobbyId}`);
+
+      // Broadcast updated user list to all in lobby
+      io.to(lobbyId).emit('users:updated', {
+        users: lobby.getLobbyUsers(lobbyId)
+      });
+
+      // Confirm mode change to the user
+      socket.emit('mode:changed', { mode: user.mode });
+    }
+  });
+
   // Add song to queue
   socket.on('queue:add', async ({ lobbyId, query, url, title, duration, addedBy, thumbnail }) => {
     const queue = getQueue(lobbyId);

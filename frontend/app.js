@@ -81,7 +81,8 @@
     repeatMode: getStoredRepeatMode(),
     audioUnlocked: false,
     pendingPlay: null,
-    downloadStatus: {} // Map of url -> { status, percent }
+    downloadStatus: {}, // Map of url -> { status, percent }
+    userMode: 'listening' // 'listening' or 'lobby'
   };
 
   // DOM Elements
@@ -97,6 +98,7 @@
     // Lobby Header
     backBtn: document.getElementById('back-btn'),
     shareBtn: document.getElementById('share-btn'),
+    modeBtn: document.getElementById('mode-btn'),
     lobbyName: document.getElementById('lobby-name'),
     userCount: document.getElementById('user-count'),
 
@@ -241,6 +243,10 @@
     // Download Events
     socket.on('download:status', handleDownloadStatus);
     socket.on('download:progress', handleDownloadProgress);
+
+    // Mode Events
+    socket.on('mode:changed', handleModeChanged);
+    socket.on('users:updated', handleUsersUpdated);
   }
 
   // Event Listeners Setup
@@ -253,6 +259,11 @@
 
     // Share Lobby
     elements.shareBtn.addEventListener('click', shareLobby);
+
+    // Toggle Mode (listening/lobby)
+    if (elements.modeBtn) {
+      elements.modeBtn.addEventListener('click', toggleUserMode);
+    }
 
     // Playback Controls
     elements.shuffleBtn.addEventListener('click', toggleShuffle);
@@ -916,6 +927,10 @@
     const audio = elements.audioPlayer;
     const serverPosition = data.position || 0;
 
+    // Update play state for UI
+    state.isPlaying = data.isPlaying;
+    updatePlayButton();
+
     // Update repeat mode if provided
     if (data.repeatMode !== undefined && data.repeatMode !== state.repeatMode) {
       state.repeatMode = data.repeatMode;
@@ -923,6 +938,9 @@
       storageSet(STORAGE_KEYS.REPEAT_MODE, data.repeatMode);
       updateRepeatButton();
     }
+
+    // Don't play audio if user is in lobby mode
+    const shouldPlayAudio = state.userMode === 'listening';
 
     // If we have a track and it's different or audio has no src, set it up
     if (data.track && data.track.url) {
@@ -933,7 +951,7 @@
         state.currentTrack = data.track;
         updateNowPlaying(data.track);
 
-        if (data.isPlaying) {
+        if (data.isPlaying && shouldPlayAudio) {
           playAudioWithUnlock(streamUrl, serverPosition, true);
         } else {
           audio.src = streamUrl;
@@ -949,11 +967,18 @@
       audio.currentTime = serverPosition;
     }
 
-    // Sync play/pause state
-    if (data.isPlaying && audio.paused) {
-      playAudioWithUnlock(audio.src, audio.currentTime, true);
-    } else if (!data.isPlaying && !audio.paused) {
-      audio.pause();
+    // Sync play/pause state (only if in listening mode)
+    if (shouldPlayAudio) {
+      if (data.isPlaying && audio.paused) {
+        playAudioWithUnlock(audio.src, audio.currentTime, true);
+      } else if (!data.isPlaying && !audio.paused) {
+        audio.pause();
+      }
+    } else {
+      // In lobby mode, ensure audio is paused
+      if (!audio.paused) {
+        audio.pause();
+      }
     }
   }
 
@@ -995,6 +1020,35 @@
       };
     }
     updateQueueProgress(data.url, data.percent);
+  }
+
+  function handleModeChanged(data) {
+    state.userMode = data.mode;
+    updateModeButton();
+
+    // Handle audio based on mode
+    if (data.mode === 'lobby') {
+      // Pause audio when entering lobby mode
+      elements.audioPlayer.pause();
+      showToast('Lobby mode: Audio paused', 'info');
+    } else if (data.mode === 'listening' && state.isPlaying) {
+      // Resume audio when entering listening mode if something is playing
+      const audio = elements.audioPlayer;
+      if (audio.src) {
+        playAudioWithUnlock(audio.src, audio.currentTime, true);
+      }
+      showToast('Listening mode: Audio resumed', 'info');
+    }
+  }
+
+  function handleUsersUpdated(data) {
+    state.listeners = data.users || [];
+    updateListeners();
+  }
+
+  function toggleUserMode() {
+    const newMode = state.userMode === 'listening' ? 'lobby' : 'listening';
+    socket.emit('mode:set', { lobbyId: state.lobbyId, mode: newMode });
   }
 
   // Optimized progress update without full re-render
@@ -1145,6 +1199,28 @@
     }
   }
 
+  function updateModeButton() {
+    if (elements.modeBtn) {
+      const isListening = state.userMode === 'listening';
+      elements.modeBtn.classList.toggle('active', isListening);
+      elements.modeBtn.setAttribute('aria-pressed', isListening.toString());
+      elements.modeBtn.setAttribute('aria-label', isListening ? 'Switch to lobby mode' : 'Switch to listening mode');
+      elements.modeBtn.title = isListening ? 'Listening - click to enter lobby mode' : 'Lobby mode - click to start listening';
+
+      // Update icon
+      const icon = elements.modeBtn.querySelector('svg');
+      if (icon) {
+        if (isListening) {
+          // Headphones icon for listening
+          icon.innerHTML = '<path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/>';
+        } else {
+          // Eye icon for lobby mode (watching but not listening)
+          icon.innerHTML = '<path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>';
+        }
+      }
+    }
+  }
+
   function updateQueue() {
     if (state.queue.length === 0) {
       elements.queueList.innerHTML = `
@@ -1244,13 +1320,18 @@
       return;
     }
 
-    elements.listenersList.innerHTML = state.listeners.map(user => `
-      <li class="listener-item">
+    elements.listenersList.innerHTML = state.listeners.map(user => {
+      const modeIcon = user.mode === 'lobby'
+        ? '<svg class="mode-icon lobby" viewBox="0 0 24 24" fill="currentColor" title="Lobby mode"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>'
+        : '<svg class="mode-icon listening" viewBox="0 0 24 24" fill="currentColor" title="Listening"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg>';
+      return `
+      <li class="listener-item ${user.mode === 'lobby' ? 'lobby-mode' : ''}">
         <div class="listener-avatar">${getInitials(user.username)}</div>
         <span class="listener-name">${escapeHtml(user.username)}</span>
+        ${modeIcon}
         ${user.isHost ? '<span class="listener-badge">Host</span>' : ''}
-      </li>
-    `).join('');
+      </li>`;
+    }).join('');
   }
 
   function resetLobbyUI() {
@@ -1267,9 +1348,11 @@
     state.isPlaying = false;
     state.isShuffleEnabled = false;
     state.repeatMode = 'off';
+    state.userMode = 'listening';
     updatePlayButton();
     updateShuffleButton();
     updateRepeatButton();
+    updateModeButton();
     updateQueue();
     updateListeners();
   }
