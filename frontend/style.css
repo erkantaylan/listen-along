@@ -558,6 +558,52 @@ html, body {
   color: var(--text-muted);
 }
 
+.queue-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.queue-item-reorder {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.btn-icon-small {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 20px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all var(--transition);
+}
+
+.btn-icon-small:hover:not(:disabled) {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.btn-icon-small:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.btn-icon-small:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.btn-icon-small svg {
+  width: 18px;
+  height: 18px;
+}
+
 .queue-item-remove {
   padding: 0.5rem;
   color: var(--text-muted);

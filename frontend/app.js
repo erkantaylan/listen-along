@@ -1071,6 +1071,28 @@
     });
   }
 
+  function moveSongUp(index) {
+    if (index <= 1) return; // Can't move the first song (playing) or move to index 0
+    const song = state.queue[index];
+    if (!song) return;
+    socket.emit('queue:reorder', {
+      lobbyId: state.lobbyId,
+      songId: song.id,
+      newIndex: index - 1
+    });
+  }
+
+  function moveSongDown(index) {
+    if (index === 0 || index >= state.queue.length - 1) return; // Can't move the playing song or past the end
+    const song = state.queue[index];
+    if (!song) return;
+    socket.emit('queue:reorder', {
+      lobbyId: state.lobbyId,
+      songId: song.id,
+      newIndex: index + 1
+    });
+  }
+
   // UI Updates
   function updateNowPlaying(track) {
     elements.trackTitle.textContent = track.title || 'Unknown Track';
@@ -1138,6 +1160,9 @@
       const thumbUrl = song.id ? getCoverUrl(song.id, song.thumbnail) : sanitizeUrl(song.thumbnail);
       const downloadInfo = state.downloadStatus[song.url];
       const downloadHtml = getDownloadStatusHtml(downloadInfo, song.url);
+      const isPlaying = index === 0;
+      const canMoveUp = index > 1; // Can't move to index 0 (currently playing)
+      const canMoveDown = index > 0 && index < state.queue.length - 1;
 
       return `
       <li class="queue-item ${state.currentTrack && state.currentTrack.id === song.id ? 'playing' : ''}" data-index="${index}" data-url="${escapeHtml(song.url)}">
@@ -1153,9 +1178,21 @@
           </div>
           ${downloadHtml.progressBar}
         </div>
-        <button class="btn-icon queue-item-remove" aria-label="Remove from queue" onclick="window.app.removeSong(${index})">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-        </button>
+        <div class="queue-item-actions">
+          ${!isPlaying ? `
+            <div class="queue-item-reorder">
+              <button class="btn-icon-small queue-item-up" aria-label="Move up" onclick="window.app.moveSongUp(${index})" ${!canMoveUp ? 'disabled' : ''}>
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
+              </button>
+              <button class="btn-icon-small queue-item-down" aria-label="Move down" onclick="window.app.moveSongDown(${index})" ${!canMoveDown ? 'disabled' : ''}>
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+              </button>
+            </div>
+          ` : ''}
+          <button class="btn-icon queue-item-remove" aria-label="Remove from queue" onclick="window.app.removeSong(${index})">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+          </button>
+        </div>
       </li>`;
     }).join('');
   }
@@ -1339,7 +1376,9 @@
 
   // Expose API for inline handlers
   window.app = {
-    removeSong
+    removeSong,
+    moveSongUp,
+    moveSongDown
   };
   window.dashboardJoinLobby = dashboardJoinLobby;
   window.dashboardRemoveLobby = dashboardRemoveLobby;
