@@ -298,6 +298,7 @@ app.get('/api/dashboard/stats', dashboardAuth, (req, res) => {
     stats.lobbies.push({
       id: lobbyId,
       userCount,
+      listeningMode: lobbyData.listeningMode || 'synchronized',
       queueLength: queue.getSongs().length,
       currentTrack: playbackState?.currentTrack?.title || null,
       isPlaying: playbackState?.isPlaying || false,
@@ -468,8 +469,8 @@ io.on('connection', (socket) => {
   let currentLobby = null;
 
   // Create a new lobby
-  socket.on('lobby:create', ({ username }) => {
-    const newLobby = lobby.createLobby();
+  socket.on('lobby:create', ({ username, listeningMode }) => {
+    const newLobby = lobby.createLobby(null, null, listeningMode);
     const result = lobby.joinLobby(newLobby.id, socket.id, username || 'Anonymous');
 
     currentLobby = newLobby.id;
@@ -477,11 +478,12 @@ io.on('connection', (socket) => {
 
     socket.emit('lobby:created', {
       lobbyId: newLobby.id,
+      listeningMode: newLobby.listeningMode,
       user: result.user,
       users: lobby.getLobbyUsers(newLobby.id)
     });
 
-    console.log(`Lobby ${newLobby.id} created by ${username}`);
+    console.log(`Lobby ${newLobby.id} created by ${username} (${newLobby.listeningMode})`);
   });
 
   socket.on('join-lobby', ({ lobbyId, username }) => {
@@ -497,6 +499,7 @@ io.on('connection', (socket) => {
     // Notify the joining user
     socket.emit('joined-lobby', {
       lobbyId,
+      listeningMode: lobby.getListeningMode(lobbyId),
       user: result.user,
       users: lobby.getLobbyUsers(lobbyId)
     });
@@ -552,8 +555,10 @@ io.on('connection', (socket) => {
     socket.join(lobbyId);
 
     // Send joined confirmation to the user
+    const listeningMode = lobby.getListeningMode(lobbyId);
     socket.emit('lobby:joined', {
       lobbyId,
+      listeningMode,
       user: result.user,
       users: lobby.getLobbyUsers(lobbyId)
     });
@@ -564,11 +569,12 @@ io.on('connection', (socket) => {
       users: lobby.getLobbyUsers(lobbyId)
     });
 
-    console.log(`User ${username} joined lobby ${lobbyId}`);
+    console.log(`User ${username} joined lobby ${lobbyId} (${listeningMode})`);
 
     // Send current playback state to new user joining mid-song
+    // Only send sync state for synchronized lobbies
     const playbackState = playback.getJoinState(lobbyId);
-    if (playbackState) {
+    if (playbackState && listeningMode === 'synchronized') {
       socket.emit('playback:sync', playbackState);
     }
 

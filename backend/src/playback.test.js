@@ -1,6 +1,7 @@
 const { test, describe, beforeEach, afterEach, mock } = require('node:test');
 const assert = require('node:assert');
 const playback = require('./playback');
+const lobby = require('./lobby');
 
 // Mock socket.io
 function createMockIo() {
@@ -411,6 +412,52 @@ describe('Playback Module', () => {
       const result = playback.play('test-lobby', track, io);
 
       assert.equal(result.repeatMode, 'off');
+    });
+  });
+
+  describe('independent listening mode', () => {
+    beforeEach(() => {
+      lobby.lobbies.clear();
+    });
+
+    test('does not broadcast sync for independent lobbies', () => {
+      const io = createMockIo();
+      // Create an independent lobby
+      lobby.createLobby(null, 'test-lobby', 'independent');
+      const track = { id: '1', title: 'Test Song', duration: 180 };
+
+      playback.play('test-lobby', track, io);
+
+      // Should NOT have any playback:sync emits
+      const syncEmits = io.emits.filter(e => e.event === 'playback:sync');
+      assert.equal(syncEmits.length, 0);
+    });
+
+    test('broadcasts sync for synchronized lobbies', () => {
+      const io = createMockIo();
+      // Create a synchronized lobby
+      lobby.createLobby(null, 'test-lobby', 'synchronized');
+      const track = { id: '1', title: 'Test Song', duration: 180 };
+
+      playback.play('test-lobby', track, io);
+
+      // Should have playback:sync emits
+      const syncEmits = io.emits.filter(e => e.event === 'playback:sync');
+      assert(syncEmits.length > 0);
+    });
+
+    test('pause does not broadcast sync for independent lobbies', () => {
+      const io = createMockIo();
+      lobby.createLobby(null, 'test-lobby', 'independent');
+      const track = { id: '1', title: 'Test Song', duration: 180 };
+
+      playback.play('test-lobby', track, io);
+      io.emits.length = 0; // Clear emits
+
+      playback.pause('test-lobby', io);
+
+      const syncEmits = io.emits.filter(e => e.event === 'playback:sync');
+      assert.equal(syncEmits.length, 0);
     });
   });
 });

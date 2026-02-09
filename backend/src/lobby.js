@@ -13,13 +13,15 @@ function generateLobbyId() {
   return uuidv4().substring(0, 8);
 }
 
-async function createLobby(hostId = null, customId = null) {
+async function createLobby(hostId = null, customId = null, listeningMode = 'synchronized') {
   const id = customId || generateLobbyId();
   const now = Date.now();
+  const mode = (listeningMode === 'independent') ? 'independent' : 'synchronized';
 
   const lobby = {
     id,
     hostId,
+    listeningMode: mode,
     createdAt: now,
     lastActivity: now
   };
@@ -27,8 +29,8 @@ async function createLobby(hostId = null, customId = null) {
   if (db.isAvailable()) {
     try {
       await db.query(
-        'INSERT INTO lobbies (id, host_id, created_at, last_activity) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET last_activity = $4',
-        [id, hostId, now, now]
+        'INSERT INTO lobbies (id, host_id, listening_mode, created_at, last_activity) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET last_activity = $5',
+        [id, hostId, mode, now, now]
       );
     } catch (err) {
       console.error('Failed to persist lobby:', err.message);
@@ -49,7 +51,7 @@ async function getLobby(id) {
   if (!lobby && db.isAvailable()) {
     try {
       const result = await db.query(
-        'SELECT id, host_id, created_at, last_activity FROM lobbies WHERE id = $1',
+        'SELECT id, host_id, listening_mode, created_at, last_activity FROM lobbies WHERE id = $1',
         [id]
       );
       if (result.rows.length > 0) {
@@ -57,6 +59,7 @@ async function getLobby(id) {
         lobby = {
           id: row.id,
           hostId: row.host_id,
+          listeningMode: row.listening_mode || 'synchronized',
           createdAt: parseInt(row.created_at),
           lastActivity: parseInt(row.last_activity)
         };
@@ -228,14 +231,16 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 // Sync wrapper for backward compatibility with tests
-function createLobbySync(hostId = null, customId = null) {
+function createLobbySync(hostId = null, customId = null, listeningMode = 'synchronized') {
   const id = customId || generateLobbyId();
   const now = Date.now();
+  const mode = (listeningMode === 'independent') ? 'independent' : 'synchronized';
 
   const users = new Map();
   const lobby = {
     id,
     hostId,
+    listeningMode: mode,
     createdAt: now,
     lastActivity: now,
     users
@@ -296,6 +301,11 @@ function leaveLobbySync(lobbyId, socketId) {
   return user;
 }
 
+function getListeningMode(lobbyId) {
+  const lobby = lobbies.get(lobbyId);
+  return lobby ? lobby.listeningMode || 'synchronized' : 'synchronized';
+}
+
 function deleteLobbySync(id) {
   lobbyUsers.delete(id);
   return lobbies.delete(id);
@@ -307,6 +317,7 @@ module.exports = {
   joinLobby: joinLobbySync,
   leaveLobby: leaveLobbySync,
   getLobbyUsers,
+  getListeningMode,
   setUserMode,
   getUserMode,
   deleteLobby: deleteLobbySync,

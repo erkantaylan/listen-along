@@ -1,6 +1,6 @@
 const { describe, it, beforeEach, after } = require('node:test');
 const assert = require('node:assert');
-const { createLobby, getLobby, joinLobby, leaveLobby, getLobbyUsers, deleteLobby, lobbies } = require('./lobby');
+const { createLobby, getLobby, joinLobby, leaveLobby, getLobbyUsers, getListeningMode, deleteLobby, lobbies } = require('./lobby');
 
 describe('Lobby System', () => {
   beforeEach(() => {
@@ -108,6 +108,38 @@ describe('Lobby System', () => {
     it('returns empty array for non-existent lobby', () => {
       const users = getLobbyUsers('nonexistent');
       assert.deepStrictEqual(users, []);
+    });
+  });
+
+  describe('listeningMode', () => {
+    it('defaults to synchronized', () => {
+      const lobby = createLobby('host-1');
+      assert.strictEqual(lobby.listeningMode, 'synchronized');
+    });
+
+    it('can be set to independent', () => {
+      const lobby = createLobby('host-1', null, 'independent');
+      assert.strictEqual(lobby.listeningMode, 'independent');
+    });
+
+    it('sanitizes invalid mode to synchronized', () => {
+      const lobby = createLobby('host-1', null, 'invalid');
+      assert.strictEqual(lobby.listeningMode, 'synchronized');
+    });
+
+    it('getListeningMode returns mode for existing lobby', () => {
+      const lobby = createLobby('host-1', null, 'independent');
+      assert.strictEqual(getListeningMode(lobby.id), 'independent');
+    });
+
+    it('getListeningMode returns synchronized for non-existent lobby', () => {
+      assert.strictEqual(getListeningMode('nonexistent'), 'synchronized');
+    });
+
+    it('is accessible via getLobby', () => {
+      const created = createLobby('host-1', null, 'independent');
+      const found = getLobby(created.id);
+      assert.strictEqual(found.listeningMode, 'independent');
     });
   });
 

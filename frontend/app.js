@@ -82,7 +82,8 @@
     audioUnlocked: false,
     pendingPlay: null,
     downloadStatus: {}, // Map of url -> { status, percent }
-    userMode: 'listening' // 'listening' or 'lobby'
+    userMode: 'listening', // 'listening' or 'lobby'
+    listeningMode: 'synchronized' // 'synchronized' or 'independent'
   };
 
   // DOM Elements
@@ -98,6 +99,7 @@
     // Lobby Header
     backBtn: document.getElementById('back-btn'),
     shareBtn: document.getElementById('share-btn'),
+    listeningModeBadge: document.getElementById('listening-mode-badge'),
     modeBtn: document.getElementById('mode-btn'),
     lobbyName: document.getElementById('lobby-name'),
     userCount: document.getElementById('user-count'),
@@ -253,6 +255,14 @@
   function setupEventListeners() {
     // Create Lobby
     elements.createLobbyBtn.addEventListener('click', createLobby);
+
+    // Lobby type selector styling
+    document.querySelectorAll('.lobby-type-option').forEach(option => {
+      option.addEventListener('click', () => {
+        document.querySelectorAll('.lobby-type-option').forEach(o => o.classList.remove('selected'));
+        option.classList.add('selected');
+      });
+    });
 
     // Leave Lobby
     elements.backBtn.addEventListener('click', leaveLobby);
@@ -592,6 +602,10 @@
     });
 
     audio.addEventListener('ended', () => {
+      if (state.listeningMode === 'independent') {
+        advanceLocalQueue();
+        return;
+      }
       socket.emit('playback:ended', { lobbyId: state.lobbyId });
     });
 
@@ -763,7 +777,9 @@
   function createLobby() {
     elements.createLobbyBtn.disabled = true;
     elements.createLobbyBtn.textContent = 'Creating...';
-    socket.emit('lobby:create', { username: state.username });
+    const selectedMode = document.querySelector('input[name="listeningMode"]:checked');
+    const listeningMode = selectedMode ? selectedMode.value : 'synchronized';
+    socket.emit('lobby:create', { username: state.username, listeningMode });
   }
 
   function joinLobby(lobbyId) {
@@ -774,6 +790,7 @@
     socket.emit('lobby:leave', { lobbyId: state.lobbyId });
     state.lobbyId = null;
     state.isHost = false;
+    state.listeningMode = 'synchronized';
     state.queue = [];
     state.listeners = [];
     state.currentTrack = null;
@@ -807,6 +824,7 @@
   function handleLobbyCreated(data) {
     state.lobbyId = data.lobbyId;
     state.isHost = true;
+    state.listeningMode = data.listeningMode || 'synchronized';
 
     // Save lobby to localStorage for future rejoin
     storageSet(STORAGE_KEYS.LAST_LOBBY, data.lobbyId);
@@ -816,6 +834,7 @@
 
     window.history.pushState({ lobbyId: data.lobbyId }, '', `/lobby/${data.lobbyId}`);
     elements.lobbyName.textContent = `Lobby ${data.lobbyId}`;
+    updateListeningModeBadge();
 
     showView('lobby');
     showToast('Lobby created! Share the link to invite friends.', 'success');
@@ -824,6 +843,7 @@
   function handleLobbyJoined(data) {
     state.lobbyId = data.lobbyId;
     state.isHost = data.isHost || false;
+    state.listeningMode = data.listeningMode || 'synchronized';
     state.queue = data.queue || [];
     // Handle both 'listeners' and 'users' from backend
     state.listeners = data.listeners || data.users || [];
@@ -835,6 +855,7 @@
     hideRejoinPrompt();
 
     elements.lobbyName.textContent = `Lobby ${data.lobbyId}`;
+    updateListeningModeBadge();
 
     showView('lobby');
     updateListeners();
@@ -924,6 +945,9 @@
   }
 
   function handlePlaybackSync(data) {
+    // In independent mode, don't apply server sync - each user controls their own playback
+    if (state.listeningMode === 'independent') return;
+
     const audio = elements.audioPlayer;
     const serverPosition = data.position || 0;
 
@@ -1078,14 +1102,45 @@
   }
 
   function togglePlayback() {
+    if (state.listeningMode === 'independent') {
+      const audio = elements.audioPlayer;
+      if (audio.paused) {
+        // If no track loaded, play first song from queue
+        if (!audio.src || audio.src === window.location.origin + '/') {
+          if (state.queue.length > 0) {
+            playLocalTrack(state.queue[0]);
+          }
+        } else {
+          playAudioWithUnlock(audio.src, audio.currentTime, true);
+        }
+      } else {
+        audio.pause();
+      }
+      return;
+    }
     socket.emit('playback:toggle', { lobbyId: state.lobbyId });
   }
 
   function playPrevious() {
+    if (state.listeningMode === 'independent') {
+      // Restart current track from beginning
+      const audio = elements.audioPlayer;
+      if (audio.src) {
+        audio.currentTime = 0;
+        if (audio.paused) {
+          playAudioWithUnlock(audio.src, 0, true);
+        }
+      }
+      return;
+    }
     socket.emit('playback:previous', { lobbyId: state.lobbyId });
   }
 
   function playNext() {
+    if (state.listeningMode === 'independent') {
+      advanceLocalQueue();
+      return;
+    }
     socket.emit('playback:next', { lobbyId: state.lobbyId });
   }
 
@@ -1093,6 +1148,12 @@
     const modes = ['off', 'all', 'one'];
     const currentIndex = modes.indexOf(state.repeatMode);
     const nextMode = modes[(currentIndex + 1) % modes.length];
+    if (state.listeningMode === 'independent') {
+      state.repeatMode = nextMode;
+      storageSet(STORAGE_KEYS.REPEAT_MODE, nextMode);
+      updateRepeatButton();
+      return;
+    }
     socket.emit('playback:setRepeat', { lobbyId: state.lobbyId, mode: nextMode });
   }
 
@@ -1101,8 +1162,52 @@
     const duration = elements.audioPlayer.duration;
     if (duration) {
       const position = (percent / 100) * duration;
+      if (state.listeningMode === 'independent') {
+        elements.audioPlayer.currentTime = position;
+        return;
+      }
       socket.emit('playback:seek', { lobbyId: state.lobbyId, position });
     }
+  }
+
+  // Independent mode: play a track locally
+  function playLocalTrack(track) {
+    if (!track) return;
+    state.currentTrack = track;
+    updateNowPlaying(track);
+    const streamUrl = `/api/stream?q=${encodeURIComponent(track.url)}`;
+    playAudioWithUnlock(streamUrl, 0, true);
+  }
+
+  // Independent mode: advance to next track in queue
+  function advanceLocalQueue() {
+    if (state.queue.length === 0) return;
+
+    const currentIndex = state.currentTrack
+      ? state.queue.findIndex(s => s.id === state.currentTrack.id)
+      : -1;
+
+    let nextIndex = currentIndex + 1;
+
+    if (state.repeatMode === 'one' && currentIndex >= 0) {
+      // Repeat current track
+      playLocalTrack(state.queue[currentIndex]);
+      return;
+    }
+
+    if (nextIndex >= state.queue.length) {
+      if (state.repeatMode === 'all') {
+        nextIndex = 0;
+      } else {
+        // Queue finished
+        elements.audioPlayer.pause();
+        state.isPlaying = false;
+        updatePlayButton();
+        return;
+      }
+    }
+
+    playLocalTrack(state.queue[nextIndex]);
   }
 
   // Queue Management
@@ -1196,6 +1301,21 @@
         'one': 'Repeat one'
       };
       elements.repeatBtn.setAttribute('aria-label', labels[state.repeatMode]);
+    }
+  }
+
+  function updateListeningModeBadge() {
+    const badge = elements.listeningModeBadge;
+    if (!badge) return;
+
+    if (state.listeningMode === 'independent') {
+      badge.textContent = 'Independent';
+      badge.className = 'listening-mode-badge independent';
+      badge.hidden = false;
+    } else {
+      badge.textContent = 'Synchronized';
+      badge.className = 'listening-mode-badge synchronized';
+      badge.hidden = false;
     }
   }
 

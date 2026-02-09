@@ -9,6 +9,7 @@
  */
 
 const db = require('./db');
+const lobby = require('./lobby');
 
 // Playback state per lobby
 const lobbyPlayback = new Map();
@@ -346,10 +347,14 @@ function getJoinState(lobbyId) {
 
 /**
  * Start periodic sync timer
+ * Skips for independent listening lobbies
  */
 function startSyncTimer(lobbyId, io) {
   const state = getState(lobbyId);
   if (!state || state.syncTimer) return;
+
+  // Don't start sync timer for independent listening lobbies
+  if (lobby.getListeningMode(lobbyId) === 'independent') return;
 
   state.syncTimer = setInterval(() => {
     broadcastSync(lobbyId, io);
@@ -375,10 +380,14 @@ function stopSyncTimer(lobbyId) {
 
 /**
  * Broadcast sync message to all clients in lobby
+ * Skips broadcasting for independent listening lobbies
  */
 function broadcastSync(lobbyId, io) {
   const state = getState(lobbyId);
   if (!state) return;
+
+  // Skip sync broadcasting for independent listening lobbies
+  if (lobby.getListeningMode(lobbyId) === 'independent') return;
 
   io.to(lobbyId).emit('playback:sync', buildSyncMessage(state));
 }

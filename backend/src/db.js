@@ -49,6 +49,7 @@ async function createTables() {
     CREATE TABLE IF NOT EXISTS lobbies (
       id VARCHAR(8) PRIMARY KEY,
       host_id VARCHAR(255),
+      listening_mode VARCHAR(20) DEFAULT 'synchronized',
       created_at BIGINT NOT NULL,
       last_activity BIGINT NOT NULL
     )
