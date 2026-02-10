@@ -331,7 +331,7 @@ app.patch('/api/playlists/:id', async (req, res) => {
 });
 
 app.delete('/api/playlists/:id', async (req, res) => {
-  const { userId } = req.body;
+  const userId = req.query.userId || (req.body && req.body.userId);
   if (!userId) {
     return res.status(400).json({ error: 'Missing required field: userId' });
   }

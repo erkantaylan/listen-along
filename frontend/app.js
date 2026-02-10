@@ -1705,10 +1705,8 @@
   function deletePlaylistAction(playlistId) {
     if (!confirm('Delete this playlist?')) return;
 
-    fetch(`/api/playlists/${playlistId}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: state.userId })
+    fetch(`/api/playlists/${playlistId}?userId=${encodeURIComponent(state.userId)}`, {
+      method: 'DELETE'
     })
       .then(res => {
         if (!res.ok) throw new Error('Failed');
