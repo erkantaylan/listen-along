@@ -1224,9 +1224,11 @@
   }
 
   function removeSong(index) {
+    const song = state.queue[index];
+    if (!song) return;
     socket.emit('queue:remove', {
       lobbyId: state.lobbyId,
-      index
+      songId: song.id
     });
   }
 
