@@ -13,6 +13,7 @@ const { getQueue, getQueueAsync, deleteQueue } = require('./queue');
 const db = require('./db');
 const downloader = require('./downloader');
 const covers = require('./covers');
+const playlist = require('./playlist');
 const pkg = require('../package.json');
 
 const PORT = process.env.PORT || 3000;
@@ -256,6 +257,133 @@ app.get('/api/covers/:id', (req, res) => {
   }
 
   res.status(404).json({ error: 'Cover not found' });
+});
+
+// Playlist endpoints (require database)
+app.get('/api/playlists', async (req, res) => {
+  const { userId } = req.query;
+  if (!userId) {
+    return res.status(400).json({ error: 'Missing query parameter: userId' });
+  }
+  if (!db.isAvailable()) {
+    return res.json({ playlists: [] });
+  }
+  try {
+    const playlists = await playlist.getPlaylistsByUser(userId);
+    res.json({ playlists });
+  } catch (err) {
+    console.error('Get playlists error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch playlists' });
+  }
+});
+
+app.post('/api/playlists', async (req, res) => {
+  const { userId, name } = req.body;
+  if (!userId || !name) {
+    return res.status(400).json({ error: 'Missing required fields: userId, name' });
+  }
+  if (!db.isAvailable()) {
+    return res.status(503).json({ error: 'Database not available' });
+  }
+  try {
+    const created = await playlist.createPlaylist(userId, name);
+    res.status(201).json(created);
+  } catch (err) {
+    console.error('Create playlist error:', err.message);
+    res.status(500).json({ error: 'Failed to create playlist' });
+  }
+});
+
+app.get('/api/playlists/:id', async (req, res) => {
+  if (!db.isAvailable()) {
+    return res.status(503).json({ error: 'Database not available' });
+  }
+  try {
+    const p = await playlist.getPlaylist(req.params.id);
+    if (!p) {
+      return res.status(404).json({ error: 'Playlist not found' });
+    }
+    res.json(p);
+  } catch (err) {
+    console.error('Get playlist error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch playlist' });
+  }
+});
+
+app.patch('/api/playlists/:id', async (req, res) => {
+  const { userId, name } = req.body;
+  if (!userId || !name) {
+    return res.status(400).json({ error: 'Missing required fields: userId, name' });
+  }
+  if (!db.isAvailable()) {
+    return res.status(503).json({ error: 'Database not available' });
+  }
+  try {
+    const updated = await playlist.renamePlaylist(req.params.id, userId, name);
+    if (!updated) {
+      return res.status(404).json({ error: 'Playlist not found or unauthorized' });
+    }
+    res.json(updated);
+  } catch (err) {
+    console.error('Rename playlist error:', err.message);
+    res.status(500).json({ error: 'Failed to rename playlist' });
+  }
+});
+
+app.delete('/api/playlists/:id', async (req, res) => {
+  const { userId } = req.body;
+  if (!userId) {
+    return res.status(400).json({ error: 'Missing required field: userId' });
+  }
+  if (!db.isAvailable()) {
+    return res.status(503).json({ error: 'Database not available' });
+  }
+  try {
+    const deleted = await playlist.deletePlaylist(req.params.id, userId);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Playlist not found or unauthorized' });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Delete playlist error:', err.message);
+    res.status(500).json({ error: 'Failed to delete playlist' });
+  }
+});
+
+app.post('/api/playlists/:id/songs', async (req, res) => {
+  const { url, title, duration, thumbnail } = req.body;
+  if (!url) {
+    return res.status(400).json({ error: 'Missing required field: url' });
+  }
+  if (!db.isAvailable()) {
+    return res.status(503).json({ error: 'Database not available' });
+  }
+  try {
+    const song = await playlist.addSong(req.params.id, { url, title, duration, thumbnail });
+    if (!song) {
+      return res.status(404).json({ error: 'Playlist not found' });
+    }
+    res.status(201).json(song);
+  } catch (err) {
+    console.error('Add playlist song error:', err.message);
+    res.status(500).json({ error: 'Failed to add song to playlist' });
+  }
+});
+
+app.delete('/api/playlists/:playlistId/songs/:songId', async (req, res) => {
+  if (!db.isAvailable()) {
+    return res.status(503).json({ error: 'Database not available' });
+  }
+  try {
+    const removed = await playlist.removeSong(req.params.playlistId, req.params.songId);
+    if (!removed) {
+      return res.status(404).json({ error: 'Song not found in playlist' });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Remove playlist song error:', err.message);
+    res.status(500).json({ error: 'Failed to remove song from playlist' });
+  }
 });
 
 // Dashboard basic authentication middleware
