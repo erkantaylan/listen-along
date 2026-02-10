@@ -45,6 +45,17 @@
       <div class="join-section">
         <p>Have a link? Just paste it in your browser.</p>
       </div>
+
+      <!-- Personal Playlists Section -->
+      <section id="playlists-section" class="playlists-section" hidden>
+        <div class="playlists-header">
+          <h2>My Playlists</h2>
+          <button id="create-playlist-btn" class="btn btn-small btn-primary">+ New</button>
+        </div>
+        <ul id="playlists-list" class="playlists-list">
+          <li class="playlists-empty">No playlists yet</li>
+        </ul>
+      </section>
     </main>
     <footer class="landing-footer">
       <span id="version-display" class="version-text"></span>
@@ -150,6 +161,73 @@
         </ul>
       </section>
     </div>
+  </div>
+
+  <!-- Solo Player View -->
+  <div id="solo-view" class="view">
+    <header class="lobby-header">
+      <button id="solo-back-btn" class="btn-icon" aria-label="Back to home">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+      </button>
+      <div class="lobby-info">
+        <h2 id="solo-playlist-name">Playlist</h2>
+        <span id="solo-song-count" class="user-count">0 songs</span>
+      </div>
+      <button id="solo-add-song-header-btn" class="btn-icon" aria-label="Add song">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+      </button>
+    </header>
+
+    <section class="now-playing">
+      <div class="album-art" id="solo-album-art">
+        <div class="placeholder-art">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+        </div>
+      </div>
+      <div class="track-info">
+        <h3 id="solo-track-title" class="track-title">No track playing</h3>
+        <p id="solo-track-artist" class="track-artist">Add a song to get started</p>
+      </div>
+      <div class="progress-container">
+        <input type="range" id="solo-progress-bar" class="progress-bar" min="0" max="100" value="0">
+        <div class="time-display">
+          <span id="solo-current-time">0:00</span>
+          <span id="solo-duration">0:00</span>
+        </div>
+      </div>
+      <div class="playback-controls">
+        <button id="solo-repeat-btn" class="btn-icon btn-control" aria-label="Repeat" data-mode="off">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>
+        </button>
+        <button id="solo-prev-btn" class="btn-icon btn-control" aria-label="Previous">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+        </button>
+        <button id="solo-play-btn" class="btn-icon btn-play" aria-label="Play">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+        <button id="solo-next-btn" class="btn-icon btn-control" aria-label="Next">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+        </button>
+        <button class="btn-icon btn-control" disabled style="visibility: hidden;">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41z"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <section class="tab-panel active" style="padding-bottom: 1rem;">
+      <div class="add-song">
+        <input type="text" id="solo-song-input" placeholder="Paste YouTube URL or search..." autocomplete="off">
+        <button id="solo-add-song-btn" class="btn btn-primary" aria-label="Add song">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+        </button>
+      </div>
+      <ul id="solo-queue-list" class="queue-list">
+        <li class="queue-empty">
+          <p>Playlist is empty</p>
+          <p class="hint">Add a song to get started</p>
+        </li>
+      </ul>
+    </section>
   </div>
 
   <!-- Dashboard View -->
