@@ -83,7 +83,13 @@
     pendingPlay: null,
     downloadStatus: {}, // Map of url -> { status, percent }
     userMode: 'listening', // 'listening' or 'lobby'
-    listeningMode: 'synchronized' // 'synchronized' or 'independent'
+    listeningMode: 'synchronized', // 'synchronized' or 'independent'
+    // Solo playlist state
+    soloPlaylistId: null,
+    soloPlaylistSongs: [],
+    soloCurrentIndex: -1,
+    soloRepeatMode: getStoredRepeatMode(),
+    playlists: []
   };
 
   // DOM Elements
@@ -150,6 +156,31 @@
     statMemory: document.getElementById('stat-memory'),
     dashboardLobbyList: document.getElementById('dashboard-lobby-list'),
 
+    // Solo Player
+    soloView: document.getElementById('solo-view'),
+    soloBackBtn: document.getElementById('solo-back-btn'),
+    soloPlaylistName: document.getElementById('solo-playlist-name'),
+    soloSongCount: document.getElementById('solo-song-count'),
+    soloAlbumArt: document.getElementById('solo-album-art'),
+    soloTrackTitle: document.getElementById('solo-track-title'),
+    soloTrackArtist: document.getElementById('solo-track-artist'),
+    soloProgressBar: document.getElementById('solo-progress-bar'),
+    soloCurrentTime: document.getElementById('solo-current-time'),
+    soloDuration: document.getElementById('solo-duration'),
+    soloPlayBtn: document.getElementById('solo-play-btn'),
+    soloPrevBtn: document.getElementById('solo-prev-btn'),
+    soloNextBtn: document.getElementById('solo-next-btn'),
+    soloRepeatBtn: document.getElementById('solo-repeat-btn'),
+    soloSongInput: document.getElementById('solo-song-input'),
+    soloAddSongBtn: document.getElementById('solo-add-song-btn'),
+    soloAddSongHeaderBtn: document.getElementById('solo-add-song-header-btn'),
+    soloQueueList: document.getElementById('solo-queue-list'),
+
+    // Playlists
+    playlistsSection: document.getElementById('playlists-section'),
+    createPlaylistBtn: document.getElementById('create-playlist-btn'),
+    playlistsList: document.getElementById('playlists-list'),
+
     // Cache Management
     cacheReady: document.getElementById('cache-ready'),
     cacheDownloading: document.getElementById('cache-downloading'),
@@ -177,7 +208,9 @@
     setupEventListeners();
     checkUrlForLobby();
     setupAudioPlayer();
+    setupSoloAudioHooks();
     fetchVersion();
+    fetchPlaylists();
   }
 
   // Fetch and display version
@@ -298,6 +331,42 @@
 
     // Handle browser navigation
     window.addEventListener('popstate', handlePopState);
+
+    // Playlist / Solo player
+    if (elements.createPlaylistBtn) {
+      elements.createPlaylistBtn.addEventListener('click', createNewPlaylist);
+    }
+    if (elements.soloBackBtn) {
+      elements.soloBackBtn.addEventListener('click', leaveSoloPlayer);
+    }
+    if (elements.soloPlayBtn) {
+      elements.soloPlayBtn.addEventListener('click', soloTogglePlayback);
+    }
+    if (elements.soloPrevBtn) {
+      elements.soloPrevBtn.addEventListener('click', soloPrevious);
+    }
+    if (elements.soloNextBtn) {
+      elements.soloNextBtn.addEventListener('click', soloNext);
+    }
+    if (elements.soloRepeatBtn) {
+      elements.soloRepeatBtn.addEventListener('click', soloCycleRepeat);
+    }
+    if (elements.soloProgressBar) {
+      elements.soloProgressBar.addEventListener('input', soloSeek);
+    }
+    if (elements.soloAddSongBtn) {
+      elements.soloAddSongBtn.addEventListener('click', soloAddSong);
+    }
+    if (elements.soloAddSongHeaderBtn) {
+      elements.soloAddSongHeaderBtn.addEventListener('click', () => {
+        if (elements.soloSongInput) elements.soloSongInput.focus();
+      });
+    }
+    if (elements.soloSongInput) {
+      elements.soloSongInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') soloAddSong();
+      });
+    }
   }
 
   // Check URL for Dashboard
@@ -602,6 +671,8 @@
     });
 
     audio.addEventListener('ended', () => {
+      // Solo player handles its own ended events
+      if (state.soloPlaylistId) return;
       if (state.listeningMode === 'independent') {
         advanceLocalQueue();
         return;
@@ -743,6 +814,9 @@
   function showView(viewName) {
     elements.landingView.classList.remove('active');
     elements.lobbyView.classList.remove('active');
+    if (elements.soloView) {
+      elements.soloView.classList.remove('active');
+    }
     if (elements.dashboardView) {
       elements.dashboardView.classList.remove('active');
     }
@@ -755,6 +829,9 @@
 
     if (viewName === 'landing') {
       elements.landingView.classList.add('active');
+      fetchPlaylists();
+    } else if (viewName === 'solo') {
+      elements.soloView.classList.add('active');
     } else if (viewName === 'lobby') {
       elements.lobbyView.classList.add('active');
     } else if (viewName === 'dashboard' && elements.dashboardView) {
@@ -1559,6 +1636,403 @@
     }, 3000);
   }
 
+  // ==========================================
+  // Playlists & Solo Player
+  // ==========================================
+
+  function fetchPlaylists() {
+    fetch(`/api/playlists?userId=${encodeURIComponent(state.userId)}`)
+      .then(res => res.json())
+      .then(data => {
+        state.playlists = data.playlists || [];
+        renderPlaylists();
+      })
+      .catch(() => {
+        // Silently handle - playlists not available without DB
+      });
+  }
+
+  function renderPlaylists() {
+    if (!elements.playlistsSection || !elements.playlistsList) return;
+
+    if (state.playlists.length === 0) {
+      elements.playlistsSection.hidden = false;
+      elements.playlistsList.innerHTML = '<li class="playlists-empty">No playlists yet. Create one to save songs!</li>';
+      return;
+    }
+
+    elements.playlistsSection.hidden = false;
+    elements.playlistsList.innerHTML = state.playlists.map(p => `
+      <li class="playlist-item" data-id="${escapeHtml(p.id)}">
+        <div class="playlist-item-icon">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
+        </div>
+        <div class="playlist-item-info" onclick="window.app.openPlaylist('${escapeHtml(p.id)}')">
+          <div class="playlist-item-name">${escapeHtml(p.name)}</div>
+          <div class="playlist-item-meta">${p.song_count || 0} song${(p.song_count || 0) !== 1 ? 's' : ''}</div>
+        </div>
+        <div class="playlist-item-actions">
+          <button class="btn-icon" onclick="window.app.deletePlaylist('${escapeHtml(p.id)}')" aria-label="Delete playlist">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+          </button>
+        </div>
+      </li>
+    `).join('');
+  }
+
+  function createNewPlaylist() {
+    const name = prompt('Playlist name:');
+    if (!name || !name.trim()) return;
+
+    fetch('/api/playlists', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: state.userId, name: name.trim() })
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to create');
+        return res.json();
+      })
+      .then(created => {
+        showToast(`Playlist "${created.name}" created`, 'success');
+        fetchPlaylists();
+      })
+      .catch(() => {
+        showToast('Could not create playlist. Database may be unavailable.', 'error');
+      });
+  }
+
+  function deletePlaylistAction(playlistId) {
+    if (!confirm('Delete this playlist?')) return;
+
+    fetch(`/api/playlists/${playlistId}?userId=${encodeURIComponent(state.userId)}`, {
+      method: 'DELETE'
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('Failed');
+        return res.json();
+      })
+      .then(() => {
+        showToast('Playlist deleted', 'success');
+        fetchPlaylists();
+      })
+      .catch(() => showToast('Failed to delete playlist', 'error'));
+  }
+
+  function openPlaylist(playlistId) {
+    fetch(`/api/playlists/${playlistId}`)
+      .then(res => {
+        if (!res.ok) throw new Error('Not found');
+        return res.json();
+      })
+      .then(playlist => {
+        state.soloPlaylistId = playlist.id;
+        state.soloPlaylistSongs = playlist.songs || [];
+        state.soloCurrentIndex = -1;
+
+        elements.soloPlaylistName.textContent = playlist.name;
+        updateSoloSongCount();
+        updateSoloQueue();
+        resetSoloNowPlaying();
+
+        showView('solo');
+        window.history.pushState({ solo: playlistId }, '', `/`);
+
+        if (state.soloPlaylistSongs.length > 0) {
+          soloPlayTrack(0);
+        }
+      })
+      .catch(() => showToast('Could not open playlist', 'error'));
+  }
+
+  function leaveSoloPlayer() {
+    elements.audioPlayer.pause();
+    elements.audioPlayer.src = '';
+    state.soloPlaylistId = null;
+    state.soloPlaylistSongs = [];
+    state.soloCurrentIndex = -1;
+    showView('landing');
+  }
+
+  function updateSoloSongCount() {
+    if (elements.soloSongCount) {
+      const count = state.soloPlaylistSongs.length;
+      elements.soloSongCount.textContent = `${count} song${count !== 1 ? 's' : ''}`;
+    }
+  }
+
+  function resetSoloNowPlaying() {
+    if (elements.soloTrackTitle) elements.soloTrackTitle.textContent = 'No track playing';
+    if (elements.soloTrackArtist) elements.soloTrackArtist.textContent = 'Add a song to get started';
+    if (elements.soloAlbumArt) {
+      elements.soloAlbumArt.innerHTML = '<div class="placeholder-art"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div>';
+    }
+    if (elements.soloProgressBar) elements.soloProgressBar.value = 0;
+    if (elements.soloCurrentTime) elements.soloCurrentTime.textContent = '0:00';
+    if (elements.soloDuration) elements.soloDuration.textContent = '0:00';
+  }
+
+  function soloPlayTrack(index) {
+    if (index < 0 || index >= state.soloPlaylistSongs.length) return;
+
+    state.soloCurrentIndex = index;
+    const song = state.soloPlaylistSongs[index];
+
+    // Update now playing display
+    if (elements.soloTrackTitle) elements.soloTrackTitle.textContent = song.title || 'Unknown';
+    if (elements.soloTrackArtist) elements.soloTrackArtist.textContent = '';
+
+    const thumbUrl = sanitizeUrl(song.thumbnail);
+    if (elements.soloAlbumArt) {
+      if (thumbUrl) {
+        elements.soloAlbumArt.innerHTML = `<img src="${thumbUrl}" alt="Album art">`;
+      } else {
+        elements.soloAlbumArt.innerHTML = '<div class="placeholder-art"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div>';
+      }
+    }
+
+    const streamUrl = `/api/stream?q=${encodeURIComponent(song.url)}`;
+    playAudioWithUnlock(streamUrl, 0, true);
+    updateSoloQueue();
+  }
+
+  function soloTogglePlayback() {
+    const audio = elements.audioPlayer;
+    if (audio.paused) {
+      if (!audio.src || audio.src === window.location.origin + '/') {
+        if (state.soloPlaylistSongs.length > 0) {
+          soloPlayTrack(0);
+        }
+      } else {
+        playAudioWithUnlock(audio.src, audio.currentTime, true);
+      }
+    } else {
+      audio.pause();
+    }
+  }
+
+  function soloPrevious() {
+    const audio = elements.audioPlayer;
+    if (audio.src) {
+      audio.currentTime = 0;
+      if (audio.paused) {
+        playAudioWithUnlock(audio.src, 0, true);
+      }
+    }
+  }
+
+  function soloNext() {
+    soloAdvance();
+  }
+
+  function soloAdvance() {
+    if (state.soloPlaylistSongs.length === 0) return;
+
+    let nextIndex = state.soloCurrentIndex + 1;
+
+    if (state.soloRepeatMode === 'one' && state.soloCurrentIndex >= 0) {
+      soloPlayTrack(state.soloCurrentIndex);
+      return;
+    }
+
+    if (nextIndex >= state.soloPlaylistSongs.length) {
+      if (state.soloRepeatMode === 'all') {
+        nextIndex = 0;
+      } else {
+        elements.audioPlayer.pause();
+        return;
+      }
+    }
+
+    soloPlayTrack(nextIndex);
+  }
+
+  function soloCycleRepeat() {
+    const modes = ['off', 'all', 'one'];
+    const currentIndex = modes.indexOf(state.soloRepeatMode);
+    state.soloRepeatMode = modes[(currentIndex + 1) % modes.length];
+    storageSet(STORAGE_KEYS.REPEAT_MODE, state.soloRepeatMode);
+    updateSoloRepeatButton();
+  }
+
+  function updateSoloRepeatButton() {
+    if (elements.soloRepeatBtn) {
+      elements.soloRepeatBtn.dataset.mode = state.soloRepeatMode;
+      const labels = { 'off': 'Repeat off', 'all': 'Repeat all', 'one': 'Repeat one' };
+      elements.soloRepeatBtn.setAttribute('aria-label', labels[state.soloRepeatMode]);
+    }
+  }
+
+  function soloSeek() {
+    const percent = elements.soloProgressBar.value;
+    const duration = elements.audioPlayer.duration;
+    if (duration) {
+      elements.audioPlayer.currentTime = (percent / 100) * duration;
+    }
+  }
+
+  function soloAddSong() {
+    const input = elements.soloSongInput.value.trim();
+    if (!input || !state.soloPlaylistId) return;
+
+    elements.soloAddSongBtn.disabled = true;
+    showToast('Fetching song info...', 'info');
+
+    // First fetch metadata
+    fetch(`/api/metadata?q=${encodeURIComponent(input)}`)
+      .then(res => {
+        if (!res.ok) throw new Error('Not found');
+        return res.json();
+      })
+      .then(meta => {
+        // Add to playlist via API
+        return fetch(`/api/playlists/${state.soloPlaylistId}/songs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url: meta.url || input,
+            title: meta.title || 'Unknown',
+            duration: meta.duration || 0,
+            thumbnail: meta.thumbnail || null
+          })
+        });
+      })
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to add');
+        return res.json();
+      })
+      .then(song => {
+        state.soloPlaylistSongs.push(song);
+        updateSoloQueue();
+        updateSoloSongCount();
+        elements.soloSongInput.value = '';
+        showToast(`Added: ${song.title}`, 'success');
+
+        // Auto-play if first song
+        if (state.soloPlaylistSongs.length === 1) {
+          soloPlayTrack(0);
+        }
+      })
+      .catch(err => {
+        showToast('Failed to add song', 'error');
+      })
+      .finally(() => {
+        elements.soloAddSongBtn.disabled = false;
+      });
+  }
+
+  function soloRemoveSong(index) {
+    const song = state.soloPlaylistSongs[index];
+    if (!song || !state.soloPlaylistId) return;
+
+    fetch(`/api/playlists/${state.soloPlaylistId}/songs/${song.id}`, { method: 'DELETE' })
+      .then(res => {
+        if (!res.ok) throw new Error('Failed');
+        state.soloPlaylistSongs.splice(index, 1);
+
+        // Adjust current index
+        if (index < state.soloCurrentIndex) {
+          state.soloCurrentIndex--;
+        } else if (index === state.soloCurrentIndex) {
+          // Current song removed - play next or stop
+          if (state.soloPlaylistSongs.length > 0) {
+            const nextIdx = Math.min(state.soloCurrentIndex, state.soloPlaylistSongs.length - 1);
+            soloPlayTrack(nextIdx);
+          } else {
+            elements.audioPlayer.pause();
+            elements.audioPlayer.src = '';
+            state.soloCurrentIndex = -1;
+            resetSoloNowPlaying();
+          }
+        }
+
+        updateSoloQueue();
+        updateSoloSongCount();
+      })
+      .catch(() => showToast('Failed to remove song', 'error'));
+  }
+
+  function updateSoloQueue() {
+    if (!elements.soloQueueList) return;
+
+    if (state.soloPlaylistSongs.length === 0) {
+      elements.soloQueueList.innerHTML = '<li class="queue-empty"><p>Playlist is empty</p><p class="hint">Add a song to get started</p></li>';
+      return;
+    }
+
+    elements.soloQueueList.innerHTML = state.soloPlaylistSongs.map((song, index) => {
+      const thumbUrl = sanitizeUrl(song.thumbnail);
+      const isPlaying = index === state.soloCurrentIndex;
+
+      return `
+      <li class="queue-item ${isPlaying ? 'playing' : ''}" data-index="${index}">
+        <div class="queue-item-thumb" onclick="window.app.soloPlayTrack(${index})">
+          ${thumbUrl ? `<img src="${thumbUrl}" alt="">` : ''}
+        </div>
+        <div class="queue-item-info" onclick="window.app.soloPlayTrack(${index})" style="cursor:pointer">
+          <div class="queue-item-title">${escapeHtml(song.title)}</div>
+          <div class="queue-item-meta">
+            <span class="queue-item-duration">${song.duration ? formatDuration(song.duration) : ''}</span>
+          </div>
+        </div>
+        <div class="queue-item-actions">
+          <button class="btn-icon queue-item-remove" aria-label="Remove from playlist" onclick="window.app.soloRemoveSong(${index})">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+          </button>
+        </div>
+      </li>`;
+    }).join('');
+  }
+
+  // Hook audio events for solo player
+  function setupSoloAudioHooks() {
+    const audio = elements.audioPlayer;
+
+    audio.addEventListener('timeupdate', () => {
+      // Update solo progress bar if in solo view
+      if (state.soloPlaylistId && elements.soloView && elements.soloView.classList.contains('active')) {
+        if (audio.duration) {
+          const percent = (audio.currentTime / audio.duration) * 100;
+          elements.soloProgressBar.value = percent;
+          elements.soloCurrentTime.textContent = formatTime(audio.currentTime);
+        }
+      }
+    });
+
+    audio.addEventListener('loadedmetadata', () => {
+      if (state.soloPlaylistId && elements.soloView && elements.soloView.classList.contains('active')) {
+        elements.soloDuration.textContent = formatTime(audio.duration);
+      }
+    });
+
+    audio.addEventListener('ended', () => {
+      if (state.soloPlaylistId && elements.soloView && elements.soloView.classList.contains('active')) {
+        soloAdvance();
+      }
+    });
+
+    audio.addEventListener('play', () => {
+      if (state.soloPlaylistId) updateSoloPlayButton();
+    });
+
+    audio.addEventListener('pause', () => {
+      if (state.soloPlaylistId) updateSoloPlayButton();
+    });
+  }
+
+  function updateSoloPlayButton() {
+    if (!elements.soloPlayBtn) return;
+    const icon = elements.soloPlayBtn.querySelector('svg');
+    const audio = elements.audioPlayer;
+    if (!audio.paused) {
+      icon.innerHTML = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
+      elements.soloPlayBtn.setAttribute('aria-label', 'Pause');
+    } else {
+      icon.innerHTML = '<path d="M8 5v14l11-7z"/>';
+      elements.soloPlayBtn.setAttribute('aria-label', 'Play');
+    }
+  }
+
   // Dashboard actions
   function dashboardJoinLobby(lobbyId) {
     window.location.href = `/lobby/${lobbyId}`;
@@ -1583,7 +2057,11 @@
   window.app = {
     removeSong,
     moveSongUp,
-    moveSongDown
+    moveSongDown,
+    openPlaylist,
+    deletePlaylist: deletePlaylistAction,
+    soloPlayTrack: soloPlayTrack,
+    soloRemoveSong: soloRemoveSong
   };
   window.dashboardJoinLobby = dashboardJoinLobby;
   window.dashboardRemoveLobby = dashboardRemoveLobby;

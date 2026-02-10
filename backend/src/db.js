@@ -98,17 +98,43 @@ async function createTables() {
     )
   `;
 
+  const createPlaylistsTable = `
+    CREATE TABLE IF NOT EXISTS playlists (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id VARCHAR(255) NOT NULL,
+      name TEXT NOT NULL,
+      created_at BIGINT NOT NULL
+    )
+  `;
+
+  const createPlaylistSongsTable = `
+    CREATE TABLE IF NOT EXISTS playlist_songs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      playlist_id UUID NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+      url TEXT NOT NULL,
+      title TEXT DEFAULT 'Unknown',
+      duration REAL DEFAULT 0,
+      thumbnail TEXT,
+      sort_order INTEGER NOT NULL,
+      added_at BIGINT NOT NULL
+    )
+  `;
+
   const createIndexes = `
     CREATE INDEX IF NOT EXISTS idx_queue_songs_lobby ON queue_songs(lobby_id, sort_order);
     CREATE INDEX IF NOT EXISTS idx_lobbies_last_activity ON lobbies(last_activity);
     CREATE INDEX IF NOT EXISTS idx_songs_url ON songs(url);
     CREATE INDEX IF NOT EXISTS idx_songs_status ON songs(status);
+    CREATE INDEX IF NOT EXISTS idx_playlists_user ON playlists(user_id);
+    CREATE INDEX IF NOT EXISTS idx_playlist_songs_playlist ON playlist_songs(playlist_id, sort_order);
   `;
 
   await pool.query(createLobbiesTable);
   await pool.query(createPlaybackStateTable);
   await pool.query(createQueueSongsTable);
   await pool.query(createSongsTable);
+  await pool.query(createPlaylistsTable);
+  await pool.query(createPlaylistSongsTable);
   await pool.query(createIndexes);
 
   console.log('Database tables initialized');
