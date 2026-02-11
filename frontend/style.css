@@ -1825,6 +1825,55 @@ html, body {
   color: var(--text-secondary);
 }
 
+.playlist-dialog-option {
+  display: flex;
+  text-align: left;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
+.playlist-dialog-option-detail {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.btn-primary .playlist-dialog-option-detail {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Playlist Loading State */
+.playlist-loading-dialog {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 2rem 1.5rem;
+}
+
+.playlist-loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--bg-surface);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spinner-rotate 0.8s linear infinite;
+}
+
+.playlist-loading-text {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+@keyframes spinner-rotate {
+  to { transform: rotate(360deg); }
+}
+
 @keyframes dialog-fade-in {
   from { opacity: 0; }
   to { opacity: 1; }

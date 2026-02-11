@@ -298,7 +298,11 @@
     // Queue Events
     socket.on('queue:update', handleQueueUpdated);
     socket.on('queue:song-added', handleSongAdded);
-    socket.on('queue:error', (data) => showToast(data.message, 'error'));
+    socket.on('queue:error', (data) => {
+      const loadingEl = document.getElementById('playlist-loading');
+      if (loadingEl) loadingEl.remove();
+      showToast(data.message, 'error');
+    });
     socket.on('queue:adding', (data) => showToast(data.status, 'info'));
 
     // Playlist confirmation dialog
@@ -1132,13 +1136,26 @@
   }
 
   function showPlaylistDialog(data) {
-    // Remove any existing dialog
+    // Remove any existing dialog or loading indicator
     const existing = document.getElementById('playlist-dialog');
     if (existing) existing.remove();
+    const loadingEl = document.getElementById('playlist-loading');
+    if (loadingEl) loadingEl.remove();
 
     const songCountText = data.limited
       ? `${data.songCount} of ${data.totalCount} songs`
       : `${data.songCount} song${data.songCount !== 1 ? 's' : ''}`;
+
+    // Build song option with metadata if available
+    const hasSongMeta = data.songMeta && data.songMeta.title;
+    const songBtnLabel = hasSongMeta
+      ? `Add this song`
+      : 'Add Single Song';
+    const songDetail = hasSongMeta
+      ? `<div class="playlist-dialog-option-detail">${escapeHtml(data.songMeta.title)} &middot; ${escapeHtml(data.songMeta.uploader || 'Unknown')} &middot; ${formatDuration(data.songMeta.duration)}</div>`
+      : '';
+
+    const playlistDetail = `<div class="playlist-dialog-option-detail">${escapeHtml(data.playlistTitle)} &middot; ${songCountText}</div>`;
 
     const dialog = document.createElement('div');
     dialog.id = 'playlist-dialog';
@@ -1147,15 +1164,17 @@
       <div class="playlist-dialog">
         <div class="playlist-dialog-header">
           <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
-          <h3>Playlist Detected</h3>
-        </div>
-        <div class="playlist-dialog-info">
-          <div class="playlist-dialog-title">${escapeHtml(data.playlistTitle)}</div>
-          <div class="playlist-dialog-count">${songCountText}</div>
+          <h3>What would you like to add?</h3>
         </div>
         <div class="playlist-dialog-actions">
-          <button class="btn btn-primary playlist-dialog-btn" id="playlist-add-all">Add All</button>
-          <button class="btn btn-secondary playlist-dialog-btn" id="playlist-add-single">Add Single Song</button>
+          <button class="btn btn-primary playlist-dialog-btn playlist-dialog-option" id="playlist-add-all">
+            Add playlist
+            ${playlistDetail}
+          </button>
+          <button class="btn btn-secondary playlist-dialog-btn playlist-dialog-option" id="playlist-add-single">
+            ${songBtnLabel}
+            ${songDetail}
+          </button>
           <button class="btn btn-secondary playlist-dialog-btn playlist-dialog-cancel" id="playlist-cancel">Cancel</button>
         </div>
       </div>
@@ -1485,9 +1504,40 @@
   }
 
   // Queue Management
+  function isPlaylistUrl(url) {
+    try {
+      const parsed = new URL(url);
+      return parsed.searchParams.has('list');
+    } catch {
+      return false;
+    }
+  }
+
+  function showPlaylistLoading() {
+    // Remove any existing loading indicator
+    const existing = document.getElementById('playlist-loading');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'playlist-loading';
+    overlay.className = 'playlist-dialog-overlay';
+    overlay.innerHTML = `
+      <div class="playlist-dialog playlist-loading-dialog">
+        <div class="playlist-loading-spinner"></div>
+        <div class="playlist-loading-text">Fetching playlist info...</div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+  }
+
   function addSong() {
     const input = elements.songInput.value.trim();
     if (!input) return;
+
+    // Show immediate loading feedback for playlist URLs
+    if (isPlaylistUrl(input)) {
+      showPlaylistLoading();
+    }
 
     socket.emit('queue:add', {
       lobbyId: state.lobbyId,

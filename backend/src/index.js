@@ -820,9 +820,19 @@ io.on('connection', (socket) => {
     // Check if this is a playlist URL
     if (inputUrl && ytdlp.isPlaylistUrl(inputUrl)) {
       try {
-        socket.emit('queue:adding', { status: 'Loading playlist...' });
+        // Check if URL also contains a specific video (watch?v=xxx&list=yyy)
+        let videoId = null;
+        try {
+          const parsed = new URL(inputUrl);
+          videoId = parsed.searchParams.get('v');
+        } catch {}
 
-        const playlist = await ytdlp.getPlaylistItems(inputUrl);
+        // Fetch playlist info, and song metadata in parallel if URL has a video ID
+        const [playlist, songMeta] = await Promise.all([
+          ytdlp.getPlaylistItems(inputUrl),
+          videoId ? ytdlp.getMetadata(`https://www.youtube.com/watch?v=${videoId}`).catch(() => null) : Promise.resolve(null)
+        ]);
+
         const items = playlist.items;
 
         if (items.length === 0) {
@@ -839,6 +849,7 @@ io.on('connection', (socket) => {
           totalCount: playlist.total,
           limited: playlist.limited,
           firstSong: items[0] ? { title: items[0].title, duration: items[0].duration } : null,
+          songMeta: songMeta ? { title: songMeta.title, uploader: songMeta.uploader, duration: songMeta.duration } : null,
           addedBy
         });
 
