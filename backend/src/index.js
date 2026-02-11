@@ -830,72 +830,17 @@ io.on('connection', (socket) => {
           return;
         }
 
-        console.log(`Adding playlist "${playlist.title}" (${items.length} items) to lobby ${lobbyId}`);
-
-        // Notify about playlist size
-        if (playlist.limited) {
-          socket.emit('queue:playlist-info', {
-            message: `Playlist has ${playlist.total} videos, adding first ${items.length}`,
-            total: playlist.total,
-            adding: items.length
-          });
-        }
-
-        // Add each video to the queue with progress updates
-        const wasEmpty = queue.getSongs().length === 0;
-        let firstSong = null;
-
-        for (let i = 0; i < items.length; i++) {
-          const item = items[i];
-
-          // Emit progress
-          socket.emit('queue:playlist-progress', {
-            current: i + 1,
-            total: items.length,
-            title: item.title
-          });
-
-          const song = queue.addSong({
-            url: item.url,
-            title: item.title,
-            duration: item.duration,
-            addedBy,
-            thumbnail: item.thumbnail
-          });
-
-          // Start background download for each song
-          downloader.startDownload(item.url, {
-            title: item.title,
-            duration: item.duration
-          }, lobbyId).catch(err => {
-            console.error(`Background download failed for playlist item: ${err.message}`);
-          });
-
-          // Cache thumbnail in background (non-blocking)
-          if (item.thumbnail) {
-            covers.cacheCover(song.id, item.thumbnail).catch(() => {});
-          }
-
-          if (i === 0) {
-            firstSong = song;
-          }
-        }
-
-        console.log(`Playlist "${playlist.title}" added to lobby ${lobbyId}`);
-
-        // Broadcast updated queue to all in lobby
-        io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
-
-        // Notify completion
-        socket.emit('queue:playlist-complete', {
+        // Send playlist info to client for confirmation dialog
+        socket.emit('queue:playlist-confirm', {
+          lobbyId,
+          url: inputUrl,
           playlistTitle: playlist.title,
-          added: items.length
+          songCount: items.length,
+          totalCount: playlist.total,
+          limited: playlist.limited,
+          firstSong: items[0] ? { title: items[0].title, duration: items[0].duration } : null,
+          addedBy
         });
-
-        // If this was the first song(s) and nothing was playing, start playback
-        if (wasEmpty && firstSong) {
-          playback.setTrack(lobbyId, firstSong, true, io);
-        }
 
         return;
       } catch (err) {
@@ -952,6 +897,119 @@ io.on('connection', (socket) => {
     // If this is the first song and nothing is playing, start playback
     if (queue.getSongs().length === 1) {
       playback.setTrack(lobbyId, song, true, io);
+    }
+  });
+
+  // Handle playlist add after user confirms via dialog
+  socket.on('queue:playlist-add', async ({ lobbyId, url, mode, addedBy }) => {
+    const queue = getQueue(lobbyId);
+
+    try {
+      socket.emit('queue:adding', { status: 'Loading playlist...' });
+
+      const playlist = await ytdlp.getPlaylistItems(url);
+      const items = playlist.items;
+
+      if (items.length === 0) {
+        socket.emit('queue:error', { message: 'Playlist is empty' });
+        return;
+      }
+
+      if (mode === 'single') {
+        // Add only the first song
+        const item = items[0];
+        const wasEmpty = queue.getSongs().length === 0;
+
+        const song = queue.addSong({
+          url: item.url,
+          title: item.title,
+          duration: item.duration,
+          addedBy,
+          thumbnail: item.thumbnail
+        });
+
+        downloader.startDownload(item.url, {
+          title: item.title,
+          duration: item.duration
+        }, lobbyId).catch(err => {
+          console.error(`Background download failed: ${err.message}`);
+        });
+
+        if (item.thumbnail) {
+          covers.cacheCover(song.id, item.thumbnail).catch(() => {});
+        }
+
+        console.log(`Single song from playlist "${playlist.title}" added to lobby ${lobbyId}: ${item.title}`);
+
+        io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+
+        if (wasEmpty) {
+          playback.setTrack(lobbyId, song, true, io);
+        }
+      } else {
+        // Add all songs
+        console.log(`Adding playlist "${playlist.title}" (${items.length} items) to lobby ${lobbyId}`);
+
+        if (playlist.limited) {
+          socket.emit('queue:playlist-info', {
+            message: `Playlist has ${playlist.total} videos, adding first ${items.length}`,
+            total: playlist.total,
+            adding: items.length
+          });
+        }
+
+        const wasEmpty = queue.getSongs().length === 0;
+        let firstSong = null;
+
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+
+          socket.emit('queue:playlist-progress', {
+            current: i + 1,
+            total: items.length,
+            title: item.title
+          });
+
+          const song = queue.addSong({
+            url: item.url,
+            title: item.title,
+            duration: item.duration,
+            addedBy,
+            thumbnail: item.thumbnail
+          });
+
+          downloader.startDownload(item.url, {
+            title: item.title,
+            duration: item.duration
+          }, lobbyId).catch(err => {
+            console.error(`Background download failed for playlist item: ${err.message}`);
+          });
+
+          if (item.thumbnail) {
+            covers.cacheCover(song.id, item.thumbnail).catch(() => {});
+          }
+
+          if (i === 0) {
+            firstSong = song;
+          }
+        }
+
+        console.log(`Playlist "${playlist.title}" added to lobby ${lobbyId}`);
+
+        io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+
+        socket.emit('queue:playlist-complete', {
+          playlistTitle: playlist.title,
+          added: items.length
+        });
+
+        if (wasEmpty && firstSong) {
+          playback.setTrack(lobbyId, firstSong, true, io);
+        }
+      }
+    } catch (err) {
+      console.error('Playlist add error:', err);
+      socket.emit('queue:error', { message: `Failed to add playlist: ${err.message}` });
     }
   });
 

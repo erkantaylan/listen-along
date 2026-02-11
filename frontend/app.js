@@ -301,6 +301,9 @@
     socket.on('queue:error', (data) => showToast(data.message, 'error'));
     socket.on('queue:adding', (data) => showToast(data.status, 'info'));
 
+    // Playlist confirmation dialog
+    socket.on('queue:playlist-confirm', handlePlaylistConfirm);
+
     // Playback Events
     socket.on('playback:state', handlePlaybackState);
     socket.on('playback:sync', handlePlaybackSync);
@@ -1122,6 +1125,74 @@
     if (data.songs && data.songs.length > 0) {
       showToast(`Queue updated: ${data.songs.length} song(s)`, 'success');
     }
+  }
+
+  function handlePlaylistConfirm(data) {
+    showPlaylistDialog(data);
+  }
+
+  function showPlaylistDialog(data) {
+    // Remove any existing dialog
+    const existing = document.getElementById('playlist-dialog');
+    if (existing) existing.remove();
+
+    const songCountText = data.limited
+      ? `${data.songCount} of ${data.totalCount} songs`
+      : `${data.songCount} song${data.songCount !== 1 ? 's' : ''}`;
+
+    const dialog = document.createElement('div');
+    dialog.id = 'playlist-dialog';
+    dialog.className = 'playlist-dialog-overlay';
+    dialog.innerHTML = `
+      <div class="playlist-dialog">
+        <div class="playlist-dialog-header">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
+          <h3>Playlist Detected</h3>
+        </div>
+        <div class="playlist-dialog-info">
+          <div class="playlist-dialog-title">${escapeHtml(data.playlistTitle)}</div>
+          <div class="playlist-dialog-count">${songCountText}</div>
+        </div>
+        <div class="playlist-dialog-actions">
+          <button class="btn btn-primary playlist-dialog-btn" id="playlist-add-all">Add All</button>
+          <button class="btn btn-secondary playlist-dialog-btn" id="playlist-add-single">Add Single Song</button>
+          <button class="btn btn-secondary playlist-dialog-btn playlist-dialog-cancel" id="playlist-cancel">Cancel</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(dialog);
+
+    document.getElementById('playlist-add-all').addEventListener('click', () => {
+      dialog.remove();
+      socket.emit('queue:playlist-add', {
+        lobbyId: data.lobbyId,
+        url: data.url,
+        mode: 'all',
+        addedBy: data.addedBy
+      });
+    });
+
+    document.getElementById('playlist-add-single').addEventListener('click', () => {
+      dialog.remove();
+      socket.emit('queue:playlist-add', {
+        lobbyId: data.lobbyId,
+        url: data.url,
+        mode: 'single',
+        addedBy: data.addedBy
+      });
+    });
+
+    document.getElementById('playlist-cancel').addEventListener('click', () => {
+      dialog.remove();
+    });
+
+    // Close on overlay click
+    dialog.addEventListener('click', (e) => {
+      if (e.target === dialog) {
+        dialog.remove();
+      }
+    });
   }
 
   function handleSongAdded(data) {

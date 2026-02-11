@@ -1741,3 +1741,96 @@ html, body {
   width: 16px;
   height: 16px;
 }
+
+/* Playlist Confirmation Dialog */
+.playlist-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  animation: dialog-fade-in 0.2s ease;
+}
+
+.playlist-dialog {
+  background: var(--bg-elevated);
+  border-radius: var(--border-radius-lg);
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 340px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--bg-surface);
+  animation: dialog-scale-in 0.2s ease;
+}
+
+.playlist-dialog-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  color: var(--primary);
+}
+
+.playlist-dialog-header h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.playlist-dialog-info {
+  background: var(--bg-surface);
+  border-radius: var(--border-radius);
+  padding: 0.875rem 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.playlist-dialog-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 0.25rem;
+}
+
+.playlist-dialog-count {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.playlist-dialog-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.playlist-dialog-btn {
+  width: 100%;
+  justify-content: center;
+  padding: 0.75rem 1rem;
+  font-size: 0.9375rem;
+}
+
+.playlist-dialog-cancel {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.playlist-dialog-cancel:hover {
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+}
+
+@keyframes dialog-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes dialog-scale-in {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
