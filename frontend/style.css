@@ -373,19 +373,25 @@ html, body {
 
 /* Now Playing Section */
 .now-playing {
-  padding: 1.5rem 1rem;
-  text-align: center;
+  padding: 0.75rem 1rem;
   background: linear-gradient(180deg, var(--bg-elevated) 0%, var(--bg-dark) 100%);
 }
 
+.now-playing-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
 .album-art {
-  width: 200px;
-  height: 200px;
-  margin: 0 auto 1.5rem;
-  border-radius: var(--border-radius-lg);
+  width: 56px;
+  height: 56px;
+  border-radius: var(--border-radius);
   overflow: hidden;
   background: var(--bg-surface);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  flex-shrink: 0;
 }
 
 .album-art img {
@@ -404,19 +410,19 @@ html, body {
 }
 
 .placeholder-art svg {
-  width: 64px;
-  height: 64px;
+  width: 28px;
+  height: 28px;
 }
 
 .track-info {
-  margin-bottom: 1rem;
-  padding: 0 1rem;
+  min-width: 0;
+  text-align: left;
 }
 
 .track-title {
-  font-size: 1.25rem;
+  font-size: 0.95rem;
   font-weight: 700;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.125rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -424,7 +430,7 @@ html, body {
 
 .track-artist {
   color: var(--text-secondary);
-  font-size: 0.875rem;
+  font-size: 0.8rem;
 }
 
 /* Progress Bar */
@@ -945,12 +951,12 @@ html, body {
 /* Responsive - Tablet and up */
 @media (min-width: 600px) {
   .album-art {
-    width: 280px;
-    height: 280px;
+    width: 64px;
+    height: 64px;
   }
 
   .track-title {
-    font-size: 1.5rem;
+    font-size: 1rem;
   }
 
   .playback-controls {
@@ -978,33 +984,12 @@ html, body {
 
 /* Landscape orientation */
 @media (max-height: 500px) and (orientation: landscape) {
-  .now-playing {
-    display: flex;
-    align-items: center;
-    gap: 1.5rem;
-    padding: 1rem;
-  }
-
   .album-art {
-    width: 120px;
-    height: 120px;
-    margin: 0;
-    flex-shrink: 0;
-  }
-
-  .track-info {
-    text-align: left;
-    margin: 0;
-    flex: 1;
-  }
-
-  .progress-container {
-    padding: 0;
-    margin: 0.5rem 0;
+    width: 48px;
+    height: 48px;
   }
 
   .playback-controls {
-    justify-content: flex-start;
     gap: 0.5rem;
   }
 
