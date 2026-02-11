@@ -159,6 +159,70 @@ describe('Queue class', () => {
   });
 });
 
+describe('Queue per-user position tracking (independent mode)', () => {
+  let queue;
+
+  beforeEach(() => {
+    queue = new Queue('test-lobby');
+    queue.addSong({ url: 'url1', title: 'Song 1' });
+    queue.addSong({ url: 'url2', title: 'Song 2' });
+    queue.addSong({ url: 'url3', title: 'Song 3' });
+  });
+
+  test('getUserPosition returns 0 for new user', () => {
+    assert.strictEqual(queue.getUserPosition('user-a'), 0);
+  });
+
+  test('getUserCurrentSong returns first song for new user', () => {
+    assert.strictEqual(queue.getUserCurrentSong('user-a').title, 'Song 1');
+  });
+
+  test('advanceUserPosition moves to next song', () => {
+    const next = queue.advanceUserPosition('user-a');
+    assert.strictEqual(next.title, 'Song 2');
+    assert.strictEqual(queue.getUserPosition('user-a'), 1);
+  });
+
+  test('advanceUserPosition returns null at end of queue', () => {
+    queue.advanceUserPosition('user-a'); // -> Song 2
+    queue.advanceUserPosition('user-a'); // -> Song 3
+    const result = queue.advanceUserPosition('user-a'); // past end
+    assert.strictEqual(result, null);
+  });
+
+  test('advanceUserPosition does not modify shared queue', () => {
+    queue.advanceUserPosition('user-a');
+    queue.advanceUserPosition('user-a');
+    assert.strictEqual(queue.getSongs().length, 3);
+    assert.strictEqual(queue.getCurrentSong().title, 'Song 1');
+  });
+
+  test('different users track independent positions', () => {
+    queue.advanceUserPosition('user-a'); // user-a at index 1
+    queue.advanceUserPosition('user-a'); // user-a at index 2
+
+    assert.strictEqual(queue.getUserCurrentSong('user-a').title, 'Song 3');
+    assert.strictEqual(queue.getUserCurrentSong('user-b').title, 'Song 1');
+  });
+
+  test('setUserPosition sets explicit index', () => {
+    queue.setUserPosition('user-a', 2);
+    assert.strictEqual(queue.getUserCurrentSong('user-a').title, 'Song 3');
+  });
+
+  test('getSongAtIndex returns song at given index', () => {
+    assert.strictEqual(queue.getSongAtIndex(0).title, 'Song 1');
+    assert.strictEqual(queue.getSongAtIndex(2).title, 'Song 3');
+    assert.strictEqual(queue.getSongAtIndex(5), null);
+  });
+
+  test('removeUserPosition cleans up tracking', () => {
+    queue.advanceUserPosition('user-a');
+    queue.removeUserPosition('user-a');
+    assert.strictEqual(queue.getUserPosition('user-a'), 0);
+  });
+});
+
 describe('Queue store functions', () => {
   beforeEach(() => {
     // Clean up any existing queues

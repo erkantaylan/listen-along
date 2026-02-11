@@ -976,6 +976,22 @@ io.on('connection', (socket) => {
   socket.on('playback:next', ({ lobbyId }) => {
     const queue = getQueue(lobbyId);
     const repeatMode = playback.getRepeatMode(lobbyId);
+    const isIndependent = lobby.getListeningMode(lobbyId) === 'independent';
+
+    if (isIndependent) {
+      // Independent mode: advance per-user position, don't modify shared queue
+      let nextSong = queue.advanceUserPosition(socket.id);
+      if (!nextSong && repeatMode === 'all' && queue.getSongs().length > 0) {
+        queue.setUserPosition(socket.id, 0);
+        nextSong = queue.getSongAtIndex(0);
+      }
+      if (nextSong) {
+        playback.setTrack(lobbyId, nextSong, true, io);
+      } else {
+        playback.setTrack(lobbyId, null, false, io);
+      }
+      return;
+    }
 
     if (repeatMode === 'all') {
       // Move current song to end of queue (circular)
@@ -1017,10 +1033,26 @@ io.on('connection', (socket) => {
 
     const repeatMode = playback.getRepeatMode(lobbyId);
     const queue = getQueue(lobbyId);
+    const isIndependent = lobby.getListeningMode(lobbyId) === 'independent';
 
     // For repeat-one mode, playback.js handles restarting the track
     if (repeatMode === 'one') {
       playback.trackEnded(lobbyId, io);
+      return;
+    }
+
+    if (isIndependent) {
+      // Independent mode: advance per-user position, don't modify shared queue
+      let nextSong = queue.advanceUserPosition(socket.id);
+      if (!nextSong && repeatMode === 'all' && queue.getSongs().length > 0) {
+        queue.setUserPosition(socket.id, 0);
+        nextSong = queue.getSongAtIndex(0);
+      }
+      if (nextSong) {
+        playback.setTrack(lobbyId, nextSong, true, io);
+      } else {
+        playback.trackEnded(lobbyId, io);
+      }
       return;
     }
 
@@ -1066,6 +1098,9 @@ io.on('connection', (socket) => {
 });
 
 function handleLeave(socket, lobbyId) {
+  const queue = getQueue(lobbyId);
+  queue.removeUserPosition(socket.id);
+
   const user = lobby.leaveLobby(lobbyId, socket.id);
   if (user) {
     socket.leave(lobbyId);
