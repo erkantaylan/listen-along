@@ -307,6 +307,12 @@
 
     // Playlist confirmation dialog
     socket.on('queue:playlist-confirm', handlePlaylistConfirm);
+    socket.on('queue:playlist-progress', (data) => {
+      showToast(`Adding ${data.current}/${data.total}: ${data.title}`, 'info');
+    });
+    socket.on('queue:playlist-complete', (data) => {
+      showToast(`Added ${data.added} songs from "${data.playlistTitle}"`, 'success');
+    });
 
     // Playback Events
     socket.on('playback:state', handlePlaybackState);
