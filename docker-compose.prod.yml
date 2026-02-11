@@ -10,6 +10,8 @@ services:
       - DATABASE_URL=postgres://listen:listen@postgres:5432/listen
       - SONGS_PATH=/data/songs
       - COVERS_PATH=/data/covers
+      - DASHBOARD_USER=${DASHBOARD_USER:-}
+      - DASHBOARD_PASS=${DASHBOARD_PASS:-}
     depends_on:
       postgres:
         condition: service_healthy
