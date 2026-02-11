@@ -176,6 +176,10 @@
     soloAddSongHeaderBtn: document.getElementById('solo-add-song-header-btn'),
     soloQueueList: document.getElementById('solo-queue-list'),
 
+    // Active Lobbies
+    lobbiesSection: document.getElementById('lobbies-section'),
+    lobbiesList: document.getElementById('lobbies-list'),
+
     // Playlists
     playlistsSection: document.getElementById('playlists-section'),
     createPlaylistBtn: document.getElementById('create-playlist-btn'),
@@ -197,6 +201,9 @@
   // Dashboard state
   let dashboardInterval = null;
 
+  // Lobbies auto-refresh state
+  let lobbiesInterval = null;
+
   // Initialize Application
   function init() {
     // Check for dashboard route first (no socket needed)
@@ -210,7 +217,10 @@
     setupAudioPlayer();
     setupSoloAudioHooks();
     fetchVersion();
+    fetchLobbies();
     fetchPlaylists();
+    // Auto-refresh lobbies while on landing page
+    lobbiesInterval = setInterval(fetchLobbies, 10000);
   }
 
   // Fetch and display version
@@ -827,9 +837,17 @@
       dashboardInterval = null;
     }
 
+    // Stop lobbies polling when leaving landing
+    if (lobbiesInterval) {
+      clearInterval(lobbiesInterval);
+      lobbiesInterval = null;
+    }
+
     if (viewName === 'landing') {
       elements.landingView.classList.add('active');
+      fetchLobbies();
       fetchPlaylists();
+      lobbiesInterval = setInterval(fetchLobbies, 10000);
     } else if (viewName === 'solo') {
       elements.soloView.classList.add('active');
     } else if (viewName === 'lobby') {
@@ -1637,6 +1655,57 @@
   }
 
   // ==========================================
+  // Active Lobbies
+  // ==========================================
+
+  function fetchLobbies() {
+    fetch('/api/lobbies')
+      .then(res => res.json())
+      .then(data => {
+        renderLobbies(data.lobbies || []);
+      })
+      .catch(() => {
+        // Silently handle fetch errors
+      });
+  }
+
+  function renderLobbies(lobbies) {
+    if (!elements.lobbiesSection || !elements.lobbiesList) return;
+
+    if (lobbies.length === 0) {
+      elements.lobbiesSection.hidden = true;
+      return;
+    }
+
+    elements.lobbiesSection.hidden = false;
+    elements.lobbiesList.innerHTML = lobbies.map(l => {
+      const modeLabel = l.listeningMode === 'independent' ? 'Independent' : 'Synchronized';
+      const modeClass = l.listeningMode === 'independent' ? 'independent' : 'synchronized';
+      const age = formatAge(l.createdAt);
+
+      return `
+        <li class="lobby-card" onclick="window.app.joinLobbyFromCard('${escapeHtml(l.id)}')">
+          <div class="lobby-card-header">
+            <span class="lobby-card-id">${escapeHtml(l.id)}</span>
+            <span class="listening-mode-badge ${modeClass}">${modeLabel}</span>
+          </div>
+          <div class="lobby-card-stats">
+            <span class="lobby-card-stat">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+              ${l.userCount}
+            </span>
+            <span class="lobby-card-stat">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+              ${l.songCount}
+            </span>
+            <span class="lobby-card-age">${age}</span>
+          </div>
+        </li>
+      `;
+    }).join('');
+  }
+
+  // ==========================================
   // Playlists & Solo Player
   // ==========================================
 
@@ -2053,6 +2122,12 @@
       .catch(() => alert('Failed to remove lobby'));
   }
 
+  function joinLobbyFromCard(lobbyId) {
+    window.history.pushState({ lobbyId }, '', `/lobby/${lobbyId}`);
+    state.lobbyId = lobbyId;
+    joinLobby(lobbyId);
+  }
+
   // Expose API for inline handlers
   window.app = {
     removeSong,
@@ -2061,7 +2136,8 @@
     openPlaylist,
     deletePlaylist: deletePlaylistAction,
     soloPlayTrack: soloPlayTrack,
-    soloRemoveSong: soloRemoveSong
+    soloRemoveSong: soloRemoveSong,
+    joinLobbyFromCard
   };
   window.dashboardJoinLobby = dashboardJoinLobby;
   window.dashboardRemoveLobby = dashboardRemoveLobby;

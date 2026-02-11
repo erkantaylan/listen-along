@@ -301,6 +301,22 @@ function leaveLobbySync(lobbyId, socketId) {
   return user;
 }
 
+function getAllLobbies() {
+  const result = [];
+  for (const [id, lobbyData] of lobbies) {
+    const users = lobbyUsers.get(id);
+    const userCount = users ? users.size : 0;
+    result.push({
+      id,
+      listeningMode: lobbyData.listeningMode || 'synchronized',
+      userCount,
+      createdAt: lobbyData.createdAt,
+      lastActivity: lobbyData.lastActivity
+    });
+  }
+  return result;
+}
+
 function getListeningMode(lobbyId) {
   const lobby = lobbies.get(lobbyId);
   return lobby ? lobby.listeningMode || 'synchronized' : 'synchronized';
@@ -317,6 +333,7 @@ module.exports = {
   joinLobby: joinLobbySync,
   leaveLobby: leaveLobbySync,
   getLobbyUsers,
+  getAllLobbies,
   getListeningMode,
   setUserMode,
   getUserMode,

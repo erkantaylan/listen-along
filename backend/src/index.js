@@ -217,6 +217,24 @@ app.get('/api/stream', async (req, res) => {
   }
 });
 
+// List all active lobbies (public)
+app.get('/api/lobbies', (req, res) => {
+  const allLobbies = lobby.getAllLobbies();
+
+  const lobbies = allLobbies.map(l => {
+    const queue = getQueue(l.id);
+    return {
+      id: l.id,
+      listeningMode: l.listeningMode,
+      userCount: l.userCount,
+      songCount: queue.getSongs().length,
+      createdAt: l.createdAt
+    };
+  });
+
+  res.json({ lobbies });
+});
+
 // Create a new lobby
 app.post('/api/lobbies', (req, res) => {
   const newLobby = lobby.createLobby(null);
