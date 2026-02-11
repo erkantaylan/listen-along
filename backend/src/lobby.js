@@ -102,13 +102,14 @@ async function updateLastActivity(lobbyId) {
   }
 }
 
-async function joinLobby(lobbyId, socketId, username) {
+async function joinLobby(lobbyId, socketId, username, emoji) {
   const lobby = await getLobby(lobbyId);
   if (!lobby) return null;
 
   const user = {
     socketId,
     username: username || `User-${socketId.substring(0, 4)}`,
+    emoji: emoji || null,
     joinedAt: Date.now(),
     mode: 'listening' // 'listening' or 'lobby'
   };
@@ -159,6 +160,25 @@ function setUserMode(lobbyId, socketId, mode) {
   }
 
   user.mode = mode;
+  return user;
+}
+
+function updateUser(lobbyId, socketId, updates) {
+  const users = lobbyUsers.get(lobbyId);
+  if (!users) return null;
+
+  const user = users.get(socketId);
+  if (!user) return null;
+
+  if (updates.username !== undefined) {
+    const trimmed = String(updates.username).trim();
+    if (trimmed && trimmed.length <= 30) {
+      user.username = trimmed;
+    }
+  }
+  if (updates.emoji !== undefined) {
+    user.emoji = updates.emoji || null;
+  }
   return user;
 }
 
@@ -299,13 +319,14 @@ function getLobbySync(id) {
   return lobby;
 }
 
-function joinLobbySync(lobbyId, socketId, username) {
+function joinLobbySync(lobbyId, socketId, username, emoji) {
   const lobby = lobbies.get(lobbyId);
   if (!lobby) return null;
 
   const user = {
     socketId,
     username: username || `User-${socketId.substring(0, 4)}`,
+    emoji: emoji || null,
     joinedAt: Date.now(),
     mode: 'listening' // 'listening' or 'lobby'
   };
@@ -373,6 +394,7 @@ module.exports = {
   getListeningMode,
   setUserMode,
   getUserMode,
+  updateUser,
   isNameTaken,
   renameLobby,
   deleteLobby: deleteLobbySync,

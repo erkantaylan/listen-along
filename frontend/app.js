@@ -6,10 +6,14 @@
   const STORAGE_KEYS = {
     USER_ID: 'listen-userId',
     USERNAME: 'listen-username',
+    EMOJI: 'listen-emoji',
     LAST_LOBBY: 'listen-lastLobby',
     REPEAT_MODE: 'listen-repeatMode',
     SHUFFLE_ENABLED: 'listen-shuffleEnabled'
   };
+
+  // Predefined emoji avatars
+  const AVATAR_EMOJIS = ['🎸','🎹','🎺','🎷','🥁','🎤','🎧','🎵','🦊','🐱','🐶','🐸','🦄','🐙','🤖','👻','🔥','⚡','🌈','🍕'];
 
   // localStorage Helpers
   function storageGet(key) {
@@ -58,6 +62,14 @@
     return newUsername;
   }
 
+  function getOrCreateEmoji() {
+    const stored = storageGet(STORAGE_KEYS.EMOJI);
+    if (stored) return stored;
+    const emoji = AVATAR_EMOJIS[Math.floor(Math.random() * AVATAR_EMOJIS.length)];
+    storageSet(STORAGE_KEYS.EMOJI, emoji);
+    return emoji;
+  }
+
   // Load persisted preferences
   function getStoredRepeatMode() {
     return storageGet(STORAGE_KEYS.REPEAT_MODE) || 'off';
@@ -78,6 +90,7 @@
     listeners: [],
     userId: getOrCreateUserId(),
     username: getOrCreateUsername(),
+    emoji: getOrCreateEmoji(),
     repeatMode: getStoredRepeatMode(),
     audioUnlocked: false,
     pendingPlay: null,
@@ -141,6 +154,11 @@
 
     // Listeners
     listenersList: document.getElementById('listeners-list'),
+    profileEditor: document.getElementById('profile-editor'),
+    profileEmojiBtn: document.getElementById('profile-emoji-btn'),
+    profileNameInput: document.getElementById('profile-name-input'),
+    profileSaveBtn: document.getElementById('profile-save-btn'),
+    emojiPicker: document.getElementById('emoji-picker'),
 
     // Audio
     audioPlayer: document.getElementById('audio-player'),
@@ -215,6 +233,7 @@
 
     setupSocket();
     setupEventListeners();
+    setupProfileEditor();
     checkUrlForLobby();
     setupAudioPlayer();
     setupSoloAudioHooks();
@@ -385,6 +404,59 @@
         if (e.key === 'Enter') soloAddSong();
       });
     }
+  }
+
+  // Profile Editor
+  function setupProfileEditor() {
+    if (!elements.profileEmojiBtn || !elements.profileNameInput) return;
+
+    elements.profileEmojiBtn.textContent = state.emoji;
+    elements.profileNameInput.value = state.username;
+
+    // Build emoji picker grid
+    elements.emojiPicker.innerHTML = AVATAR_EMOJIS.map(e =>
+      `<button class="emoji-option${e === state.emoji ? ' selected' : ''}" data-emoji="${e}">${e}</button>`
+    ).join('');
+
+    elements.profileEmojiBtn.addEventListener('click', () => {
+      elements.emojiPicker.hidden = !elements.emojiPicker.hidden;
+    });
+
+    elements.emojiPicker.addEventListener('click', (e) => {
+      const btn = e.target.closest('.emoji-option');
+      if (!btn) return;
+      const emoji = btn.dataset.emoji;
+      state.emoji = emoji;
+      storageSet(STORAGE_KEYS.EMOJI, emoji);
+      elements.profileEmojiBtn.textContent = emoji;
+      elements.emojiPicker.querySelectorAll('.emoji-option').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      elements.emojiPicker.hidden = true;
+    });
+
+    elements.profileSaveBtn.addEventListener('click', saveProfile);
+    elements.profileNameInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') saveProfile();
+    });
+  }
+
+  function saveProfile() {
+    const newName = elements.profileNameInput.value.trim();
+    if (!newName) return;
+
+    state.username = newName;
+    storageSet(STORAGE_KEYS.USERNAME, newName);
+    storageSet(STORAGE_KEYS.EMOJI, state.emoji);
+
+    if (state.lobbyId && socket) {
+      socket.emit('user:update', {
+        lobbyId: state.lobbyId,
+        username: state.username,
+        emoji: state.emoji
+      });
+    }
+
+    showToast('Profile updated', 'success');
   }
 
   // Check URL for Dashboard
@@ -883,11 +955,11 @@
     const selectedMode = document.querySelector('input[name="listeningMode"]:checked');
     const listeningMode = selectedMode ? selectedMode.value : 'synchronized';
     const name = elements.lobbyNameInput ? elements.lobbyNameInput.value.trim() : '';
-    socket.emit('lobby:create', { username: state.username, listeningMode, name: name || undefined });
+    socket.emit('lobby:create', { username: state.username, emoji: state.emoji, listeningMode, name: name || undefined });
   }
 
   function joinLobby(lobbyId) {
-    socket.emit('lobby:join', { lobbyId, username: state.username });
+    socket.emit('lobby:join', { lobbyId, username: state.username, emoji: state.emoji });
   }
 
   function leaveLobby() {
@@ -1020,7 +1092,8 @@
       state.listeners.push(data.user);
     }
     updateListeners();
-    showToast(`${data.user.username} joined`, 'success');
+    const joinDisplay = data.user.emoji ? `${data.user.emoji} ${data.user.username}` : data.user.username;
+    showToast(`${joinDisplay} joined`, 'success');
   }
 
   function handleUserLeft(data) {
@@ -1576,9 +1649,10 @@
       const modeIcon = user.mode === 'lobby'
         ? '<svg class="mode-icon lobby" viewBox="0 0 24 24" fill="currentColor" title="Lobby mode"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>'
         : '<svg class="mode-icon listening" viewBox="0 0 24 24" fill="currentColor" title="Listening"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg>';
+      const avatar = user.emoji || getInitials(user.username);
       return `
       <li class="listener-item ${user.mode === 'lobby' ? 'lobby-mode' : ''}">
-        <div class="listener-avatar">${getInitials(user.username)}</div>
+        <div class="listener-avatar${user.emoji ? ' emoji' : ''}">${avatar}</div>
         <span class="listener-name">${escapeHtml(user.username)}</span>
         ${modeIcon}
         ${user.isHost ? '<span class="listener-badge">Host</span>' : ''}

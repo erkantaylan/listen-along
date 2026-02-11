@@ -167,6 +167,14 @@
 
       <!-- Listeners Tab -->
       <section id="listeners-tab" class="tab-panel">
+        <div id="profile-editor" class="profile-editor">
+          <div class="profile-editor-row">
+            <button id="profile-emoji-btn" class="profile-emoji-btn" aria-label="Change avatar emoji"></button>
+            <input type="text" id="profile-name-input" class="profile-name-input" maxlength="30" placeholder="Your name" autocomplete="off">
+            <button id="profile-save-btn" class="btn btn-primary btn-small profile-save-btn">Save</button>
+          </div>
+          <div id="emoji-picker" class="emoji-picker" hidden></div>
+        </div>
         <ul id="listeners-list" class="listeners-list">
           <li class="listener-empty">
             <p>No one else is here yet</p>

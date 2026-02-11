@@ -841,6 +841,96 @@ html, body {
   margin-top: 0.5rem;
 }
 
+/* Profile Editor */
+.profile-editor {
+  padding: 0.75rem 1rem;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--bg-surface);
+}
+
+.profile-editor-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.profile-emoji-btn {
+  width: 40px;
+  height: 40px;
+  font-size: 1.5rem;
+  background: var(--bg-surface);
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: border-color var(--transition);
+}
+
+.profile-emoji-btn:hover {
+  border-color: var(--primary);
+}
+
+.profile-name-input {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-surface);
+  border: none;
+  border-radius: var(--border-radius);
+  color: var(--text-primary);
+  font-size: 0.9375rem;
+  min-width: 0;
+}
+
+.profile-name-input::placeholder {
+  color: var(--text-muted);
+}
+
+.profile-name-input:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.profile-save-btn {
+  flex-shrink: 0;
+}
+
+.emoji-picker {
+  grid-template-columns: repeat(10, 1fr);
+  gap: 0.25rem;
+  padding: 0.75rem 0 0;
+}
+
+.emoji-picker:not([hidden]) {
+  display: grid;
+}
+
+.emoji-option {
+  width: 100%;
+  aspect-ratio: 1;
+  font-size: 1.25rem;
+  background: var(--bg-surface);
+  border: 2px solid transparent;
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color var(--transition), transform var(--transition);
+}
+
+.emoji-option:hover {
+  border-color: var(--text-muted);
+  transform: scale(1.1);
+}
+
+.emoji-option.selected {
+  border-color: var(--primary);
+  background: rgba(29, 185, 84, 0.15);
+}
+
 /* Listeners List */
 .listeners-list {
   list-style: none;
@@ -865,6 +955,12 @@ html, body {
   font-weight: 600;
   font-size: 1rem;
   color: var(--bg-dark);
+  flex-shrink: 0;
+}
+
+.listener-avatar.emoji {
+  background: var(--bg-surface);
+  font-size: 1.375rem;
 }
 
 .listener-name {

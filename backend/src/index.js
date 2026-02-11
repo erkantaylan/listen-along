@@ -616,7 +616,7 @@ io.on('connection', (socket) => {
   let currentLobby = null;
 
   // Create a new lobby
-  socket.on('lobby:create', ({ username, listeningMode, name }) => {
+  socket.on('lobby:create', ({ username, emoji, listeningMode, name }) => {
     // Validate name uniqueness if provided
     if (name && name.trim()) {
       const trimmedName = name.trim();
@@ -632,7 +632,7 @@ io.on('connection', (socket) => {
 
     const lobbyName = (name && name.trim()) ? name.trim() : null;
     const newLobby = lobby.createLobby(null, null, listeningMode, lobbyName);
-    const result = lobby.joinLobby(newLobby.id, socket.id, username || 'Anonymous');
+    const result = lobby.joinLobby(newLobby.id, socket.id, username || 'Anonymous', emoji);
 
     currentLobby = newLobby.id;
     socket.join(newLobby.id);
@@ -648,8 +648,8 @@ io.on('connection', (socket) => {
     console.log(`Lobby ${newLobby.id} created by ${username} (${newLobby.listeningMode})${newLobby.name ? ` name="${newLobby.name}"` : ''}`);
   });
 
-  socket.on('join-lobby', ({ lobbyId, username }) => {
-    const result = lobby.joinLobby(lobbyId, socket.id, username);
+  socket.on('join-lobby', ({ lobbyId, username, emoji }) => {
+    const result = lobby.joinLobby(lobbyId, socket.id, username, emoji);
     if (!result) {
       socket.emit('error', { message: 'Lobby not found' });
       return;
@@ -698,7 +698,7 @@ io.on('connection', (socket) => {
   });
 
   // Handle joining a lobby room (integrates with lobby system)
-  socket.on('lobby:join', ({ lobbyId, username }) => {
+  socket.on('lobby:join', ({ lobbyId, username, emoji }) => {
     // Check if lobby exists, create if not (for direct URL access)
     let lobbyData = lobby.getLobby(lobbyId);
     if (!lobbyData) {
@@ -710,7 +710,7 @@ io.on('connection', (socket) => {
       lobby.leaveLobby(currentLobby, socket.id);
     }
 
-    const result = lobby.joinLobby(lobbyId, socket.id, username || 'Anonymous');
+    const result = lobby.joinLobby(lobbyId, socket.id, username || 'Anonymous', emoji);
     if (!result) {
       socket.emit('lobby:error', { message: 'Failed to join lobby' });
       return;
@@ -771,6 +771,20 @@ io.on('connection', (socket) => {
 
       // Confirm mode change to the user
       socket.emit('mode:changed', { mode: user.mode });
+    }
+  });
+
+  // Update user profile (name/emoji)
+  socket.on('user:update', ({ lobbyId, username, emoji }) => {
+    if (!lobbyId) lobbyId = currentLobby;
+    if (!lobbyId) return;
+
+    const user = lobby.updateUser(lobbyId, socket.id, { username, emoji });
+    if (user) {
+      // Broadcast updated user list to all in lobby
+      io.to(lobbyId).emit('users:updated', {
+        users: lobby.getLobbyUsers(lobbyId)
+      });
     }
   });
 
