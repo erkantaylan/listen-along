@@ -8,6 +8,7 @@ class Queue {
   constructor(lobbyId) {
     this.lobbyId = lobbyId;
     this.songs = [];
+    this.userPositions = new Map(); // userId -> index (for independent mode)
   }
 
   addSong({ url, title, duration, addedBy, thumbnail }) {
@@ -135,6 +136,37 @@ class Queue {
     }
 
     return current;
+  }
+
+  getSongAtIndex(index) {
+    return this.songs[index] || null;
+  }
+
+  getUserPosition(userId) {
+    return this.userPositions.get(userId) || 0;
+  }
+
+  getUserCurrentSong(userId) {
+    const index = this.getUserPosition(userId);
+    return this.songs[index] || null;
+  }
+
+  advanceUserPosition(userId) {
+    const current = this.getUserPosition(userId);
+    const next = current + 1;
+    if (next >= this.songs.length) {
+      return null;
+    }
+    this.userPositions.set(userId, next);
+    return this.songs[next];
+  }
+
+  setUserPosition(userId, index) {
+    this.userPositions.set(userId, index);
+  }
+
+  removeUserPosition(userId) {
+    this.userPositions.delete(userId);
   }
 
   clear() {
