@@ -616,7 +616,7 @@ io.on('connection', (socket) => {
   let currentLobby = null;
 
   // Create a new lobby
-  socket.on('lobby:create', ({ username, emoji, listeningMode, name }) => {
+  socket.on('lobby:create', async ({ username, emoji, listeningMode, name }) => {
     // Validate name uniqueness if provided
     if (name && name.trim()) {
       const trimmedName = name.trim();
@@ -631,8 +631,8 @@ io.on('connection', (socket) => {
     }
 
     const lobbyName = (name && name.trim()) ? name.trim() : null;
-    const newLobby = lobby.createLobby(null, null, listeningMode, lobbyName);
-    const result = lobby.joinLobby(newLobby.id, socket.id, username || 'Anonymous', emoji);
+    const newLobby = await lobby.createLobbyAsync(null, null, listeningMode, lobbyName);
+    const result = await lobby.joinLobbyAsync(newLobby.id, socket.id, username || 'Anonymous', emoji);
 
     currentLobby = newLobby.id;
     socket.join(newLobby.id);
@@ -648,8 +648,8 @@ io.on('connection', (socket) => {
     console.log(`Lobby ${newLobby.id} created by ${username} (${newLobby.listeningMode})${newLobby.name ? ` name="${newLobby.name}"` : ''}`);
   });
 
-  socket.on('join-lobby', ({ lobbyId, username, emoji }) => {
-    const result = lobby.joinLobby(lobbyId, socket.id, username, emoji);
+  socket.on('join-lobby', async ({ lobbyId, username, emoji }) => {
+    const result = await lobby.joinLobbyAsync(lobbyId, socket.id, username, emoji);
     if (!result) {
       socket.emit('error', { message: 'Lobby not found' });
       return;
@@ -659,7 +659,7 @@ io.on('connection', (socket) => {
     socket.join(lobbyId);
 
     // Notify the joining user
-    const joinLobbyData = lobby.getLobby(lobbyId);
+    const joinLobbyData = await lobby.getLobbyAsync(lobbyId);
     socket.emit('joined-lobby', {
       lobbyId,
       name: joinLobbyData ? joinLobbyData.name : null,
@@ -681,7 +681,7 @@ io.on('connection', (socket) => {
     }
 
     // Send current queue state to new joiner
-    const queue = getQueue(lobbyId);
+    const queue = await getQueueAsync(lobbyId);
     socket.emit('queue:update', { lobbyId, songs: queue.getSongs() });
 
     // Send current shuffle state to new joiner
@@ -698,11 +698,11 @@ io.on('connection', (socket) => {
   });
 
   // Handle joining a lobby room (integrates with lobby system)
-  socket.on('lobby:join', ({ lobbyId, username, emoji }) => {
+  socket.on('lobby:join', async ({ lobbyId, username, emoji }) => {
     // Check if lobby exists, create if not (for direct URL access)
-    let lobbyData = lobby.getLobby(lobbyId);
+    let lobbyData = await lobby.getLobbyAsync(lobbyId);
     if (!lobbyData) {
-      lobbyData = lobby.createLobby(null, lobbyId);
+      lobbyData = await lobby.createLobbyAsync(null, lobbyId);
     }
 
     if (currentLobby) {
@@ -710,7 +710,7 @@ io.on('connection', (socket) => {
       lobby.leaveLobby(currentLobby, socket.id);
     }
 
-    const result = lobby.joinLobby(lobbyId, socket.id, username || 'Anonymous', emoji);
+    const result = await lobby.joinLobbyAsync(lobbyId, socket.id, username || 'Anonymous', emoji);
     if (!result) {
       socket.emit('lobby:error', { message: 'Failed to join lobby' });
       return;
@@ -720,7 +720,7 @@ io.on('connection', (socket) => {
 
     // Send joined confirmation to the user
     const listeningMode = lobby.getListeningMode(lobbyId);
-    const joinedLobbyData = lobby.getLobby(lobbyId);
+    const joinedLobbyData = await lobby.getLobbyAsync(lobbyId);
     socket.emit('lobby:joined', {
       lobbyId,
       name: joinedLobbyData ? joinedLobbyData.name : null,
@@ -745,7 +745,7 @@ io.on('connection', (socket) => {
     }
 
     // Send current queue state to new joiner
-    const queue = getQueue(lobbyId);
+    const queue = await getQueueAsync(lobbyId);
     socket.emit('queue:update', { lobbyId, songs: queue.getSongs() });
   });
 
@@ -814,7 +814,7 @@ io.on('connection', (socket) => {
 
   // Add song to queue
   socket.on('queue:add', async ({ lobbyId, query, url, title, duration, addedBy, thumbnail }) => {
-    const queue = getQueue(lobbyId);
+    const queue = await getQueueAsync(lobbyId);
     const inputUrl = url || query;
 
     // Check if this is a playlist URL
@@ -913,7 +913,7 @@ io.on('connection', (socket) => {
 
   // Handle playlist add after user confirms via dialog
   socket.on('queue:playlist-add', async ({ lobbyId, url, mode, addedBy }) => {
-    const queue = getQueue(lobbyId);
+    const queue = await getQueueAsync(lobbyId);
 
     try {
       socket.emit('queue:adding', { status: 'Loading playlist...' });
