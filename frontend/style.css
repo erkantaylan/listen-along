@@ -75,20 +75,8 @@ html, body {
 .logo-icon {
   width: 80px;
   height: 80px;
-  background: var(--primary);
-  border-radius: 50%;
+  border-radius: 20%;
   margin: 0 auto 1rem;
-  position: relative;
-}
-
-.logo-icon::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-40%, -50%);
-  border: 20px solid transparent;
-  border-left: 30px solid var(--bg-dark);
 }
 
 .logo h1 {
