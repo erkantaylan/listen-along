@@ -225,6 +225,7 @@ app.get('/api/lobbies', (req, res) => {
     const queue = getQueue(l.id);
     return {
       id: l.id,
+      name: l.name || null,
       listeningMode: l.listeningMode,
       userCount: l.userCount,
       songCount: queue.getSongs().length,
@@ -615,8 +616,22 @@ io.on('connection', (socket) => {
   let currentLobby = null;
 
   // Create a new lobby
-  socket.on('lobby:create', ({ username, listeningMode }) => {
-    const newLobby = lobby.createLobby(null, null, listeningMode);
+  socket.on('lobby:create', ({ username, listeningMode, name }) => {
+    // Validate name uniqueness if provided
+    if (name && name.trim()) {
+      const trimmedName = name.trim();
+      if (trimmedName.length > 50) {
+        socket.emit('lobby:error', { message: 'Name must be 50 characters or less' });
+        return;
+      }
+      if (lobby.isNameTaken(trimmedName)) {
+        socket.emit('lobby:error', { message: 'A lobby with that name already exists' });
+        return;
+      }
+    }
+
+    const lobbyName = (name && name.trim()) ? name.trim() : null;
+    const newLobby = lobby.createLobby(null, null, listeningMode, lobbyName);
     const result = lobby.joinLobby(newLobby.id, socket.id, username || 'Anonymous');
 
     currentLobby = newLobby.id;
@@ -624,12 +639,13 @@ io.on('connection', (socket) => {
 
     socket.emit('lobby:created', {
       lobbyId: newLobby.id,
+      name: newLobby.name,
       listeningMode: newLobby.listeningMode,
       user: result.user,
       users: lobby.getLobbyUsers(newLobby.id)
     });
 
-    console.log(`Lobby ${newLobby.id} created by ${username} (${newLobby.listeningMode})`);
+    console.log(`Lobby ${newLobby.id} created by ${username} (${newLobby.listeningMode})${newLobby.name ? ` name="${newLobby.name}"` : ''}`);
   });
 
   socket.on('join-lobby', ({ lobbyId, username }) => {
@@ -643,8 +659,10 @@ io.on('connection', (socket) => {
     socket.join(lobbyId);
 
     // Notify the joining user
+    const joinLobbyData = lobby.getLobby(lobbyId);
     socket.emit('joined-lobby', {
       lobbyId,
+      name: joinLobbyData ? joinLobbyData.name : null,
       listeningMode: lobby.getListeningMode(lobbyId),
       user: result.user,
       users: lobby.getLobbyUsers(lobbyId)
@@ -702,8 +720,10 @@ io.on('connection', (socket) => {
 
     // Send joined confirmation to the user
     const listeningMode = lobby.getListeningMode(lobbyId);
+    const joinedLobbyData = lobby.getLobby(lobbyId);
     socket.emit('lobby:joined', {
       lobbyId,
+      name: joinedLobbyData ? joinedLobbyData.name : null,
       listeningMode,
       user: result.user,
       users: lobby.getLobbyUsers(lobbyId)
@@ -752,6 +772,30 @@ io.on('connection', (socket) => {
       // Confirm mode change to the user
       socket.emit('mode:changed', { mode: user.mode });
     }
+  });
+
+  // Rename lobby
+  socket.on('lobby:rename', async ({ lobbyId, name }) => {
+    if (!lobbyId) lobbyId = currentLobby;
+    if (!lobbyId) return;
+
+    const result = await lobby.renameLobby(lobbyId, name);
+    if (!result) {
+      socket.emit('lobby:error', { message: 'Lobby not found' });
+      return;
+    }
+    if (result.error) {
+      socket.emit('lobby:error', { message: result.error });
+      return;
+    }
+
+    // Broadcast rename to all users in the lobby
+    io.to(lobbyId).emit('lobby:renamed', {
+      lobbyId,
+      name: result.lobby.name
+    });
+
+    console.log(`Lobby ${lobbyId} renamed to "${result.lobby.name}"`);
   });
 
   // Add song to queue

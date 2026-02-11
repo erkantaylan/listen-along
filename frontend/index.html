@@ -39,6 +39,9 @@
           <span class="lobby-type-desc">Shared queue, own playback</span>
         </label>
       </div>
+      <div class="lobby-name-input-wrapper">
+        <input type="text" id="lobby-name-input" placeholder="Lobby name (optional)" maxlength="50" autocomplete="off">
+      </div>
       <button id="create-lobby-btn" class="btn btn-primary btn-large">
         Create Lobby
       </button>
@@ -81,6 +84,9 @@
       </button>
       <div class="lobby-info">
         <h2 id="lobby-name">Lobby</h2>
+        <button id="rename-btn" class="btn-icon btn-rename" aria-label="Rename lobby" title="Rename lobby">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+        </button>
         <span id="listening-mode-badge" class="listening-mode-badge" hidden></span>
         <span id="user-count" class="user-count">0 listeners</span>
       </div>

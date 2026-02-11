@@ -104,6 +104,33 @@ html, body {
   max-width: 280px;
 }
 
+.lobby-name-input-wrapper {
+  width: 100%;
+  max-width: 320px;
+  margin-bottom: 1rem;
+}
+
+.lobby-name-input-wrapper input {
+  width: 100%;
+  padding: 0.625rem 1rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 0.9375rem;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.lobby-name-input-wrapper input::placeholder {
+  color: var(--text-muted);
+}
+
+.lobby-name-input-wrapper input:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
 .lobby-type-selector {
   display: flex;
   gap: 0.75rem;
@@ -316,6 +343,27 @@ html, body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: inline;
+}
+
+.btn-rename {
+  display: inline-flex;
+  width: auto;
+  height: auto;
+  padding: 0.125rem;
+  margin-left: 0.25rem;
+  vertical-align: middle;
+  opacity: 0.5;
+  background: none;
+}
+
+.btn-rename:hover {
+  opacity: 1;
+}
+
+.btn-rename svg {
+  width: 14px;
+  height: 14px;
 }
 
 .user-count {
