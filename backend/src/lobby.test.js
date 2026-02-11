@@ -1,6 +1,6 @@
 const { describe, it, beforeEach, after } = require('node:test');
 const assert = require('node:assert');
-const { createLobby, getLobby, joinLobby, leaveLobby, getLobbyUsers, getListeningMode, deleteLobby, lobbies } = require('./lobby');
+const { createLobby, getLobby, joinLobby, leaveLobby, getLobbyUsers, getListeningMode, renameLobby, isNameTaken, deleteLobby, lobbies } = require('./lobby');
 
 describe('Lobby System', () => {
   beforeEach(() => {
@@ -154,6 +154,117 @@ describe('Lobby System', () => {
     it('returns false for non-existent lobby', () => {
       const deleted = deleteLobby('nonexistent');
       assert.strictEqual(deleted, false);
+    });
+  });
+
+  describe('lobby name', () => {
+    it('creates lobby with name', () => {
+      const lobby = createLobby('host-1', null, 'synchronized', 'My Lobby');
+      assert.strictEqual(lobby.name, 'My Lobby');
+    });
+
+    it('creates lobby without name (null)', () => {
+      const lobby = createLobby('host-1');
+      assert.strictEqual(lobby.name, null);
+    });
+
+    it('trims lobby name', () => {
+      const lobby = createLobby('host-1', null, 'synchronized', '  Spaced Name  ');
+      assert.strictEqual(lobby.name, 'Spaced Name');
+    });
+
+    it('truncates name to 50 characters', () => {
+      const longName = 'A'.repeat(60);
+      const lobby = createLobby('host-1', null, 'synchronized', longName);
+      assert.strictEqual(lobby.name.length, 50);
+    });
+
+    it('name is accessible via getLobby', () => {
+      const created = createLobby('host-1', null, 'synchronized', 'Test Lobby');
+      const found = getLobby(created.id);
+      assert.strictEqual(found.name, 'Test Lobby');
+    });
+  });
+
+  describe('renameLobby', () => {
+    it('renames an existing lobby', () => {
+      const lobby = createLobby('host-1', null, 'synchronized', 'Old Name');
+      const result = renameLobby(lobby.id, 'New Name');
+      assert.strictEqual(result.name, 'New Name');
+      assert.strictEqual(getLobby(lobby.id).name, 'New Name');
+    });
+
+    it('returns null for non-existent lobby', () => {
+      const result = renameLobby('nonexistent', 'Name');
+      assert.strictEqual(result, null);
+    });
+
+    it('returns null for empty name', () => {
+      const lobby = createLobby('host-1');
+      const result = renameLobby(lobby.id, '');
+      assert.strictEqual(result, null);
+    });
+
+    it('returns null for whitespace-only name', () => {
+      const lobby = createLobby('host-1');
+      const result = renameLobby(lobby.id, '   ');
+      assert.strictEqual(result, null);
+    });
+
+    it('trims the new name', () => {
+      const lobby = createLobby('host-1');
+      const result = renameLobby(lobby.id, '  Trimmed  ');
+      assert.strictEqual(result.name, 'Trimmed');
+    });
+
+    it('truncates to 50 characters', () => {
+      const lobby = createLobby('host-1');
+      const longName = 'B'.repeat(60);
+      const result = renameLobby(lobby.id, longName);
+      assert.strictEqual(result.name.length, 50);
+    });
+
+    it('rejects duplicate name (case-insensitive)', () => {
+      createLobby('host-1', null, 'synchronized', 'Taken Name');
+      const lobby2 = createLobby('host-2');
+      const result = renameLobby(lobby2.id, 'taken name');
+      assert.ok(result.error);
+    });
+
+    it('allows renaming to same name on same lobby', () => {
+      const lobby = createLobby('host-1', null, 'synchronized', 'My Name');
+      const result = renameLobby(lobby.id, 'My Name');
+      assert.strictEqual(result.name, 'My Name');
+      assert.ok(!result.error);
+    });
+  });
+
+  describe('isNameTaken', () => {
+    it('returns false when no lobbies have names', () => {
+      createLobby('host-1');
+      assert.strictEqual(isNameTaken('Any Name'), false);
+    });
+
+    it('returns true for taken name', () => {
+      createLobby('host-1', null, 'synchronized', 'Existing');
+      assert.strictEqual(isNameTaken('Existing'), true);
+    });
+
+    it('is case-insensitive', () => {
+      createLobby('host-1', null, 'synchronized', 'My Lobby');
+      assert.strictEqual(isNameTaken('my lobby'), true);
+      assert.strictEqual(isNameTaken('MY LOBBY'), true);
+    });
+
+    it('excludes specified lobby from check', () => {
+      const lobby = createLobby('host-1', null, 'synchronized', 'My Lobby');
+      assert.strictEqual(isNameTaken('My Lobby', lobby.id), false);
+    });
+
+    it('returns false for null/empty name', () => {
+      assert.strictEqual(isNameTaken(null), false);
+      assert.strictEqual(isNameTaken(''), false);
+      assert.strictEqual(isNameTaken('  '), false);
     });
   });
 });

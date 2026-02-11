@@ -49,6 +49,7 @@ async function createTables() {
     CREATE TABLE IF NOT EXISTS lobbies (
       id VARCHAR(8) PRIMARY KEY,
       host_id VARCHAR(255),
+      name VARCHAR(50),
       listening_mode VARCHAR(20) DEFAULT 'synchronized',
       created_at BIGINT NOT NULL,
       last_activity BIGINT NOT NULL
@@ -136,6 +137,14 @@ async function createTables() {
   await pool.query(createPlaylistsTable);
   await pool.query(createPlaylistSongsTable);
   await pool.query(createIndexes);
+
+  // Migration: add name column to existing lobbies table
+  await pool.query(`
+    DO $$ BEGIN
+      ALTER TABLE lobbies ADD COLUMN name VARCHAR(50);
+    EXCEPTION WHEN duplicate_column THEN NULL;
+    END $$
+  `);
 
   console.log('Database tables initialized');
 }

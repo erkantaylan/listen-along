@@ -191,6 +191,58 @@ html, body {
   color: #ffa500;
 }
 
+.lobby-name-input {
+  width: 100%;
+  max-width: 280px;
+  margin-bottom: 1rem;
+}
+
+.lobby-name-input input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: var(--bg-surface);
+  border: 1px solid transparent;
+  border-radius: var(--border-radius);
+  color: var(--text-primary);
+  font-size: 0.9375rem;
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.lobby-name-input input:focus {
+  border-color: var(--primary);
+}
+
+.lobby-name-input input::placeholder {
+  color: var(--text-muted);
+}
+
+.lobby-name-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.lobby-name-wrapper h2 {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lobby-name-wrapper .btn-icon {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+}
+
+.lobby-name-wrapper .btn-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
 .join-section {
   margin-top: 2rem;
   color: var(--text-muted);

@@ -101,6 +101,7 @@
 
     // Landing
     createLobbyBtn: document.getElementById('create-lobby-btn'),
+    lobbyNameInput: document.getElementById('lobby-name-input'),
 
     // Lobby Header
     backBtn: document.getElementById('back-btn'),
@@ -108,6 +109,7 @@
     listeningModeBadge: document.getElementById('listening-mode-badge'),
     modeBtn: document.getElementById('mode-btn'),
     lobbyName: document.getElementById('lobby-name'),
+    renameLobbyBtn: document.getElementById('rename-lobby-btn'),
     userCount: document.getElementById('user-count'),
 
     // Now Playing
@@ -272,6 +274,7 @@
     socket.on('lobby:user-joined', handleUserJoined);
     socket.on('lobby:user-left', handleUserLeft);
     socket.on('lobby:closed', handleLobbyClosed);
+    socket.on('lobby:renamed', handleLobbyRenamed);
 
     // Queue Events
     socket.on('queue:update', handleQueueUpdated);
@@ -312,6 +315,11 @@
 
     // Share Lobby
     elements.shareBtn.addEventListener('click', shareLobby);
+
+    // Rename Lobby
+    if (elements.renameLobbyBtn) {
+      elements.renameLobbyBtn.addEventListener('click', renameLobby);
+    }
 
     // Toggle Mode (listening/lobby)
     if (elements.modeBtn) {
@@ -874,7 +882,8 @@
     elements.createLobbyBtn.textContent = 'Creating...';
     const selectedMode = document.querySelector('input[name="listeningMode"]:checked');
     const listeningMode = selectedMode ? selectedMode.value : 'synchronized';
-    socket.emit('lobby:create', { username: state.username, listeningMode });
+    const name = elements.lobbyNameInput ? elements.lobbyNameInput.value.trim() : '';
+    socket.emit('lobby:create', { username: state.username, listeningMode, name: name || undefined });
   }
 
   function joinLobby(lobbyId) {
@@ -915,6 +924,22 @@
     }
   }
 
+  function renameLobby() {
+    const currentName = elements.lobbyName.textContent;
+    const newName = prompt('Rename lobby:', currentName);
+    if (newName === null) return; // cancelled
+    if (!newName.trim()) {
+      showToast('Lobby name cannot be empty', 'error');
+      return;
+    }
+    socket.emit('lobby:rename', { lobbyId: state.lobbyId, name: newName.trim() });
+  }
+
+  function handleLobbyRenamed(data) {
+    elements.lobbyName.textContent = data.name;
+    showToast('Lobby renamed', 'success');
+  }
+
   // Socket Event Handlers
   function handleLobbyCreated(data) {
     state.lobbyId = data.lobbyId;
@@ -928,7 +953,8 @@
     elements.createLobbyBtn.textContent = 'Create Lobby';
 
     window.history.pushState({ lobbyId: data.lobbyId }, '', `/lobby/${data.lobbyId}`);
-    elements.lobbyName.textContent = `Lobby ${data.lobbyId}`;
+    elements.lobbyName.textContent = data.name || `Lobby ${data.lobbyId}`;
+    if (elements.lobbyNameInput) elements.lobbyNameInput.value = '';
     updateListeningModeBadge();
 
     showView('lobby');
@@ -949,7 +975,7 @@
     // Hide rejoin prompt if it was showing
     hideRejoinPrompt();
 
-    elements.lobbyName.textContent = `Lobby ${data.lobbyId}`;
+    elements.lobbyName.textContent = data.name || `Lobby ${data.lobbyId}`;
     updateListeningModeBadge();
 
     showView('lobby');
@@ -1686,7 +1712,7 @@
       return `
         <li class="lobby-card" onclick="window.app.joinLobbyFromCard('${escapeHtml(l.id)}')">
           <div class="lobby-card-header">
-            <span class="lobby-card-id">${escapeHtml(l.id)}</span>
+            <span class="lobby-card-id">${l.name ? escapeHtml(l.name) : escapeHtml(l.id)}</span>
             <span class="listening-mode-badge ${modeClass}">${modeLabel}</span>
           </div>
           <div class="lobby-card-stats">
