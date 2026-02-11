@@ -13,7 +13,7 @@ function generateLobbyId() {
   return uuidv4().substring(0, 8);
 }
 
-async function createLobby(hostId = null, customId = null, listeningMode = 'synchronized') {
+async function createLobby(hostId = null, customId = null, listeningMode = 'synchronized', name = null) {
   const id = customId || generateLobbyId();
   const now = Date.now();
   const mode = (listeningMode === 'independent') ? 'independent' : 'synchronized';
@@ -21,6 +21,7 @@ async function createLobby(hostId = null, customId = null, listeningMode = 'sync
   const lobby = {
     id,
     hostId,
+    name: name || null,
     listeningMode: mode,
     createdAt: now,
     lastActivity: now
@@ -29,8 +30,8 @@ async function createLobby(hostId = null, customId = null, listeningMode = 'sync
   if (db.isAvailable()) {
     try {
       await db.query(
-        'INSERT INTO lobbies (id, host_id, listening_mode, created_at, last_activity) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET last_activity = $5',
-        [id, hostId, mode, now, now]
+        'INSERT INTO lobbies (id, host_id, name, listening_mode, created_at, last_activity) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO UPDATE SET last_activity = $6',
+        [id, hostId, name || null, mode, now, now]
       );
     } catch (err) {
       console.error('Failed to persist lobby:', err.message);
@@ -51,7 +52,7 @@ async function getLobby(id) {
   if (!lobby && db.isAvailable()) {
     try {
       const result = await db.query(
-        'SELECT id, host_id, listening_mode, created_at, last_activity FROM lobbies WHERE id = $1',
+        'SELECT id, host_id, name, listening_mode, created_at, last_activity FROM lobbies WHERE id = $1',
         [id]
       );
       if (result.rows.length > 0) {
@@ -59,6 +60,7 @@ async function getLobby(id) {
         lobby = {
           id: row.id,
           hostId: row.host_id,
+          name: row.name || null,
           listeningMode: row.listening_mode || 'synchronized',
           createdAt: parseInt(row.created_at),
           lastActivity: parseInt(row.last_activity)
@@ -168,6 +170,38 @@ function getUserMode(lobbyId, socketId) {
   return user ? user.mode : null;
 }
 
+function isNameTaken(name, excludeLobbyId = null) {
+  if (!name) return false;
+  const lower = name.toLowerCase().trim();
+  for (const [id, l] of lobbies) {
+    if (excludeLobbyId && id === excludeLobbyId) continue;
+    if (l.name && l.name.toLowerCase().trim() === lower) return true;
+  }
+  return false;
+}
+
+async function renameLobby(lobbyId, newName) {
+  const lobby = lobbies.get(lobbyId);
+  if (!lobby) return null;
+
+  const trimmed = newName ? newName.trim() : '';
+  if (!trimmed) return { error: 'Name cannot be empty' };
+  if (trimmed.length > 50) return { error: 'Name must be 50 characters or less' };
+  if (isNameTaken(trimmed, lobbyId)) return { error: 'A lobby with that name already exists' };
+
+  lobby.name = trimmed;
+
+  if (db.isAvailable()) {
+    try {
+      await db.query('UPDATE lobbies SET name = $1 WHERE id = $2', [trimmed, lobbyId]);
+    } catch (err) {
+      console.error('Failed to update lobby name in DB:', err.message);
+    }
+  }
+
+  return { lobby };
+}
+
 async function deleteLobby(id) {
   if (db.isAvailable()) {
     try {
@@ -231,7 +265,7 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 // Sync wrapper for backward compatibility with tests
-function createLobbySync(hostId = null, customId = null, listeningMode = 'synchronized') {
+function createLobbySync(hostId = null, customId = null, listeningMode = 'synchronized', name = null) {
   const id = customId || generateLobbyId();
   const now = Date.now();
   const mode = (listeningMode === 'independent') ? 'independent' : 'synchronized';
@@ -240,6 +274,7 @@ function createLobbySync(hostId = null, customId = null, listeningMode = 'synchr
   const lobby = {
     id,
     hostId,
+    name: name || null,
     listeningMode: mode,
     createdAt: now,
     lastActivity: now,
@@ -308,6 +343,7 @@ function getAllLobbies() {
     const userCount = users ? users.size : 0;
     result.push({
       id,
+      name: lobbyData.name || null,
       listeningMode: lobbyData.listeningMode || 'synchronized',
       userCount,
       createdAt: lobbyData.createdAt,
@@ -337,6 +373,8 @@ module.exports = {
   getListeningMode,
   setUserMode,
   getUserMode,
+  isNameTaken,
+  renameLobby,
   deleteLobby: deleteLobbySync,
   lobbies,
   // Async versions for production use with database

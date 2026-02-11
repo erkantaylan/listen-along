@@ -108,6 +108,8 @@
     listeningModeBadge: document.getElementById('listening-mode-badge'),
     modeBtn: document.getElementById('mode-btn'),
     lobbyName: document.getElementById('lobby-name'),
+    renameBtn: document.getElementById('rename-btn'),
+    lobbyNameInput: document.getElementById('lobby-name-input'),
     userCount: document.getElementById('user-count'),
 
     // Now Playing
@@ -272,6 +274,7 @@
     socket.on('lobby:user-joined', handleUserJoined);
     socket.on('lobby:user-left', handleUserLeft);
     socket.on('lobby:closed', handleLobbyClosed);
+    socket.on('lobby:renamed', handleLobbyRenamed);
 
     // Queue Events
     socket.on('queue:update', handleQueueUpdated);
@@ -312,6 +315,11 @@
 
     // Share Lobby
     elements.shareBtn.addEventListener('click', shareLobby);
+
+    // Rename Lobby
+    if (elements.renameBtn) {
+      elements.renameBtn.addEventListener('click', promptRenameLobby);
+    }
 
     // Toggle Mode (listening/lobby)
     if (elements.modeBtn) {
@@ -874,7 +882,8 @@
     elements.createLobbyBtn.textContent = 'Creating...';
     const selectedMode = document.querySelector('input[name="listeningMode"]:checked');
     const listeningMode = selectedMode ? selectedMode.value : 'synchronized';
-    socket.emit('lobby:create', { username: state.username, listeningMode });
+    const name = elements.lobbyNameInput ? elements.lobbyNameInput.value.trim() : '';
+    socket.emit('lobby:create', { username: state.username, listeningMode, name: name || undefined });
   }
 
   function joinLobby(lobbyId) {
@@ -885,6 +894,7 @@
     socket.emit('lobby:leave', { lobbyId: state.lobbyId });
     state.lobbyId = null;
     state.isHost = false;
+    state.lobbyName = null;
     state.listeningMode = 'synchronized';
     state.queue = [];
     state.listeners = [];
@@ -920,15 +930,17 @@
     state.lobbyId = data.lobbyId;
     state.isHost = true;
     state.listeningMode = data.listeningMode || 'synchronized';
+    state.lobbyName = data.name || null;
 
     // Save lobby to localStorage for future rejoin
     storageSet(STORAGE_KEYS.LAST_LOBBY, data.lobbyId);
 
     elements.createLobbyBtn.disabled = false;
     elements.createLobbyBtn.textContent = 'Create Lobby';
+    if (elements.lobbyNameInput) elements.lobbyNameInput.value = '';
 
     window.history.pushState({ lobbyId: data.lobbyId }, '', `/lobby/${data.lobbyId}`);
-    elements.lobbyName.textContent = `Lobby ${data.lobbyId}`;
+    elements.lobbyName.textContent = data.name || `Lobby ${data.lobbyId}`;
     updateListeningModeBadge();
 
     showView('lobby');
@@ -939,6 +951,7 @@
     state.lobbyId = data.lobbyId;
     state.isHost = data.isHost || false;
     state.listeningMode = data.listeningMode || 'synchronized';
+    state.lobbyName = data.name || null;
     state.queue = data.queue || [];
     // Handle both 'listeners' and 'users' from backend
     state.listeners = data.listeners || data.users || [];
@@ -949,7 +962,7 @@
     // Hide rejoin prompt if it was showing
     hideRejoinPrompt();
 
-    elements.lobbyName.textContent = `Lobby ${data.lobbyId}`;
+    elements.lobbyName.textContent = data.name || `Lobby ${data.lobbyId}`;
     updateListeningModeBadge();
 
     showView('lobby');
@@ -975,6 +988,28 @@
     }
 
     showToast(data.message || 'Lobby error', 'error');
+  }
+
+  function handleLobbyRenamed(data) {
+    state.lobbyName = data.name || null;
+    elements.lobbyName.textContent = data.name || `Lobby ${data.lobbyId}`;
+    showToast(`Lobby renamed to "${data.name}"`, 'success');
+  }
+
+  function promptRenameLobby() {
+    const currentName = state.lobbyName || '';
+    const newName = prompt('Enter new lobby name:', currentName);
+    if (newName === null) return; // Cancelled
+    const trimmed = newName.trim();
+    if (!trimmed) {
+      showToast('Name cannot be empty', 'error');
+      return;
+    }
+    if (trimmed.length > 50) {
+      showToast('Name must be 50 characters or less', 'error');
+      return;
+    }
+    socket.emit('lobby:rename', { lobbyId: state.lobbyId, name: trimmed });
   }
 
   function handleUserJoined(data) {
@@ -1682,11 +1717,12 @@
       const modeLabel = l.listeningMode === 'independent' ? 'Independent' : 'Synchronized';
       const modeClass = l.listeningMode === 'independent' ? 'independent' : 'synchronized';
       const age = formatAge(l.createdAt);
+      const displayName = l.name ? escapeHtml(l.name) : escapeHtml(l.id);
 
       return `
         <li class="lobby-card" onclick="window.app.joinLobbyFromCard('${escapeHtml(l.id)}')">
           <div class="lobby-card-header">
-            <span class="lobby-card-id">${escapeHtml(l.id)}</span>
+            <span class="lobby-card-id">${displayName}</span>
             <span class="listening-mode-badge ${modeClass}">${modeLabel}</span>
           </div>
           <div class="lobby-card-stats">
