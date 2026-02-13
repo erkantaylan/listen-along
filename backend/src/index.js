@@ -444,7 +444,13 @@ const dashboardAuth = (req, res, next) => {
   const user = credentials.slice(0, idx);
   const pass = credentials.slice(idx + 1);
 
-  if (user === DASHBOARD_USER && pass === DASHBOARD_PASS) {
+  // Use constant-time comparison to prevent timing attacks
+  const userMatch = user.length === DASHBOARD_USER.length &&
+    crypto.timingSafeEqual(Buffer.from(user), Buffer.from(DASHBOARD_USER));
+  const passMatch = pass.length === DASHBOARD_PASS.length &&
+    crypto.timingSafeEqual(Buffer.from(pass), Buffer.from(DASHBOARD_PASS));
+
+  if (userMatch && passMatch) {
     next();
   } else {
     res.setHeader('WWW-Authenticate', 'Basic realm="Dashboard"');
