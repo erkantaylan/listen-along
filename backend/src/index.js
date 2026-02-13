@@ -19,6 +19,29 @@ const pkg = require('../package.json');
 const PORT = process.env.PORT || 3000;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
 
+// Simple in-memory rate limiter
+const rateLimitMap = new Map(); // key: IP, value: { count, resetTime }
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 20; // 20 requests per minute
+
+function rateLimit(req, res, next) {
+  const ip = req.ip || req.connection.remoteAddress;
+  const now = Date.now();
+  const record = rateLimitMap.get(ip);
+
+  if (!record || now > record.resetTime) {
+    rateLimitMap.set(ip, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
+    return next();
+  }
+
+  if (record.count >= RATE_LIMIT_MAX_REQUESTS) {
+    return res.status(429).json({ error: 'Too many requests, please try again later' });
+  }
+
+  record.count++;
+  next();
+}
+
 // Cache playlist items after initial fetch to avoid re-fetching on confirm
 // Key: playlist URL, Value: { items, title, total, limited, fetchedAt }
 const playlistCache = new Map();
@@ -106,7 +129,7 @@ app.get('/api/version', (req, res) => {
 });
 
 // Get video metadata
-app.get('/api/metadata', async (req, res) => {
+app.get('/api/metadata', rateLimit, async (req, res) => {
   const { q } = req.query;
   if (!q) {
     return res.status(400).json({ error: 'Missing query parameter: q' });
@@ -125,7 +148,7 @@ app.get('/api/metadata', async (req, res) => {
 });
 
 // Stream audio - serves cached files when available, falls back to live transcoding
-app.get('/api/stream', async (req, res) => {
+app.get('/api/stream', rateLimit, async (req, res) => {
   const { q } = req.query;
   if (!q) {
     return res.status(400).json({ error: 'Missing query parameter: q' });
@@ -648,6 +671,27 @@ io.on('connection', (socket) => {
   console.log(`Client connected: ${socket.id}`);
   let currentLobby = null;
 
+  // Per-socket rate limiting for expensive operations
+  const socketRateLimit = { count: 0, resetTime: Date.now() + RATE_LIMIT_WINDOW };
+  const checkSocketRateLimit = () => {
+    const now = Date.now();
+    if (now > socketRateLimit.resetTime) {
+      socketRateLimit.count = 0;
+      socketRateLimit.resetTime = now + RATE_LIMIT_WINDOW;
+    }
+    if (socketRateLimit.count >= RATE_LIMIT_MAX_REQUESTS) {
+      return false;
+    }
+    socketRateLimit.count++;
+    return true;
+  };
+
+  // Verify socket is actually in the lobby before allowing operations
+  const verifyLobbyMembership = (lobbyId) => {
+    if (!lobbyId) return false;
+    return socket.rooms.has(lobbyId);
+  };
+
   // Create a new lobby
   socket.on('lobby:create', async ({ username, emoji, listeningMode, name }) => {
     // Validate name uniqueness if provided
@@ -854,6 +898,16 @@ io.on('connection', (socket) => {
 
   // Add song to queue
   socket.on('queue:add', async ({ lobbyId, query, url, title, duration, addedBy, thumbnail }) => {
+    if (!checkSocketRateLimit()) {
+      socket.emit('queue:error', { message: 'Too many requests, please slow down' });
+      return;
+    }
+
+    if (!verifyLobbyMembership(lobbyId)) {
+      socket.emit('queue:error', { message: 'Not a member of this lobby' });
+      return;
+    }
+
     const queue = await getQueueAsync(lobbyId);
     const inputUrl = url || query;
 
@@ -1110,6 +1164,10 @@ io.on('connection', (socket) => {
 
   // Remove song from queue
   socket.on('queue:remove', ({ lobbyId, songId }) => {
+    if (!verifyLobbyMembership(lobbyId)) {
+      return;
+    }
+
     const queue = getQueue(lobbyId);
     const removed = queue.removeSong(songId);
     if (removed) {
@@ -1164,6 +1222,10 @@ io.on('connection', (socket) => {
 
   // Toggle playback (play/pause)
   socket.on('playback:toggle', ({ lobbyId }) => {
+    if (!verifyLobbyMembership(lobbyId)) {
+      return;
+    }
+
     const state = playback.getState(lobbyId);
     if (!state) return;
 
