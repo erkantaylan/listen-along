@@ -440,7 +440,9 @@ const dashboardAuth = (req, res, next) => {
   }
 
   const credentials = Buffer.from(authHeader.slice(6), 'base64').toString();
-  const [user, pass] = credentials.split(':');
+  const idx = credentials.indexOf(':');
+  const user = credentials.slice(0, idx);
+  const pass = credentials.slice(idx + 1);
 
   if (user === DASHBOARD_USER && pass === DASHBOARD_PASS) {
     next();
@@ -731,8 +733,14 @@ io.on('connection', (socket) => {
     }
 
     if (currentLobby) {
-      socket.leave(currentLobby);
-      lobby.leaveLobby(currentLobby, socket.id);
+      const user = await lobby.leaveLobby(currentLobby, socket.id);
+      if (user) {
+        socket.leave(currentLobby);
+        socket.to(currentLobby).emit('user-left', {
+          user,
+          users: lobby.getLobbyUsers(currentLobby)
+        });
+      }
     }
 
     const result = await lobby.joinLobbyAsync(lobbyId, socket.id, username || 'Anonymous', emoji);
@@ -775,8 +783,9 @@ io.on('connection', (socket) => {
   });
 
   socket.on('lobby:leave', ({ lobbyId }) => {
-    socket.leave(lobbyId);
-    console.log(`Client ${socket.id} left lobby ${lobbyId}`);
+    if (lobbyId) {
+      handleLeave(socket, lobbyId);
+    }
     currentLobby = null;
   });
 
@@ -1351,8 +1360,18 @@ const shutdown = (signal) => {
   server.close(() => {
     console.log('HTTP server closed');
 
-    io.close(() => {
+    io.close(async () => {
       console.log('Socket.IO server closed');
+
+      if (db.isAvailable()) {
+        try {
+          await db.close();
+          console.log('Database connection closed');
+        } catch (err) {
+          console.error('Error closing database:', err.message);
+        }
+      }
+
       process.exit(0);
     });
   });
