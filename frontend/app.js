@@ -1337,6 +1337,8 @@
       state.listeners.push(data.user);
     }
     updateListeners();
+    // Don't show join notification to the user who just joined
+    if (data.user.socketId === socket.id) return;
     const joinDisplay = data.user.emoji ? `${data.user.emoji} ${data.user.username}` : data.user.username;
     showToast(`${joinDisplay} joined`, 'success');
   }
