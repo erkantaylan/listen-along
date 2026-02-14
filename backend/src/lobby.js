@@ -352,7 +352,9 @@ function leaveLobbySync(lobbyId, socketId) {
   const user = users.get(socketId);
   if (user) {
     users.delete(socketId);
-    lobby.lastActivity = Date.now();
+    updateLastActivity(lobbyId).catch(err =>
+      console.error('Failed to persist last_activity on leave:', err.message)
+    );
   }
   return user;
 }
