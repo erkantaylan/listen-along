@@ -11,7 +11,8 @@
     REPEAT_MODE: 'listen-repeatMode',
     SHUFFLE_ENABLED: 'listen-shuffleEnabled',
     PLAYBACK_MODE: 'listen-playbackMode',
-    VOLUME: 'listen-volume'
+    VOLUME: 'listen-volume',
+    HIDE_ERRORED_SONGS: 'listen-hideErroredSongs'
   };
 
   // Predefined emoji avatars
@@ -124,7 +125,8 @@
     pendingLobbyId: null, // Lobby ID pending room type selection
     volume: storageGet(STORAGE_KEYS.VOLUME) !== null ? parseFloat(storageGet(STORAGE_KEYS.VOLUME)) : 1,
     isMuted: false,
-    volumeBeforeMute: 1
+    volumeBeforeMute: 1,
+    hideErroredSongs: storageGet(STORAGE_KEYS.HIDE_ERRORED_SONGS) !== 'false' // default true
   };
 
   // DOM Elements
@@ -173,6 +175,7 @@
     songInput: document.getElementById('song-input'),
     addSongBtn: document.getElementById('add-song-btn'),
     queueList: document.getElementById('queue-list'),
+    hideErroredCheckbox: document.getElementById('hide-errored-songs'),
 
     // Chat
     chatTab: document.getElementById('chat-tab'),
@@ -464,6 +467,16 @@
     if (elements.chatInput) {
       elements.chatInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') sendChatMessage();
+      });
+    }
+
+    // Hide errored songs toggle
+    if (elements.hideErroredCheckbox) {
+      elements.hideErroredCheckbox.checked = state.hideErroredSongs;
+      elements.hideErroredCheckbox.addEventListener('change', (e) => {
+        state.hideErroredSongs = e.target.checked;
+        storageSet(STORAGE_KEYS.HIDE_ERRORED_SONGS, state.hideErroredSongs);
+        updateQueue();
       });
     }
 
@@ -1934,7 +1947,26 @@
       return;
     }
 
-    elements.queueList.innerHTML = state.queue.map((song, index) => {
+    // Build list of songs with their original indices for action callbacks
+    const songsWithIndices = state.queue.map((song, index) => ({ song, index }));
+    const visibleSongs = state.hideErroredSongs
+      ? songsWithIndices.filter(({ song }) => {
+          const downloadInfo = state.downloadStatus[song.url];
+          return !downloadInfo || downloadInfo.status !== 'error';
+        })
+      : songsWithIndices;
+
+    if (visibleSongs.length === 0) {
+      elements.queueList.innerHTML = `
+        <li class="queue-empty">
+          <p>All songs have errors</p>
+          <p class="hint">Uncheck "Hide errored songs" to see them</p>
+        </li>
+      `;
+      return;
+    }
+
+    elements.queueList.innerHTML = visibleSongs.map(({ song, index }) => {
       const thumbUrl = song.id ? getCoverUrl(song.id, song.thumbnail) : sanitizeUrl(song.thumbnail);
       const downloadInfo = state.downloadStatus[song.url];
       const downloadHtml = getDownloadStatusHtml(downloadInfo, song.url);

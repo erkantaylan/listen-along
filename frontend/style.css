@@ -705,6 +705,32 @@ html, body {
   height: 24px;
 }
 
+/* Queue Filter */
+.queue-filter {
+  padding: 0.5rem 1rem;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--bg-surface);
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.checkbox-label input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: var(--primary);
+}
+
+.checkbox-label:hover {
+  color: var(--text-primary);
+}
+
 /* Queue List */
 .queue-list {
   list-style: none;
