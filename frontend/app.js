@@ -9,7 +9,8 @@
     EMOJI: 'listen-emoji',
     LAST_LOBBY: 'listen-lastLobby',
     REPEAT_MODE: 'listen-repeatMode',
-    SHUFFLE_ENABLED: 'listen-shuffleEnabled'
+    SHUFFLE_ENABLED: 'listen-shuffleEnabled',
+    HIDE_ERRORED_SONGS: 'listen-hideErroredSongs'
   };
 
   // Predefined emoji avatars
@@ -102,7 +103,8 @@
     soloPlaylistSongs: [],
     soloCurrentIndex: -1,
     soloRepeatMode: getStoredRepeatMode(),
-    playlists: []
+    playlists: [],
+    hideErroredSongs: storageGet(STORAGE_KEYS.HIDE_ERRORED_SONGS) !== 'false' // default true
   };
 
   // DOM Elements
@@ -151,6 +153,7 @@
     songInput: document.getElementById('song-input'),
     addSongBtn: document.getElementById('add-song-btn'),
     queueList: document.getElementById('queue-list'),
+    hideErroredCheckbox: document.getElementById('hide-errored-songs'),
 
     // Listeners
     listenersList: document.getElementById('listeners-list'),
@@ -373,6 +376,16 @@
     elements.songInput.addEventListener('keypress', (e) => {
       if (e.key === 'Enter') addSong();
     });
+
+    // Hide errored songs toggle
+    if (elements.hideErroredCheckbox) {
+      elements.hideErroredCheckbox.checked = state.hideErroredSongs;
+      elements.hideErroredCheckbox.addEventListener('change', (e) => {
+        state.hideErroredSongs = e.target.checked;
+        storageSet(STORAGE_KEYS.HIDE_ERRORED_SONGS, state.hideErroredSongs);
+        updateQueue();
+      });
+    }
 
     // Tab Navigation
     elements.navItems.forEach(item => {
@@ -1684,7 +1697,26 @@
       return;
     }
 
-    elements.queueList.innerHTML = state.queue.map((song, index) => {
+    // Build list of songs with their original indices for action callbacks
+    const songsWithIndices = state.queue.map((song, index) => ({ song, index }));
+    const visibleSongs = state.hideErroredSongs
+      ? songsWithIndices.filter(({ song }) => {
+          const downloadInfo = state.downloadStatus[song.url];
+          return !downloadInfo || downloadInfo.status !== 'error';
+        })
+      : songsWithIndices;
+
+    if (visibleSongs.length === 0) {
+      elements.queueList.innerHTML = `
+        <li class="queue-empty">
+          <p>All songs have errors</p>
+          <p class="hint">Uncheck "Hide errored songs" to see them</p>
+        </li>
+      `;
+      return;
+    }
+
+    elements.queueList.innerHTML = visibleSongs.map(({ song, index }) => {
       const thumbUrl = song.id ? getCoverUrl(song.id, song.thumbnail) : sanitizeUrl(song.thumbnail);
       const downloadInfo = state.downloadStatus[song.url];
       const downloadHtml = getDownloadStatusHtml(downloadInfo, song.url);
