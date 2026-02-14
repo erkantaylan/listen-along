@@ -120,9 +120,6 @@
         </div>
       </div>
       <div class="playback-controls">
-        <button id="repeat-btn" class="btn-icon btn-control" aria-label="Repeat" data-mode="off">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>
-        </button>
         <button id="prev-btn" class="btn-icon btn-control" aria-label="Previous">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
         </button>
@@ -132,7 +129,18 @@
         <button id="next-btn" class="btn-icon btn-control" aria-label="Next">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
         </button>
-        <button id="shuffle-btn" class="btn-icon btn-control" aria-label="Shuffle" disabled style="visibility: hidden;">
+      </div>
+      <div class="playback-mode-selector" role="radiogroup" aria-label="Playback mode">
+        <button class="playback-mode-btn" data-mode="repeat-all" aria-label="Replay list" title="Replay list">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>
+        </button>
+        <button class="playback-mode-btn" data-mode="repeat-one" aria-label="Play only current" title="Play only current">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/><text x="12" y="16" text-anchor="middle" font-size="9" font-weight="700" fill="currentColor">1</text></svg>
+        </button>
+        <button class="playback-mode-btn active" data-mode="stop" aria-label="Stop when list ends" title="Stop when list ends">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/><path d="M8 8h8v8H8z"/></svg>
+        </button>
+        <button class="playback-mode-btn" data-mode="shuffle" aria-label="Play random" title="Play random">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
         </button>
       </div>
