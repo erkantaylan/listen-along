@@ -152,6 +152,14 @@
     addSongBtn: document.getElementById('add-song-btn'),
     queueList: document.getElementById('queue-list'),
 
+    // Chat
+    chatTab: document.getElementById('chat-tab'),
+    chatMessages: document.getElementById('chat-messages'),
+    chatInput: document.getElementById('chat-input'),
+    chatSendBtn: document.getElementById('chat-send-btn'),
+    chatTicker: document.getElementById('chat-ticker'),
+    chatTickerContent: document.getElementById('chat-ticker-content'),
+
     // Listeners
     listenersList: document.getElementById('listeners-list'),
     profileEditor: document.getElementById('profile-editor'),
@@ -327,6 +335,11 @@
     // Mode Events
     socket.on('mode:changed', handleModeChanged);
     socket.on('users:updated', handleUsersUpdated);
+
+    // Chat Events
+    socket.on('chat:message', handleChatMessage);
+    socket.on('chat:history', handleChatHistory);
+    socket.on('chat:error', (data) => showToast(data.message, 'error'));
   }
 
   // Event Listeners Setup
@@ -373,6 +386,16 @@
     elements.songInput.addEventListener('keypress', (e) => {
       if (e.key === 'Enter') addSong();
     });
+
+    // Chat
+    if (elements.chatSendBtn) {
+      elements.chatSendBtn.addEventListener('click', sendChatMessage);
+    }
+    if (elements.chatInput) {
+      elements.chatInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') sendChatMessage();
+      });
+    }
 
     // Tab Navigation
     elements.navItems.forEach(item => {
@@ -992,6 +1015,7 @@
     window.history.pushState({}, '', '/');
     showView('landing');
     resetLobbyUI();
+    resetChat();
   }
 
   function shareLobby() {
@@ -1029,6 +1053,7 @@
     updateListeningModeBadge();
 
     showView('lobby');
+    requestChatHistory();
     showToast('Lobby created! Share the link to invite friends.', 'success');
   }
 
@@ -1053,6 +1078,7 @@
     showView('lobby');
     updateListeners();
     updateQueue();
+    requestChatHistory();
 
     if (state.currentTrack) {
       updateNowPlaying(state.currentTrack);
@@ -1810,6 +1836,126 @@
     updateListeners();
   }
 
+  // ==========================================
+  // Chat
+  // ==========================================
+
+  // Recent ticker messages for marquee
+  let tickerMessages = [];
+  const MAX_TICKER_MESSAGES = 5;
+
+  function sendChatMessage() {
+    if (!elements.chatInput || !socket || !state.lobbyId) return;
+    const content = elements.chatInput.value.trim();
+    if (!content) return;
+
+    socket.emit('chat:send', {
+      lobbyId: state.lobbyId,
+      userId: state.userId,
+      username: state.username,
+      emoji: state.emoji,
+      content
+    });
+
+    elements.chatInput.value = '';
+  }
+
+  function handleChatMessage(msg) {
+    appendChatMessage(msg);
+    updateTicker(msg);
+  }
+
+  function handleChatHistory(data) {
+    if (!elements.chatMessages) return;
+
+    if (!data.messages || data.messages.length === 0) {
+      elements.chatMessages.innerHTML = `
+        <div class="chat-empty">
+          <p>No messages yet</p>
+          <p class="hint">Be the first to say something!</p>
+        </div>`;
+      return;
+    }
+
+    elements.chatMessages.innerHTML = '';
+    data.messages.forEach(msg => appendChatMessage(msg));
+
+    // Seed ticker with last few messages
+    tickerMessages = data.messages.slice(-MAX_TICKER_MESSAGES);
+    renderTicker();
+  }
+
+  function appendChatMessage(msg) {
+    if (!elements.chatMessages) return;
+
+    // Remove empty placeholder
+    const empty = elements.chatMessages.querySelector('.chat-empty');
+    if (empty) empty.remove();
+
+    const div = document.createElement('div');
+    div.className = 'chat-msg';
+
+    const time = new Date(msg.timestamp);
+    const timeStr = time.getHours().toString().padStart(2, '0') + ':' + time.getMinutes().toString().padStart(2, '0');
+
+    div.innerHTML = `
+      <div class="chat-msg-avatar">${msg.emoji || getInitials(msg.username)}</div>
+      <div class="chat-msg-body">
+        <div class="chat-msg-header">
+          <span class="chat-msg-user">${escapeHtml(msg.username)}</span>
+          <span class="chat-msg-time">${timeStr}</span>
+        </div>
+        <div class="chat-msg-text">${escapeHtml(msg.content)}</div>
+      </div>
+    `;
+
+    elements.chatMessages.appendChild(div);
+
+    // Auto-scroll to bottom
+    elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight;
+  }
+
+  function updateTicker(msg) {
+    tickerMessages.push(msg);
+    if (tickerMessages.length > MAX_TICKER_MESSAGES) {
+      tickerMessages.shift();
+    }
+    renderTicker();
+  }
+
+  function renderTicker() {
+    if (!elements.chatTicker || !elements.chatTickerContent) return;
+
+    if (tickerMessages.length === 0) {
+      elements.chatTicker.hidden = true;
+      return;
+    }
+
+    elements.chatTicker.hidden = false;
+    elements.chatTickerContent.innerHTML = tickerMessages.map(msg =>
+      `<span class="ticker-msg"><span class="ticker-user">${escapeHtml(msg.username)}</span>: ${escapeHtml(msg.content)}</span>`
+    ).join('');
+  }
+
+  function requestChatHistory() {
+    if (socket && state.lobbyId) {
+      socket.emit('chat:history', { lobbyId: state.lobbyId });
+    }
+  }
+
+  function resetChat() {
+    tickerMessages = [];
+    if (elements.chatMessages) {
+      elements.chatMessages.innerHTML = `
+        <div class="chat-empty">
+          <p>No messages yet</p>
+          <p class="hint">Be the first to say something!</p>
+        </div>`;
+    }
+    if (elements.chatTicker) elements.chatTicker.hidden = true;
+    if (elements.chatTickerContent) elements.chatTickerContent.innerHTML = '';
+  }
+
   // Tab Navigation
   function switchTab(tabName) {
     elements.navItems.forEach(item => {
@@ -1817,7 +1963,13 @@
     });
 
     elements.queueTab.classList.toggle('active', tabName === 'queue');
+    if (elements.chatTab) elements.chatTab.classList.toggle('active', tabName === 'chat');
     elements.listenersTab.classList.toggle('active', tabName === 'listeners');
+
+    // Auto-focus chat input when switching to chat tab
+    if (tabName === 'chat' && elements.chatInput) {
+      setTimeout(() => elements.chatInput.focus(), 100);
+    }
   }
 
   // Browser Navigation
