@@ -15,6 +15,7 @@ const downloader = require('./downloader');
 const covers = require('./covers');
 const playlist = require('./playlist');
 const chat = require('./chat');
+const spotify = require('./spotify');
 const pkg = require('../package.json');
 
 const PORT = process.env.PORT || 3000;
@@ -937,8 +938,79 @@ io.on('connection', (socket) => {
     const queue = await getQueueAsync(lobbyId);
     const inputUrl = url || query;
 
+    // Check if this is a Spotify URL
+    const spotifyParsed = inputUrl ? spotify.parseSpotifyUrl(inputUrl) : null;
+    if (spotifyParsed) {
+      if (!spotify.isEnabled()) {
+        socket.emit('queue:error', { message: 'Spotify links are not supported on this server — try pasting a YouTube link instead' });
+        return;
+      }
+
+      try {
+        if (spotifyParsed.type === 'playlist') {
+          // Spotify playlist: fetch tracks, present confirmation dialog
+          socket.emit('queue:adding', { status: 'Loading Spotify playlist...' });
+          const playlist = await spotify.getPlaylistTracks(spotifyParsed.id);
+
+          if (playlist.items.length === 0) {
+            socket.emit('queue:error', { message: 'Spotify playlist is empty' });
+            return;
+          }
+
+          // Cache playlist items for confirmation
+          cachePlaylist(inputUrl, {
+            title: playlist.title,
+            items: playlist.items.map(item => ({
+              title: item.title,
+              duration: item.duration,
+              thumbnail: item.thumbnail,
+              // Store searchQuery so we can find on YouTube later
+              url: `ytsearch:${item.searchQuery}`,
+              uploader: item.artist
+            })),
+            total: playlist.total,
+            limited: playlist.limited
+          });
+
+          socket.emit('queue:playlist-confirm', {
+            lobbyId,
+            url: inputUrl,
+            playlistTitle: playlist.title,
+            songCount: playlist.items.length,
+            totalCount: playlist.total,
+            limited: playlist.limited,
+            firstSong: playlist.items[0] ? { title: playlist.items[0].title, duration: playlist.items[0].duration } : null,
+            songMeta: null,
+            addedBy
+          });
+          return;
+        }
+
+        // Spotify track: fetch metadata and search YouTube
+        socket.emit('queue:adding', { status: 'Looking up Spotify track...' });
+        const trackInfo = await spotify.getTrack(spotifyParsed.id);
+
+        socket.emit('queue:adding', { status: 'Finding on YouTube...' });
+        const metadata = await ytdlp.getMetadata(`ytsearch:${trackInfo.searchQuery}`);
+
+        if (!metadata) {
+          socket.emit('queue:error', { message: `Could not find "${trackInfo.title}" on YouTube` });
+          return;
+        }
+
+        url = metadata.url;
+        title = trackInfo.title;
+        duration = metadata.duration;
+        thumbnail = trackInfo.thumbnail || metadata.thumbnail;
+      } catch (err) {
+        console.error('Spotify processing error:', err);
+        socket.emit('queue:error', { message: `Failed to process Spotify link: ${err.message}` });
+        return;
+      }
+    }
+
     // Check if this is a playlist URL
-    if (inputUrl && ytdlp.isPlaylistUrl(inputUrl)) {
+    if (!spotifyParsed && inputUrl && ytdlp.isPlaylistUrl(inputUrl)) {
       try {
         // Check if URL also contains a specific video (watch?v=xxx&list=yyy)
         let videoId = null;
@@ -1479,6 +1551,9 @@ async function start() {
   } else {
     console.log('Running in memory-only mode');
   }
+
+  // Initialize Spotify integration (logs status, no-op if creds missing)
+  spotify.init();
 
   server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
