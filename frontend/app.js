@@ -1573,7 +1573,8 @@
 
     socket.emit('queue:add', {
       lobbyId: state.lobbyId,
-      query: input
+      query: input,
+      addedBy: state.username
     });
 
     elements.songInput.value = '';
@@ -1728,6 +1729,7 @@
           <div class="queue-item-title">${escapeHtml(song.title)}</div>
           <div class="queue-item-meta">
             <span class="queue-item-duration">${song.duration || ''}</span>
+            ${song.addedBy ? `<span class="queue-item-added-by">${escapeHtml(song.addedBy)}</span>` : ''}
             ${downloadHtml.badge}
           </div>
           ${downloadHtml.progressBar}

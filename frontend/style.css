@@ -746,6 +746,17 @@ html, body {
   gap: 0.5rem;
 }
 
+.queue-item-added-by {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  opacity: 0.8;
+}
+
+.queue-item-added-by::before {
+  content: '·';
+  margin-right: 0.25rem;
+}
+
 /* Download Status Indicator on Thumbnail */
 .queue-item-status {
   position: absolute;
