@@ -751,6 +751,9 @@ io.on('connection', (socket) => {
       users: lobby.getLobbyUsers(lobbyId)
     });
 
+    // Restore playback state from DB if not already in memory
+    await playback.initLobbyFromDB(lobbyId);
+
     // Send current playback state to new user joining mid-song
     const state = playback.getJoinState(lobbyId);
     if (state) {
@@ -819,6 +822,9 @@ io.on('connection', (socket) => {
     });
 
     console.log(`User ${username} joined lobby ${lobbyId} (${listeningMode})`);
+
+    // Restore playback state from DB if not already in memory
+    await playback.initLobbyFromDB(lobbyId);
 
     // Send current playback state to new user joining mid-song
     // Only send sync state for synchronized lobbies
@@ -1163,12 +1169,12 @@ io.on('connection', (socket) => {
   });
 
   // Remove song from queue
-  socket.on('queue:remove', ({ lobbyId, songId }) => {
+  socket.on('queue:remove', async ({ lobbyId, songId }) => {
     if (!verifyLobbyMembership(lobbyId)) {
       return;
     }
 
-    const queue = getQueue(lobbyId);
+    const queue = await getQueueAsync(lobbyId);
     const removed = queue.removeSong(songId);
     if (removed) {
       console.log(`Song removed from lobby ${lobbyId}: ${removed.title}`);
@@ -1177,8 +1183,8 @@ io.on('connection', (socket) => {
   });
 
   // Reorder song in queue
-  socket.on('queue:reorder', ({ lobbyId, songId, newIndex }) => {
-    const queue = getQueue(lobbyId);
+  socket.on('queue:reorder', async ({ lobbyId, songId, newIndex }) => {
+    const queue = await getQueueAsync(lobbyId);
     const success = queue.reorderSong(songId, newIndex);
     if (success) {
       console.log(`Song reordered in lobby ${lobbyId}: moved to position ${newIndex}`);
@@ -1187,14 +1193,14 @@ io.on('connection', (socket) => {
   });
 
   // Get current queue state
-  socket.on('queue:get', (lobbyId) => {
-    const queue = getQueue(lobbyId);
+  socket.on('queue:get', async (lobbyId) => {
+    const queue = await getQueueAsync(lobbyId);
     socket.emit('queue:update', { lobbyId, songs: queue.getSongs() });
   });
 
   // Advance to next song (when current song ends)
-  socket.on('queue:next', (lobbyId) => {
-    const queue = getQueue(lobbyId);
+  socket.on('queue:next', async (lobbyId) => {
+    const queue = await getQueueAsync(lobbyId);
     const shuffleState = playback.getShuffleState(lobbyId);
     const songs = queue.getSongs();
 
@@ -1221,11 +1227,12 @@ io.on('connection', (socket) => {
   });
 
   // Toggle playback (play/pause)
-  socket.on('playback:toggle', ({ lobbyId }) => {
+  socket.on('playback:toggle', async ({ lobbyId }) => {
     if (!verifyLobbyMembership(lobbyId)) {
       return;
     }
 
+    await playback.initLobbyFromDB(lobbyId);
     const state = playback.getState(lobbyId);
     if (!state) return;
 
@@ -1234,7 +1241,7 @@ io.on('connection', (socket) => {
     } else {
       // If no current track, try to play first song in queue
       if (!state.currentTrack) {
-        const queue = getQueue(lobbyId);
+        const queue = await getQueueAsync(lobbyId);
         const song = queue.getCurrentSong();
         if (song) {
           playback.setTrack(lobbyId, song, true, io);
@@ -1246,8 +1253,8 @@ io.on('connection', (socket) => {
   });
 
   // Skip to next track
-  socket.on('playback:next', ({ lobbyId }) => {
-    const queue = getQueue(lobbyId);
+  socket.on('playback:next', async ({ lobbyId }) => {
+    const queue = await getQueueAsync(lobbyId);
     const repeatMode = playback.getRepeatMode(lobbyId);
     const isIndependent = lobby.getListeningMode(lobbyId) === 'independent';
 
@@ -1300,12 +1307,12 @@ io.on('connection', (socket) => {
   });
 
   // Handle track ended - coordinates playback and queue with repeat modes
-  socket.on('playback:ended', ({ lobbyId }) => {
+  socket.on('playback:ended', async ({ lobbyId }) => {
     if (!lobbyId) lobbyId = currentLobby;
     if (!lobbyId) return;
 
     const repeatMode = playback.getRepeatMode(lobbyId);
-    const queue = getQueue(lobbyId);
+    const queue = await getQueueAsync(lobbyId);
     const isIndependent = lobby.getListeningMode(lobbyId) === 'independent';
 
     // For repeat-one mode, playback.js handles restarting the track
@@ -1370,8 +1377,8 @@ io.on('connection', (socket) => {
   });
 });
 
-function handleLeave(socket, lobbyId) {
-  const queue = getQueue(lobbyId);
+async function handleLeave(socket, lobbyId) {
+  const queue = await getQueueAsync(lobbyId);
   queue.removeUserPosition(socket.id);
 
   const user = lobby.leaveLobby(lobbyId, socket.id);
