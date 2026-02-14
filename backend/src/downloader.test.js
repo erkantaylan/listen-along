@@ -57,11 +57,4 @@ describe('downloader', () => {
     });
   });
 
-  describe('getDownloadStatus', () => {
-    it('returns null when database is unavailable', async () => {
-      const downloader = require('./downloader');
-      const result = await downloader.getDownloadStatus('https://youtube.com/watch?v=test');
-      assert.strictEqual(result, null);
-    });
-  });
 });

@@ -57,33 +57,6 @@ function getMetadata(query) {
 }
 
 /**
- * Create an audio stream for a YouTube video
- * @param {string} query - YouTube URL or search term
- * @returns {Object} { stream, proc } - Audio stream and process handle
- */
-function createAudioStream(query) {
-  const isUrl = query.startsWith('http://') || query.startsWith('https://');
-  const target = isUrl ? query : `ytsearch:${query}`;
-
-  const args = [
-    '-f', 'bestaudio',
-    '-o', '-',                 // Output to stdout
-    '--no-playlist',
-    target
-  ];
-
-  const proc = spawn('yt-dlp', args, {
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
-
-  return {
-    stream: proc.stdout,
-    proc,
-    kill: () => proc.kill('SIGTERM')
-  };
-}
-
-/**
  * Create a transcoded audio stream (converts to mp3 via ffmpeg)
  * @param {string} query - YouTube URL or search term
  * @returns {Object} { stream, kill } - Audio stream and cleanup function
@@ -288,7 +261,6 @@ function getPlaylistItems(url, limit = 50) {
 
 module.exports = {
   getMetadata,
-  createAudioStream,
   createTranscodedStream,
   parseError,
   checkAvailable,

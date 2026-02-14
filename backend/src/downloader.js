@@ -329,48 +329,6 @@ async function downloadSong(songId, url, lobbyId = null) {
 }
 
 /**
- * Get download status for a URL
- * @param {string} url - YouTube URL
- * @returns {Promise<Object|null>} Status info or null
- */
-async function getDownloadStatus(url) {
-  // Check active downloads first for real-time progress
-  const active = activeDownloads.get(url);
-  if (active) {
-    return {
-      id: active.songId,
-      status: active.status,
-      percent: active.percent,
-      ready: active.status === 'ready'
-    };
-  }
-
-  const song = await getCachedSong(url);
-  if (!song) return null;
-
-  return {
-    id: song.id,
-    status: song.status,
-    percent: song.status === 'ready' ? 100 : 0,
-    ready: song.status === 'ready' && isCachedFileValid(song.file_path),
-    error: song.error_message
-  };
-}
-
-/**
- * Get download status for multiple URLs
- * @param {string[]} urls - Array of YouTube URLs
- * @returns {Promise<Object>} Map of url -> status
- */
-async function getDownloadStatuses(urls) {
-  const statuses = {};
-  for (const url of urls) {
-    statuses[url] = await getDownloadStatus(url);
-  }
-  return statuses;
-}
-
-/**
  * Get all cached songs
  * @returns {Promise<Array>} Array of song records
  */
@@ -496,8 +454,6 @@ module.exports = {
   isCachedFileValid,
   createCachedStream,
   startDownload,
-  getDownloadStatus,
-  getDownloadStatuses,
   getAllSongs,
   deleteSong,
   deleteAllSongs,
