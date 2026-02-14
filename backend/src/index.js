@@ -739,68 +739,6 @@ io.on('connection', (socket) => {
     console.log(`Lobby ${newLobby.id} created by ${username} (${newLobby.listeningMode})${newLobby.name ? ` name="${newLobby.name}"` : ''}`);
   });
 
-  socket.on('join-lobby', async ({ lobbyId, username, emoji }) => {
-    const result = await lobby.joinLobbyAsync(lobbyId, socket.id, username, emoji);
-    if (!result) {
-      socket.emit('error', { message: 'Lobby not found' });
-      return;
-    }
-
-    currentLobby = lobbyId;
-    socket.join(lobbyId);
-
-    // Notify the joining user
-    const joinLobbyData = await lobby.getLobbyAsync(lobbyId);
-    socket.emit('joined-lobby', {
-      lobbyId,
-      name: joinLobbyData ? joinLobbyData.name : null,
-      listeningMode: lobby.getListeningMode(lobbyId),
-      pinned: joinLobbyData ? (joinLobbyData.pinned || false) : false,
-      user: result.user,
-      users: lobby.getLobbyUsers(lobbyId)
-    });
-
-    // Broadcast to others in the lobby
-    socket.to(lobbyId).emit('user-joined', {
-      user: result.user,
-      users: lobby.getLobbyUsers(lobbyId)
-    });
-
-    // Restore playback state from DB if not already in memory
-    await playback.initLobbyFromDB(lobbyId);
-
-    // Set user's currentTrack for listener display
-    const listeningMode = lobby.getListeningMode(lobbyId);
-    if (listeningMode === 'synchronized') {
-      const pbState = playback.getState(lobbyId);
-      if (pbState && pbState.currentTrack) {
-        lobby.setUserCurrentTrack(lobbyId, socket.id, pbState.currentTrack);
-      }
-    }
-
-    // Send current playback state to new user joining mid-song
-    const state = playback.getJoinState(lobbyId);
-    if (state) {
-      socket.emit('playback:sync', state);
-    }
-
-    // Send current queue state to new joiner
-    const queue = await getQueueAsync(lobbyId);
-    socket.emit('queue:update', { lobbyId, songs: queue.getSongs() });
-
-    // Send current shuffle state to new joiner
-    const shuffleState = playback.getShuffleState(lobbyId);
-    socket.emit('playback:shuffle', { lobbyId, shuffleEnabled: shuffleState.shuffleEnabled });
-
-    console.log(`User ${result.user.username} joined lobby ${lobbyId}`);
-  });
-
-  socket.on('leave-lobby', () => {
-    if (currentLobby) {
-      handleLeave(socket, currentLobby);
-    }
-  });
-
   // Handle joining a lobby room (integrates with lobby system)
   socket.on('lobby:join', async ({ lobbyId, username, emoji }) => {
     // Check if lobby exists; if not, ask user to select room type
