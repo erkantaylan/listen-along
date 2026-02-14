@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const EventEmitter = require('events');
 const db = require('./db');
+const covers = require('./covers');
 const { v4: uuidv4 } = require('uuid');
 
 // Event emitter for download progress
@@ -482,6 +483,8 @@ async function cleanupOldSongs(maxAge = 7 * 24 * 60 * 60 * 1000) {
 
     if (result.rows.length > 0) {
       console.log(`Cleaned up ${result.rows.length} old cached songs`);
+      // Clear cover cache to remove stale entries for deleted songs
+      covers.clearCache();
     }
   } catch (err) {
     console.error('Error during cache cleanup:', err.message);
