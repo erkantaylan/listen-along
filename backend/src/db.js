@@ -121,6 +121,18 @@ async function createTables() {
     )
   `;
 
+  const createChatMessagesTable = `
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id UUID PRIMARY KEY,
+      lobby_id VARCHAR(8) NOT NULL REFERENCES lobbies(id) ON DELETE CASCADE,
+      user_id VARCHAR(255) NOT NULL,
+      username VARCHAR(255) NOT NULL,
+      emoji VARCHAR(10),
+      content TEXT NOT NULL,
+      created_at BIGINT NOT NULL
+    )
+  `;
+
   const createIndexes = `
     CREATE INDEX IF NOT EXISTS idx_queue_songs_lobby ON queue_songs(lobby_id, sort_order);
     CREATE INDEX IF NOT EXISTS idx_lobbies_last_activity ON lobbies(last_activity);
@@ -128,6 +140,7 @@ async function createTables() {
     CREATE INDEX IF NOT EXISTS idx_songs_status ON songs(status);
     CREATE INDEX IF NOT EXISTS idx_playlists_user ON playlists(user_id);
     CREATE INDEX IF NOT EXISTS idx_playlist_songs_playlist ON playlist_songs(playlist_id, sort_order);
+    CREATE INDEX IF NOT EXISTS idx_chat_messages_lobby ON chat_messages(lobby_id, created_at);
   `;
 
   await pool.query(createLobbiesTable);
@@ -136,6 +149,7 @@ async function createTables() {
   await pool.query(createSongsTable);
   await pool.query(createPlaylistsTable);
   await pool.query(createPlaylistSongsTable);
+  await pool.query(createChatMessagesTable);
   await pool.query(createIndexes);
 
   // Migrations for existing databases

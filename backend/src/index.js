@@ -14,6 +14,7 @@ const db = require('./db');
 const downloader = require('./downloader');
 const covers = require('./covers');
 const playlist = require('./playlist');
+const chat = require('./chat');
 const pkg = require('../package.json');
 
 const PORT = process.env.PORT || 3000;
@@ -614,9 +615,10 @@ app.delete('/api/dashboard/lobbies/:id', dashboardAuth, (req, res) => {
   // Disconnect all sockets from the room
   io.in(lobbyId).socketsLeave(lobbyId);
 
-  // Clean up playback and queue state
+  // Clean up playback, queue, and chat state
   playback.cleanupLobby(lobbyId);
   deleteQueue(lobbyId);
+  chat.cleanupLobby(lobbyId);
 
   // Delete the lobby
   lobby.deleteLobby(lobbyId);
@@ -1374,8 +1376,45 @@ io.on('connection', (socket) => {
   });
 
 
+  // Chat: send message
+  socket.on('chat:send', async ({ lobbyId, userId, username, emoji, content }) => {
+    if (!lobbyId) lobbyId = currentLobby;
+    if (!lobbyId || !content || !content.trim()) return;
+
+    if (!verifyLobbyMembership(lobbyId)) {
+      socket.emit('chat:error', { message: 'Not a member of this lobby' });
+      return;
+    }
+
+    if (chat.isThrottled(socket.id)) {
+      socket.emit('chat:error', { message: 'Sending too fast, please slow down' });
+      return;
+    }
+
+    const msg = await chat.addMessage(
+      lobbyId,
+      userId || 'anonymous',
+      username || 'Anonymous',
+      emoji || '',
+      content.trim()
+    );
+
+    // Broadcast to all in lobby (including sender)
+    io.to(lobbyId).emit('chat:message', msg);
+  });
+
+  // Chat: get history
+  socket.on('chat:history', async ({ lobbyId }) => {
+    if (!lobbyId) lobbyId = currentLobby;
+    if (!lobbyId) return;
+
+    const messages = await chat.getHistory(lobbyId);
+    socket.emit('chat:history', { lobbyId, messages });
+  });
+
   socket.on('disconnect', (reason) => {
     console.log(`Client disconnected: ${socket.id} (${reason})`);
+    chat.cleanupSocket(socket.id);
     if (currentLobby) {
       handleLeave(socket, currentLobby);
     }

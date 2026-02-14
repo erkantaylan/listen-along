@@ -138,11 +138,20 @@
       </div>
     </section>
 
+    <!-- Marquee Ticker Strip -->
+    <div id="chat-ticker" class="chat-ticker" hidden>
+      <div class="chat-ticker-content" id="chat-ticker-content"></div>
+    </div>
+
     <!-- Bottom Navigation -->
     <nav class="bottom-nav">
       <button class="nav-item active" data-tab="queue">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
         <span>Queue</span>
+      </button>
+      <button class="nav-item" data-tab="chat">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/></svg>
+        <span>Chat</span>
       </button>
       <button class="nav-item" data-tab="listeners">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
@@ -166,6 +175,22 @@
             <p class="hint">Add a song to get started</p>
           </li>
         </ul>
+      </section>
+
+      <!-- Chat Tab -->
+      <section id="chat-tab" class="tab-panel">
+        <div class="chat-messages" id="chat-messages">
+          <div class="chat-empty">
+            <p>No messages yet</p>
+            <p class="hint">Be the first to say something!</p>
+          </div>
+        </div>
+        <div class="chat-input-bar">
+          <input type="text" id="chat-input" placeholder="Type a message..." maxlength="500" autocomplete="off">
+          <button id="chat-send-btn" class="btn btn-primary" aria-label="Send message">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+          </button>
+        </div>
       </section>
 
       <!-- Listeners Tab -->
