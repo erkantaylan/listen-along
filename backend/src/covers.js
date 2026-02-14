@@ -6,7 +6,22 @@ const http = require('http');
 const COVERS_DIR = process.env.COVERS_DIR || '/data/covers';
 
 // In-memory cache: songId -> { path, contentType }
+// Capped at MAX_COVER_CACHE_SIZE entries with LRU eviction
+const MAX_COVER_CACHE_SIZE = 500;
 const coverCache = new Map();
+
+/**
+ * Set a cache entry, evicting oldest entries if cache exceeds max size.
+ * Deletes and re-inserts to move the key to the end (most recently used).
+ */
+function cacheSet(songId, value) {
+  coverCache.delete(songId);
+  coverCache.set(songId, value);
+  while (coverCache.size > MAX_COVER_CACHE_SIZE) {
+    const oldest = coverCache.keys().next().value;
+    coverCache.delete(oldest);
+  }
+}
 
 /**
  * Ensure the covers directory exists
@@ -79,7 +94,7 @@ async function cacheCover(songId, thumbnailUrl) {
 
         fileStream.on('finish', () => {
           fileStream.close();
-          coverCache.set(songId, { path: filePath, contentType: contentType || 'image/jpeg' });
+          cacheSet(songId, { path: filePath, contentType: contentType || 'image/jpeg' });
           resolve(filePath);
         });
 
@@ -127,7 +142,7 @@ function getCachedCover(songId) {
     if (fs.existsSync(filePath)) {
       const contentTypes = { '.jpg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif' };
       const info = { path: filePath, contentType: contentTypes[ext] };
-      coverCache.set(songId, info);
+      cacheSet(songId, info);
       return info;
     }
   }
@@ -150,9 +165,18 @@ function isAvailable() {
   }
 }
 
+/**
+ * Clear the in-memory cover cache (e.g., during song cache cleanup)
+ */
+function clearCache() {
+  coverCache.clear();
+}
+
 module.exports = {
   cacheCover,
   getCachedCover,
   isAvailable,
-  COVERS_DIR
+  clearCache,
+  COVERS_DIR,
+  MAX_COVER_CACHE_SIZE
 };
