@@ -696,7 +696,7 @@ io.on('connection', (socket) => {
   };
 
   // Create a new lobby
-  socket.on('lobby:create', async ({ username, emoji, listeningMode, name }) => {
+  socket.on('lobby:create', async ({ username, emoji, listeningMode, name, lobbyId: requestedId }) => {
     // Validate name uniqueness if provided
     if (name && name.trim()) {
       const trimmedName = name.trim();
@@ -710,8 +710,18 @@ io.on('connection', (socket) => {
       }
     }
 
+    // If a specific lobby ID was requested (e.g. from URL-based creation), check it doesn't already exist
+    const customId = requestedId || null;
+    if (customId) {
+      const existing = await lobby.getLobbyAsync(customId);
+      if (existing) {
+        socket.emit('lobby:error', { message: 'A lobby with that ID already exists' });
+        return;
+      }
+    }
+
     const lobbyName = (name && name.trim()) ? name.trim() : null;
-    const newLobby = await lobby.createLobbyAsync(null, null, listeningMode, lobbyName);
+    const newLobby = await lobby.createLobbyAsync(null, customId, listeningMode, lobbyName);
     const result = await lobby.joinLobbyAsync(newLobby.id, socket.id, username || 'Anonymous', emoji);
 
     currentLobby = newLobby.id;
@@ -793,10 +803,11 @@ io.on('connection', (socket) => {
 
   // Handle joining a lobby room (integrates with lobby system)
   socket.on('lobby:join', async ({ lobbyId, username, emoji }) => {
-    // Check if lobby exists, create if not (for direct URL access)
+    // Check if lobby exists; if not, ask user to select room type
     let lobbyData = await lobby.getLobbyAsync(lobbyId);
     if (!lobbyData) {
-      lobbyData = await lobby.createLobbyAsync(null, lobbyId);
+      socket.emit('lobby:not-found', { lobbyId });
+      return;
     }
 
     if (currentLobby) {
