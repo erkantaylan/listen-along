@@ -365,6 +365,36 @@ function leaveLobbySync(lobbyId, socketId) {
   return user;
 }
 
+async function loadLobbiesFromDB() {
+  if (!db.isAvailable()) return;
+
+  try {
+    const result = await db.query(
+      'SELECT id, host_id, name, listening_mode, created_at, last_activity FROM lobbies ORDER BY last_activity DESC'
+    );
+
+    for (const row of result.rows) {
+      if (!lobbies.has(row.id)) {
+        lobbies.set(row.id, {
+          id: row.id,
+          hostId: row.host_id,
+          name: row.name || null,
+          listeningMode: row.listening_mode || 'synchronized',
+          createdAt: parseInt(row.created_at),
+          lastActivity: parseInt(row.last_activity)
+        });
+        if (!lobbyUsers.has(row.id)) {
+          lobbyUsers.set(row.id, new Map());
+        }
+      }
+    }
+
+    console.log(`Loaded ${result.rows.length} lobbies from database`);
+  } catch (err) {
+    console.error('Failed to load lobbies from DB:', err.message);
+  }
+}
+
 function getAllLobbies() {
   const result = [];
   for (const [id, lobbyData] of lobbies) {
@@ -413,5 +443,6 @@ module.exports = {
   getLobbyAsync: getLobby,
   joinLobbyAsync: joinLobby,
   leaveLobbyAsync: leaveLobby,
-  deleteLobbyAsync: deleteLobby
+  deleteLobbyAsync: deleteLobby,
+  loadLobbiesFromDB
 };

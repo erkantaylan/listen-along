@@ -266,11 +266,11 @@ app.get('/api/stream', rateLimit, async (req, res) => {
 });
 
 // List all active lobbies (public)
-app.get('/api/lobbies', (req, res) => {
+app.get('/api/lobbies', async (req, res) => {
   const allLobbies = lobby.getAllLobbies();
 
-  const lobbies = allLobbies.map(l => {
-    const queue = getQueue(l.id);
+  const lobbies = await Promise.all(allLobbies.map(async l => {
+    const queue = await getQueueAsync(l.id);
     return {
       id: l.id,
       name: l.name || null,
@@ -279,7 +279,7 @@ app.get('/api/lobbies', (req, res) => {
       songCount: queue.getSongs().length,
       createdAt: l.createdAt
     };
-  });
+  }));
 
   res.json({ lobbies });
 });
@@ -1398,6 +1398,9 @@ async function start() {
   const dbAvailable = await db.init();
   if (dbAvailable) {
     console.log('Database persistence enabled');
+
+    // Restore lobbies from database into memory so lobby list works after restart
+    await lobby.loadLobbiesFromDB();
 
     // Run initial cache cleanup
     downloader.cleanupOldSongs().catch(err => {
