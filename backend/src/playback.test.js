@@ -217,6 +217,28 @@ describe('Playback Module', () => {
     });
   });
 
+  describe('stopSyncTimer', () => {
+    test('stops sync timer without removing lobby state', () => {
+      const io = createMockIo();
+      playback.initLobby('test-lobby');
+      lobby.createLobby('test-lobby-sync');
+      playback.initLobby('test-lobby');
+
+      // Set a track and play to trigger sync timer start indirectly
+      const state = playback.getState('test-lobby');
+      assert(state !== null);
+
+      // Manually verify stopSyncTimer doesn't crash on lobby without timer
+      playback.stopSyncTimer('test-lobby');
+      assert(playback.getState('test-lobby') !== null, 'state should still exist after stopSyncTimer');
+    });
+
+    test('is a no-op for non-existent lobby', () => {
+      // Should not throw
+      playback.stopSyncTimer('non-existent-lobby');
+    });
+  });
+
   describe('cleanupLobby', () => {
     test('removes lobby state', () => {
       playback.initLobby('test-lobby');

@@ -789,10 +789,15 @@ io.on('connection', (socket) => {
       const user = await lobby.leaveLobby(currentLobby, socket.id);
       if (user) {
         socket.leave(currentLobby);
+        const remainingUsers = lobby.getLobbyUsers(currentLobby);
         socket.to(currentLobby).emit('user-left', {
           user,
-          users: lobby.getLobbyUsers(currentLobby)
+          users: remainingUsers
         });
+        // Stop sync timer when lobby becomes empty to prevent leaked intervals
+        if (remainingUsers.length === 0) {
+          playback.stopSyncTimer(currentLobby);
+        }
       }
     }
 
@@ -1384,11 +1389,17 @@ async function handleLeave(socket, lobbyId) {
   const user = lobby.leaveLobby(lobbyId, socket.id);
   if (user) {
     socket.leave(lobbyId);
+    const remainingUsers = lobby.getLobbyUsers(lobbyId);
     socket.to(lobbyId).emit('user-left', {
       user,
-      users: lobby.getLobbyUsers(lobbyId)
+      users: remainingUsers
     });
     console.log(`User ${user.username} left lobby ${lobbyId}`);
+
+    // Stop sync timer when lobby becomes empty to prevent leaked intervals
+    if (remainingUsers.length === 0) {
+      playback.stopSyncTimer(lobbyId);
+    }
   }
 }
 

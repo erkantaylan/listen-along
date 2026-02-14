@@ -586,6 +586,7 @@ module.exports = {
   getShuffleState,
   getNextShuffleIndex,
   updateShuffleForQueueChange,
+  stopSyncTimer,
   // Exported for testing
   SYNC_INTERVAL,
 };
