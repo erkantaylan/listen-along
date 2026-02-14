@@ -111,7 +111,8 @@ async function joinLobby(lobbyId, socketId, username, emoji) {
     username: username || `User-${socketId.substring(0, 4)}`,
     emoji: emoji || null,
     joinedAt: Date.now(),
-    mode: 'listening' // 'listening' or 'lobby'
+    mode: 'listening', // 'listening' or 'lobby'
+    currentTrack: null  // { title, thumbnail } - what user is currently listening to
   };
 
   let users = lobbyUsers.get(lobbyId);
@@ -188,6 +189,29 @@ function getUserMode(lobbyId, socketId) {
 
   const user = users.get(socketId);
   return user ? user.mode : null;
+}
+
+function setUserCurrentTrack(lobbyId, socketId, track) {
+  const users = lobbyUsers.get(lobbyId);
+  if (!users) return null;
+
+  const user = users.get(socketId);
+  if (!user) return null;
+
+  user.currentTrack = track ? { title: track.title, thumbnail: track.thumbnail } : null;
+  return user;
+}
+
+function setAllUsersCurrentTrack(lobbyId, track) {
+  const users = lobbyUsers.get(lobbyId);
+  if (!users) return;
+
+  const trackInfo = track ? { title: track.title, thumbnail: track.thumbnail } : null;
+  for (const user of users.values()) {
+    if (user.mode === 'listening') {
+      user.currentTrack = trackInfo;
+    }
+  }
 }
 
 function isNameTaken(name, excludeLobbyId = null) {
@@ -334,7 +358,8 @@ function joinLobbySync(lobbyId, socketId, username, emoji) {
     username: username || `User-${socketId.substring(0, 4)}`,
     emoji: emoji || null,
     joinedAt: Date.now(),
-    mode: 'listening' // 'listening' or 'lobby'
+    mode: 'listening', // 'listening' or 'lobby'
+    currentTrack: null  // { title, thumbnail } - what user is currently listening to
   };
 
   let users = lobbyUsers.get(lobbyId);
@@ -433,6 +458,8 @@ module.exports = {
   setUserMode,
   getUserMode,
   updateUser,
+  setUserCurrentTrack,
+  setAllUsersCurrentTrack,
   isNameTaken,
   renameLobby,
   deleteLobby: deleteLobbySync,

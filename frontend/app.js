@@ -1241,6 +1241,7 @@
     }
 
     updatePlayButton();
+    updateListeners();
   }
 
   function handlePlaybackSync(data) {
@@ -1273,6 +1274,7 @@
       if (!audio.src || !audio.src.includes(encodeURIComponent(data.track.url))) {
         state.currentTrack = data.track;
         updateNowPlaying(data.track);
+        updateListeners();
 
         if (data.isPlaying && shouldPlayAudio) {
           playAudioWithUnlock(streamUrl, serverPosition, true);
@@ -1311,6 +1313,7 @@
 
     updateNowPlaying(data.track);
     updateQueue();
+    updateListeners();
 
     if (data.audioUrl) {
       playAudioWithUnlock(data.audioUrl, 0, true);
@@ -1474,8 +1477,17 @@
     if (!track) return;
     state.currentTrack = track;
     updateNowPlaying(track);
+    updateListeners();
     const streamUrl = `/api/stream?q=${encodeURIComponent(track.url)}`;
     playAudioWithUnlock(streamUrl, 0, true);
+
+    // Report now-playing to server for listener display
+    if (state.listeningMode === 'independent' && state.lobbyId) {
+      socket.emit('listener:now-playing', {
+        lobbyId: state.lobbyId,
+        track: { title: track.title, thumbnail: track.thumbnail }
+      });
+    }
   }
 
   // Independent mode: advance to next track in queue
@@ -1777,10 +1789,27 @@
         ? '<svg class="mode-icon lobby" viewBox="0 0 24 24" fill="currentColor" title="Lobby mode"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>'
         : '<svg class="mode-icon listening" viewBox="0 0 24 24" fill="currentColor" title="Listening"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg>';
       const avatar = user.emoji || getInitials(user.username);
+
+      // Determine what this user is currently listening to
+      let nowListening = '';
+      if (user.mode === 'listening') {
+        // For synchronized mode, all listening users hear the same track
+        // For independent mode, use per-user currentTrack from backend
+        const track = (state.listeningMode === 'independent')
+          ? user.currentTrack
+          : state.currentTrack;
+        if (track && track.title) {
+          nowListening = `<span class="listener-track">${escapeHtml(track.title)}</span>`;
+        }
+      }
+
       return `
       <li class="listener-item ${user.mode === 'lobby' ? 'lobby-mode' : ''}">
         <div class="listener-avatar${user.emoji ? ' emoji' : ''}">${avatar}</div>
-        <span class="listener-name">${escapeHtml(user.username)}</span>
+        <div class="listener-info">
+          <span class="listener-name">${escapeHtml(user.username)}</span>
+          ${nowListening}
+        </div>
         ${modeIcon}
         ${user.isHost ? '<span class="listener-badge">Host</span>' : ''}
       </li>`;

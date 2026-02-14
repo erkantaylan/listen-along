@@ -754,6 +754,15 @@ io.on('connection', (socket) => {
     // Restore playback state from DB if not already in memory
     await playback.initLobbyFromDB(lobbyId);
 
+    // Set user's currentTrack for listener display
+    const listeningMode = lobby.getListeningMode(lobbyId);
+    if (listeningMode === 'synchronized') {
+      const pbState = playback.getState(lobbyId);
+      if (pbState && pbState.currentTrack) {
+        lobby.setUserCurrentTrack(lobbyId, socket.id, pbState.currentTrack);
+      }
+    }
+
     // Send current playback state to new user joining mid-song
     const state = playback.getJoinState(lobbyId);
     if (state) {
@@ -826,6 +835,14 @@ io.on('connection', (socket) => {
     // Restore playback state from DB if not already in memory
     await playback.initLobbyFromDB(lobbyId);
 
+    // Set user's currentTrack for listener display
+    if (listeningMode === 'synchronized') {
+      const pbState = playback.getState(lobbyId);
+      if (pbState && pbState.currentTrack) {
+        lobby.setUserCurrentTrack(lobbyId, socket.id, pbState.currentTrack);
+      }
+    }
+
     // Send current playback state to new user joining mid-song
     // Only send sync state for synchronized lobbies
     const playbackState = playback.getJoinState(lobbyId);
@@ -854,6 +871,16 @@ io.on('connection', (socket) => {
     if (user) {
       console.log(`User ${user.username} switched to ${mode} mode in lobby ${lobbyId}`);
 
+      // Update currentTrack based on mode
+      if (mode === 'lobby') {
+        lobby.setUserCurrentTrack(lobbyId, socket.id, null);
+      } else if (mode === 'listening' && lobby.getListeningMode(lobbyId) === 'synchronized') {
+        const playbackState = playback.getState(lobbyId);
+        if (playbackState && playbackState.currentTrack) {
+          lobby.setUserCurrentTrack(lobbyId, socket.id, playbackState.currentTrack);
+        }
+      }
+
       // Broadcast updated user list to all in lobby
       io.to(lobbyId).emit('users:updated', {
         users: lobby.getLobbyUsers(lobbyId)
@@ -872,6 +899,19 @@ io.on('connection', (socket) => {
     const user = lobby.updateUser(lobbyId, socket.id, { username, emoji });
     if (user) {
       // Broadcast updated user list to all in lobby
+      io.to(lobbyId).emit('users:updated', {
+        users: lobby.getLobbyUsers(lobbyId)
+      });
+    }
+  });
+
+  // Report currently playing track (for independent mode listener display)
+  socket.on('listener:now-playing', ({ lobbyId, track }) => {
+    if (!lobbyId) lobbyId = currentLobby;
+    if (!lobbyId) return;
+
+    const user = lobby.setUserCurrentTrack(lobbyId, socket.id, track);
+    if (user) {
       io.to(lobbyId).emit('users:updated', {
         users: lobby.getLobbyUsers(lobbyId)
       });
