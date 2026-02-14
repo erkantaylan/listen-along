@@ -357,9 +357,20 @@
     // Playlist confirmation dialog
     socket.on('queue:playlist-confirm', handlePlaylistConfirm);
     socket.on('queue:playlist-progress', (data) => {
-      showToast(`Adding ${data.current}/${data.total}: ${data.title}`, 'info');
+      // Update a single persistent toast instead of creating one per song
+      let toast = document.getElementById('playlist-progress-toast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'playlist-progress-toast';
+        toast.className = 'toast info';
+        elements.toastContainer.appendChild(toast);
+      }
+      toast.textContent = `Adding songs: ${data.current}/${data.total}`;
     });
     socket.on('queue:playlist-complete', (data) => {
+      // Remove the progress toast and show a final summary
+      const progressToast = document.getElementById('playlist-progress-toast');
+      if (progressToast) progressToast.remove();
       showToast(`Added ${data.added} songs from "${data.playlistTitle}"`, 'success');
     });
 
