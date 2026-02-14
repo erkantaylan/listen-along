@@ -1122,9 +1122,24 @@ html, body {
   font-size: 1.375rem;
 }
 
-.listener-name {
+.listener-info {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.listener-name {
   font-weight: 500;
+}
+
+.listener-track {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .listener-badge {
