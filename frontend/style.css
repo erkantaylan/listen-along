@@ -1533,6 +1533,31 @@ html, body {
   background: var(--bg-surface);
 }
 
+/* Pin Button */
+#pin-btn {
+  color: var(--text-muted);
+  opacity: 0.7;
+  transition: all var(--transition);
+}
+
+#pin-btn.active {
+  color: var(--primary);
+  opacity: 1;
+}
+
+#pin-btn:hover {
+  background: var(--bg-surface);
+  opacity: 1;
+}
+
+/* Pin indicator on lobby cards */
+.pin-indicator {
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 0.25rem;
+  color: var(--primary);
+}
+
 /* Mode Indicators in Listener List */
 .listener-item .mode-icon {
   width: 18px;

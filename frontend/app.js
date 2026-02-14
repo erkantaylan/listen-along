@@ -97,6 +97,7 @@
     downloadStatus: {}, // Map of url -> { status, percent }
     userMode: 'listening', // 'listening' or 'lobby'
     listeningMode: 'synchronized', // 'synchronized' or 'independent'
+    pinned: false, // whether lobby is pinned (persistent)
     // Solo playlist state
     soloPlaylistId: null,
     soloPlaylistSongs: [],
@@ -122,6 +123,7 @@
     modeBtn: document.getElementById('mode-btn'),
     lobbyName: document.getElementById('lobby-name'),
     renameBtn: document.getElementById('rename-btn'),
+    pinBtn: document.getElementById('pin-btn'),
     lobbyNameInput: document.getElementById('lobby-name-input'),
     userCount: document.getElementById('user-count'),
 
@@ -294,6 +296,7 @@
     socket.on('lobby:user-left', handleUserLeft);
     socket.on('lobby:closed', handleLobbyClosed);
     socket.on('lobby:renamed', handleLobbyRenamed);
+    socket.on('lobby:pinned', handleLobbyPinned);
 
     // Queue Events
     socket.on('queue:update', handleQueueUpdated);
@@ -351,6 +354,11 @@
     // Rename Lobby
     if (elements.renameBtn) {
       elements.renameBtn.addEventListener('click', promptRenameLobby);
+    }
+
+    // Pin Lobby
+    if (elements.pinBtn) {
+      elements.pinBtn.addEventListener('click', togglePin);
     }
 
     // Toggle Mode (listening/lobby)
@@ -981,6 +989,7 @@
     state.isHost = false;
     state.lobbyName = null;
     state.listeningMode = 'synchronized';
+    state.pinned = false;
     state.queue = [];
     state.listeners = [];
     state.currentTrack = null;
@@ -1016,6 +1025,7 @@
     state.isHost = true;
     state.listeningMode = data.listeningMode || 'synchronized';
     state.lobbyName = data.name || null;
+    state.pinned = data.pinned || false;
 
     // Save lobby to localStorage for future rejoin
     storageSet(STORAGE_KEYS.LAST_LOBBY, data.lobbyId);
@@ -1027,6 +1037,7 @@
     window.history.pushState({ lobbyId: data.lobbyId }, '', `/lobby/${data.lobbyId}`);
     elements.lobbyName.textContent = data.name || `Lobby ${data.lobbyId}`;
     updateListeningModeBadge();
+    updatePinButton();
 
     showView('lobby');
     showToast('Lobby created! Share the link to invite friends.', 'success');
@@ -1037,6 +1048,7 @@
     state.isHost = data.isHost || false;
     state.listeningMode = data.listeningMode || 'synchronized';
     state.lobbyName = data.name || null;
+    state.pinned = data.pinned || false;
     state.queue = data.queue || [];
     // Handle both 'listeners' and 'users' from backend
     state.listeners = data.listeners || data.users || [];
@@ -1049,6 +1061,7 @@
 
     elements.lobbyName.textContent = data.name || `Lobby ${data.lobbyId}`;
     updateListeningModeBadge();
+    updatePinButton();
 
     showView('lobby');
     updateListeners();
@@ -1079,6 +1092,23 @@
     state.lobbyName = data.name || null;
     elements.lobbyName.textContent = data.name || `Lobby ${data.lobbyId}`;
     showToast(`Lobby renamed to "${data.name}"`, 'success');
+  }
+
+  function handleLobbyPinned(data) {
+    state.pinned = data.pinned;
+    updatePinButton();
+    showToast(data.pinned ? 'Lobby pinned — it won\'t be removed' : 'Lobby unpinned', 'success');
+  }
+
+  function updatePinButton() {
+    if (!elements.pinBtn) return;
+    elements.pinBtn.classList.toggle('active', state.pinned);
+    elements.pinBtn.setAttribute('aria-pressed', state.pinned ? 'true' : 'false');
+    elements.pinBtn.title = state.pinned ? 'Unpin lobby (allow cleanup)' : 'Pin lobby (prevent cleanup)';
+  }
+
+  function togglePin() {
+    socket.emit('lobby:pin', { lobbyId: state.lobbyId, pinned: !state.pinned });
   }
 
   function promptRenameLobby() {
@@ -1919,11 +1949,12 @@
       const modeClass = l.listeningMode === 'independent' ? 'independent' : 'synchronized';
       const age = formatAge(l.createdAt);
       const displayName = l.name ? escapeHtml(l.name) : escapeHtml(l.id);
+      const pinIcon = l.pinned ? '<svg class="pin-indicator" viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>' : '';
 
       return `
         <li class="lobby-card" onclick="window.app.joinLobbyFromCard('${escapeHtml(l.id)}')">
           <div class="lobby-card-header">
-            <span class="lobby-card-id">${displayName}</span>
+            <span class="lobby-card-id">${pinIcon}${displayName}</span>
             <span class="listening-mode-badge ${modeClass}">${modeLabel}</span>
           </div>
           <div class="lobby-card-stats">

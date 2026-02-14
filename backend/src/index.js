@@ -275,6 +275,7 @@ app.get('/api/lobbies', async (req, res) => {
       id: l.id,
       name: l.name || null,
       listeningMode: l.listeningMode,
+      pinned: l.pinned || false,
       userCount: l.userCount,
       songCount: queue.getSongs().length,
       createdAt: l.createdAt
@@ -718,6 +719,7 @@ io.on('connection', (socket) => {
       lobbyId: newLobby.id,
       name: newLobby.name,
       listeningMode: newLobby.listeningMode,
+      pinned: newLobby.pinned || false,
       user: result.user,
       users: lobby.getLobbyUsers(newLobby.id)
     });
@@ -741,6 +743,7 @@ io.on('connection', (socket) => {
       lobbyId,
       name: joinLobbyData ? joinLobbyData.name : null,
       listeningMode: lobby.getListeningMode(lobbyId),
+      pinned: joinLobbyData ? (joinLobbyData.pinned || false) : false,
       user: result.user,
       users: lobby.getLobbyUsers(lobbyId)
     });
@@ -811,6 +814,7 @@ io.on('connection', (socket) => {
       lobbyId,
       name: joinedLobbyData ? joinedLobbyData.name : null,
       listeningMode,
+      pinned: joinedLobbyData ? (joinedLobbyData.pinned || false) : false,
       user: result.user,
       users: lobby.getLobbyUsers(lobbyId)
     });
@@ -876,6 +880,26 @@ io.on('connection', (socket) => {
         users: lobby.getLobbyUsers(lobbyId)
       });
     }
+  });
+
+  // Pin/unpin lobby (make persistent)
+  socket.on('lobby:pin', async ({ lobbyId, pinned }) => {
+    if (!lobbyId) lobbyId = currentLobby;
+    if (!lobbyId) return;
+
+    const result = await lobby.pinLobby(lobbyId, !!pinned);
+    if (!result) {
+      socket.emit('lobby:error', { message: 'Lobby not found' });
+      return;
+    }
+
+    // Broadcast pin state to all users in the lobby
+    io.to(lobbyId).emit('lobby:pinned', {
+      lobbyId,
+      pinned: !!pinned
+    });
+
+    console.log(`Lobby ${lobbyId} ${pinned ? 'pinned' : 'unpinned'}`);
   });
 
   // Rename lobby

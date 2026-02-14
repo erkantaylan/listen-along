@@ -143,6 +143,10 @@ async function createTables() {
     ALTER TABLE lobbies ADD COLUMN IF NOT EXISTS name VARCHAR(50)
   `).catch(() => {}); // Ignore if column already exists or DB doesn't support IF NOT EXISTS
 
+  await pool.query(`
+    ALTER TABLE lobbies ADD COLUMN IF NOT EXISTS pinned BOOLEAN DEFAULT FALSE
+  `).catch(() => {}); // Ignore if column already exists
+
   console.log('Database tables initialized');
 }
 
@@ -182,7 +186,7 @@ async function cleanupExpiredLobbies() {
   const expiryTime = Date.now() - (24 * 60 * 60 * 1000); // 24 hours
 
   const result = await pool.query(
-    'DELETE FROM lobbies WHERE last_activity < $1 RETURNING id',
+    'DELETE FROM lobbies WHERE last_activity < $1 AND (pinned IS NULL OR pinned = FALSE) RETURNING id',
     [expiryTime]
   );
 

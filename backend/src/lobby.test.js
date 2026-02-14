@@ -1,6 +1,6 @@
 const { describe, it, beforeEach, after } = require('node:test');
 const assert = require('node:assert');
-const { createLobby, getLobby, joinLobby, leaveLobby, getLobbyUsers, getListeningMode, deleteLobby, isNameTaken, renameLobby, getAllLobbies, lobbies, cleanupEmptyLobbies } = require('./lobby');
+const { createLobby, getLobby, joinLobby, leaveLobby, getLobbyUsers, getListeningMode, deleteLobby, isNameTaken, renameLobby, getAllLobbies, pinLobby, lobbies, cleanupEmptyLobbies } = require('./lobby');
 const { getQueue, deleteQueue, hasQueue } = require('./queue');
 const playback = require('./playback');
 
@@ -261,6 +261,38 @@ describe('Lobby System', () => {
     });
   });
 
+  describe('pinLobby', () => {
+    it('pins a lobby', async () => {
+      const lobby = createLobby('host-1');
+      const result = await pinLobby(lobby.id, true);
+      assert.ok(result);
+      assert.strictEqual(result.lobby.pinned, true);
+      // Verify in-memory state
+      const found = getLobby(lobby.id);
+      assert.strictEqual(found.pinned, true);
+    });
+
+    it('unpins a lobby', async () => {
+      const lobby = createLobby('host-1');
+      await pinLobby(lobby.id, true);
+      const result = await pinLobby(lobby.id, false);
+      assert.ok(result);
+      assert.strictEqual(result.lobby.pinned, false);
+    });
+
+    it('returns null for non-existent lobby', async () => {
+      const result = await pinLobby('nonexistent', true);
+      assert.strictEqual(result, null);
+    });
+
+    it('includes pinned state in getAllLobbies', async () => {
+      const lobby = createLobby('host-1');
+      await pinLobby(lobby.id, true);
+      const all = getAllLobbies();
+      assert.strictEqual(all[0].pinned, true);
+    });
+  });
+
   describe('cleanupEmptyLobbies', () => {
     it('cleans up queue and playback Maps for expired empty lobbies', async () => {
       const lobby = createLobby('host-1', 'cleanup-test');
@@ -284,6 +316,27 @@ describe('Lobby System', () => {
       // Queue and playback should also be cleaned up
       assert.strictEqual(hasQueue(lobbyId), false, 'queue should be cleaned up');
       assert.strictEqual(playback.getState(lobbyId), null, 'playback state should be cleaned up');
+    });
+
+    it('does not clean up pinned lobbies even if expired', async () => {
+      const lobby = createLobby('host-1', 'pinned-test');
+      const lobbyId = lobby.id;
+
+      getQueue(lobbyId);
+      playback.initLobby(lobbyId);
+
+      // Pin the lobby
+      await pinLobby(lobbyId, true);
+
+      // Make the lobby expired (older than 24h timeout)
+      const lobbyData = lobbies.get(lobbyId);
+      lobbyData.lastActivity = Date.now() - (25 * 60 * 60 * 1000);
+
+      await cleanupEmptyLobbies();
+
+      // Pinned lobby should NOT be removed
+      assert.ok(lobbies.has(lobbyId), 'pinned lobby should not be removed');
+      assert.ok(hasQueue(lobbyId), 'queue for pinned lobby should not be removed');
     });
 
     it('does not clean up lobbies that are not expired', async () => {

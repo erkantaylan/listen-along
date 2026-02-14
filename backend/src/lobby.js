@@ -23,6 +23,7 @@ async function createLobby(hostId = null, customId = null, listeningMode = 'sync
     hostId,
     name: name || null,
     listeningMode: mode,
+    pinned: false,
     createdAt: now,
     lastActivity: now
   };
@@ -30,8 +31,8 @@ async function createLobby(hostId = null, customId = null, listeningMode = 'sync
   if (db.isAvailable()) {
     try {
       await db.query(
-        'INSERT INTO lobbies (id, host_id, name, listening_mode, created_at, last_activity) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO UPDATE SET last_activity = $6',
-        [id, hostId, name || null, mode, now, now]
+        'INSERT INTO lobbies (id, host_id, name, listening_mode, created_at, last_activity, pinned) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO UPDATE SET last_activity = $6',
+        [id, hostId, name || null, mode, now, now, false]
       );
     } catch (err) {
       console.error('Failed to persist lobby:', err.message);
@@ -52,7 +53,7 @@ async function getLobby(id) {
   if (!lobby && db.isAvailable()) {
     try {
       const result = await db.query(
-        'SELECT id, host_id, name, listening_mode, created_at, last_activity FROM lobbies WHERE id = $1',
+        'SELECT id, host_id, name, listening_mode, created_at, last_activity, pinned FROM lobbies WHERE id = $1',
         [id]
       );
       if (result.rows.length > 0) {
@@ -62,6 +63,7 @@ async function getLobby(id) {
           hostId: row.host_id,
           name: row.name || null,
           listeningMode: row.listening_mode || 'synchronized',
+          pinned: row.pinned || false,
           createdAt: parseInt(row.created_at),
           lastActivity: parseInt(row.last_activity)
         };
@@ -222,6 +224,23 @@ async function renameLobby(lobbyId, newName) {
   return { lobby };
 }
 
+async function pinLobby(lobbyId, pinned) {
+  const lobby = lobbies.get(lobbyId);
+  if (!lobby) return null;
+
+  lobby.pinned = pinned;
+
+  if (db.isAvailable()) {
+    try {
+      await db.query('UPDATE lobbies SET pinned = $1 WHERE id = $2', [pinned, lobbyId]);
+    } catch (err) {
+      console.error('Failed to update lobby pinned state:', err.message);
+    }
+  }
+
+  return { lobby };
+}
+
 async function deleteLobby(id) {
   if (db.isAvailable()) {
     try {
@@ -259,7 +278,7 @@ async function cleanupEmptyLobbies() {
     const users = lobbyUsers.get(id);
     const userCount = users ? users.size : 0;
 
-    if (userCount === 0 && (now - lobby.lastActivity) > LOBBY_TIMEOUT) {
+    if (userCount === 0 && !lobby.pinned && (now - lobby.lastActivity) > LOBBY_TIMEOUT) {
       playback.cleanupLobby(id);
       deleteQueue(id);
       lobbies.delete(id);
@@ -302,6 +321,7 @@ function createLobbySync(hostId = null, customId = null, listeningMode = 'synchr
     hostId,
     name: name || null,
     listeningMode: mode,
+    pinned: false,
     createdAt: now,
     lastActivity: now,
     users
@@ -370,7 +390,7 @@ async function loadLobbiesFromDB() {
 
   try {
     const result = await db.query(
-      'SELECT id, host_id, name, listening_mode, created_at, last_activity FROM lobbies ORDER BY last_activity DESC'
+      'SELECT id, host_id, name, listening_mode, created_at, last_activity, pinned FROM lobbies ORDER BY last_activity DESC'
     );
 
     for (const row of result.rows) {
@@ -380,6 +400,7 @@ async function loadLobbiesFromDB() {
           hostId: row.host_id,
           name: row.name || null,
           listeningMode: row.listening_mode || 'synchronized',
+          pinned: row.pinned || false,
           createdAt: parseInt(row.created_at),
           lastActivity: parseInt(row.last_activity)
         });
@@ -404,6 +425,7 @@ function getAllLobbies() {
       id,
       name: lobbyData.name || null,
       listeningMode: lobbyData.listeningMode || 'synchronized',
+      pinned: lobbyData.pinned || false,
       userCount,
       createdAt: lobbyData.createdAt,
       lastActivity: lobbyData.lastActivity
@@ -436,6 +458,7 @@ module.exports = {
   isNameTaken,
   renameLobby,
   deleteLobby: deleteLobbySync,
+  pinLobby,
   lobbies,
   cleanupEmptyLobbies,
   // Async versions for production use with database
