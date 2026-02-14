@@ -13,6 +13,7 @@ function simulateRestart() {
   delete require.cache[require.resolve('./lobby')];
   delete require.cache[require.resolve('./queue')];
   delete require.cache[require.resolve('./playlist')];
+  delete require.cache[require.resolve('./playback')];
 }
 
 describe('Lobby persistence across server restarts', { timeout: 120_000 }, () => {
@@ -42,6 +43,7 @@ describe('Lobby persistence across server restarts', { timeout: 120_000 }, () =>
     delete require.cache[require.resolve('./lobby')];
     delete require.cache[require.resolve('./queue')];
     delete require.cache[require.resolve('./playlist')];
+    delete require.cache[require.resolve('./playback')];
   });
 
   it('preserves listening mode "independent" after restart', async () => {
@@ -135,6 +137,77 @@ describe('Lobby persistence across server restarts', { timeout: 120_000 }, () =>
     assert.equal(songs[1].title, 'Delta', 'Second song should be Delta (reordered)');
     assert.equal(songs[2].title, 'Beta', 'Third song should be Beta');
     assert.equal(songs[3].title, 'Charlie', 'Fourth song should be Charlie');
+  });
+
+  it('restores playback state (current track + position) after restart', async () => {
+    const lobby = require('./lobby');
+    const { getQueueAsync } = require('./queue');
+    const playback = require('./playback');
+
+    await lobby.createLobbyAsync(null, 'pb-test1', 'synchronized');
+    const queue = await getQueueAsync('pb-test1');
+
+    const song1 = queue.addSong({ url: 'https://youtube.com/watch?v=pb1', title: 'Track One', duration: 300, addedBy: 'DJ' });
+    queue.addSong({ url: 'https://youtube.com/watch?v=pb2', title: 'Track Two', duration: 240, addedBy: 'DJ' });
+
+    // Wait for fire-and-forget DB writes
+    await delay(500);
+
+    // Simulate playback: play track 1 at position 90s with repeat-all
+    const mockIo = { to: () => ({ emit: () => {} }) };
+    playback.play('pb-test1', song1, mockIo);
+    playback.seek('pb-test1', 90, mockIo);
+    playback.setRepeatMode('pb-test1', 'all', mockIo);
+
+    // Wait for fire-and-forget persist
+    await delay(500);
+
+    // Simulate server restart
+    simulateRestart();
+    const playbackAfter = require('./playback');
+
+    // Restore playback from DB (this is what initLobbyFromDB does)
+    const state = await playbackAfter.initLobbyFromDB('pb-test1');
+
+    assert.ok(state, 'Playback state should be restored');
+    assert.ok(state.currentTrack, 'Current track should be restored');
+    assert.equal(state.currentTrack.title, 'Track One', 'Should restore correct track');
+    assert.ok(state.position >= 89, 'Position should be approximately 90s');
+    assert.equal(state.isPlaying, false, 'Should start paused after restart');
+    assert.equal(state.repeatMode, 'all', 'Repeat mode should be restored');
+  });
+
+  it('restores shuffle state after restart', async () => {
+    const lobby = require('./lobby');
+    const { getQueueAsync } = require('./queue');
+    const playback = require('./playback');
+
+    await lobby.createLobbyAsync(null, 'sh-test1', 'synchronized');
+    const queue = await getQueueAsync('sh-test1');
+
+    queue.addSong({ url: 'https://youtube.com/watch?v=sh1', title: 'Shuffle A', duration: 200, addedBy: 'DJ' });
+    queue.addSong({ url: 'https://youtube.com/watch?v=sh2', title: 'Shuffle B', duration: 210, addedBy: 'DJ' });
+    queue.addSong({ url: 'https://youtube.com/watch?v=sh3', title: 'Shuffle C', duration: 220, addedBy: 'DJ' });
+
+    await delay(500);
+
+    // Enable shuffle
+    const mockIo = { to: () => ({ emit: () => {} }) };
+    playback.initLobby('sh-test1');
+    playback.toggleShuffle('sh-test1', true, 3, mockIo);
+
+    await delay(500);
+
+    // Simulate server restart
+    simulateRestart();
+    const playbackAfter = require('./playback');
+
+    const state = await playbackAfter.initLobbyFromDB('sh-test1');
+
+    assert.ok(state, 'Playback state should be restored');
+    assert.equal(state.shuffleEnabled, true, 'Shuffle should still be enabled');
+    assert.ok(Array.isArray(state.shuffledIndices), 'Shuffled indices should be an array');
+    assert.equal(state.shuffledIndices.length, 3, 'Should have 3 shuffled indices');
   });
 
   it('personal playlists remain accessible after restart', async () => {
