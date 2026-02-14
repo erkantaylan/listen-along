@@ -1,6 +1,8 @@
 const { describe, it, beforeEach, after } = require('node:test');
 const assert = require('node:assert');
-const { createLobby, getLobby, joinLobby, leaveLobby, getLobbyUsers, getListeningMode, deleteLobby, isNameTaken, renameLobby, getAllLobbies, lobbies } = require('./lobby');
+const { createLobby, getLobby, joinLobby, leaveLobby, getLobbyUsers, getListeningMode, deleteLobby, isNameTaken, renameLobby, getAllLobbies, lobbies, cleanupEmptyLobbies } = require('./lobby');
+const { getQueue, deleteQueue, hasQueue } = require('./queue');
+const playback = require('./playback');
 
 describe('Lobby System', () => {
   beforeEach(() => {
@@ -256,6 +258,44 @@ describe('Lobby System', () => {
       const result = await renameLobby(lobby.id, '  Trimmed  ');
       assert.ok(result.lobby);
       assert.strictEqual(result.lobby.name, 'Trimmed');
+    });
+  });
+
+  describe('cleanupEmptyLobbies', () => {
+    it('cleans up queue and playback Maps for expired empty lobbies', async () => {
+      const lobby = createLobby('host-1', 'cleanup-test');
+      const lobbyId = lobby.id;
+
+      // Set up queue and playback state for this lobby
+      getQueue(lobbyId);
+      playback.initLobby(lobbyId);
+
+      assert.ok(hasQueue(lobbyId), 'queue should exist before cleanup');
+      assert.ok(playback.getState(lobbyId), 'playback state should exist before cleanup');
+
+      // Make the lobby expired (older than 24h timeout)
+      const lobbyData = lobbies.get(lobbyId);
+      lobbyData.lastActivity = Date.now() - (25 * 60 * 60 * 1000);
+
+      await cleanupEmptyLobbies();
+
+      // Lobby should be removed from memory
+      assert.strictEqual(lobbies.has(lobbyId), false, 'lobby should be removed from memory');
+      // Queue and playback should also be cleaned up
+      assert.strictEqual(hasQueue(lobbyId), false, 'queue should be cleaned up');
+      assert.strictEqual(playback.getState(lobbyId), null, 'playback state should be cleaned up');
+    });
+
+    it('does not clean up lobbies that are not expired', async () => {
+      const lobby = createLobby('host-1', 'active-test');
+
+      getQueue(lobby.id);
+      playback.initLobby(lobby.id);
+
+      await cleanupEmptyLobbies();
+
+      assert.ok(lobbies.has(lobby.id), 'active lobby should not be removed');
+      assert.ok(hasQueue(lobby.id), 'queue for active lobby should not be removed');
     });
   });
 });
