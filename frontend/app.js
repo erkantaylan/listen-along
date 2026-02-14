@@ -102,7 +102,8 @@
     soloPlaylistSongs: [],
     soloCurrentIndex: -1,
     soloRepeatMode: getStoredRepeatMode(),
-    playlists: []
+    playlists: [],
+    pendingLobbyId: null // Lobby ID pending room type selection
   };
 
   // DOM Elements
@@ -212,7 +213,13 @@
     cacheError: document.getElementById('cache-error'),
     cacheDuration: document.getElementById('cache-duration'),
     cacheSongList: document.getElementById('cache-song-list'),
-    nukeCacheBtn: document.getElementById('nuke-cache-btn')
+    nukeCacheBtn: document.getElementById('nuke-cache-btn'),
+
+    // Room Type Modal
+    roomTypeModal: document.getElementById('room-type-modal'),
+    roomTypeLobbyName: document.getElementById('room-type-lobby-name'),
+    roomTypeCreateBtn: document.getElementById('room-type-create-btn'),
+    roomTypeCancelBtn: document.getElementById('room-type-cancel-btn')
   };
 
   // Socket.IO Connection
@@ -289,6 +296,7 @@
     // Lobby Events
     socket.on('lobby:created', handleLobbyCreated);
     socket.on('lobby:joined', handleLobbyJoined);
+    socket.on('lobby:not-found', handleLobbyNotFound);
     socket.on('lobby:error', handleLobbyError);
     socket.on('lobby:user-joined', handleUserJoined);
     socket.on('lobby:user-left', handleUserLeft);
@@ -334,13 +342,39 @@
     // Create Lobby
     elements.createLobbyBtn.addEventListener('click', createLobby);
 
-    // Lobby type selector styling
-    document.querySelectorAll('.lobby-type-option').forEach(option => {
-      option.addEventListener('click', () => {
-        document.querySelectorAll('.lobby-type-option').forEach(o => o.classList.remove('selected'));
-        option.classList.add('selected');
+    // Lobby type selector styling (scoped to each selector group)
+    document.querySelectorAll('.lobby-type-selector').forEach(selector => {
+      selector.querySelectorAll('.lobby-type-option').forEach(option => {
+        option.addEventListener('click', () => {
+          selector.querySelectorAll('.lobby-type-option').forEach(o => o.classList.remove('selected'));
+          option.classList.add('selected');
+        });
       });
     });
+
+    // Room type modal buttons
+    if (elements.roomTypeCreateBtn) {
+      elements.roomTypeCreateBtn.addEventListener('click', () => {
+        const selectedMode = document.querySelector('#room-type-modal input[name="roomTypeMode"]:checked');
+        const listeningMode = selectedMode ? selectedMode.value : 'synchronized';
+        if (elements.roomTypeModal) elements.roomTypeModal.hidden = true;
+        socket.emit('lobby:create', {
+          username: state.username,
+          emoji: state.emoji,
+          listeningMode,
+          lobbyId: state.pendingLobbyId
+        });
+        state.pendingLobbyId = null;
+      });
+    }
+    if (elements.roomTypeCancelBtn) {
+      elements.roomTypeCancelBtn.addEventListener('click', () => {
+        if (elements.roomTypeModal) elements.roomTypeModal.hidden = true;
+        state.pendingLobbyId = null;
+        window.history.pushState({}, '', '/');
+        showView('landing');
+      });
+    }
 
     // Leave Lobby
     elements.backBtn.addEventListener('click', leaveLobby);
@@ -1032,6 +1066,25 @@
     showToast('Lobby created! Share the link to invite friends.', 'success');
   }
 
+  function handleLobbyNotFound({ lobbyId }) {
+    // Show room type selection modal so user can choose before creating
+    state.pendingLobbyId = lobbyId;
+    if (elements.roomTypeLobbyName) {
+      elements.roomTypeLobbyName.textContent = lobbyId;
+    }
+    // Reset modal selection to synchronized
+    const modalOptions = document.querySelectorAll('#room-type-modal .lobby-type-option');
+    modalOptions.forEach(opt => {
+      const isSync = opt.dataset.mode === 'synchronized';
+      opt.classList.toggle('selected', isSync);
+      const radio = opt.querySelector('input[type="radio"]');
+      if (radio) radio.checked = isSync;
+    });
+    if (elements.roomTypeModal) {
+      elements.roomTypeModal.hidden = false;
+    }
+  }
+
   function handleLobbyJoined(data) {
     state.lobbyId = data.lobbyId;
     state.isHost = data.isHost || false;
@@ -1065,6 +1118,10 @@
   function handleLobbyError(data) {
     elements.createLobbyBtn.disabled = false;
     elements.createLobbyBtn.textContent = 'Create Lobby';
+
+    // Hide room type modal if open
+    if (elements.roomTypeModal) elements.roomTypeModal.hidden = true;
+    state.pendingLobbyId = null;
 
     // If lobby not found, clear it from localStorage
     if (data.message && data.message.toLowerCase().includes('not found')) {

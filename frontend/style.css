@@ -1883,3 +1883,81 @@ html, body {
   from { transform: scale(0.95); opacity: 0; }
   to { transform: scale(1); opacity: 1; }
 }
+
+/* Room Type Selection Modal */
+.room-type-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  animation: dialog-fade-in 0.2s ease;
+}
+
+.room-type-overlay[hidden] {
+  display: none;
+}
+
+.room-type-dialog {
+  background: var(--bg-elevated);
+  border-radius: var(--border-radius-lg);
+  padding: 1.5rem;
+  width: 100%;
+  max-width: 340px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--bg-surface);
+  animation: dialog-scale-in 0.2s ease;
+}
+
+.room-type-dialog-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  color: var(--primary);
+}
+
+.room-type-dialog-header svg {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.room-type-dialog-header h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.room-type-lobby-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border-radius: var(--border-radius);
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+  text-align: center;
+}
+
+.room-type-prompt {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+}
+
+.room-type-selector {
+  margin-bottom: 1.25rem;
+}
+
+.room-type-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.room-type-actions .btn {
+  flex: 1;
+}
