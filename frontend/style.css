@@ -832,6 +832,15 @@ html, body {
   height: 18px;
 }
 
+.queue-item-play {
+  padding: 0.5rem;
+  color: var(--text-muted);
+}
+
+.queue-item-play:hover {
+  color: var(--primary);
+}
+
 .queue-item-remove {
   padding: 0.5rem;
   color: var(--text-muted);
