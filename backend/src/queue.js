@@ -242,10 +242,23 @@ function hasQueue(lobbyId) {
   return queues.has(lobbyId);
 }
 
+/**
+ * Remove queue entries for lobby IDs not in the provided set of valid IDs.
+ * Called by lobby cleanup to prevent orphaned Map entries from accumulating.
+ */
+function cleanupOrphanedQueues(validLobbyIds) {
+  for (const lobbyId of queues.keys()) {
+    if (!validLobbyIds.has(lobbyId)) {
+      deleteQueue(lobbyId);
+    }
+  }
+}
+
 module.exports = {
   Queue,
   getQueue,
   getQueueAsync,
   deleteQueue,
-  hasQueue
+  hasQueue,
+  cleanupOrphanedQueues
 };

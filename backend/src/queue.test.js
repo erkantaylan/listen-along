@@ -1,6 +1,6 @@
 const { test, describe, beforeEach } = require('node:test');
 const assert = require('node:assert');
-const { Queue, getQueue, deleteQueue, hasQueue } = require('./queue');
+const { Queue, getQueue, deleteQueue, hasQueue, cleanupOrphanedQueues } = require('./queue');
 
 describe('Queue class', () => {
   let queue;
@@ -268,5 +268,28 @@ describe('Queue store functions', () => {
     getQueue('lobby-a');
     deleteQueue('lobby-a');
     assert.strictEqual(hasQueue('lobby-a'), false);
+  });
+
+  test('cleanupOrphanedQueues removes queues not in valid set', () => {
+    getQueue('lobby-a');
+    getQueue('lobby-b');
+    getQueue('lobby-c');
+
+    // Only lobby-a is valid; lobby-b and lobby-c are orphaned
+    cleanupOrphanedQueues(new Set(['lobby-a']));
+
+    assert.strictEqual(hasQueue('lobby-a'), true, 'valid queue should remain');
+    assert.strictEqual(hasQueue('lobby-b'), false, 'orphaned queue should be removed');
+    assert.strictEqual(hasQueue('lobby-c'), false, 'orphaned queue should be removed');
+  });
+
+  test('cleanupOrphanedQueues with empty valid set removes all', () => {
+    getQueue('lobby-a');
+    getQueue('lobby-b');
+
+    cleanupOrphanedQueues(new Set());
+
+    assert.strictEqual(hasQueue('lobby-a'), false);
+    assert.strictEqual(hasQueue('lobby-b'), false);
   });
 });

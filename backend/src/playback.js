@@ -401,6 +401,18 @@ function cleanupLobby(lobbyId) {
 }
 
 /**
+ * Remove playback entries for lobby IDs not in the provided set of valid IDs.
+ * Called by lobby cleanup to prevent orphaned Map entries from accumulating.
+ */
+function cleanupOrphanedPlayback(validLobbyIds) {
+  for (const lobbyId of lobbyPlayback.keys()) {
+    if (!validLobbyIds.has(lobbyId)) {
+      cleanupLobby(lobbyId);
+    }
+  }
+}
+
+/**
  * Fisher-Yates shuffle algorithm
  */
 function shuffleArray(array) {
@@ -581,6 +593,7 @@ module.exports = {
   getRepeatMode,
   getJoinState,
   cleanupLobby,
+  cleanupOrphanedPlayback,
   setupSocketHandlers,
   toggleShuffle,
   getShuffleState,
