@@ -1,6 +1,29 @@
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { PostgreSqlContainer } = require('@testcontainers/postgresql');
+const { execSync } = require('node:child_process');
+
+let PostgreSqlContainer;
+try {
+  PostgreSqlContainer = require('@testcontainers/postgresql').PostgreSqlContainer;
+} catch {
+  // testcontainers not installed
+}
+
+function isDockerAvailable() {
+  if (!PostgreSqlContainer) return false;
+  try {
+    execSync('docker info', { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const skipReason = !PostgreSqlContainer
+  ? 'testcontainers package not installed'
+  : !isDockerAvailable()
+    ? 'Docker not available'
+    : false;
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -15,7 +38,7 @@ function simulateRestart() {
   delete require.cache[require.resolve('./playlist')];
 }
 
-describe('Lobby persistence across server restarts', { timeout: 120_000 }, () => {
+describe('Lobby persistence across server restarts', { skip: skipReason, timeout: 120_000 }, () => {
   let container;
   let db;
 
