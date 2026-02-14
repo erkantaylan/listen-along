@@ -252,7 +252,7 @@ async function cleanupEmptyLobbies() {
 
   // Also clean up in-memory lobbies that are empty and expired
   // Lazy require to avoid circular dependency (playback.js requires lobby.js)
-  const { deleteQueue } = require('./queue');
+  const { deleteQueue, cleanupOrphanedQueues } = require('./queue');
   const playback = require('./playback');
 
   for (const [id, lobby] of lobbies) {
@@ -267,6 +267,12 @@ async function cleanupEmptyLobbies() {
       console.log(`Cleaned up empty lobby from memory: ${id}`);
     }
   }
+
+  // Sweep orphaned queue/playback entries for lobby IDs no longer in memory
+  // (e.g., created by lazy getQueue() after a lobby was already cleaned up)
+  const validLobbyIds = new Set(lobbies.keys());
+  cleanupOrphanedQueues(validLobbyIds);
+  playback.cleanupOrphanedPlayback(validLobbyIds);
 }
 
 // Cleanup interval handle (only start in production)

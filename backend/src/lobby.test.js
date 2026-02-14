@@ -297,5 +297,34 @@ describe('Lobby System', () => {
       assert.ok(lobbies.has(lobby.id), 'active lobby should not be removed');
       assert.ok(hasQueue(lobby.id), 'queue for active lobby should not be removed');
     });
+
+    it('sweeps orphaned queue/playback entries for non-existent lobbies', async () => {
+      // Create a real lobby that should survive
+      const lobby = createLobby('host-1', 'active-test');
+      getQueue(lobby.id);
+      playback.initLobby(lobby.id);
+
+      // Create orphaned queue/playback entries (no corresponding lobby)
+      getQueue('orphan-1');
+      getQueue('orphan-2');
+      playback.initLobby('orphan-1');
+      playback.initLobby('orphan-2');
+
+      assert.ok(hasQueue('orphan-1'), 'orphaned queue should exist before cleanup');
+      assert.ok(playback.getState('orphan-1'), 'orphaned playback should exist before cleanup');
+
+      await cleanupEmptyLobbies();
+
+      // Active lobby should survive
+      assert.ok(lobbies.has(lobby.id), 'active lobby should remain');
+      assert.ok(hasQueue(lobby.id), 'active queue should remain');
+      assert.ok(playback.getState(lobby.id), 'active playback should remain');
+
+      // Orphaned entries should be cleaned up
+      assert.strictEqual(hasQueue('orphan-1'), false, 'orphaned queue should be removed');
+      assert.strictEqual(hasQueue('orphan-2'), false, 'orphaned queue should be removed');
+      assert.strictEqual(playback.getState('orphan-1'), null, 'orphaned playback should be removed');
+      assert.strictEqual(playback.getState('orphan-2'), null, 'orphaned playback should be removed');
+    });
   });
 });

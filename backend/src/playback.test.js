@@ -227,6 +227,33 @@ describe('Playback Module', () => {
     });
   });
 
+  describe('cleanupOrphanedPlayback', () => {
+    test('removes playback entries not in valid set', () => {
+      playback.initLobby('lobby-a');
+      playback.initLobby('lobby-b');
+      playback.initLobby('lobby-c');
+
+      playback.cleanupOrphanedPlayback(new Set(['lobby-a']));
+
+      assert(playback.getState('lobby-a') !== null, 'valid entry should remain');
+      assert.equal(playback.getState('lobby-b'), null, 'orphaned entry should be removed');
+      assert.equal(playback.getState('lobby-c'), null, 'orphaned entry should be removed');
+
+      // cleanup
+      playback.cleanupLobby('lobby-a');
+    });
+
+    test('removes all entries when valid set is empty', () => {
+      playback.initLobby('lobby-a');
+      playback.initLobby('lobby-b');
+
+      playback.cleanupOrphanedPlayback(new Set());
+
+      assert.equal(playback.getState('lobby-a'), null);
+      assert.equal(playback.getState('lobby-b'), null);
+    });
+  });
+
   describe('shuffle', () => {
     test('toggleShuffle enables shuffle mode', () => {
       const io = createMockIo();
