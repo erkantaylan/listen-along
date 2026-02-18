@@ -1985,6 +1985,7 @@
       const isPlaying = index === 0;
       const canMoveUp = index > 1; // Can't move to index 0 (currently playing)
       const canMoveDown = index > 0 && index < state.queue.length - 1;
+      const listenersHtml = getQueueListenersHtml(song.title);
 
       return `
       <li class="queue-item ${state.currentTrack && state.currentTrack.id === song.id ? 'playing' : ''}" data-index="${index}" data-url="${escapeHtml(song.url)}">
@@ -2001,6 +2002,7 @@
           </div>
           ${downloadHtml.progressBar}
         </div>
+        ${listenersHtml}
         <div class="queue-item-actions">
           ${!isPlaying ? `
             <div class="queue-item-reorder">
@@ -2304,6 +2306,38 @@
 
   function getInitials(name) {
     return name.split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
+  }
+
+  // Get listeners currently listening to a specific song (for Independent mode)
+  function getListenersForSong(songTitle) {
+    if (state.listeningMode !== 'independent') return [];
+    return state.listeners.filter(user =>
+      user.mode === 'listening' &&
+      user.currentTrack &&
+      user.currentTrack.title === songTitle
+    );
+  }
+
+  // Generate HTML for listener avatars on a queue item
+  function getQueueListenersHtml(songTitle) {
+    const listeners = getListenersForSong(songTitle);
+    if (listeners.length === 0) return '';
+
+    const maxVisible = 3;
+    const visible = listeners.slice(0, maxVisible);
+    const overflow = listeners.length - maxVisible;
+
+    const avatars = visible.map(user => {
+      const avatar = user.emoji || getInitials(user.username);
+      const hasEmoji = !!user.emoji;
+      return `<div class="queue-listener-avatar${hasEmoji ? ' emoji' : ''}" title="${escapeHtml(user.username)}">${avatar}</div>`;
+    }).join('');
+
+    const overflowBadge = overflow > 0
+      ? `<div class="queue-listener-avatar overflow" title="${overflow} more">+${overflow}</div>`
+      : '';
+
+    return `<div class="queue-item-listeners">${avatars}${overflowBadge}</div>`;
   }
 
   function copyToClipboard(text) {

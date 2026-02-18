@@ -942,6 +942,53 @@ html, body {
   position: relative;
 }
 
+/* Queue item listeners (Independent mode) */
+.queue-item-listeners {
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  flex-shrink: 0;
+  margin-right: 0.5rem;
+}
+
+.queue-listener-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 0.6875rem;
+  color: var(--bg-dark);
+  border: 2px solid var(--bg-dark);
+  margin-left: -8px;
+  cursor: default;
+  transition: transform var(--transition);
+}
+
+.queue-listener-avatar:hover {
+  transform: scale(1.1);
+  z-index: 1;
+}
+
+.queue-listener-avatar:last-child {
+  margin-left: 0;
+}
+
+.queue-listener-avatar.emoji {
+  background: var(--bg-surface);
+  font-size: 0.875rem;
+}
+
+.queue-listener-avatar.overflow {
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 0.625rem;
+  font-weight: 500;
+}
+
 .queue-empty, .listener-empty {
   text-align: center;
   padding: 3rem 1rem;
