@@ -169,7 +169,7 @@
 
     // Tabs
     queueTab: document.getElementById('queue-tab'),
-    listenersTab: document.getElementById('listeners-tab'),
+    socialTab: document.getElementById('social-tab'),
 
     // Queue
     songInput: document.getElementById('song-input'),
@@ -177,8 +177,7 @@
     queueList: document.getElementById('queue-list'),
     hideErroredCheckbox: document.getElementById('hide-errored-songs'),
 
-    // Chat
-    chatTab: document.getElementById('chat-tab'),
+    // Chat (inside social tab)
     chatMessages: document.getElementById('chat-messages'),
     chatInput: document.getElementById('chat-input'),
     chatSendBtn: document.getElementById('chat-send-btn'),
@@ -2250,11 +2249,10 @@
     });
 
     elements.queueTab.classList.toggle('active', tabName === 'queue');
-    if (elements.chatTab) elements.chatTab.classList.toggle('active', tabName === 'chat');
-    elements.listenersTab.classList.toggle('active', tabName === 'listeners');
+    if (elements.socialTab) elements.socialTab.classList.toggle('active', tabName === 'social');
 
-    // Auto-focus chat input when switching to chat tab
-    if (tabName === 'chat' && elements.chatInput) {
+    // Auto-focus chat input when switching to social tab
+    if (tabName === 'social' && elements.chatInput) {
       setTimeout(() => elements.chatInput.focus(), 100);
     }
   }
