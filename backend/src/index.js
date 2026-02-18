@@ -771,6 +771,15 @@ io.on('connection', (socket) => {
       return;
     }
     currentLobby = lobbyId;
+
+    // Notify existing members BEFORE joining the room
+    // This ensures the joining user cannot receive their own join notification
+    socket.to(lobbyId).emit('lobby:user-joined', {
+      user: result.user,
+      users: lobby.getLobbyUsers(lobbyId)
+    });
+
+    // Now join the Socket.IO room
     socket.join(lobbyId);
 
     // Send joined confirmation to the user
@@ -781,12 +790,6 @@ io.on('connection', (socket) => {
       name: joinedLobbyData ? joinedLobbyData.name : null,
       listeningMode,
       pinned: joinedLobbyData ? (joinedLobbyData.pinned || false) : false,
-      user: result.user,
-      users: lobby.getLobbyUsers(lobbyId)
-    });
-
-    // Notify others in lobby
-    socket.to(lobbyId).emit('lobby:user-joined', {
       user: result.user,
       users: lobby.getLobbyUsers(lobbyId)
     });
