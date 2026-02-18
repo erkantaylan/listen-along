@@ -1,0 +1,137 @@
+{
+  "app": {
+    "title": "listen-along",
+    "tagline": "Listen to music with friends, in sync.",
+    "description": "Listen to music with friends in sync"
+  },
+  "landing": {
+    "lobbyNamePlaceholder": "Lobby name (optional)",
+    "createLobby": "Create Lobby",
+    "joinHint": "Have a link? Just paste it in your browser.",
+    "activeLobbies": "Active Lobbies",
+    "noActiveLobbies": "No active lobbies",
+    "myPlaylists": "My Playlists",
+    "noPlaylists": "No playlists yet",
+    "newPlaylist": "+ New"
+  },
+  "listeningMode": {
+    "synchronized": "Synchronized",
+    "synchronizedDesc": "Everyone hears the same thing",
+    "independent": "Independent",
+    "independentDesc": "Shared queue, own playback"
+  },
+  "lobby": {
+    "lobby": "Lobby",
+    "listeners": "listeners",
+    "listener": "listener",
+    "leaveLobby": "Leave lobby",
+    "renameLobby": "Rename lobby",
+    "pinLobby": "Pin lobby to prevent cleanup",
+    "shareLobby": "Share lobby",
+    "listeningMode": "Listening - click to enter lobby mode",
+    "lobbyMode": "Lobby mode - click to return to listening"
+  },
+  "player": {
+    "noTrackPlaying": "No track playing",
+    "addSongHint": "Add a song to get started",
+    "previous": "Previous",
+    "play": "Play",
+    "pause": "Pause",
+    "next": "Next",
+    "mute": "Mute",
+    "unmute": "Unmute"
+  },
+  "playbackMode": {
+    "replayList": "Replay list",
+    "playOnlyCurrent": "Play only current",
+    "stopWhenEnds": "Stop when list ends",
+    "playRandom": "Play random"
+  },
+  "nav": {
+    "queue": "Queue",
+    "chat": "Chat",
+    "listeners": "Listeners",
+    "social": "Social"
+  },
+  "queue": {
+    "searchPlaceholder": "Paste YouTube URL or search...",
+    "addSong": "Add song",
+    "hideErrored": "Hide errored songs",
+    "empty": "Queue is empty",
+    "emptyHint": "Add a song to get started",
+    "remove": "Remove from queue",
+    "downloading": "Downloading...",
+    "ready": "Ready",
+    "error": "Error"
+  },
+  "chat": {
+    "noMessages": "No messages yet",
+    "beFirst": "Be the first to say something!",
+    "placeholder": "Type a message...",
+    "send": "Send message"
+  },
+  "listeners": {
+    "noListeners": "No one else is here yet",
+    "shareHint": "Share the lobby link to invite friends",
+    "yourName": "Your name",
+    "changeAvatar": "Change avatar emoji",
+    "save": "Save"
+  },
+  "solo": {
+    "backToHome": "Back to home",
+    "playlist": "Playlist",
+    "songs": "songs",
+    "song": "song",
+    "playlistEmpty": "Playlist is empty",
+    "repeat": "Repeat"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "activeLobbies": "Active Lobbies",
+    "connectedUsers": "Connected Users",
+    "memory": "Memory (MB)",
+    "noActiveLobbies": "No active lobbies",
+    "songCache": "Song Cache",
+    "clearAll": "Clear All",
+    "ready": "Ready",
+    "downloading": "Downloading",
+    "pending": "Pending",
+    "error": "Error",
+    "totalDuration": "Total Duration",
+    "noCachedSongs": "No cached songs"
+  },
+  "modal": {
+    "createLobby": "Create Lobby",
+    "chooseModePrompt": "Choose a listening mode for this lobby:",
+    "create": "Create Lobby",
+    "cancel": "Cancel"
+  },
+  "toast": {
+    "connectionLost": "Connection lost. Reconnecting...",
+    "reconnected": "Reconnected!",
+    "linkCopied": "Link copied to clipboard!",
+    "copyFailed": "Failed to copy link",
+    "enterSongUrl": "Please enter a song URL or search term",
+    "lobbyClosed": "This lobby has been closed",
+    "profileSaved": "Profile saved!",
+    "playlistCreated": "Playlist created!",
+    "enterPlaylistName": "Please enter a playlist name",
+    "songAdded": "Song added!",
+    "songRemoved": "Song removed",
+    "addPlaylist": "Add entire playlist",
+    "addSingleSong": "Add just this song",
+    "addAllSongs": "Add all songs"
+  },
+  "error": {
+    "notInLobby": "Not a member of this lobby",
+    "tooManyRequests": "Too many requests, please slow down",
+    "failedToFetch": "Failed to fetch",
+    "lobbyNotFound": "Lobby not found",
+    "invalidUrl": "Invalid URL"
+  },
+  "language": {
+    "select": "Language",
+    "en": "English",
+    "tr": "Turkish"
+  }
+}

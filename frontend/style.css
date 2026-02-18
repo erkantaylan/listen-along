@@ -244,6 +244,30 @@ html, body {
   height: 24px;
 }
 
+/* Language Selector */
+.language-selector {
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--bg-elevated);
+  border-radius: var(--border-radius);
+  padding: 0.375rem 0.75rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  outline: none;
+  transition: all var(--transition);
+}
+
+.language-selector:hover,
+.language-selector:focus {
+  border-color: var(--primary);
+  color: var(--text-primary);
+}
+
+.language-selector option {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
 /* Buttons */
 .btn {
   display: inline-flex;

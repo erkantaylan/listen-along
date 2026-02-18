@@ -1,0 +1,137 @@
+{
+  "app": {
+    "title": "listen-along",
+    "tagline": "Arkadaşlarınla senkronize müzik dinle.",
+    "description": "Arkadaşlarınla senkronize müzik dinle"
+  },
+  "landing": {
+    "lobbyNamePlaceholder": "Lobi adı (isteğe bağlı)",
+    "createLobby": "Lobi Oluştur",
+    "joinHint": "Bir linkin var mı? Tarayıcına yapıştır.",
+    "activeLobbies": "Aktif Lobiler",
+    "noActiveLobbies": "Aktif lobi yok",
+    "myPlaylists": "Çalma Listelerim",
+    "noPlaylists": "Henüz çalma listesi yok",
+    "newPlaylist": "+ Yeni"
+  },
+  "listeningMode": {
+    "synchronized": "Senkronize",
+    "synchronizedDesc": "Herkes aynı şeyi duyar",
+    "independent": "Bağımsız",
+    "independentDesc": "Ortak sıra, kendi oynatma"
+  },
+  "lobby": {
+    "lobby": "Lobi",
+    "listeners": "dinleyici",
+    "listener": "dinleyici",
+    "leaveLobby": "Lobiden ayrıl",
+    "renameLobby": "Lobiyi yeniden adlandır",
+    "pinLobby": "Lobiyi sabitle",
+    "shareLobby": "Lobiyi paylaş",
+    "listeningMode": "Dinleme - lobi moduna geçmek için tıkla",
+    "lobbyMode": "Lobi modu - dinlemeye dönmek için tıkla"
+  },
+  "player": {
+    "noTrackPlaying": "Şarkı çalmıyor",
+    "addSongHint": "Başlamak için şarkı ekle",
+    "previous": "Önceki",
+    "play": "Oynat",
+    "pause": "Duraklat",
+    "next": "Sonraki",
+    "mute": "Sesi kapat",
+    "unmute": "Sesi aç"
+  },
+  "playbackMode": {
+    "replayList": "Listeyi tekrarla",
+    "playOnlyCurrent": "Sadece şuanki şarkıyı çal",
+    "stopWhenEnds": "Liste bitince dur",
+    "playRandom": "Rastgele çal"
+  },
+  "nav": {
+    "queue": "Sıra",
+    "chat": "Sohbet",
+    "listeners": "Dinleyiciler",
+    "social": "Sosyal"
+  },
+  "queue": {
+    "searchPlaceholder": "YouTube URL yapıştır veya ara...",
+    "addSong": "Şarkı ekle",
+    "hideErrored": "Hatalı şarkıları gizle",
+    "empty": "Sıra boş",
+    "emptyHint": "Başlamak için şarkı ekle",
+    "remove": "Sıradan kaldır",
+    "downloading": "İndiriliyor...",
+    "ready": "Hazır",
+    "error": "Hata"
+  },
+  "chat": {
+    "noMessages": "Henüz mesaj yok",
+    "beFirst": "İlk mesajı sen at!",
+    "placeholder": "Bir mesaj yaz...",
+    "send": "Mesaj gönder"
+  },
+  "listeners": {
+    "noListeners": "Henüz kimse yok",
+    "shareHint": "Arkadaşlarını davet etmek için lobi linkini paylaş",
+    "yourName": "Adın",
+    "changeAvatar": "Avatar emojisini değiştir",
+    "save": "Kaydet"
+  },
+  "solo": {
+    "backToHome": "Ana sayfaya dön",
+    "playlist": "Çalma Listesi",
+    "songs": "şarkı",
+    "song": "şarkı",
+    "playlistEmpty": "Çalma listesi boş",
+    "repeat": "Tekrarla"
+  },
+  "dashboard": {
+    "title": "Kontrol Paneli",
+    "activeLobbies": "Aktif Lobiler",
+    "connectedUsers": "Bağlı Kullanıcılar",
+    "memory": "Bellek (MB)",
+    "noActiveLobbies": "Aktif lobi yok",
+    "songCache": "Şarkı Önbelleği",
+    "clearAll": "Hepsini Temizle",
+    "ready": "Hazır",
+    "downloading": "İndiriliyor",
+    "pending": "Bekliyor",
+    "error": "Hata",
+    "totalDuration": "Toplam Süre",
+    "noCachedSongs": "Önbellekte şarkı yok"
+  },
+  "modal": {
+    "createLobby": "Lobi Oluştur",
+    "chooseModePrompt": "Bu lobi için bir dinleme modu seç:",
+    "create": "Lobi Oluştur",
+    "cancel": "İptal"
+  },
+  "toast": {
+    "connectionLost": "Bağlantı kesildi. Yeniden bağlanılıyor...",
+    "reconnected": "Yeniden bağlandı!",
+    "linkCopied": "Link panoya kopyalandı!",
+    "copyFailed": "Link kopyalanamadı",
+    "enterSongUrl": "Lütfen şarkı URL'si veya arama terimi gir",
+    "lobbyClosed": "Bu lobi kapatıldı",
+    "profileSaved": "Profil kaydedildi!",
+    "playlistCreated": "Çalma listesi oluşturuldu!",
+    "enterPlaylistName": "Lütfen çalma listesi adı gir",
+    "songAdded": "Şarkı eklendi!",
+    "songRemoved": "Şarkı kaldırıldı",
+    "addPlaylist": "Tüm çalma listesini ekle",
+    "addSingleSong": "Sadece bu şarkıyı ekle",
+    "addAllSongs": "Tüm şarkıları ekle"
+  },
+  "error": {
+    "notInLobby": "Bu lobinin üyesi değilsin",
+    "tooManyRequests": "Çok fazla istek, lütfen yavaşla",
+    "failedToFetch": "Getirilemedi",
+    "lobbyNotFound": "Lobi bulunamadı",
+    "invalidUrl": "Geçersiz URL"
+  },
+  "language": {
+    "select": "Dil",
+    "en": "İngilizce",
+    "tr": "Türkçe"
+  }
+}

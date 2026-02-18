@@ -271,7 +271,13 @@
   let lobbiesInterval = null;
 
   // Initialize Application
-  function init() {
+  async function init() {
+    // Initialize i18n first
+    if (window.i18n) {
+      await window.i18n.init();
+      setupLanguageSelector();
+    }
+
     // Check for dashboard route first (no socket needed)
     if (checkUrlForDashboard()) {
       return;
@@ -288,6 +294,23 @@
     fetchPlaylists();
     // Auto-refresh lobbies while on landing page
     lobbiesInterval = setInterval(fetchLobbies, 10000);
+  }
+
+  // Setup language selector
+  function setupLanguageSelector() {
+    const selector = document.getElementById('language-selector');
+    if (!selector || !window.i18n) return;
+
+    // Set current language
+    selector.value = window.i18n.getLanguage();
+
+    // Handle language change
+    selector.addEventListener('change', async (e) => {
+      await window.i18n.setLanguage(e.target.value);
+      // Re-render dynamic content that uses translations
+      updateQueue();
+      updateListeners();
+    });
   }
 
   // Fetch and display version
@@ -321,12 +344,12 @@
 
     socket.on('disconnect', () => {
       console.log('Disconnected from server');
-      showToast('Connection lost. Reconnecting...', 'error');
+      showToast(t('toast.connectionLost', 'Connection lost. Reconnecting...'), 'error');
     });
 
     socket.on('reconnect', () => {
       console.log('Reconnected to server');
-      showToast('Reconnected!', 'success');
+      showToast(t('toast.reconnected', 'Reconnected!'), 'success');
       if (state.lobbyId) {
         joinLobby(state.lobbyId);
       }
@@ -1952,8 +1975,8 @@
     if (state.queue.length === 0) {
       elements.queueList.innerHTML = `
         <li class="queue-empty">
-          <p>Queue is empty</p>
-          <p class="hint">Add a song to get started</p>
+          <p>${t('queue.empty', 'Queue is empty')}</p>
+          <p class="hint">${t('queue.emptyHint', 'Add a song to get started')}</p>
         </li>
       `;
       return;
@@ -2057,13 +2080,16 @@
   }
 
   function updateListeners() {
-    elements.userCount.textContent = `${state.listeners.length} listener${state.listeners.length !== 1 ? 's' : ''}`;
+    const listenerWord = state.listeners.length !== 1
+      ? t('lobby.listeners', 'listeners')
+      : t('lobby.listener', 'listener');
+    elements.userCount.textContent = `${state.listeners.length} ${listenerWord}`;
 
     if (state.listeners.length === 0) {
       elements.listenersList.innerHTML = `
         <li class="listener-empty">
-          <p>No one else is here yet</p>
-          <p class="hint">Share the lobby link to invite friends</p>
+          <p>${t('listeners.noListeners', 'No one else is here yet')}</p>
+          <p class="hint">${t('listeners.shareHint', 'Share the lobby link to invite friends')}</p>
         </li>
       `;
       return;
@@ -2102,8 +2128,8 @@
   }
 
   function resetLobbyUI() {
-    elements.trackTitle.textContent = 'No track playing';
-    elements.trackArtist.textContent = 'Add a song to get started';
+    elements.trackTitle.textContent = t('player.noTrackPlaying', 'No track playing');
+    elements.trackArtist.textContent = t('player.addSongHint', 'Add a song to get started');
     elements.progressBar.value = 0;
     elements.currentTime.textContent = '0:00';
     elements.duration.textContent = '0:00';
@@ -2342,10 +2368,20 @@
 
   function copyToClipboard(text) {
     navigator.clipboard.writeText(text).then(() => {
-      showToast('Link copied to clipboard!', 'success');
+      showToast(t('toast.linkCopied', 'Link copied to clipboard!'), 'success');
     }).catch(() => {
-      showToast('Could not copy link', 'error');
+      showToast(t('toast.copyFailed', 'Could not copy link'), 'error');
     });
+  }
+
+  // Helper function to get translations with fallback
+  function t(key, fallback, replacements = {}) {
+    if (window.i18n && window.i18n.t) {
+      const translation = window.i18n.t(key, replacements);
+      // If translation returns the key itself, use fallback
+      return translation === key ? fallback : translation;
+    }
+    return fallback;
   }
 
   function showToast(message, type = 'info') {
@@ -2540,8 +2576,8 @@
   }
 
   function resetSoloNowPlaying() {
-    if (elements.soloTrackTitle) elements.soloTrackTitle.textContent = 'No track playing';
-    if (elements.soloTrackArtist) elements.soloTrackArtist.textContent = 'Add a song to get started';
+    if (elements.soloTrackTitle) elements.soloTrackTitle.textContent = t('player.noTrackPlaying', 'No track playing');
+    if (elements.soloTrackArtist) elements.soloTrackArtist.textContent = t('player.addSongHint', 'Add a song to get started');
     if (elements.soloAlbumArt) {
       elements.soloAlbumArt.innerHTML = '<div class="placeholder-art"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div>';
     }
@@ -2734,7 +2770,7 @@
     if (!elements.soloQueueList) return;
 
     if (state.soloPlaylistSongs.length === 0) {
-      elements.soloQueueList.innerHTML = '<li class="queue-empty"><p>Playlist is empty</p><p class="hint">Add a song to get started</p></li>';
+      elements.soloQueueList.innerHTML = `<li class="queue-empty"><p>${t('solo.playlistEmpty', 'Playlist is empty')}</p><p class="hint">${t('player.addSongHint', 'Add a song to get started')}</p></li>`;
       return;
     }
 

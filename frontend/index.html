@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-default-lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#1db954">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="description" content="Listen to music with friends in sync">
+  <meta name="description" content="Listen to music with friends in sync" data-i18n-content="app.description">
   <title>listen-along</title>
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/favicon.png">
@@ -21,56 +21,60 @@
         <img class="logo-icon" src="/icon-192.png" alt="listen-along">
         <h1>listen-along</h1>
       </div>
-      <p class="tagline">Listen to music with friends, in sync.</p>
+      <p class="tagline" data-i18n="app.tagline">Listen to music with friends, in sync.</p>
       <div class="lobby-type-selector">
         <label class="lobby-type-option selected" data-mode="synchronized">
           <input type="radio" name="listeningMode" value="synchronized" checked>
           <div class="lobby-type-icon">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
           </div>
-          <span class="lobby-type-label">Synchronized</span>
-          <span class="lobby-type-desc">Everyone hears the same thing</span>
+          <span class="lobby-type-label" data-i18n="listeningMode.synchronized">Synchronized</span>
+          <span class="lobby-type-desc" data-i18n="listeningMode.synchronizedDesc">Everyone hears the same thing</span>
         </label>
         <label class="lobby-type-option" data-mode="independent">
           <input type="radio" name="listeningMode" value="independent">
           <div class="lobby-type-icon">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
           </div>
-          <span class="lobby-type-label">Independent</span>
-          <span class="lobby-type-desc">Shared queue, own playback</span>
+          <span class="lobby-type-label" data-i18n="listeningMode.independent">Independent</span>
+          <span class="lobby-type-desc" data-i18n="listeningMode.independentDesc">Shared queue, own playback</span>
         </label>
       </div>
       <div class="lobby-name-input-wrapper">
-        <input type="text" id="lobby-name-input" placeholder="Lobby name (optional)" maxlength="50" autocomplete="off">
+        <input type="text" id="lobby-name-input" placeholder="Lobby name (optional)" data-i18n-placeholder="landing.lobbyNamePlaceholder" maxlength="50" autocomplete="off">
       </div>
-      <button id="create-lobby-btn" class="btn btn-primary btn-large">
+      <button id="create-lobby-btn" class="btn btn-primary btn-large" data-i18n="landing.createLobby">
         Create Lobby
       </button>
       <div class="join-section">
-        <p>Have a link? Just paste it in your browser.</p>
+        <p data-i18n="landing.joinHint">Have a link? Just paste it in your browser.</p>
       </div>
 
       <!-- Active Lobbies Section -->
       <section id="lobbies-section" class="lobbies-section" hidden>
-        <h2>Active Lobbies</h2>
+        <h2 data-i18n="landing.activeLobbies">Active Lobbies</h2>
         <ul id="lobbies-list" class="lobbies-list">
-          <li class="lobbies-empty">No active lobbies</li>
+          <li class="lobbies-empty" data-i18n="landing.noActiveLobbies">No active lobbies</li>
         </ul>
       </section>
 
       <!-- Personal Playlists Section -->
       <section id="playlists-section" class="playlists-section" hidden>
         <div class="playlists-header">
-          <h2>My Playlists</h2>
-          <button id="create-playlist-btn" class="btn btn-small btn-primary">+ New</button>
+          <h2 data-i18n="landing.myPlaylists">My Playlists</h2>
+          <button id="create-playlist-btn" class="btn btn-small btn-primary" data-i18n="landing.newPlaylist">+ New</button>
         </div>
         <ul id="playlists-list" class="playlists-list">
-          <li class="playlists-empty">No playlists yet</li>
+          <li class="playlists-empty" data-i18n="landing.noPlaylists">No playlists yet</li>
         </ul>
       </section>
     </main>
     <footer class="landing-footer">
       <span id="version-display" class="version-text"></span>
+      <select id="language-selector" class="language-selector" aria-label="Select language">
+        <option value="en">English</option>
+        <option value="tr">Türkçe</option>
+      </select>
       <a href="https://github.com/erkantaylan/listen-along" target="_blank" rel="noopener noreferrer" aria-label="View source on GitHub">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
       </a>
@@ -80,24 +84,24 @@
   <!-- Lobby View -->
   <div id="lobby-view" class="view">
     <header class="lobby-header">
-      <button id="back-btn" class="btn-icon" aria-label="Leave lobby">
+      <button id="back-btn" class="btn-icon" aria-label="Leave lobby" data-i18n-aria-label="lobby.leaveLobby">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
       </button>
       <div class="lobby-info">
-        <h2 id="lobby-name">Lobby</h2>
-        <button id="rename-btn" class="btn-icon btn-rename" aria-label="Rename lobby" title="Rename lobby">
+        <h2 id="lobby-name" data-i18n="lobby.lobby">Lobby</h2>
+        <button id="rename-btn" class="btn-icon btn-rename" aria-label="Rename lobby" title="Rename lobby" data-i18n-aria-label="lobby.renameLobby" data-i18n-title="lobby.renameLobby">
           <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
         </button>
         <span id="listening-mode-badge" class="listening-mode-badge" hidden></span>
         <span id="user-count" class="user-count">0 listeners</span>
       </div>
-      <button id="pin-btn" class="btn-icon" aria-label="Pin lobby" title="Pin lobby to prevent cleanup">
+      <button id="pin-btn" class="btn-icon" aria-label="Pin lobby" title="Pin lobby to prevent cleanup" data-i18n-aria-label="lobby.pinLobby" data-i18n-title="lobby.pinLobby">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>
       </button>
-      <button id="mode-btn" class="btn-icon active" aria-label="Switch to lobby mode" aria-pressed="true" title="Listening - click to enter lobby mode">
+      <button id="mode-btn" class="btn-icon active" aria-label="Switch to lobby mode" aria-pressed="true" title="Listening - click to enter lobby mode" data-i18n-title="lobby.listeningMode">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg>
       </button>
-      <button id="share-btn" class="btn-icon" aria-label="Share lobby">
+      <button id="share-btn" class="btn-icon" aria-label="Share lobby" data-i18n-aria-label="lobby.shareLobby">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>
       </button>
     </header>
@@ -111,8 +115,8 @@
           </div>
         </div>
         <div class="track-info">
-          <h3 id="track-title" class="track-title">No track playing</h3>
-          <p id="track-artist" class="track-artist">Add a song to get started</p>
+          <h3 id="track-title" class="track-title" data-i18n="player.noTrackPlaying">No track playing</h3>
+          <p id="track-artist" class="track-artist" data-i18n="player.addSongHint">Add a song to get started</p>
         </div>
       </div>
       <div class="progress-container">
@@ -123,32 +127,32 @@
         </div>
       </div>
       <div class="playback-controls">
-        <button id="prev-btn" class="btn-icon btn-control" aria-label="Previous">
+        <button id="prev-btn" class="btn-icon btn-control" aria-label="Previous" data-i18n-aria-label="player.previous">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
         </button>
-        <button id="play-btn" class="btn-icon btn-play" aria-label="Play">
+        <button id="play-btn" class="btn-icon btn-play" aria-label="Play" data-i18n-aria-label="player.play">
           <svg viewBox="0 0 24 24" fill="currentColor" id="play-icon"><path d="M8 5v14l11-7z"/></svg>
         </button>
-        <button id="next-btn" class="btn-icon btn-control" aria-label="Next">
+        <button id="next-btn" class="btn-icon btn-control" aria-label="Next" data-i18n-aria-label="player.next">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
         </button>
       </div>
       <div class="playback-mode-selector" role="radiogroup" aria-label="Playback mode">
-        <button class="playback-mode-btn" data-mode="repeat-all" aria-label="Replay list" title="Replay list">
+        <button class="playback-mode-btn" data-mode="repeat-all" aria-label="Replay list" title="Replay list" data-i18n-aria-label="playbackMode.replayList" data-i18n-title="playbackMode.replayList">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>
         </button>
-        <button class="playback-mode-btn" data-mode="repeat-one" aria-label="Play only current" title="Play only current">
+        <button class="playback-mode-btn" data-mode="repeat-one" aria-label="Play only current" title="Play only current" data-i18n-aria-label="playbackMode.playOnlyCurrent" data-i18n-title="playbackMode.playOnlyCurrent">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/><text x="12" y="16" text-anchor="middle" font-size="9" font-weight="700" fill="currentColor">1</text></svg>
         </button>
-        <button class="playback-mode-btn active" data-mode="stop" aria-label="Stop when list ends" title="Stop when list ends">
+        <button class="playback-mode-btn active" data-mode="stop" aria-label="Stop when list ends" title="Stop when list ends" data-i18n-aria-label="playbackMode.stopWhenEnds" data-i18n-title="playbackMode.stopWhenEnds">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/><path d="M8 8h8v8H8z"/></svg>
         </button>
-        <button class="playback-mode-btn" data-mode="shuffle" aria-label="Play random" title="Play random">
+        <button class="playback-mode-btn" data-mode="shuffle" aria-label="Play random" title="Play random" data-i18n-aria-label="playbackMode.playRandom" data-i18n-title="playbackMode.playRandom">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
         </button>
       </div>
       <div class="volume-control">
-        <button id="volume-btn" class="btn-icon btn-control" aria-label="Mute">
+        <button id="volume-btn" class="btn-icon btn-control" aria-label="Mute" data-i18n-aria-label="player.mute">
           <svg viewBox="0 0 24 24" fill="currentColor" id="volume-icon"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
         </button>
         <input type="range" id="volume-bar" class="volume-bar" min="0" max="100" value="100">
@@ -164,11 +168,11 @@
     <nav class="bottom-nav">
       <button class="nav-item active" data-tab="queue">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
-        <span>Queue</span>
+        <span data-i18n="nav.queue">Queue</span>
       </button>
       <button class="nav-item" data-tab="social">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
-        <span>Social</span>
+        <span data-i18n="nav.social">Social</span>
       </button>
     </nav>
 
@@ -177,21 +181,21 @@
       <!-- Queue Tab -->
       <section id="queue-tab" class="tab-panel active">
         <div class="add-song">
-          <input type="text" id="song-input" placeholder="Paste YouTube URL or search..." autocomplete="off">
-          <button id="add-song-btn" class="btn btn-primary" aria-label="Add song">
+          <input type="text" id="song-input" placeholder="Paste YouTube URL or search..." data-i18n-placeholder="queue.searchPlaceholder" autocomplete="off">
+          <button id="add-song-btn" class="btn btn-primary" aria-label="Add song" data-i18n-aria-label="queue.addSong">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
           </button>
         </div>
         <div class="queue-filter">
           <label class="checkbox-label">
             <input type="checkbox" id="hide-errored-songs" checked>
-            <span>Hide errored songs</span>
+            <span data-i18n="queue.hideErrored">Hide errored songs</span>
           </label>
         </div>
         <ul id="queue-list" class="queue-list">
           <li class="queue-empty">
-            <p>Queue is empty</p>
-            <p class="hint">Add a song to get started</p>
+            <p data-i18n="queue.empty">Queue is empty</p>
+            <p class="hint" data-i18n="queue.emptyHint">Add a song to get started</p>
           </li>
         </ul>
       </section>
@@ -200,9 +204,9 @@
       <section id="social-tab" class="tab-panel">
         <div id="profile-editor" class="profile-editor">
           <div class="profile-editor-row">
-            <button id="profile-emoji-btn" class="profile-emoji-btn" aria-label="Change avatar emoji"></button>
-            <input type="text" id="profile-name-input" class="profile-name-input" maxlength="30" placeholder="Your name" autocomplete="off">
-            <button id="profile-save-btn" class="btn btn-primary btn-small profile-save-btn">Save</button>
+            <button id="profile-emoji-btn" class="profile-emoji-btn" aria-label="Change avatar emoji" data-i18n-aria-label="listeners.changeAvatar"></button>
+            <input type="text" id="profile-name-input" class="profile-name-input" maxlength="30" placeholder="Your name" data-i18n-placeholder="listeners.yourName" autocomplete="off">
+            <button id="profile-save-btn" class="btn btn-primary btn-small profile-save-btn" data-i18n="listeners.save">Save</button>
           </div>
           <div id="emoji-picker" class="emoji-picker" hidden></div>
         </div>
@@ -210,24 +214,24 @@
           <div class="social-listeners">
             <div class="social-section-header">
               <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
-              <span>Listeners</span>
+              <span data-i18n="nav.listeners">Listeners</span>
             </div>
             <ul id="listeners-list" class="listeners-list">
               <li class="listener-empty">
-                <p>No one else here</p>
+                <p data-i18n="listeners.noListeners">No one else here</p>
               </li>
             </ul>
           </div>
           <div class="social-chat">
             <div class="chat-messages" id="chat-messages">
               <div class="chat-empty">
-                <p>No messages yet</p>
-                <p class="hint">Be the first to say something!</p>
+                <p data-i18n="chat.noMessages">No messages yet</p>
+                <p class="hint" data-i18n="chat.beFirst">Be the first to say something!</p>
               </div>
             </div>
             <div class="chat-input-bar">
-              <input type="text" id="chat-input" placeholder="Type a message..." maxlength="500" autocomplete="off">
-              <button id="chat-send-btn" class="btn btn-primary" aria-label="Send message">
+              <input type="text" id="chat-input" placeholder="Type a message..." data-i18n-placeholder="chat.placeholder" maxlength="500" autocomplete="off">
+              <button id="chat-send-btn" class="btn btn-primary" aria-label="Send message" data-i18n-aria-label="chat.send">
                 <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
               </button>
             </div>
@@ -240,14 +244,14 @@
   <!-- Solo Player View -->
   <div id="solo-view" class="view">
     <header class="lobby-header">
-      <button id="solo-back-btn" class="btn-icon" aria-label="Back to home">
+      <button id="solo-back-btn" class="btn-icon" aria-label="Back to home" data-i18n-aria-label="solo.backToHome">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
       </button>
       <div class="lobby-info">
-        <h2 id="solo-playlist-name">Playlist</h2>
+        <h2 id="solo-playlist-name" data-i18n="solo.playlist">Playlist</h2>
         <span id="solo-song-count" class="user-count">0 songs</span>
       </div>
-      <button id="solo-add-song-header-btn" class="btn-icon" aria-label="Add song">
+      <button id="solo-add-song-header-btn" class="btn-icon" aria-label="Add song" data-i18n-aria-label="queue.addSong">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
       </button>
     </header>
@@ -260,8 +264,8 @@
           </div>
         </div>
         <div class="track-info">
-          <h3 id="solo-track-title" class="track-title">No track playing</h3>
-          <p id="solo-track-artist" class="track-artist">Add a song to get started</p>
+          <h3 id="solo-track-title" class="track-title" data-i18n="player.noTrackPlaying">No track playing</h3>
+          <p id="solo-track-artist" class="track-artist" data-i18n="player.addSongHint">Add a song to get started</p>
         </div>
       </div>
       <div class="progress-container">
@@ -272,16 +276,16 @@
         </div>
       </div>
       <div class="playback-controls">
-        <button id="solo-repeat-btn" class="btn-icon btn-control" aria-label="Repeat" data-mode="off">
+        <button id="solo-repeat-btn" class="btn-icon btn-control" aria-label="Repeat" data-i18n-aria-label="solo.repeat" data-mode="off">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>
         </button>
-        <button id="solo-prev-btn" class="btn-icon btn-control" aria-label="Previous">
+        <button id="solo-prev-btn" class="btn-icon btn-control" aria-label="Previous" data-i18n-aria-label="player.previous">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
         </button>
-        <button id="solo-play-btn" class="btn-icon btn-play" aria-label="Play">
+        <button id="solo-play-btn" class="btn-icon btn-play" aria-label="Play" data-i18n-aria-label="player.play">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
         </button>
-        <button id="solo-next-btn" class="btn-icon btn-control" aria-label="Next">
+        <button id="solo-next-btn" class="btn-icon btn-control" aria-label="Next" data-i18n-aria-label="player.next">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
         </button>
         <button class="btn-icon btn-control" disabled style="visibility: hidden;">
@@ -289,7 +293,7 @@
         </button>
       </div>
       <div class="volume-control">
-        <button id="solo-volume-btn" class="btn-icon btn-control" aria-label="Mute">
+        <button id="solo-volume-btn" class="btn-icon btn-control" aria-label="Mute" data-i18n-aria-label="player.mute">
           <svg viewBox="0 0 24 24" fill="currentColor" id="solo-volume-icon"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
         </button>
         <input type="range" id="solo-volume-bar" class="volume-bar" min="0" max="100" value="100">
@@ -298,15 +302,15 @@
 
     <section class="tab-panel active" style="padding-bottom: 1rem;">
       <div class="add-song">
-        <input type="text" id="solo-song-input" placeholder="Paste YouTube URL or search..." autocomplete="off">
-        <button id="solo-add-song-btn" class="btn btn-primary" aria-label="Add song">
+        <input type="text" id="solo-song-input" placeholder="Paste YouTube URL or search..." data-i18n-placeholder="queue.searchPlaceholder" autocomplete="off">
+        <button id="solo-add-song-btn" class="btn btn-primary" aria-label="Add song" data-i18n-aria-label="queue.addSong">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
         </button>
       </div>
       <ul id="solo-queue-list" class="queue-list">
         <li class="queue-empty">
-          <p>Playlist is empty</p>
-          <p class="hint">Add a song to get started</p>
+          <p data-i18n="solo.playlistEmpty">Playlist is empty</p>
+          <p class="hint" data-i18n="player.addSongHint">Add a song to get started</p>
         </li>
       </ul>
     </section>
@@ -315,59 +319,59 @@
   <!-- Dashboard View -->
   <div id="dashboard-view" class="view">
     <header class="dashboard-header">
-      <h1>Dashboard</h1>
+      <h1 data-i18n="dashboard.title">Dashboard</h1>
       <span id="dashboard-uptime" class="dashboard-uptime"></span>
     </header>
     <main class="dashboard-content">
       <div class="dashboard-stats">
         <div class="stat-card">
           <span class="stat-value" id="stat-lobbies">0</span>
-          <span class="stat-label">Active Lobbies</span>
+          <span class="stat-label" data-i18n="dashboard.activeLobbies">Active Lobbies</span>
         </div>
         <div class="stat-card">
           <span class="stat-value" id="stat-users">0</span>
-          <span class="stat-label">Connected Users</span>
+          <span class="stat-label" data-i18n="dashboard.connectedUsers">Connected Users</span>
         </div>
         <div class="stat-card">
           <span class="stat-value" id="stat-memory">0</span>
-          <span class="stat-label">Memory (MB)</span>
+          <span class="stat-label" data-i18n="dashboard.memory">Memory (MB)</span>
         </div>
       </div>
       <section class="dashboard-lobbies">
-        <h2>Active Lobbies</h2>
+        <h2 data-i18n="dashboard.activeLobbies">Active Lobbies</h2>
         <ul id="dashboard-lobby-list" class="dashboard-lobby-list">
-          <li class="dashboard-empty">No active lobbies</li>
+          <li class="dashboard-empty" data-i18n="dashboard.noActiveLobbies">No active lobbies</li>
         </ul>
       </section>
       <section class="dashboard-cache">
         <div class="cache-header">
-          <h2>Song Cache</h2>
-          <button id="nuke-cache-btn" class="btn btn-danger btn-small">Clear All</button>
+          <h2 data-i18n="dashboard.songCache">Song Cache</h2>
+          <button id="nuke-cache-btn" class="btn btn-danger btn-small" data-i18n="dashboard.clearAll">Clear All</button>
         </div>
         <div class="cache-stats">
           <div class="cache-stat">
             <span class="cache-stat-value" id="cache-ready">0</span>
-            <span class="cache-stat-label">Ready</span>
+            <span class="cache-stat-label" data-i18n="dashboard.ready">Ready</span>
           </div>
           <div class="cache-stat">
             <span class="cache-stat-value" id="cache-downloading">0</span>
-            <span class="cache-stat-label">Downloading</span>
+            <span class="cache-stat-label" data-i18n="dashboard.downloading">Downloading</span>
           </div>
           <div class="cache-stat">
             <span class="cache-stat-value" id="cache-pending">0</span>
-            <span class="cache-stat-label">Pending</span>
+            <span class="cache-stat-label" data-i18n="dashboard.pending">Pending</span>
           </div>
           <div class="cache-stat">
             <span class="cache-stat-value" id="cache-error">0</span>
-            <span class="cache-stat-label">Error</span>
+            <span class="cache-stat-label" data-i18n="dashboard.error">Error</span>
           </div>
           <div class="cache-stat">
             <span class="cache-stat-value" id="cache-duration">0:00</span>
-            <span class="cache-stat-label">Total Duration</span>
+            <span class="cache-stat-label" data-i18n="dashboard.totalDuration">Total Duration</span>
           </div>
         </div>
         <ul id="cache-song-list" class="cache-song-list">
-          <li class="dashboard-empty">No cached songs</li>
+          <li class="dashboard-empty" data-i18n="dashboard.noCachedSongs">No cached songs</li>
         </ul>
       </section>
     </main>
@@ -385,36 +389,37 @@
     <div class="room-type-dialog">
       <div class="room-type-dialog-header">
         <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
-        <h3>Create Lobby</h3>
+        <h3 data-i18n="modal.createLobby">Create Lobby</h3>
       </div>
       <p class="room-type-lobby-name" id="room-type-lobby-name"></p>
-      <p class="room-type-prompt">Choose a listening mode for this lobby:</p>
+      <p class="room-type-prompt" data-i18n="modal.chooseModePrompt">Choose a listening mode for this lobby:</p>
       <div class="lobby-type-selector room-type-selector">
         <label class="lobby-type-option selected" data-mode="synchronized">
           <input type="radio" name="roomTypeMode" value="synchronized" checked>
           <div class="lobby-type-icon">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
           </div>
-          <span class="lobby-type-label">Synchronized</span>
-          <span class="lobby-type-desc">Everyone hears the same thing</span>
+          <span class="lobby-type-label" data-i18n="listeningMode.synchronized">Synchronized</span>
+          <span class="lobby-type-desc" data-i18n="listeningMode.synchronizedDesc">Everyone hears the same thing</span>
         </label>
         <label class="lobby-type-option" data-mode="independent">
           <input type="radio" name="roomTypeMode" value="independent">
           <div class="lobby-type-icon">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
           </div>
-          <span class="lobby-type-label">Independent</span>
-          <span class="lobby-type-desc">Shared queue, own playback</span>
+          <span class="lobby-type-label" data-i18n="listeningMode.independent">Independent</span>
+          <span class="lobby-type-desc" data-i18n="listeningMode.independentDesc">Shared queue, own playback</span>
         </label>
       </div>
       <div class="room-type-actions">
-        <button id="room-type-create-btn" class="btn btn-primary">Create Lobby</button>
-        <button id="room-type-cancel-btn" class="btn btn-secondary">Cancel</button>
+        <button id="room-type-create-btn" class="btn btn-primary" data-i18n="modal.create">Create Lobby</button>
+        <button id="room-type-cancel-btn" class="btn btn-secondary" data-i18n="modal.cancel">Cancel</button>
       </div>
     </div>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
+  <script src="/i18n.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>
