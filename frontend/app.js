@@ -1639,6 +1639,10 @@
   function handleUsersUpdated(data) {
     state.listeners = data.users || [];
     updateListeners();
+    // In independent mode, re-render queue to show who's listening to each song
+    if (state.listeningMode === 'independent') {
+      updateQueue();
+    }
   }
 
   function toggleUserMode() {
