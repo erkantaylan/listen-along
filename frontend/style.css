@@ -1163,56 +1163,121 @@ html, body {
 .social-content {
   flex: 1;
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   overflow: hidden;
   min-height: 0;
 }
 
-.social-listeners {
-  width: 140px;
-  min-width: 140px;
-  display: flex;
-  flex-direction: column;
-  border-right: 1px solid var(--bg-surface);
+/* Compact horizontal strip for listeners */
+.social-listeners-strip {
+  flex-shrink: 0;
   background: var(--bg-elevated);
+  border-bottom: 1px solid var(--bg-surface);
+  padding: 0.5rem 0.75rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
-.social-section-header {
+.social-listeners-strip .listeners-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.social-listeners-strip .listener-item {
   display: flex;
   align-items: center;
   gap: 0.375rem;
-  padding: 0.5rem 0.75rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  border-bottom: 1px solid var(--bg-surface);
-}
-
-.social-section-header svg {
-  opacity: 0.7;
-}
-
-.social-listeners .listeners-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0.25rem 0;
-}
-
-.social-listeners .listener-item {
-  padding: 0.375rem 0.75rem;
+  padding: 0.25rem 0.5rem 0.25rem 0.25rem;
+  background: var(--bg-surface);
+  border-radius: 999px;
   font-size: 0.8125rem;
+  white-space: nowrap;
 }
 
-.social-listeners .listener-empty {
-  padding: 0.75rem;
-  text-align: center;
+.social-listeners-strip .listener-item.lobby-mode {
+  opacity: 0.6;
 }
 
-.social-listeners .listener-empty p {
-  font-size: 0.75rem;
+.social-listeners-strip .listener-avatar {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: var(--primary);
+  color: var(--text-inverse);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.625rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.social-listeners-strip .listener-avatar.emoji {
+  font-size: 0.875rem;
+  background: transparent;
+}
+
+.social-listeners-strip .listener-name {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.social-listeners-strip .listener-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+
+.social-listeners-strip .listener-track {
+  display: none; /* Hide track info in compact view */
+}
+
+.social-listeners-strip .mode-icon {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
   color: var(--text-muted);
+}
+
+.social-listeners-strip .mode-icon.lobby {
+  color: var(--text-muted);
+}
+
+.social-listeners-strip .mode-icon.listening {
+  color: var(--primary);
+}
+
+.social-listeners-strip .listener-badge {
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: var(--primary);
+  background: rgba(29, 185, 84, 0.15);
+  padding: 0.125rem 0.375rem;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.social-listeners-strip .listener-empty {
+  display: flex;
+  align-items: center;
+  padding: 0;
+}
+
+.social-listeners-strip .listener-empty p {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.social-listeners-strip .listener-empty .hint {
+  display: none;
 }
 
 .social-chat {
@@ -1221,35 +1286,6 @@ html, body {
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
-}
-
-/* Mobile: Stack vertically */
-@media (max-width: 480px) {
-  .social-content {
-    flex-direction: column;
-  }
-
-  .social-listeners {
-    width: 100%;
-    min-width: 100%;
-    max-height: 120px;
-    border-right: none;
-    border-bottom: 1px solid var(--bg-surface);
-  }
-
-  .social-listeners .listeners-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.25rem;
-    padding: 0.25rem 0.5rem;
-  }
-
-  .social-listeners .listener-item {
-    padding: 0.25rem 0.5rem;
-    background: var(--bg-surface);
-    border-radius: var(--border-radius);
-    font-size: 0.75rem;
-  }
 }
 
 .chat-messages {
