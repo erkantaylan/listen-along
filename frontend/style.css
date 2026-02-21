@@ -865,6 +865,10 @@ html, body {
   color: var(--primary);
 }
 
+.queue-item-play:active {
+  transform: scale(0.9);
+}
+
 .queue-item-remove {
   padding: 0.5rem;
   color: var(--text-muted);
