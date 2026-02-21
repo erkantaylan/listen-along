@@ -817,6 +817,45 @@ html, body {
   flex-shrink: 0;
 }
 
+.queue-item-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  flex-shrink: 0;
+  cursor: grab;
+  color: var(--text-muted);
+  opacity: 0.5;
+  transition: opacity var(--transition), color var(--transition);
+}
+
+.queue-item-drag-handle:active {
+  cursor: grabbing;
+}
+
+.queue-item:hover .queue-item-drag-handle {
+  opacity: 1;
+  color: var(--text-secondary);
+}
+
+.queue-item-drag-handle svg {
+  width: 18px;
+  height: 18px;
+}
+
+.queue-item.dragging {
+  opacity: 0.4;
+  background: var(--bg-surface);
+}
+
+.queue-item.drag-over-top {
+  box-shadow: inset 0 2px 0 0 var(--primary);
+}
+
+.queue-item.drag-over-bottom {
+  box-shadow: inset 0 -2px 0 0 var(--primary);
+}
+
 .queue-item-reorder {
   display: flex;
   flex-direction: column;

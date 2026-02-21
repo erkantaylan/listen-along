@@ -503,6 +503,9 @@
       });
     }
 
+    // Queue drag and drop reordering
+    setupQueueDragAndDrop();
+
     // Hide errored songs toggle
     if (elements.hideErroredCheckbox) {
       elements.hideErroredCheckbox.checked = state.hideErroredSongs;
@@ -1927,6 +1930,105 @@
     socket.emit('playback:next', { lobbyId: state.lobbyId });
   }
 
+  // Drag and drop reordering for queue
+  function setupQueueDragAndDrop() {
+    const list = elements.queueList;
+    let draggedIndex = -1;
+
+    list.addEventListener('dragstart', (e) => {
+      const item = e.target.closest('.queue-item');
+      if (!item || item.classList.contains('playing')) {
+        e.preventDefault();
+        return;
+      }
+      draggedIndex = parseInt(item.dataset.index, 10);
+      item.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(draggedIndex));
+      // Use a slight delay so the dragging class applies to the ghost image
+      requestAnimationFrame(() => item.classList.add('dragging'));
+    });
+
+    list.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const item = e.target.closest('.queue-item');
+      if (!item || parseInt(item.dataset.index, 10) === draggedIndex) return;
+
+      // Remove existing indicators
+      list.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(el => {
+        el.classList.remove('drag-over-top', 'drag-over-bottom');
+      });
+
+      // Don't allow drop on the playing item (index 0)
+      if (item.classList.contains('playing')) return;
+
+      const rect = item.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      if (e.clientY < midY) {
+        item.classList.add('drag-over-top');
+      } else {
+        item.classList.add('drag-over-bottom');
+      }
+    });
+
+    list.addEventListener('dragleave', (e) => {
+      const item = e.target.closest('.queue-item');
+      if (item) {
+        item.classList.remove('drag-over-top', 'drag-over-bottom');
+      }
+    });
+
+    list.addEventListener('drop', (e) => {
+      e.preventDefault();
+      list.querySelectorAll('.drag-over-top, .drag-over-bottom, .dragging').forEach(el => {
+        el.classList.remove('drag-over-top', 'drag-over-bottom', 'dragging');
+      });
+
+      const targetItem = e.target.closest('.queue-item');
+      if (!targetItem || targetItem.classList.contains('playing')) return;
+
+      const targetIndex = parseInt(targetItem.dataset.index, 10);
+      if (targetIndex === draggedIndex) return;
+
+      // Determine insertion point based on cursor position
+      const rect = targetItem.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      // insertionPoint = position in original array where item should end up
+      let insertionPoint = e.clientY < midY ? targetIndex : targetIndex + 1;
+
+      // Can't place before the playing song
+      if (insertionPoint <= 0) insertionPoint = 1;
+
+      // Calculate newIndex accounting for removal of dragged item
+      let newIndex;
+      if (draggedIndex < insertionPoint) {
+        newIndex = insertionPoint - 1;
+      } else {
+        newIndex = insertionPoint;
+      }
+
+      if (newIndex !== draggedIndex && newIndex >= 1) {
+        const song = state.queue[draggedIndex];
+        if (song) {
+          socket.emit('queue:reorder', {
+            lobbyId: state.lobbyId,
+            songId: song.id,
+            newIndex: newIndex
+          });
+        }
+      }
+      draggedIndex = -1;
+    });
+
+    list.addEventListener('dragend', () => {
+      list.querySelectorAll('.drag-over-top, .drag-over-bottom, .dragging').forEach(el => {
+        el.classList.remove('drag-over-top', 'drag-over-bottom', 'dragging');
+      });
+      draggedIndex = -1;
+    });
+  }
+
   // UI Updates
   function updateNowPlaying(track) {
     elements.trackTitle.textContent = track.title || 'Unknown Track';
@@ -2041,7 +2143,10 @@
       const listenersHtml = getQueueListenersHtml(song.title);
 
       return `
-      <li class="queue-item ${state.currentTrack && state.currentTrack.id === song.id ? 'playing' : ''}" data-index="${index}" data-url="${escapeHtml(song.url)}">
+      <li class="queue-item ${state.currentTrack && state.currentTrack.id === song.id ? 'playing' : ''}" data-index="${index}" data-url="${escapeHtml(song.url)}" ${!isPlaying ? 'draggable="true"' : ''}>
+        ${!isPlaying ? `<div class="queue-item-drag-handle" title="Drag to reorder">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+        </div>` : ''}
         <div class="queue-item-thumb">
           ${thumbUrl ? `<img src="${thumbUrl}" alt="">` : ''}
           ${downloadHtml.icon}
