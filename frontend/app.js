@@ -1901,6 +1901,32 @@
     });
   }
 
+  function playSongAt(index) {
+    const song = state.queue[index];
+    if (!song) return;
+
+    if (state.listeningMode === 'independent') {
+      playLocalTrack(song);
+      return;
+    }
+
+    // Synchronized mode
+    if (index === 0) {
+      // Already playing - restart from beginning
+      socket.emit('playback:seek', { lobbyId: state.lobbyId, position: 0 });
+      return;
+    }
+    // Move song to next-up position then skip to it
+    if (index !== 1) {
+      socket.emit('queue:reorder', {
+        lobbyId: state.lobbyId,
+        songId: song.id,
+        newIndex: 1
+      });
+    }
+    socket.emit('playback:next', { lobbyId: state.lobbyId });
+  }
+
   // UI Updates
   function updateNowPlaying(track) {
     elements.trackTitle.textContent = track.title || 'Unknown Track';
@@ -2041,6 +2067,9 @@
               </button>
             </div>
           ` : ''}
+          <button class="btn-icon queue-item-play" aria-label="Play" onclick="window.app.playSongAt(${index})">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          </button>
           <button class="btn-icon queue-item-remove" aria-label="Remove from queue" onclick="window.app.removeSong(${index})">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
           </button>
@@ -2891,6 +2920,7 @@
     removeSong,
     moveSongUp,
     moveSongDown,
+    playSongAt,
     openPlaylist,
     deletePlaylist: deletePlaylistAction,
     soloPlayTrack: soloPlayTrack,
