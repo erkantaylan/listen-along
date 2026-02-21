@@ -2160,7 +2160,7 @@
 
   // Recent ticker messages for marquee
   let tickerMessages = [];
-  const MAX_TICKER_MESSAGES = 5;
+  const MAX_TICKER_MESSAGES = 4;
 
   function sendChatMessage() {
     if (!elements.chatInput || !socket || !state.lobbyId) return;
@@ -2253,6 +2253,12 @@
     elements.chatTickerContent.innerHTML = tickerMessages.map(msg =>
       `<span class="ticker-msg"><span class="ticker-user">${escapeHtml(msg.username)}</span>: ${escapeHtml(msg.content)}</span>`
     ).join('');
+
+    // Set animation duration based on content width for consistent scroll speed
+    const contentWidth = elements.chatTickerContent.scrollWidth;
+    const speed = 50; // pixels per second
+    const duration = contentWidth / speed;
+    elements.chatTickerContent.style.animationDuration = duration + 's';
   }
 
   function requestChatHistory() {
