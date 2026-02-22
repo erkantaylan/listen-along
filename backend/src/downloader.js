@@ -411,6 +411,37 @@ async function deleteAllSongs() {
 }
 
 /**
+ * Delete all songs with error status
+ * @returns {Promise<number>} Number of songs deleted
+ */
+async function deleteErrorSongs() {
+  if (!db.isAvailable()) return 0;
+
+  try {
+    const result = await db.query("SELECT id, file_path FROM songs WHERE status = 'error'");
+    let deleted = 0;
+
+    for (const song of result.rows) {
+      if (song.file_path && fs.existsSync(song.file_path)) {
+        try {
+          fs.unlinkSync(song.file_path);
+        } catch (err) {
+          console.error(`Failed to delete file: ${song.file_path}`, err.message);
+        }
+      }
+      deleted++;
+    }
+
+    await db.query("DELETE FROM songs WHERE status = 'error'");
+    console.log(`Deleted ${deleted} error songs`);
+    return deleted;
+  } catch (err) {
+    console.error('Error deleting error songs:', err.message);
+    return 0;
+  }
+}
+
+/**
  * Clean up old cached songs (older than maxAge)
  * @param {number} maxAge - Maximum age in milliseconds (default 7 days)
  */
@@ -457,6 +488,7 @@ module.exports = {
   getAllSongs,
   deleteSong,
   deleteAllSongs,
+  deleteErrorSongs,
   cleanupOldSongs,
   downloadEvents,
   SONGS_PATH

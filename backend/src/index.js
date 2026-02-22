@@ -625,6 +625,17 @@ app.delete('/api/dashboard/cache/songs', dashboardAuth, async (req, res) => {
   }
 });
 
+// Delete all error songs (dashboard only)
+app.delete('/api/dashboard/cache/errors', dashboardAuth, async (req, res) => {
+  try {
+    const count = await downloader.deleteErrorSongs();
+    res.json({ success: true, deleted: count });
+  } catch (err) {
+    console.error('Delete error songs error:', err.message);
+    res.status(500).json({ error: 'Failed to delete error songs' });
+  }
+});
+
 // Delete a lobby (dashboard only)
 app.delete('/api/dashboard/lobbies/:id', dashboardAuth, (req, res) => {
   const lobbyId = req.params.id;

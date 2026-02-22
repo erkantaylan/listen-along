@@ -1806,6 +1806,19 @@ html, body {
   background: #c82333;
 }
 
+.btn-warning {
+  background: #e67e22;
+}
+
+.btn-warning:hover {
+  background: #d35400;
+}
+
+.cache-header-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .dashboard-empty {
   text-align: center;
   padding: 2rem;

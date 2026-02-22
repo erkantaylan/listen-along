@@ -254,6 +254,7 @@
     cacheDuration: document.getElementById('cache-duration'),
     cacheSongList: document.getElementById('cache-song-list'),
     nukeCacheBtn: document.getElementById('nuke-cache-btn'),
+    clearErrorsBtn: document.getElementById('clear-errors-btn'),
 
     // Room Type Modal
     roomTypeModal: document.getElementById('room-type-modal'),
@@ -889,18 +890,37 @@
   function nukeAllCachedSongs() {
     if (!confirm('Delete ALL cached songs? This cannot be undone.')) return;
 
-    fetch('/api/dashboard/cache/songs', { method: 'DELETE' })
+    fetch('/api/dashboard/cache/songs', { method: 'DELETE', credentials: 'include' })
       .then(res => res.json())
       .then(data => {
         if (data.success) {
           fetchCacheStats();
           fetchCachedSongs();
+          fetchDashboardStats();
           alert(`Deleted ${data.deleted} cached songs`);
         } else {
           alert('Failed to delete songs');
         }
       })
       .catch(() => alert('Failed to delete songs'));
+  }
+
+  function clearErrorSongs() {
+    if (!confirm('Delete all songs with error status?')) return;
+
+    fetch('/api/dashboard/cache/errors', { method: 'DELETE', credentials: 'include' })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          fetchCacheStats();
+          fetchCachedSongs();
+          fetchDashboardStats();
+          alert(`Deleted ${data.deleted} error songs`);
+        } else {
+          alert('Failed to delete error songs');
+        }
+      })
+      .catch(() => alert('Failed to delete error songs'));
   }
 
   // Play a cached song (opens in a new lobby or uses existing)
@@ -1187,6 +1207,9 @@
       // Set up nuke button listener
       if (elements.nukeCacheBtn) {
         elements.nukeCacheBtn.onclick = nukeAllCachedSongs;
+      }
+      if (elements.clearErrorsBtn) {
+        elements.clearErrorsBtn.onclick = clearErrorSongs;
       }
       dashboardInterval = setInterval(() => {
         fetchDashboardStats();
@@ -2162,7 +2185,7 @@
         <div class="queue-item-info">
           <div class="queue-item-title">${escapeHtml(song.title)}</div>
           <div class="queue-item-meta">
-            <span class="queue-item-duration">${song.duration || ''}</span>
+            <span class="queue-item-duration">${song.duration ? formatDuration(song.duration) : ''}</span>
             ${song.addedBy ? `<span class="queue-item-added-by">${escapeHtml(song.addedBy)}</span>` : ''}
             ${downloadHtml.badge}
           </div>
