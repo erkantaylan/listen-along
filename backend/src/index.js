@@ -5,6 +5,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto');
 const ytdlp = require('./ytdlp');
 const playback = require('./playback');
@@ -486,16 +487,37 @@ const dashboardAuth = (req, res, next) => {
 
 // Dashboard stats endpoint
 app.get('/api/dashboard/stats', dashboardAuth, (req, res) => {
+  // Calculate disk usage from songs directory
+  let diskUsageBytes = 0;
+  let diskFileCount = 0;
+  try {
+    const songsDir = downloader.SONGS_PATH;
+    if (fs.existsSync(songsDir)) {
+      const files = fs.readdirSync(songsDir);
+      for (const file of files) {
+        try {
+          const stat = fs.statSync(path.join(songsDir, file));
+          if (stat.isFile()) {
+            diskUsageBytes += stat.size;
+            diskFileCount++;
+          }
+        } catch {}
+      }
+    }
+  } catch {}
+
   const stats = {
     totalLobbies: lobby.lobbies.size,
     totalUsers: 0,
     uptime: process.uptime(),
     memoryUsage: process.memoryUsage(),
+    diskUsage: { bytes: diskUsageBytes, fileCount: diskFileCount },
     lobbies: []
   };
 
   for (const [lobbyId, lobbyData] of lobby.lobbies) {
-    const userCount = lobbyData.users.size;
+    const users = lobby.getLobbyUsers(lobbyId);
+    const userCount = users ? users.length : 0;
     stats.totalUsers += userCount;
 
     const queue = getQueue(lobbyId);
@@ -503,6 +525,7 @@ app.get('/api/dashboard/stats', dashboardAuth, (req, res) => {
 
     stats.lobbies.push({
       id: lobbyId,
+      name: lobbyData.name || null,
       userCount,
       listeningMode: lobbyData.listeningMode || 'synchronized',
       queueLength: queue.getSongs().length,

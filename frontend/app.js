@@ -214,6 +214,7 @@
     statLobbies: document.getElementById('stat-lobbies'),
     statUsers: document.getElementById('stat-users'),
     statMemory: document.getElementById('stat-memory'),
+    statDisk: document.getElementById('stat-disk'),
     dashboardLobbyList: document.getElementById('dashboard-lobby-list'),
 
     // Solo Player
@@ -694,8 +695,11 @@
 
   // Fetch and display dashboard stats
   function fetchDashboardStats() {
-    fetch('/api/dashboard/stats')
-      .then(res => res.json())
+    fetch('/api/dashboard/stats', { credentials: 'include' })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then(data => {
         if (elements.statLobbies) {
           elements.statLobbies.textContent = data.totalLobbies;
@@ -706,6 +710,10 @@
         if (elements.statMemory) {
           const memMB = Math.round(data.memoryUsage.heapUsed / 1024 / 1024);
           elements.statMemory.textContent = memMB;
+        }
+        if (elements.statDisk) {
+          const diskMB = (data.diskUsage.bytes / 1024 / 1024).toFixed(1);
+          elements.statDisk.textContent = `${diskMB} MB (${data.diskUsage.fileCount} files)`;
         }
         if (elements.dashboardUptime) {
           elements.dashboardUptime.textContent = `Uptime: ${formatUptime(data.uptime)}`;
@@ -730,7 +738,7 @@
       const age = formatAge(lobby.createdAt);
       return `
         <li class="dashboard-lobby-item">
-          <div class="dashboard-lobby-id">${escapeHtml(lobby.id)}</div>
+          <div class="dashboard-lobby-id">${lobby.name ? escapeHtml(lobby.name) : escapeHtml(lobby.id)}</div>
           <div class="dashboard-lobby-info">
             <span class="dashboard-lobby-users">${lobby.userCount} user${lobby.userCount !== 1 ? 's' : ''}</span>
             <span class="dashboard-lobby-queue">${lobby.queueLength} in queue</span>
@@ -772,8 +780,11 @@
 
   // Fetch and display cache stats
   function fetchCacheStats() {
-    fetch('/api/dashboard/cache')
-      .then(res => res.json())
+    fetch('/api/dashboard/cache', { credentials: 'include' })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then(data => {
         if (!data.enabled) {
           if (elements.cacheSongList) {
@@ -810,8 +821,11 @@
 
   // Fetch and display cached songs
   function fetchCachedSongs() {
-    fetch('/api/dashboard/cache/songs')
-      .then(res => res.json())
+    fetch('/api/dashboard/cache/songs', { credentials: 'include' })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then(data => {
         updateCacheSongList(data.songs);
       })
@@ -1883,7 +1897,7 @@
   }
 
   function moveSongUp(index) {
-    if (index <= 1) return; // Can't move the first song (playing) or move to index 0
+    if (index <= 0) return;
     const song = state.queue[index];
     if (!song) return;
     socket.emit('queue:reorder', {
@@ -1894,7 +1908,7 @@
   }
 
   function moveSongDown(index) {
-    if (index === 0 || index >= state.queue.length - 1) return; // Can't move the playing song or past the end
+    if (index >= state.queue.length - 1) return;
     const song = state.queue[index];
     if (!song) return;
     socket.emit('queue:reorder', {
@@ -1937,7 +1951,7 @@
 
     list.addEventListener('dragstart', (e) => {
       const item = e.target.closest('.queue-item');
-      if (!item || item.classList.contains('playing')) {
+      if (!item) {
         e.preventDefault();
         return;
       }
@@ -1959,9 +1973,6 @@
       list.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(el => {
         el.classList.remove('drag-over-top', 'drag-over-bottom');
       });
-
-      // Don't allow drop on the playing item (index 0)
-      if (item.classList.contains('playing')) return;
 
       const rect = item.getBoundingClientRect();
       const midY = rect.top + rect.height / 2;
@@ -1986,7 +1997,7 @@
       });
 
       const targetItem = e.target.closest('.queue-item');
-      if (!targetItem || targetItem.classList.contains('playing')) return;
+      if (!targetItem) return;
 
       const targetIndex = parseInt(targetItem.dataset.index, 10);
       if (targetIndex === draggedIndex) return;
@@ -1997,9 +2008,6 @@
       // insertionPoint = position in original array where item should end up
       let insertionPoint = e.clientY < midY ? targetIndex : targetIndex + 1;
 
-      // Can't place before the playing song
-      if (insertionPoint <= 0) insertionPoint = 1;
-
       // Calculate newIndex accounting for removal of dragged item
       let newIndex;
       if (draggedIndex < insertionPoint) {
@@ -2008,7 +2016,7 @@
         newIndex = insertionPoint;
       }
 
-      if (newIndex !== draggedIndex && newIndex >= 1) {
+      if (newIndex !== draggedIndex && newIndex >= 0) {
         const song = state.queue[draggedIndex];
         if (song) {
           socket.emit('queue:reorder', {
@@ -2137,16 +2145,16 @@
       const thumbUrl = song.id ? getCoverUrl(song.id, song.thumbnail) : sanitizeUrl(song.thumbnail);
       const downloadInfo = state.downloadStatus[song.url];
       const downloadHtml = getDownloadStatusHtml(downloadInfo, song.url);
-      const isPlaying = index === 0;
-      const canMoveUp = index > 1; // Can't move to index 0 (currently playing)
-      const canMoveDown = index > 0 && index < state.queue.length - 1;
+      const isPlaying = state.currentTrack && state.currentTrack.id === song.id;
+      const canMoveUp = index > 0;
+      const canMoveDown = index < state.queue.length - 1;
       const listenersHtml = getQueueListenersHtml(song.title);
 
       return `
-      <li class="queue-item ${state.currentTrack && state.currentTrack.id === song.id ? 'playing' : ''}" data-index="${index}" data-url="${escapeHtml(song.url)}" ${!isPlaying ? 'draggable="true"' : ''}>
-        ${!isPlaying ? `<div class="queue-item-drag-handle" title="Drag to reorder">
+      <li class="queue-item ${isPlaying ? 'playing' : ''}" data-index="${index}" data-url="${escapeHtml(song.url)}" draggable="true">
+        <div class="queue-item-drag-handle" title="Drag to reorder">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
-        </div>` : ''}
+        </div>
         <div class="queue-item-thumb">
           ${thumbUrl ? `<img src="${thumbUrl}" alt="">` : ''}
           ${downloadHtml.icon}
@@ -2162,16 +2170,14 @@
         </div>
         ${listenersHtml}
         <div class="queue-item-actions">
-          ${!isPlaying ? `
-            <div class="queue-item-reorder">
-              <button class="btn-icon-small queue-item-up" aria-label="Move up" onclick="window.app.moveSongUp(${index})" ${!canMoveUp ? 'disabled' : ''}>
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
-              </button>
-              <button class="btn-icon-small queue-item-down" aria-label="Move down" onclick="window.app.moveSongDown(${index})" ${!canMoveDown ? 'disabled' : ''}>
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
-              </button>
-            </div>
-          ` : ''}
+          <div class="queue-item-reorder">
+            <button class="btn-icon-small queue-item-up" aria-label="Move up" onclick="window.app.moveSongUp(${index})" ${!canMoveUp ? 'disabled' : ''}>
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
+            </button>
+            <button class="btn-icon-small queue-item-down" aria-label="Move down" onclick="window.app.moveSongDown(${index})" ${!canMoveDown ? 'disabled' : ''}>
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+            </button>
+          </div>
           <button class="btn-icon queue-item-play" aria-label="Play" onclick="window.app.playSongAt(${index})">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
           </button>
