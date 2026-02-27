@@ -295,6 +295,7 @@
     setupProfileEditor();
     checkUrlForLobby();
     setupAudioPlayer();
+    setupMediaSession();
     setupSoloAudioHooks();
     fetchVersion();
     fetchLobbies();
@@ -1032,6 +1033,42 @@
     // Initialize volume from stored preference
     audio.volume = state.volume;
     setupVolumeControls();
+  }
+
+  function setupMediaSession() {
+    if (!window.MediaSessionManager) return;
+
+    MediaSessionManager.init({
+      onPlay: function () { togglePlayback(); },
+      onPause: function () { togglePlayback(); },
+      onNext: function () { playNext(); },
+      onPrevious: function () { playPrevious(); },
+      onSeekTo: function (time) {
+        const audio = elements.audioPlayer;
+        if (audio && audio.duration) {
+          audio.currentTime = time;
+        }
+      }
+    });
+
+    // Update position state periodically from the audio element
+    const audio = elements.audioPlayer;
+    audio.addEventListener('timeupdate', function () {
+      if (audio.duration) {
+        MediaSessionManager.updatePositionState({
+          duration: audio.duration,
+          position: audio.currentTime
+        });
+      }
+    });
+
+    // Sync playback state with Media Session on play/pause
+    audio.addEventListener('play', function () {
+      MediaSessionManager.updatePlaybackState('playing');
+    });
+    audio.addEventListener('pause', function () {
+      MediaSessionManager.updatePlaybackState('paused');
+    });
   }
 
   // Mobile Safari audio unlock handling
@@ -2193,6 +2230,16 @@
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
         </div>
       `;
+    }
+
+    // Update lock screen / notification media controls
+    if (window.MediaSessionManager) {
+      MediaSessionManager.updateTrack({
+        title: track.title,
+        artist: track.artist,
+        thumbnail: track.thumbnail,
+        songId: track.id
+      });
     }
   }
 
