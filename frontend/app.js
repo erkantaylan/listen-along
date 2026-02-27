@@ -83,19 +83,21 @@
     return storageGet(STORAGE_KEYS.SHUFFLE_ENABLED) === 'true';
   }
 
-  // Derive unified playback mode from repeat + shuffle state
-  function getStoredPlaybackMode() {
+  // Migrate old unified playback mode to separate repeat + shuffle keys
+  function migratePlaybackMode() {
     const stored = storageGet(STORAGE_KEYS.PLAYBACK_MODE);
     if (stored && ['repeat-all', 'repeat-one', 'stop', 'shuffle'].includes(stored)) {
-      return stored;
+      // Map old unified mode to separate keys
+      const repeatMap = { 'repeat-all': 'all', 'repeat-one': 'one', 'stop': 'off', 'shuffle': 'off' };
+      storageSet(STORAGE_KEYS.REPEAT_MODE, repeatMap[stored]);
+      storageSet(STORAGE_KEYS.SHUFFLE_ENABLED, String(stored === 'shuffle'));
+      // Remove the old unified key
+      try { localStorage.removeItem(STORAGE_KEYS.PLAYBACK_MODE); } catch (e) { /* ignore */ }
     }
-    // Migrate from old settings
-    if (getStoredShuffleEnabled()) return 'shuffle';
-    const repeat = getStoredRepeatMode();
-    if (repeat === 'all') return 'repeat-all';
-    if (repeat === 'one') return 'repeat-one';
-    return 'stop';
   }
+
+  // Run migration on load
+  migratePlaybackMode();
 
   // App State
   const state = {
@@ -110,7 +112,6 @@
     username: getOrCreateUsername(),
     emoji: getOrCreateEmoji(),
     repeatMode: getStoredRepeatMode(),
-    playbackMode: getStoredPlaybackMode(),
     audioUnlocked: false,
     pendingPlay: null,
     downloadStatus: {}, // Map of url -> { status, percent }
@@ -164,7 +165,8 @@
     playBtn: document.getElementById('play-btn'),
     prevBtn: document.getElementById('prev-btn'),
     nextBtn: document.getElementById('next-btn'),
-    playbackModeBtns: document.querySelectorAll('.playback-mode-btn'),
+    repeatBtn: document.getElementById('repeat-btn'),
+    shuffleBtn: document.getElementById('shuffle-btn'),
 
     // Bottom Nav
     navItems: document.querySelectorAll('.nav-item'),
@@ -485,9 +487,8 @@
     elements.playBtn.addEventListener('click', togglePlayback);
     elements.prevBtn.addEventListener('click', playPrevious);
     elements.nextBtn.addEventListener('click', playNext);
-    elements.playbackModeBtns.forEach(btn => {
-      btn.addEventListener('click', () => setPlaybackMode(btn.dataset.mode));
-    });
+    elements.repeatBtn.addEventListener('click', cycleRepeatMode);
+    elements.shuffleBtn.addEventListener('click', toggleShuffle);
 
     // Progress Bar
     elements.progressBar.addEventListener('input', seekTo);
@@ -1668,8 +1669,6 @@
     if (data.repeatMode !== undefined && data.repeatMode !== state.repeatMode) {
       state.repeatMode = data.repeatMode;
       storageSet(STORAGE_KEYS.REPEAT_MODE, data.repeatMode);
-      state.playbackMode = derivePlaybackMode();
-      storageSet(STORAGE_KEYS.PLAYBACK_MODE, state.playbackMode);
       updatePlaybackModeUI();
     }
 
@@ -1734,8 +1733,6 @@
   function handleShuffleState(data) {
     state.isShuffleEnabled = data.shuffleEnabled;
     storageSet(STORAGE_KEYS.SHUFFLE_ENABLED, String(data.shuffleEnabled));
-    state.playbackMode = derivePlaybackMode();
-    storageSet(STORAGE_KEYS.PLAYBACK_MODE, state.playbackMode);
     updatePlaybackModeUI();
   }
 
@@ -1810,41 +1807,46 @@
   }
 
   // Playback Controls
-  function setPlaybackMode(mode) {
-    if (!['repeat-all', 'repeat-one', 'stop', 'shuffle'].includes(mode)) return;
-
-    state.playbackMode = mode;
-    storageSet(STORAGE_KEYS.PLAYBACK_MODE, mode);
-
-    // Map unified mode to backend repeat + shuffle state
-    const repeatMap = { 'repeat-all': 'all', 'repeat-one': 'one', 'stop': 'off', 'shuffle': 'off' };
-    const newRepeat = repeatMap[mode];
-    const newShuffle = mode === 'shuffle';
+  function cycleRepeatMode() {
+    const cycle = { 'off': 'all', 'all': 'one', 'one': 'off' };
+    const newRepeat = cycle[state.repeatMode] || 'off';
 
     if (state.listeningMode === 'independent') {
       state.repeatMode = newRepeat;
-      state.isShuffleEnabled = newShuffle;
       storageSet(STORAGE_KEYS.REPEAT_MODE, newRepeat);
+      updatePlaybackModeUI();
+      return;
+    }
+
+    // Synchronized mode: emit to server
+    socket.emit('playback:setRepeat', { lobbyId: state.lobbyId, mode: newRepeat });
+
+    // Update local state immediately for responsiveness
+    state.repeatMode = newRepeat;
+    storageSet(STORAGE_KEYS.REPEAT_MODE, newRepeat);
+    updatePlaybackModeUI();
+  }
+
+  function toggleShuffle() {
+    const newShuffle = !state.isShuffleEnabled;
+
+    if (state.listeningMode === 'independent') {
+      state.isShuffleEnabled = newShuffle;
       storageSet(STORAGE_KEYS.SHUFFLE_ENABLED, String(newShuffle));
       updatePlaybackModeUI();
       return;
     }
 
-    // Synchronized mode: emit both changes to server
-    if (state.repeatMode !== newRepeat) {
-      socket.emit('playback:setRepeat', { lobbyId: state.lobbyId, mode: newRepeat });
-    }
-    if (state.isShuffleEnabled !== newShuffle) {
-      socket.emit('playback:shuffle', {
-        lobbyId: state.lobbyId,
-        enabled: newShuffle,
-        queueLength: state.queue.length
-      });
-    }
+    // Synchronized mode: emit to server
+    socket.emit('playback:shuffle', {
+      lobbyId: state.lobbyId,
+      enabled: newShuffle,
+      queueLength: state.queue.length
+    });
 
     // Update local state immediately for responsiveness
-    state.repeatMode = newRepeat;
     state.isShuffleEnabled = newShuffle;
+    storageSet(STORAGE_KEYS.SHUFFLE_ENABLED, String(newShuffle));
     updatePlaybackModeUI();
   }
 
@@ -1911,14 +1913,6 @@
       return;
     }
     socket.emit('playback:next', { lobbyId: state.lobbyId });
-  }
-
-  // Derive playback mode from backend repeat + shuffle state
-  function derivePlaybackMode() {
-    if (state.isShuffleEnabled) return 'shuffle';
-    if (state.repeatMode === 'all') return 'repeat-all';
-    if (state.repeatMode === 'one') return 'repeat-one';
-    return 'stop';
   }
 
   function seekTo() {
@@ -2214,12 +2208,30 @@
   }
 
   function updatePlaybackModeUI() {
-    const currentMode = state.playbackMode || derivePlaybackMode();
-    elements.playbackModeBtns.forEach(btn => {
-      const isActive = btn.dataset.mode === currentMode;
-      btn.classList.toggle('active', isActive);
-      btn.setAttribute('aria-checked', isActive.toString());
-    });
+    // Update repeat button icon and state
+    const repeatBtn = elements.repeatBtn;
+    const repeatActive = state.repeatMode !== 'off';
+    repeatBtn.classList.toggle('active', repeatActive);
+
+    if (state.repeatMode === 'all') {
+      repeatBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>';
+      repeatBtn.setAttribute('aria-label', 'Repeat all');
+      repeatBtn.setAttribute('title', 'Repeat all');
+    } else if (state.repeatMode === 'one') {
+      repeatBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/><text x="12" y="16" text-anchor="middle" font-size="9" font-weight="700" fill="currentColor">1</text></svg>';
+      repeatBtn.setAttribute('aria-label', 'Repeat one');
+      repeatBtn.setAttribute('title', 'Repeat one');
+    } else {
+      repeatBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/><path d="M8 8h8v8H8z"/></svg>';
+      repeatBtn.setAttribute('aria-label', 'Repeat off');
+      repeatBtn.setAttribute('title', 'Repeat off');
+    }
+
+    // Update shuffle button state
+    const shuffleBtn = elements.shuffleBtn;
+    shuffleBtn.classList.toggle('active', state.isShuffleEnabled);
+    shuffleBtn.setAttribute('aria-label', state.isShuffleEnabled ? 'Shuffle on' : 'Shuffle off');
+    shuffleBtn.setAttribute('title', state.isShuffleEnabled ? 'Shuffle on' : 'Shuffle off');
   }
 
   function updateListeningModeBadge() {
@@ -2440,7 +2452,6 @@
     state.isPlaying = false;
     state.isShuffleEnabled = false;
     state.repeatMode = 'off';
-    state.playbackMode = 'stop';
     state.userMode = 'listening';
     updatePlayButton();
     updatePlaybackModeUI();
