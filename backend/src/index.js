@@ -1423,16 +1423,49 @@ io.on('connection', (socket) => {
     io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
   });
 
-  // Go to previous track (restart current song)
-  socket.on('playback:previous', ({ lobbyId }) => {
+  // Go to previous track
+  socket.on('playback:previous', async ({ lobbyId }) => {
     const state = playback.getState(lobbyId);
-    if (!state || !state.currentTrack) return;
+    if (!state) return;
 
-    // Restart current song from beginning
-    playback.seek(lobbyId, 0, io);
-    if (!state.isPlaying) {
-      playback.resume(lobbyId, io);
+    // If more than 3 seconds into the track, restart from beginning
+    const pos = state.isPlaying && state.startedAt
+      ? state.position + (Date.now() - state.startedAt) / 1000
+      : state.position;
+    if (state.currentTrack && pos > 3) {
+      playback.seek(lobbyId, 0, io);
+      if (!state.isPlaying) {
+        playback.resume(lobbyId, io);
+      }
+      return;
     }
+
+    // Otherwise go to previous track in queue
+    const queue = await getQueueAsync(lobbyId);
+    const songs = queue.getSongs();
+    if (songs.length === 0) return;
+
+    const currentIndex = state.currentTrack
+      ? songs.findIndex(s => s.id === state.currentTrack.id)
+      : -1;
+
+    let prevIndex = currentIndex - 1;
+    const repeatMode = playback.getRepeatMode(lobbyId);
+    if (prevIndex < 0) {
+      if (repeatMode === 'all') {
+        prevIndex = songs.length - 1;
+      } else {
+        // At beginning, just restart
+        playback.seek(lobbyId, 0, io);
+        if (!state.isPlaying) {
+          playback.resume(lobbyId, io);
+        }
+        return;
+      }
+    }
+
+    playback.setTrack(lobbyId, songs[prevIndex], true, io);
+    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
   });
 
   // Handle track ended - coordinates playback and queue with repeat modes

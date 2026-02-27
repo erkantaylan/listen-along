@@ -1767,14 +1767,36 @@
 
   function playPrevious() {
     if (state.listeningMode === 'independent') {
-      // Restart current track from beginning
+      // If more than 3 seconds in, restart current track; otherwise go to previous
       const audio = elements.audioPlayer;
-      if (audio.src) {
+      if (audio.currentTime > 3) {
         audio.currentTime = 0;
         if (audio.paused) {
           playAudioWithUnlock(audio.src, 0, true);
         }
+        return;
       }
+      // Go to previous track in queue
+      if (state.queue.length === 0) return;
+      const currentIndex = state.currentTrack
+        ? state.queue.findIndex(s => s.id === state.currentTrack.id)
+        : -1;
+      let prevIndex = currentIndex - 1;
+      if (prevIndex < 0) {
+        if (state.repeatMode === 'all') {
+          prevIndex = state.queue.length - 1;
+        } else {
+          // At the beginning, just restart current track
+          if (audio.src) {
+            audio.currentTime = 0;
+            if (audio.paused) {
+              playAudioWithUnlock(audio.src, 0, true);
+            }
+          }
+          return;
+        }
+      }
+      playLocalTrack(state.queue[prevIndex]);
       return;
     }
     socket.emit('playback:previous', { lobbyId: state.lobbyId });
