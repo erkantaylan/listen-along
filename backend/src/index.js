@@ -1016,6 +1016,7 @@ io.on('connection', (socket) => {
             songCount: playlist.items.length,
             totalCount: playlist.total,
             limited: playlist.limited,
+            items: playlist.items.map(item => ({ title: item.title, duration: item.duration, thumbnail: item.thumbnail })),
             firstSong: playlist.items[0] ? { title: playlist.items[0].title, duration: playlist.items[0].duration } : null,
             songMeta: null,
             addedBy
@@ -1072,7 +1073,7 @@ io.on('connection', (socket) => {
         // Cache playlist items to avoid re-fetching when user confirms
         cachePlaylist(inputUrl, playlist);
 
-        // Send playlist info to client for confirmation dialog
+        // Send playlist info with full items list for selection UI
         socket.emit('queue:playlist-confirm', {
           lobbyId,
           url: inputUrl,
@@ -1080,6 +1081,7 @@ io.on('connection', (socket) => {
           songCount: items.length,
           totalCount: playlist.total,
           limited: playlist.limited,
+          items: items.map(item => ({ title: item.title, duration: item.duration, thumbnail: item.thumbnail })),
           firstSong: items[0] ? { title: items[0].title, duration: items[0].duration } : null,
           songMeta: songMeta ? { title: songMeta.title, uploader: songMeta.uploader, duration: songMeta.duration } : null,
           addedBy
@@ -1144,7 +1146,7 @@ io.on('connection', (socket) => {
   });
 
   // Handle playlist add after user confirms via dialog
-  socket.on('queue:playlist-add', async ({ lobbyId, url, mode, addedBy }) => {
+  socket.on('queue:playlist-add', async ({ lobbyId, url, mode, selectedIndices, addedBy }) => {
     const queue = await getQueueAsync(lobbyId);
 
     try {
@@ -1157,16 +1159,16 @@ io.on('connection', (socket) => {
         socket.emit('queue:adding', { status: 'Loading playlist...' });
         playlistData = await ytdlp.getPlaylistItems(url);
       }
-      const items = playlistData.items;
+      const allItems = playlistData.items;
 
-      if (items.length === 0) {
+      if (allItems.length === 0) {
         socket.emit('queue:error', { message: 'Playlist is empty' });
         return;
       }
 
       if (mode === 'single') {
         // Add only the first song
-        const item = items[0];
+        const item = allItems[0];
         const wasEmpty = queue.getSongs().length === 0;
 
         const song = queue.addSong({
@@ -1196,16 +1198,17 @@ io.on('connection', (socket) => {
           playback.setTrack(lobbyId, song, true, io);
         }
       } else {
-        // Add all songs - first song immediately, rest progressively
-        console.log(`Adding playlist "${playlistData.title}" (${items.length} items) to lobby ${lobbyId}`);
+        // Filter items by selectedIndices if provided, otherwise use all
+        const items = Array.isArray(selectedIndices)
+          ? selectedIndices.filter(i => i >= 0 && i < allItems.length).map(i => allItems[i])
+          : allItems;
 
-        if (playlistData.limited) {
-          socket.emit('queue:playlist-info', {
-            message: `Playlist has ${playlistData.total} videos, adding first ${items.length}`,
-            total: playlistData.total,
-            adding: items.length
-          });
+        if (items.length === 0) {
+          socket.emit('queue:error', { message: 'No songs selected' });
+          return;
         }
+
+        console.log(`Adding ${items.length} songs from playlist "${playlistData.title}" to lobby ${lobbyId}`);
 
         const wasEmpty = queue.getSongs().length === 0;
 
@@ -1219,6 +1222,7 @@ io.on('connection', (socket) => {
           thumbnail: firstItem.thumbnail
         });
 
+        // Download first song and wait for it to start
         downloader.startDownload(firstItem.url, {
           title: firstItem.title,
           duration: firstItem.duration
@@ -1244,7 +1248,7 @@ io.on('connection', (socket) => {
           playback.setTrack(lobbyId, firstSong, true, io);
         }
 
-        // Add remaining songs progressively in the background
+        // Add remaining songs sequentially (download one at a time)
         const addRemaining = async () => {
           for (let i = 1; i < items.length; i++) {
             const item = items[i];
@@ -1257,12 +1261,16 @@ io.on('connection', (socket) => {
               thumbnail: item.thumbnail
             });
 
-            downloader.startDownload(item.url, {
-              title: item.title,
-              duration: item.duration
-            }, lobbyId).catch(err => {
+            // Sequential download: await each before starting next
+            try {
+              await downloader.startDownload(item.url, {
+                title: item.title,
+                duration: item.duration,
+                waitForComplete: true
+              }, lobbyId);
+            } catch (err) {
               console.error(`Background download failed for playlist item: ${err.message}`);
-            });
+            }
 
             if (item.thumbnail) {
               covers.cacheCover(song.id, item.thumbnail).catch(() => {});
@@ -1278,7 +1286,7 @@ io.on('connection', (socket) => {
             io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
           }
 
-          console.log(`Playlist "${playlistData.title}" added to lobby ${lobbyId}`);
+          console.log(`Playlist "${playlistData.title}" added to lobby ${lobbyId} (${items.length} songs)`);
 
           socket.emit('queue:playlist-complete', {
             playlistTitle: playlistData.title,

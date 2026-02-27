@@ -141,10 +141,18 @@ async function startDownload(url, metadata = {}, lobbyId = null) {
     lobbyId
   });
 
-  // Start download in background
-  downloadSong(songId, url, lobbyId).catch(err => {
-    console.error(`Download failed for ${url}:`, err.message);
-  });
+  // Start download - await if waitForComplete flag is set, otherwise background
+  if (metadata.waitForComplete) {
+    try {
+      await downloadSong(songId, url, lobbyId);
+    } catch (err) {
+      console.error(`Download failed for ${url}:`, err.message);
+    }
+  } else {
+    downloadSong(songId, url, lobbyId).catch(err => {
+      console.error(`Download failed for ${url}:`, err.message);
+    });
+  }
 
   return songId;
 }

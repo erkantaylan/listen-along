@@ -1468,39 +1468,46 @@
     const loadingEl = document.getElementById('playlist-loading');
     if (loadingEl) loadingEl.remove();
 
-    const songCountText = data.limited
-      ? `${data.songCount} of ${data.totalCount} songs`
-      : `${data.songCount} song${data.songCount !== 1 ? 's' : ''}`;
-
-    // Build song option with metadata if available
+    const items = data.items || [];
     const hasSongMeta = data.songMeta && data.songMeta.title;
-    const songBtnLabel = hasSongMeta
-      ? `Add this song`
-      : 'Add Single Song';
-    const songDetail = hasSongMeta
-      ? `<div class="playlist-dialog-option-detail">${escapeHtml(data.songMeta.title)} &middot; ${escapeHtml(data.songMeta.uploader || 'Unknown')} &middot; ${formatDuration(data.songMeta.duration)}</div>`
-      : '';
 
-    const playlistDetail = `<div class="playlist-dialog-option-detail">${escapeHtml(data.playlistTitle)} &middot; ${songCountText}</div>`;
+    // Build song list HTML
+    const songListHtml = items.map((item, i) => `
+      <label class="playlist-song-item" data-index="${i}" data-title="${escapeHtml(item.title).toLowerCase()}">
+        <input type="checkbox" checked data-song-index="${i}">
+        <span class="playlist-song-title">${escapeHtml(item.title)}</span>
+        <span class="playlist-song-duration">${formatDuration(item.duration)}</span>
+      </label>
+    `).join('');
 
     const dialog = document.createElement('div');
     dialog.id = 'playlist-dialog';
     dialog.className = 'playlist-dialog-overlay';
     dialog.innerHTML = `
-      <div class="playlist-dialog">
+      <div class="playlist-dialog playlist-dialog-selection">
         <div class="playlist-dialog-header">
           <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
-          <h3>What would you like to add?</h3>
+          <h3>${escapeHtml(data.playlistTitle)}</h3>
+        </div>
+        <div class="playlist-selection-controls">
+          <input type="text" id="playlist-search" class="playlist-search-input" placeholder="Search songs...">
+          <div class="playlist-select-actions">
+            <button class="btn btn-small" id="playlist-select-all">All</button>
+            <button class="btn btn-small" id="playlist-select-none">None</button>
+            <span class="playlist-selected-count" id="playlist-selected-count">${items.length} / ${items.length}</span>
+          </div>
+        </div>
+        <div class="playlist-song-list" id="playlist-song-list">
+          ${songListHtml}
         </div>
         <div class="playlist-dialog-actions">
-          <button class="btn btn-primary playlist-dialog-btn playlist-dialog-option" id="playlist-add-all">
-            Add playlist
-            ${playlistDetail}
+          <button class="btn btn-primary playlist-dialog-btn" id="playlist-add-selected">
+            Add selected songs
           </button>
-          <button class="btn btn-secondary playlist-dialog-btn playlist-dialog-option" id="playlist-add-single">
-            ${songBtnLabel}
-            ${songDetail}
-          </button>
+          ${hasSongMeta ? `<button class="btn btn-secondary playlist-dialog-btn playlist-dialog-option" id="playlist-add-single">
+            Add this song only
+            <div class="playlist-dialog-option-detail">${escapeHtml(data.songMeta.title)} &middot; ${formatDuration(data.songMeta.duration)}</div>
+          </button>` : ''}
           <button class="btn btn-secondary playlist-dialog-btn playlist-dialog-cancel" id="playlist-cancel">Cancel</button>
         </div>
       </div>
@@ -1508,25 +1515,67 @@
 
     document.body.appendChild(dialog);
 
-    document.getElementById('playlist-add-all').addEventListener('click', () => {
+    const songList = document.getElementById('playlist-song-list');
+    const searchInput = document.getElementById('playlist-search');
+    const countEl = document.getElementById('playlist-selected-count');
+
+    function updateCount() {
+      const checked = songList.querySelectorAll('input[type="checkbox"]:checked').length;
+      countEl.textContent = `${checked} / ${items.length}`;
+    }
+
+    // Search filter
+    searchInput.addEventListener('input', () => {
+      const query = searchInput.value.toLowerCase();
+      songList.querySelectorAll('.playlist-song-item').forEach(el => {
+        el.style.display = el.dataset.title.includes(query) ? '' : 'none';
+      });
+    });
+
+    // Select all/none
+    document.getElementById('playlist-select-all').addEventListener('click', () => {
+      songList.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = true; });
+      updateCount();
+    });
+
+    document.getElementById('playlist-select-none').addEventListener('click', () => {
+      songList.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+      updateCount();
+    });
+
+    // Update count on checkbox change
+    songList.addEventListener('change', updateCount);
+
+    // Add selected
+    document.getElementById('playlist-add-selected').addEventListener('click', () => {
+      const selectedIndices = [];
+      songList.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => {
+        selectedIndices.push(parseInt(cb.dataset.songIndex, 10));
+      });
+      if (selectedIndices.length === 0) return;
       dialog.remove();
       socket.emit('queue:playlist-add', {
         lobbyId: data.lobbyId,
         url: data.url,
         mode: 'all',
+        selectedIndices,
         addedBy: data.addedBy
       });
     });
 
-    document.getElementById('playlist-add-single').addEventListener('click', () => {
-      dialog.remove();
-      socket.emit('queue:playlist-add', {
-        lobbyId: data.lobbyId,
-        url: data.url,
-        mode: 'single',
-        addedBy: data.addedBy
+    // Add single song (if URL had a video ID)
+    const singleBtn = document.getElementById('playlist-add-single');
+    if (singleBtn) {
+      singleBtn.addEventListener('click', () => {
+        dialog.remove();
+        socket.emit('queue:playlist-add', {
+          lobbyId: data.lobbyId,
+          url: data.url,
+          mode: 'single',
+          addedBy: data.addedBy
+        });
       });
-    });
+    }
 
     document.getElementById('playlist-cancel').addEventListener('click', () => {
       dialog.remove();

@@ -2359,6 +2359,108 @@ html, body {
   animation: dialog-scale-in 0.2s ease;
 }
 
+.playlist-dialog-selection {
+  max-width: 480px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.playlist-selection-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.playlist-search-input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--bg-surface);
+  border-radius: var(--border-radius);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  box-sizing: border-box;
+}
+
+.playlist-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.playlist-select-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.playlist-selected-count {
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  margin-left: auto;
+}
+
+.btn-small {
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+  border-radius: var(--border-radius);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border: none;
+  cursor: pointer;
+}
+
+.btn-small:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.playlist-song-list {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 300px;
+  border: 1px solid var(--bg-surface);
+  border-radius: var(--border-radius);
+  margin-bottom: 0.75rem;
+}
+
+.playlist-song-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  border-bottom: 1px solid var(--bg-surface);
+  font-size: 0.8125rem;
+}
+
+.playlist-song-item:last-child {
+  border-bottom: none;
+}
+
+.playlist-song-item:hover {
+  background: var(--bg-surface);
+}
+
+.playlist-song-item input[type="checkbox"] {
+  flex-shrink: 0;
+  accent-color: var(--primary);
+}
+
+.playlist-song-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.playlist-song-duration {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
 .playlist-dialog-header {
   display: flex;
   align-items: center;

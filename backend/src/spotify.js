@@ -166,19 +166,30 @@ async function getTrack(trackId) {
 }
 
 /**
- * Get all tracks from a Spotify playlist
+ * Get all tracks from a Spotify playlist (with pagination)
  * @param {string} playlistId - Spotify playlist ID
- * @param {number} limit - Maximum number of tracks (default 50)
- * @returns {Promise<{ title: string, items: Array<{ title: string, artist: string, thumbnail: string, duration: number, searchQuery: string }> }>}
+ * @returns {Promise<{ title: string, items: Array<{ title: string, artist: string, thumbnail: string, duration: number, searchQuery: string }>, total: number, limited: boolean }>}
  */
-async function getPlaylistTracks(playlistId, limit = 50) {
-  const data = await spotifyApi(`/v1/playlists/${encodeURIComponent(playlistId)}?fields=name,tracks.items(track(name,artists(name),album(images),duration_ms)),tracks.total`);
+async function getPlaylistTracks(playlistId) {
+  const data = await spotifyApi(`/v1/playlists/${encodeURIComponent(playlistId)}?fields=name,tracks.items(track(name,artists(name),album(images),duration_ms)),tracks.total,tracks.next`);
   const playlistTitle = data.name || 'Spotify Playlist';
-  const trackItems = data.tracks && data.tracks.items ? data.tracks.items : [];
-  const total = data.tracks && data.tracks.total ? data.tracks.total : trackItems.length;
+  const total = data.tracks && data.tracks.total ? data.tracks.total : 0;
 
-  const items = trackItems
-    .slice(0, limit)
+  let allTrackItems = data.tracks && data.tracks.items ? [...data.tracks.items] : [];
+  let nextUrl = data.tracks && data.tracks.next ? data.tracks.next : null;
+
+  // Paginate through remaining tracks
+  while (nextUrl) {
+    // Extract path from full URL for our spotifyApi helper
+    const parsed = new URL(nextUrl);
+    const pageData = await spotifyApi(parsed.pathname + parsed.search);
+    if (pageData.items) {
+      allTrackItems = allTrackItems.concat(pageData.items);
+    }
+    nextUrl = pageData.next || null;
+  }
+
+  const items = allTrackItems
     .filter(item => item.track)
     .map(item => {
       const track = item.track;
@@ -202,7 +213,7 @@ async function getPlaylistTracks(playlistId, limit = 50) {
     title: playlistTitle,
     items,
     total,
-    limited: total > limit
+    limited: false
   };
 }
 

@@ -196,10 +196,9 @@ function isPlaylistUrl(url) {
 /**
  * Extract playlist items without downloading
  * @param {string} url - YouTube playlist URL
- * @param {number} limit - Maximum number of items to return (default 50)
- * @returns {Promise<Array<Object>>} Array of video metadata objects
+ * @returns {Promise<Object>} Playlist metadata with items array
  */
-function getPlaylistItems(url, limit = 50) {
+function getPlaylistItems(url) {
   return new Promise((resolve, reject) => {
     const args = [
       '--flat-playlist',     // Don't download, just list
@@ -230,10 +229,7 @@ function getPlaylistItems(url, limit = 50) {
         const playlist = JSON.parse(stdout);
         const entries = playlist.entries || [];
 
-        // Limit the number of items
-        const limitedEntries = entries.slice(0, limit);
-
-        const items = limitedEntries.map(entry => ({
+        const items = entries.map(entry => ({
           id: entry.id,
           title: entry.title || 'Unknown',
           duration: entry.duration || 0,
@@ -246,7 +242,7 @@ function getPlaylistItems(url, limit = 50) {
           title: playlist.title || 'Playlist',
           items,
           total: entries.length,
-          limited: entries.length > limit
+          limited: false
         });
       } catch (e) {
         reject(new Error('Failed to parse playlist data'));
