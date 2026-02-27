@@ -260,6 +260,7 @@
     cacheSongList: document.getElementById('cache-song-list'),
     nukeCacheBtn: document.getElementById('nuke-cache-btn'),
     clearErrorsBtn: document.getElementById('clear-errors-btn'),
+    cleanOrphansBtn: document.getElementById('clean-orphans-btn'),
 
     // Room Type Modal
     roomTypeModal: document.getElementById('room-type-modal'),
@@ -273,6 +274,9 @@
 
   // Dashboard state
   let dashboardInterval = null;
+
+  // Suppress join toasts briefly after joining a lobby
+  let suppressJoinToasts = false;
 
   // Lobbies auto-refresh state
   let lobbiesInterval = null;
@@ -974,6 +978,24 @@
       .catch(() => alert('Failed to delete error songs'));
   }
 
+  function cleanOrphanedSongs() {
+    if (!confirm('Delete cached songs not in any queue or playlist?')) return;
+
+    fetch('/api/dashboard/cache/orphaned', { method: 'DELETE', credentials: 'include' })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          fetchCacheStats();
+          fetchCachedSongs();
+          fetchDashboardStats();
+          alert(`Deleted ${data.deleted} orphaned songs`);
+        } else {
+          alert('Failed to delete orphaned songs');
+        }
+      })
+      .catch(() => alert('Failed to delete orphaned songs'));
+  }
+
   // Play a cached song (opens in a new lobby or uses existing)
   function playCachedSong(url) {
     // For now, copy the URL to clipboard so user can add it to a lobby
@@ -1298,6 +1320,9 @@
       if (elements.clearErrorsBtn) {
         elements.clearErrorsBtn.onclick = clearErrorSongs;
       }
+      if (elements.cleanOrphansBtn) {
+        elements.cleanOrphansBtn.onclick = cleanOrphanedSongs;
+      }
       const cacheSearchEl = document.getElementById('cache-search');
       if (cacheSearchEl) cacheSearchEl.addEventListener('input', renderCacheSongList);
       const cacheSortEl = document.getElementById('cache-sort');
@@ -1346,18 +1371,56 @@
 
   function shareLobby() {
     const url = window.location.href;
+    const qrUrl = `/api/qr/${state.lobbyId}`;
+
+    // Remove any existing share dialog
+    const existing = document.getElementById('share-dialog');
+    if (existing) existing.remove();
+
+    const dialog = document.createElement('div');
+    dialog.id = 'share-dialog';
+    dialog.className = 'share-overlay';
+    dialog.innerHTML = `
+      <div class="share-dialog">
+        <h3>Share Lobby</h3>
+        <img class="share-qr" src="${qrUrl}" alt="QR Code" width="200" height="200">
+        <div class="share-url">${escapeHtml(url)}</div>
+        <div class="share-actions">
+          <button class="btn btn-primary" id="share-copy-btn">Copy Link</button>
+          ${navigator.share ? '<button class="btn" id="share-native-btn">Share...</button>' : ''}
+        </div>
+        <button class="btn-icon share-close-btn" id="share-close-btn" aria-label="Close">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </div>
+    `;
+
+    document.body.appendChild(dialog);
+
+    document.getElementById('share-copy-btn').addEventListener('click', function() {
+      copyToClipboard(url);
+    });
 
     if (navigator.share) {
-      navigator.share({
-        title: 'Join my listen-along lobby!',
-        text: 'Listen to music together with me',
-        url: url
-      }).catch(() => {
-        copyToClipboard(url);
-      });
-    } else {
-      copyToClipboard(url);
+      var nativeBtn = document.getElementById('share-native-btn');
+      if (nativeBtn) {
+        nativeBtn.addEventListener('click', function() {
+          navigator.share({
+            title: 'Join my listen-along lobby!',
+            text: 'Listen to music together with me',
+            url: url
+          }).catch(function() {});
+        });
+      }
     }
+
+    document.getElementById('share-close-btn').addEventListener('click', function() {
+      dialog.remove();
+    });
+
+    dialog.addEventListener('click', function(e) {
+      if (e.target === dialog) dialog.remove();
+    });
   }
 
   // Socket Event Handlers
@@ -1414,6 +1477,10 @@
     // Handle both 'listeners' and 'users' from backend
     state.listeners = data.listeners || data.users || [];
     state.currentTrack = data.currentTrack || null;
+
+    // Suppress join toasts for existing users during initial join
+    suppressJoinToasts = true;
+    setTimeout(function() { suppressJoinToasts = false; }, 2000);
 
     // Save lobby to localStorage for future rejoin
     storageSet(STORAGE_KEYS.LAST_LOBBY, data.lobbyId);
@@ -1501,8 +1568,8 @@
       state.listeners.push(data.user);
     }
     updateListeners();
-    // Don't show join notification to the user who just joined
-    if (data.user.socketId === socket.id) return;
+    // Don't show join notification to yourself or during initial lobby join
+    if (data.user.socketId === socket.id || suppressJoinToasts) return;
     const joinDisplay = data.user.emoji ? `${data.user.emoji} ${data.user.username}` : data.user.username;
     showToast(`${joinDisplay} joined`, 'success');
   }
@@ -1530,9 +1597,6 @@
   function handleQueueUpdated(data) {
     state.queue = data.songs || data.queue || [];
     updateQueue();
-    if (data.songs && data.songs.length > 0) {
-      showToast(`Queue updated: ${data.songs.length} song(s)`, 'success');
-    }
   }
 
   function handlePlaylistConfirm(data) {

@@ -1,6 +1,6 @@
 {
   "name": "listen-along-backend",
-  "version": "2.21.0",
+  "version": "2.22.0",
   "description": "Backend server for listen-along - synced music listening",
   "main": "src/index.js",
   "scripts": {
@@ -13,6 +13,7 @@
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
     "pg": "^8.11.3",
+    "qrcode": "^1.5.4",
     "socket.io": "^4.8.1",
     "uuid": "^9.0.1"
   },

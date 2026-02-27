@@ -17,6 +17,7 @@ const covers = require('./covers');
 const playlist = require('./playlist');
 const chat = require('./chat');
 const spotify = require('./spotify');
+const QRCode = require('qrcode');
 const pkg = require('../package.json');
 
 const PORT = process.env.PORT || 3000;
@@ -129,6 +130,25 @@ app.get('/api/version', (req, res) => {
     version: process.env.VERSION || pkg.version,
     name: pkg.name
   });
+});
+
+// Generate QR code for a lobby invite link
+app.get('/api/qr/:lobbyId', async (req, res) => {
+  const lobbyId = req.params.lobbyId;
+  const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
+  const url = `${baseUrl}/lobby/${lobbyId}`;
+
+  try {
+    const buffer = await QRCode.toBuffer(url, {
+      width: 256,
+      margin: 2,
+      color: { dark: '#000000', light: '#ffffff' }
+    });
+    res.type('png').send(buffer);
+  } catch (err) {
+    console.error('QR code generation error:', err.message);
+    res.status(500).json({ error: 'Failed to generate QR code' });
+  }
 });
 
 // Get video metadata
@@ -633,6 +653,17 @@ app.delete('/api/dashboard/cache/errors', dashboardAuth, async (req, res) => {
   } catch (err) {
     console.error('Delete error songs error:', err.message);
     res.status(500).json({ error: 'Failed to delete error songs' });
+  }
+});
+
+// Delete orphaned cached songs (not in any queue or playlist)
+app.delete('/api/dashboard/cache/orphaned', dashboardAuth, async (req, res) => {
+  try {
+    const count = await downloader.deleteOrphanedSongs();
+    res.json({ success: true, deleted: count });
+  } catch (err) {
+    console.error('Delete orphaned songs error:', err.message);
+    res.status(500).json({ error: 'Failed to delete orphaned songs' });
   }
 });
 

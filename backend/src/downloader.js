@@ -460,6 +460,44 @@ async function deleteErrorSongs() {
 }
 
 /**
+ * Delete orphaned cached songs (not in any queue or playlist)
+ * @returns {Promise<number>} Number of songs deleted
+ */
+async function deleteOrphanedSongs() {
+  if (!db.isAvailable()) return 0;
+
+  try {
+    const result = await db.query(`
+      SELECT s.id, s.file_path FROM songs s
+      WHERE s.url NOT IN (SELECT DISTINCT url FROM queue_songs)
+        AND s.url NOT IN (SELECT DISTINCT url FROM playlist_songs)
+    `);
+    let deleted = 0;
+
+    for (const song of result.rows) {
+      if (song.file_path && fs.existsSync(song.file_path)) {
+        try {
+          fs.unlinkSync(song.file_path);
+        } catch (err) {
+          console.error(`Failed to delete file: ${song.file_path}`, err.message);
+        }
+      }
+      deleted++;
+    }
+
+    if (result.rows.length > 0) {
+      const ids = result.rows.map(r => r.id);
+      await db.query(`DELETE FROM songs WHERE id = ANY($1::uuid[])`, [ids]);
+    }
+    console.log(`Deleted ${deleted} orphaned songs`);
+    return deleted;
+  } catch (err) {
+    console.error('Error deleting orphaned songs:', err.message);
+    return 0;
+  }
+}
+
+/**
  * Clean up old cached songs (older than maxAge)
  * @param {number} maxAge - Maximum age in milliseconds (default 7 days)
  */
@@ -507,6 +545,7 @@ module.exports = {
   deleteSong,
   deleteAllSongs,
   deleteErrorSongs,
+  deleteOrphanedSongs,
   cleanupOldSongs,
   downloadEvents,
   SONGS_PATH
