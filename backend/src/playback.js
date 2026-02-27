@@ -327,6 +327,14 @@ function setTrack(lobbyId, track, autoPlay, io) {
     state.startedAt = null;
   }
 
+  // Update all listeners' currentTrack so profile icons reflect the current song
+  if (lobby.getListeningMode(lobbyId) === 'synchronized') {
+    lobby.setAllUsersCurrentTrack(lobbyId, track);
+    io.to(lobbyId).emit('users:updated', {
+      users: lobby.getLobbyUsers(lobbyId)
+    });
+  }
+
   broadcastSync(lobbyId, io);
 
   // Persist state

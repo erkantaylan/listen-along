@@ -1582,6 +1582,7 @@
       if (!audio.src || !audio.src.includes(encodeURIComponent(data.track.url))) {
         state.currentTrack = data.track;
         updateNowPlaying(data.track);
+        updateQueue();
         updateListeners();
 
         if (data.isPlaying && shouldPlayAudio) {
