@@ -12,7 +12,8 @@
     SHUFFLE_ENABLED: 'listen-shuffleEnabled',
     PLAYBACK_MODE: 'listen-playbackMode',
     VOLUME: 'listen-volume',
-    HIDE_ERRORED_SONGS: 'listen-hideErroredSongs'
+    HIDE_ERRORED_SONGS: 'listen-hideErroredSongs',
+    QUEUE_SORT: 'listen-queueSort'
   };
 
   // Predefined emoji avatars
@@ -126,7 +127,8 @@
     volume: storageGet(STORAGE_KEYS.VOLUME) !== null ? parseFloat(storageGet(STORAGE_KEYS.VOLUME)) : 1,
     isMuted: false,
     volumeBeforeMute: 1,
-    hideErroredSongs: storageGet(STORAGE_KEYS.HIDE_ERRORED_SONGS) !== 'false' // default true
+    hideErroredSongs: storageGet(STORAGE_KEYS.HIDE_ERRORED_SONGS) !== 'false', // default true
+    queueSort: storageGet(STORAGE_KEYS.QUEUE_SORT) || 'default' // 'default', 'newest', 'oldest'
   };
 
   // DOM Elements
@@ -176,6 +178,7 @@
     addSongBtn: document.getElementById('add-song-btn'),
     queueList: document.getElementById('queue-list'),
     hideErroredCheckbox: document.getElementById('hide-errored-songs'),
+    queueSortSelect: document.getElementById('queue-sort'),
 
     // Chat (inside social tab)
     chatMessages: document.getElementById('chat-messages'),
@@ -514,6 +517,16 @@
       elements.hideErroredCheckbox.addEventListener('change', (e) => {
         state.hideErroredSongs = e.target.checked;
         storageSet(STORAGE_KEYS.HIDE_ERRORED_SONGS, state.hideErroredSongs);
+        updateQueue();
+      });
+    }
+
+    // Queue Sort
+    if (elements.queueSortSelect) {
+      elements.queueSortSelect.value = state.queueSort;
+      elements.queueSortSelect.addEventListener('change', (e) => {
+        state.queueSort = e.target.value;
+        storageSet(STORAGE_KEYS.QUEUE_SORT, state.queueSort);
         updateQueue();
       });
     }
@@ -2170,12 +2183,19 @@
 
     // Build list of songs with their original indices for action callbacks
     const songsWithIndices = state.queue.map((song, index) => ({ song, index }));
-    const visibleSongs = state.hideErroredSongs
+    let visibleSongs = state.hideErroredSongs
       ? songsWithIndices.filter(({ song }) => {
           const downloadInfo = state.downloadStatus[song.url];
           return !downloadInfo || downloadInfo.status !== 'error';
         })
-      : songsWithIndices;
+      : [...songsWithIndices];
+
+    // Apply sort order
+    if (state.queueSort === 'newest') {
+      visibleSongs.sort((a, b) => (b.song.addedAt || 0) - (a.song.addedAt || 0));
+    } else if (state.queueSort === 'oldest') {
+      visibleSongs.sort((a, b) => (a.song.addedAt || 0) - (b.song.addedAt || 0));
+    }
 
     if (visibleSongs.length === 0) {
       elements.queueList.innerHTML = `

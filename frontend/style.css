@@ -734,6 +734,29 @@ html, body {
   padding: 0.5rem 1rem;
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--bg-surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.queue-sort-select {
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--bg-surface);
+  border-radius: var(--border-radius);
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  outline: none;
+}
+
+.queue-sort-select:focus {
+  border-color: var(--primary);
+}
+
+.queue-sort-select:hover {
+  color: var(--text-primary);
 }
 
 .checkbox-label {
