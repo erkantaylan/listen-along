@@ -347,7 +347,17 @@ async function getAllSongs() {
     const result = await db.query(
       'SELECT id, url, title, duration, file_path, thumbnail_url, status, error_message, created_at, updated_at FROM songs ORDER BY updated_at DESC'
     );
-    return result.rows;
+    // Attach file size for each song that has a file on disk
+    return result.rows.map(song => {
+      if (song.file_path && fs.existsSync(song.file_path)) {
+        try {
+          song.file_size = fs.statSync(song.file_path).size;
+        } catch { song.file_size = null; }
+      } else {
+        song.file_size = null;
+      }
+      return song;
+    });
   } catch (err) {
     console.error('Error fetching all songs:', err.message);
     return [];

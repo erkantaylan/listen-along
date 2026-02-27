@@ -834,6 +834,15 @@
   }
 
   // Fetch and display cached songs
+  let cachedSongsData = [];
+
+  function formatFileSize(bytes) {
+    if (!bytes) return '-';
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+  }
+
   function fetchCachedSongs() {
     fetch('/api/dashboard/cache/songs', { credentials: 'include' })
       .then(res => {
@@ -841,24 +850,50 @@
         return res.json();
       })
       .then(data => {
-        updateCacheSongList(data.songs);
+        cachedSongsData = data.songs || [];
+        renderCacheSongList();
       })
       .catch(err => {
         console.error('Failed to fetch cached songs:', err);
       });
   }
 
-  // Update cache song list
-  function updateCacheSongList(songs) {
+  function renderCacheSongList() {
     if (!elements.cacheSongList) return;
 
-    if (!songs || songs.length === 0) {
+    let songs = [...cachedSongsData];
+
+    // Apply search filter
+    const searchEl = document.getElementById('cache-search');
+    const query = searchEl ? searchEl.value.toLowerCase() : '';
+    if (query) {
+      songs = songs.filter(s => (s.title || '').toLowerCase().includes(query));
+    }
+
+    // Apply sort
+    const sortEl = document.getElementById('cache-sort');
+    const sortBy = sortEl ? sortEl.value : 'date-desc';
+    songs.sort((a, b) => {
+      switch (sortBy) {
+        case 'name-asc': return (a.title || '').localeCompare(b.title || '');
+        case 'name-desc': return (b.title || '').localeCompare(a.title || '');
+        case 'duration-asc': return (a.duration || 0) - (b.duration || 0);
+        case 'duration-desc': return (b.duration || 0) - (a.duration || 0);
+        case 'size-asc': return (a.file_size || 0) - (b.file_size || 0);
+        case 'size-desc': return (b.file_size || 0) - (a.file_size || 0);
+        case 'date-asc': return (a.updated_at || 0) - (b.updated_at || 0);
+        default: return (b.updated_at || 0) - (a.updated_at || 0);
+      }
+    });
+
+    if (songs.length === 0) {
       elements.cacheSongList.innerHTML = '<li class="dashboard-empty">No cached songs</li>';
       return;
     }
 
     elements.cacheSongList.innerHTML = songs.map(song => {
       const duration = formatDuration(song.duration);
+      const fileSize = formatFileSize(song.file_size);
       const statusClass = song.status;
       const thumbnail = song.thumbnail_url
         ? `<img class="cache-song-thumb" src="${escapeHtml(song.thumbnail_url)}" alt="">`
@@ -871,6 +906,7 @@
             <div class="cache-song-title">${escapeHtml(song.title || 'Unknown')}</div>
             <div class="cache-song-meta">
               <span>${duration}</span>
+              <span>${fileSize}</span>
               <span class="cache-song-status ${statusClass}">${song.status}</span>
             </div>
           </div>
@@ -1224,6 +1260,10 @@
       if (elements.clearErrorsBtn) {
         elements.clearErrorsBtn.onclick = clearErrorSongs;
       }
+      const cacheSearchEl = document.getElementById('cache-search');
+      if (cacheSearchEl) cacheSearchEl.addEventListener('input', renderCacheSongList);
+      const cacheSortEl = document.getElementById('cache-sort');
+      if (cacheSortEl) cacheSortEl.addEventListener('change', renderCacheSongList);
       dashboardInterval = setInterval(() => {
         fetchDashboardStats();
         fetchCacheStats();

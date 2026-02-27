@@ -327,21 +327,21 @@
     </header>
     <main class="dashboard-content">
       <div class="dashboard-stats">
-        <div class="stat-card">
-          <span class="stat-value" id="stat-lobbies">0</span>
-          <span class="stat-label" data-i18n="dashboard.activeLobbies">Active Lobbies</span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-value" id="stat-users">0</span>
-          <span class="stat-label" data-i18n="dashboard.connectedUsers">Connected Users</span>
-        </div>
-        <div class="stat-card">
-          <span class="stat-value" id="stat-memory">0</span>
-          <span class="stat-label" data-i18n="dashboard.memory">Memory (MB)</span>
-        </div>
-        <div class="stat-card">
+        <div class="stat-card stat-card--disk">
           <span class="stat-value" id="stat-disk">-</span>
           <span class="stat-label">Disk Usage</span>
+        </div>
+        <div class="stat-card stat-card--mini">
+          <span class="stat-value" id="stat-lobbies">0</span>
+          <span class="stat-label" data-i18n="dashboard.activeLobbies">Lobbies</span>
+        </div>
+        <div class="stat-card stat-card--mini">
+          <span class="stat-value" id="stat-users">0</span>
+          <span class="stat-label" data-i18n="dashboard.connectedUsers">Users</span>
+        </div>
+        <div class="stat-card stat-card--mini">
+          <span class="stat-value" id="stat-memory">0</span>
+          <span class="stat-label" data-i18n="dashboard.memory">Memory</span>
         </div>
       </div>
       <section class="dashboard-lobbies">
@@ -358,27 +358,25 @@
             <button id="nuke-cache-btn" class="btn btn-danger btn-small" data-i18n="dashboard.clearAll">Clear All</button>
           </div>
         </div>
-        <div class="cache-stats">
-          <div class="cache-stat">
-            <span class="cache-stat-value" id="cache-ready">0</span>
-            <span class="cache-stat-label" data-i18n="dashboard.ready">Ready</span>
-          </div>
-          <div class="cache-stat">
-            <span class="cache-stat-value" id="cache-downloading">0</span>
-            <span class="cache-stat-label" data-i18n="dashboard.downloading">Downloading</span>
-          </div>
-          <div class="cache-stat">
-            <span class="cache-stat-value" id="cache-pending">0</span>
-            <span class="cache-stat-label" data-i18n="dashboard.pending">Pending</span>
-          </div>
-          <div class="cache-stat">
-            <span class="cache-stat-value" id="cache-error">0</span>
-            <span class="cache-stat-label" data-i18n="dashboard.error">Error</span>
-          </div>
-          <div class="cache-stat">
-            <span class="cache-stat-value" id="cache-duration">0:00</span>
-            <span class="cache-stat-label" data-i18n="dashboard.totalDuration">Total Duration</span>
-          </div>
+        <div class="cache-stats-inline">
+          <span class="cache-stat-pill ready"><span id="cache-ready">0</span> ready</span>
+          <span class="cache-stat-pill downloading"><span id="cache-downloading">0</span> downloading</span>
+          <span class="cache-stat-pill pending"><span id="cache-pending">0</span> pending</span>
+          <span class="cache-stat-pill error"><span id="cache-error">0</span> error</span>
+          <span class="cache-stat-pill duration"><span id="cache-duration">0:00</span> total</span>
+        </div>
+        <div class="cache-controls">
+          <input type="text" id="cache-search" class="cache-search-input" placeholder="Search songs...">
+          <select id="cache-sort" class="cache-sort-select">
+            <option value="date-desc">Newest first</option>
+            <option value="date-asc">Oldest first</option>
+            <option value="name-asc">Name A-Z</option>
+            <option value="name-desc">Name Z-A</option>
+            <option value="duration-desc">Longest first</option>
+            <option value="duration-asc">Shortest first</option>
+            <option value="size-desc">Largest first</option>
+            <option value="size-asc">Smallest first</option>
+          </select>
         </div>
         <ul id="cache-song-list" class="cache-song-list">
           <li class="dashboard-empty" data-i18n="dashboard.noCachedSongs">No cached songs</li>
