@@ -486,7 +486,7 @@ const dashboardAuth = (req, res, next) => {
 };
 
 // Dashboard stats endpoint
-app.get('/api/dashboard/stats', dashboardAuth, (req, res) => {
+app.get('/api/dashboard/stats', dashboardAuth, async (req, res) => {
   // Calculate disk usage from songs directory
   let diskUsageBytes = 0;
   let diskFileCount = 0;
@@ -520,7 +520,7 @@ app.get('/api/dashboard/stats', dashboardAuth, (req, res) => {
     const userCount = users ? users.length : 0;
     stats.totalUsers += userCount;
 
-    const queue = getQueue(lobbyId);
+    const queue = await getQueueAsync(lobbyId);
     const playbackState = playback.getState(lobbyId);
 
     stats.lobbies.push({
