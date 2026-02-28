@@ -129,7 +129,8 @@
     isMuted: false,
     volumeBeforeMute: 1,
     hideErroredSongs: storageGet(STORAGE_KEYS.HIDE_ERRORED_SONGS) !== 'false', // default true
-    queueSort: storageGet(STORAGE_KEYS.QUEUE_SORT) || 'default' // 'default', 'newest', 'oldest'
+    queueSort: storageGet(STORAGE_KEYS.QUEUE_SORT) || 'default', // 'default', 'newest', 'oldest'
+    queueCurrentIndex: -1 // Cursor position for jam mode persistent queue
   };
 
   // DOM Elements
@@ -1359,6 +1360,7 @@
     state.listeners = [];
     state.currentTrack = null;
     state.downloadStatus = {};
+    state.queueCurrentIndex = -1;
 
     elements.audioPlayer.pause();
     elements.audioPlayer.src = '';
@@ -1596,6 +1598,9 @@
 
   function handleQueueUpdated(data) {
     state.queue = data.songs || data.queue || [];
+    if (data.currentIndex !== undefined) {
+      state.queueCurrentIndex = data.currentIndex;
+    }
     updateQueue();
   }
 
@@ -1929,26 +1934,18 @@
   }
 
   function toggleShuffle() {
-    const newShuffle = !state.isShuffleEnabled;
-
     if (state.listeningMode === 'independent') {
+      // Independent mode: keep toggle behavior
+      const newShuffle = !state.isShuffleEnabled;
       state.isShuffleEnabled = newShuffle;
       storageSet(STORAGE_KEYS.SHUFFLE_ENABLED, String(newShuffle));
       updatePlaybackModeUI();
       return;
     }
 
-    // Synchronized mode: emit to server
-    socket.emit('playback:shuffle', {
-      lobbyId: state.lobbyId,
-      enabled: newShuffle,
-      queueLength: state.queue.length
-    });
-
-    // Update local state immediately for responsiveness
-    state.isShuffleEnabled = newShuffle;
-    storageSet(STORAGE_KEYS.SHUFFLE_ENABLED, String(newShuffle));
-    updatePlaybackModeUI();
+    // Jam mode: one-shot shuffle of upcoming songs
+    socket.emit('queue:shuffle', { lobbyId: state.lobbyId });
+    showToast('Upcoming songs shuffled', 'info');
   }
 
   function togglePlayback() {
@@ -2170,21 +2167,8 @@
       return;
     }
 
-    // Synchronized mode
-    if (index === 0) {
-      // Already playing - restart from beginning
-      socket.emit('playback:seek', { lobbyId: state.lobbyId, position: 0 });
-      return;
-    }
-    // Move song to next-up position then skip to it
-    if (index !== 1) {
-      socket.emit('queue:reorder', {
-        lobbyId: state.lobbyId,
-        songId: song.id,
-        newIndex: 1
-      });
-    }
-    socket.emit('playback:next', { lobbyId: state.lobbyId });
+    // Jam mode: directly set cursor to this index
+    socket.emit('queue:play-at', { lobbyId: state.lobbyId, index });
   }
 
   // Drag and drop reordering for queue
@@ -2340,9 +2324,17 @@
 
     // Update shuffle button state
     const shuffleBtn = elements.shuffleBtn;
-    shuffleBtn.classList.toggle('active', state.isShuffleEnabled);
-    shuffleBtn.setAttribute('aria-label', state.isShuffleEnabled ? 'Shuffle on' : 'Shuffle off');
-    shuffleBtn.setAttribute('title', state.isShuffleEnabled ? 'Shuffle on' : 'Shuffle off');
+    if (state.listeningMode === 'synchronized') {
+      // Jam mode: shuffle is a one-shot action, no toggle state
+      shuffleBtn.classList.remove('active');
+      shuffleBtn.setAttribute('aria-label', 'Shuffle upcoming');
+      shuffleBtn.setAttribute('title', 'Shuffle upcoming');
+    } else {
+      // Independent mode: toggle behavior
+      shuffleBtn.classList.toggle('active', state.isShuffleEnabled);
+      shuffleBtn.setAttribute('aria-label', state.isShuffleEnabled ? 'Shuffle on' : 'Shuffle off');
+      shuffleBtn.setAttribute('title', state.isShuffleEnabled ? 'Shuffle on' : 'Shuffle off');
+    }
   }
 
   function updateListeningModeBadge() {
@@ -2354,7 +2346,7 @@
       badge.className = 'listening-mode-badge independent';
       badge.hidden = false;
     } else {
-      badge.textContent = 'Synchronized';
+      badge.textContent = 'JAM';
       badge.className = 'listening-mode-badge synchronized';
       badge.hidden = false;
     }
@@ -2419,6 +2411,9 @@
       return;
     }
 
+    const isJamMode = state.listeningMode === 'synchronized';
+    const curIdx = state.queueCurrentIndex;
+
     elements.queueList.innerHTML = visibleSongs.map(({ song, index }) => {
       const thumbUrl = song.id ? getCoverUrl(song.id, song.thumbnail) : sanitizeUrl(song.thumbnail);
       const downloadInfo = state.downloadStatus[song.url];
@@ -2428,8 +2423,15 @@
       const canMoveDown = index < state.queue.length - 1;
       const listenersHtml = getQueueListenersHtml(song.title);
 
+      // Cursor-based position classes for jam mode
+      let positionClass = '';
+      if (isJamMode && curIdx >= 0) {
+        if (index === curIdx) positionClass = 'now-playing';
+        else if (index < curIdx) positionClass = 'played';
+      }
+
       return `
-      <li class="queue-item ${isPlaying ? 'playing' : ''}" data-index="${index}" data-url="${escapeHtml(song.url)}" draggable="true">
+      <li class="queue-item ${isPlaying ? 'playing' : ''} ${positionClass}" data-index="${index}" data-url="${escapeHtml(song.url)}" draggable="true">
         <div class="queue-item-drag-handle" title="Drag to reorder">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
         </div>
@@ -2564,6 +2566,7 @@
     state.isShuffleEnabled = false;
     state.repeatMode = 'off';
     state.userMode = 'listening';
+    state.queueCurrentIndex = -1;
     updatePlayButton();
     updatePlaybackModeUI();
     updateModeButton();
@@ -2849,7 +2852,7 @@
 
     elements.lobbiesSection.hidden = false;
     elements.lobbiesList.innerHTML = lobbies.map(l => {
-      const modeLabel = l.listeningMode === 'independent' ? 'Independent' : 'Synchronized';
+      const modeLabel = l.listeningMode === 'independent' ? 'Independent' : 'Jam';
       const modeClass = l.listeningMode === 'independent' ? 'independent' : 'synchronized';
       const age = formatAge(l.createdAt);
       const displayName = l.name ? escapeHtml(l.name) : escapeHtml(l.id);

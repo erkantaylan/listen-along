@@ -1226,6 +1226,7 @@ io.on('connection', (socket) => {
         io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
 
         if (wasEmpty) {
+          queue.setCurrentIndex(0);
           playback.setTrack(lobbyId, song, true, io);
         }
       } else {
@@ -1276,6 +1277,7 @@ io.on('connection', (socket) => {
 
         // Start playback immediately if queue was empty
         if (wasEmpty) {
+          queue.setCurrentIndex(0);
           playback.setTrack(lobbyId, firstSong, true, io);
         }
 
@@ -1358,6 +1360,25 @@ io.on('connection', (socket) => {
       console.log(`Song reordered in lobby ${lobbyId}: moved to position ${newIndex}`);
       io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
     }
+  });
+
+  // Play song at specific index (jam mode: click-to-play)
+  socket.on('queue:play-at', async ({ lobbyId, index }) => {
+    if (!verifyLobbyMembership(lobbyId)) return;
+    const queue = await getQueueAsync(lobbyId);
+    const song = queue.getSongAtIndex(index);
+    if (!song) return;
+    queue.setCurrentIndex(index);
+    playback.setTrack(lobbyId, song, true, io);
+    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
+  });
+
+  // Shuffle upcoming songs (jam mode: one-shot visible shuffle)
+  socket.on('queue:shuffle', async ({ lobbyId }) => {
+    if (!verifyLobbyMembership(lobbyId)) return;
+    const queue = await getQueueAsync(lobbyId);
+    queue.shuffleUpcoming();
+    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
   });
 
   // Get current queue state

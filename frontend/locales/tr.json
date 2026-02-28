@@ -15,8 +15,8 @@
     "newPlaylist": "+ Yeni"
   },
   "listeningMode": {
-    "synchronized": "Senkronize",
-    "synchronizedDesc": "Herkes aynı şeyi duyar",
+    "synchronized": "Jam",
+    "synchronizedDesc": "Birlikte senkron dinle",
     "independent": "Bağımsız",
     "independentDesc": "Ortak sıra, kendi oynatma"
   },

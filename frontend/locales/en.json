@@ -15,8 +15,8 @@
     "newPlaylist": "+ New"
   },
   "listeningMode": {
-    "synchronized": "Synchronized",
-    "synchronizedDesc": "Everyone hears the same thing",
+    "synchronized": "Jam",
+    "synchronizedDesc": "Listen together in sync",
     "independent": "Independent",
     "independentDesc": "Shared queue, own playback"
   },

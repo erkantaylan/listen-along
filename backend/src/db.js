@@ -165,6 +165,10 @@ async function createTables() {
     ALTER TABLE lobbies ADD COLUMN IF NOT EXISTS listening_mode VARCHAR(20) DEFAULT 'synchronized'
   `).catch(() => {}); // Ignore if column already exists
 
+  await pool.query(`
+    ALTER TABLE lobbies ADD COLUMN IF NOT EXISTS current_index INTEGER DEFAULT -1
+  `).catch(() => {}); // Ignore if column already exists
+
   console.log('Database tables initialized');
 }
 

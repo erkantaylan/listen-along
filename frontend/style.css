@@ -785,6 +785,24 @@ html, body {
   background: var(--bg-surface);
 }
 
+.queue-item.played {
+  opacity: 0.45;
+}
+
+.queue-item.played .queue-item-title {
+  color: var(--text-muted);
+}
+
+.queue-item.now-playing {
+  background: var(--bg-surface);
+  border-left: 3px solid var(--primary);
+}
+
+.queue-item.now-playing .queue-item-title {
+  color: var(--primary);
+  font-weight: 600;
+}
+
 .queue-item-thumb {
   width: 48px;
   height: 48px;
