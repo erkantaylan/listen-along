@@ -151,6 +151,23 @@ app.get('/api/qr/:lobbyId', async (req, res) => {
   }
 });
 
+// Browse cached song library (ready songs only, no dashboard auth)
+app.get('/api/library', async (req, res) => {
+  if (!db.isAvailable()) {
+    return res.json({ songs: [] });
+  }
+  try {
+    const result = await db.query(
+      `SELECT id, url, title, duration, thumbnail_url, created_at
+       FROM songs WHERE status = 'ready' ORDER BY title ASC`
+    );
+    res.json({ songs: result.rows });
+  } catch (err) {
+    console.error('Library fetch error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch library' });
+  }
+});
+
 // Get video metadata
 app.get('/api/metadata', rateLimit, async (req, res) => {
   const { q } = req.query;

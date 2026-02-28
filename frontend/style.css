@@ -2769,3 +2769,104 @@ html, body {
   top: 0.5rem;
   right: 0.5rem;
 }
+
+/* Library / Import Playlist Dialogs */
+.library-dialog {
+  background: var(--bg-elevated);
+  border-radius: var(--border-radius-lg);
+  padding: 1.25rem;
+  max-width: 420px;
+  width: 100%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.library-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.library-dialog-header h3 {
+  font-size: 1rem;
+}
+
+.library-search {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-surface);
+  border: 1px solid transparent;
+  border-radius: var(--border-radius);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  margin-bottom: 0.75rem;
+  box-sizing: border-box;
+}
+
+.library-search:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.library-list {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.library-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.library-thumb {
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.library-thumb-placeholder {
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  background: var(--bg-surface);
+  flex-shrink: 0;
+}
+
+.library-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.library-item-title {
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.library-item-meta {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.library-add-btn, .import-all-btn {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.library-loading, .library-empty {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 2rem 0;
+  font-size: 0.875rem;
+}

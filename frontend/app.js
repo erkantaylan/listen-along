@@ -505,6 +505,12 @@
       if (e.key === 'Enter') addSong();
     });
 
+    // Browse Library / Import Playlist
+    var browseLibBtn = document.getElementById('browse-library-btn');
+    if (browseLibBtn) browseLibBtn.addEventListener('click', showLibraryDialog);
+    var importPlBtn = document.getElementById('import-playlist-btn');
+    if (importPlBtn) importPlBtn.addEventListener('click', showImportPlaylistDialog);
+
     // Chat
     if (elements.chatSendBtn) {
       elements.chatSendBtn.addEventListener('click', sendChatMessage);
@@ -2125,6 +2131,175 @@
     });
 
     elements.songInput.value = '';
+  }
+
+  // ==========================================
+  // Browse Library (#84)
+  // ==========================================
+  function showLibraryDialog() {
+    var existing = document.getElementById('library-dialog');
+    if (existing) existing.remove();
+
+    var dialog = document.createElement('div');
+    dialog.id = 'library-dialog';
+    dialog.className = 'share-overlay';
+    dialog.innerHTML = `
+      <div class="library-dialog">
+        <div class="library-dialog-header">
+          <h3>Browse Library</h3>
+          <button class="btn-icon share-close-btn" id="library-close-btn" aria-label="Close">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+          </button>
+        </div>
+        <input type="text" class="library-search" id="library-search" placeholder="Search songs..." autocomplete="off">
+        <div class="library-list" id="library-list">
+          <div class="library-loading">Loading...</div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(dialog);
+
+    document.getElementById('library-close-btn').addEventListener('click', function() { dialog.remove(); });
+    dialog.addEventListener('click', function(e) { if (e.target === dialog) dialog.remove(); });
+
+    fetch('/api/library')
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        var songs = data.songs || [];
+        var listEl = document.getElementById('library-list');
+        var searchEl = document.getElementById('library-search');
+
+        function renderLibrary() {
+          var q = searchEl.value.toLowerCase();
+          var filtered = q ? songs.filter(function(s) { return (s.title || '').toLowerCase().includes(q); }) : songs;
+
+          if (filtered.length === 0) {
+            listEl.innerHTML = '<div class="library-empty">No songs found</div>';
+            return;
+          }
+
+          listEl.innerHTML = filtered.map(function(song) {
+            var dur = formatDuration(song.duration);
+            var thumb = song.thumbnail_url
+              ? '<img class="library-thumb" src="' + escapeHtml(song.thumbnail_url) + '" alt="">'
+              : '<div class="library-thumb-placeholder"></div>';
+            return '<div class="library-item" data-url="' + escapeHtml(song.url) + '" data-title="' + escapeHtml(song.title) + '" data-duration="' + (song.duration || 0) + '" data-thumbnail="' + escapeHtml(song.thumbnail_url || '') + '">' +
+              thumb +
+              '<div class="library-item-info"><div class="library-item-title">' + escapeHtml(song.title) + '</div><div class="library-item-meta">' + dur + '</div></div>' +
+              '<button class="btn btn-small btn-primary library-add-btn">Add</button></div>';
+          }).join('');
+        }
+
+        renderLibrary();
+        searchEl.addEventListener('input', renderLibrary);
+
+        listEl.addEventListener('click', function(e) {
+          var btn = e.target.closest('.library-add-btn');
+          if (!btn) return;
+          var item = btn.closest('.library-item');
+          if (!item) return;
+          socket.emit('queue:add', {
+            lobbyId: state.lobbyId,
+            url: item.dataset.url,
+            title: item.dataset.title,
+            duration: parseFloat(item.dataset.duration) || 0,
+            thumbnail: item.dataset.thumbnail || undefined,
+            addedBy: state.username
+          });
+          btn.textContent = 'Added';
+          btn.disabled = true;
+          setTimeout(function() { btn.textContent = 'Add'; btn.disabled = false; }, 2000);
+        });
+      })
+      .catch(function() {
+        document.getElementById('library-list').innerHTML = '<div class="library-empty">Failed to load library</div>';
+      });
+  }
+
+  // ==========================================
+  // Import Playlist (#85)
+  // ==========================================
+  function showImportPlaylistDialog() {
+    var existing = document.getElementById('import-playlist-dialog');
+    if (existing) existing.remove();
+
+    var dialog = document.createElement('div');
+    dialog.id = 'import-playlist-dialog';
+    dialog.className = 'share-overlay';
+    dialog.innerHTML = `
+      <div class="library-dialog">
+        <div class="library-dialog-header">
+          <h3>Import from Playlist</h3>
+          <button class="btn-icon share-close-btn" id="import-close-btn" aria-label="Close">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+          </button>
+        </div>
+        <div class="library-list" id="import-playlist-list">
+          <div class="library-loading">Loading playlists...</div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(dialog);
+
+    document.getElementById('import-close-btn').addEventListener('click', function() { dialog.remove(); });
+    dialog.addEventListener('click', function(e) { if (e.target === dialog) dialog.remove(); });
+
+    fetch('/api/playlists?userId=' + encodeURIComponent(state.userId))
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        var playlists = data.playlists || [];
+        var listEl = document.getElementById('import-playlist-list');
+
+        if (playlists.length === 0) {
+          listEl.innerHTML = '<div class="library-empty">No playlists yet. Create one from the landing page.</div>';
+          return;
+        }
+
+        listEl.innerHTML = playlists.map(function(pl) {
+          return '<div class="library-item import-playlist-item" data-id="' + escapeHtml(pl.id) + '">' +
+            '<div class="library-item-info"><div class="library-item-title">' + escapeHtml(pl.name) + '</div><div class="library-item-meta">' + (pl.song_count || 0) + ' songs</div></div>' +
+            '<button class="btn btn-small btn-primary import-all-btn">Add All</button></div>';
+        }).join('');
+
+        listEl.addEventListener('click', function(e) {
+          var btn = e.target.closest('.import-all-btn');
+          if (!btn) return;
+          var item = btn.closest('.import-playlist-item');
+          if (!item) return;
+          var playlistId = item.dataset.id;
+          btn.textContent = 'Adding...';
+          btn.disabled = true;
+
+          fetch('/api/playlists/' + playlistId)
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+              var songs = data.songs || [];
+              if (songs.length === 0) {
+                btn.textContent = 'Empty';
+                return;
+              }
+              songs.forEach(function(song) {
+                socket.emit('queue:add', {
+                  lobbyId: state.lobbyId,
+                  url: song.url,
+                  title: song.title,
+                  duration: song.duration || 0,
+                  thumbnail: song.thumbnail || undefined,
+                  addedBy: state.username
+                });
+              });
+              btn.textContent = 'Added ' + songs.length;
+              showToast('Imported ' + songs.length + ' songs from playlist', 'success');
+            })
+            .catch(function() {
+              btn.textContent = 'Failed';
+              btn.disabled = false;
+            });
+        });
+      })
+      .catch(function() {
+        document.getElementById('import-playlist-list').innerHTML = '<div class="library-empty">Failed to load playlists</div>';
+      });
   }
 
   function removeSong(index) {
