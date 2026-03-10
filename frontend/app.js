@@ -49,7 +49,7 @@
   function getOrCreateUserId() {
     const stored = storageGet(STORAGE_KEYS.USER_ID);
     if (stored) return stored;
-    const newId = 'user_' + Math.random().toString(36).substr(2, 9);
+    const newId = 'user_' + crypto.randomUUID().replace(/-/g, '').slice(0, 9);
     storageSet(STORAGE_KEYS.USER_ID, newId);
     return newId;
   }
@@ -59,9 +59,11 @@
     if (stored) return stored;
     const adjectives = ['Happy', 'Chill', 'Groovy', 'Funky', 'Cool', 'Mellow'];
     const nouns = ['Listener', 'DJ', 'Vibes', 'Beat', 'Rhythm', 'Sound'];
-    const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
-    const noun = nouns[Math.floor(Math.random() * nouns.length)];
-    const newUsername = `${adj}${noun}${Math.floor(Math.random() * 100)}`;
+    const randomValues = new Uint32Array(3);
+    crypto.getRandomValues(randomValues);
+    const adj = adjectives[randomValues[0] % adjectives.length];
+    const noun = nouns[randomValues[1] % nouns.length];
+    const newUsername = `${adj}${noun}${randomValues[2] % 100}`;
     storageSet(STORAGE_KEYS.USERNAME, newUsername);
     return newUsername;
   }
@@ -69,7 +71,9 @@
   function getOrCreateEmoji() {
     const stored = storageGet(STORAGE_KEYS.EMOJI);
     if (stored) return stored;
-    const emoji = AVATAR_EMOJIS[Math.floor(Math.random() * AVATAR_EMOJIS.length)];
+    const randomIdx = new Uint32Array(1);
+    crypto.getRandomValues(randomIdx);
+    const emoji = AVATAR_EMOJIS[randomIdx[0] % AVATAR_EMOJIS.length];
     storageSet(STORAGE_KEYS.EMOJI, emoji);
     return emoji;
   }
