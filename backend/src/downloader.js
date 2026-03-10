@@ -344,9 +344,15 @@ async function getAllSongs() {
   if (!db.isAvailable()) return [];
 
   try {
-    const result = await db.query(
-      'SELECT id, url, title, duration, file_path, thumbnail_url, status, error_message, created_at, updated_at FROM songs ORDER BY updated_at DESC'
-    );
+    const result = await db.query(`
+      SELECT s.id, s.url, s.title, s.duration, s.file_path, s.thumbnail_url,
+             s.status, s.error_message, s.created_at, s.updated_at,
+             COUNT(DISTINCT ps.playlist_id)::int AS playlist_count
+      FROM songs s
+      LEFT JOIN playlist_songs ps ON ps.url = s.url
+      GROUP BY s.id
+      ORDER BY s.updated_at DESC
+    `);
     // Attach file size for each song that has a file on disk
     return result.rows.map(song => {
       if (song.file_path && fs.existsSync(song.file_path)) {

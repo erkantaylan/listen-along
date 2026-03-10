@@ -263,7 +263,9 @@
     cachePending: document.getElementById('cache-pending'),
     cacheError: document.getElementById('cache-error'),
     cacheDuration: document.getElementById('cache-duration'),
+    cacheUnused: document.getElementById('cache-unused'),
     cacheSongList: document.getElementById('cache-song-list'),
+    cacheFilter: document.getElementById('cache-filter'),
     nukeCacheBtn: document.getElementById('nuke-cache-btn'),
     clearErrorsBtn: document.getElementById('clear-errors-btn'),
     cleanOrphansBtn: document.getElementById('clean-orphans-btn'),
@@ -892,6 +894,19 @@
 
     let songs = [...cachedSongsData];
 
+    // Update unused count
+    const unusedCount = cachedSongsData.filter(s => !s.playlist_count).length;
+    if (elements.cacheUnused) elements.cacheUnused.textContent = unusedCount;
+
+    // Apply usage filter
+    const filterEl = document.getElementById('cache-filter');
+    const filterBy = filterEl ? filterEl.value : 'all';
+    if (filterBy === 'unused') {
+      songs = songs.filter(s => !s.playlist_count);
+    } else if (filterBy === 'used') {
+      songs = songs.filter(s => s.playlist_count > 0);
+    }
+
     // Apply search filter
     const searchEl = document.getElementById('cache-search');
     const query = searchEl ? searchEl.value.toLowerCase() : '';
@@ -924,12 +939,16 @@
       const duration = formatDuration(song.duration);
       const fileSize = formatFileSize(song.file_size);
       const statusClass = song.status;
+      const isUnused = !song.playlist_count;
+      const usageBadge = isUnused
+        ? '<span class="cache-song-status unused">unused</span>'
+        : `<span class="cache-song-status used">in ${song.playlist_count} list${song.playlist_count > 1 ? 's' : ''}</span>`;
       const thumbnail = song.thumbnail_url
         ? `<img class="cache-song-thumb" src="${escapeHtml(song.thumbnail_url)}" alt="">`
         : `<div class="cache-song-thumb-placeholder"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div>`;
 
       return `
-        <li class="cache-song-item">
+        <li class="cache-song-item${isUnused ? ' cache-song-unused' : ''}">
           ${thumbnail}
           <div class="cache-song-info">
             <div class="cache-song-title">${escapeHtml(song.title || 'Unknown')}</div>
@@ -937,6 +956,7 @@
               <span>${duration}</span>
               <span>${fileSize}</span>
               <span class="cache-song-status ${statusClass}">${song.status}</span>
+              ${usageBadge}
             </div>
           </div>
           <div class="cache-song-actions">
@@ -1002,7 +1022,8 @@
   }
 
   function cleanOrphanedSongs() {
-    if (!confirm('Delete cached songs not in any queue or playlist?')) return;
+    const unusedCount = cachedSongsData.filter(s => !s.playlist_count).length;
+    if (!confirm(`Remove ${unusedCount} song${unusedCount !== 1 ? 's' : ''} not used in any playlist or queue?`)) return;
 
     fetch('/api/dashboard/cache/orphaned', { method: 'DELETE', credentials: 'include' })
       .then(res => res.json())
@@ -1011,12 +1032,12 @@
           fetchCacheStats();
           fetchCachedSongs();
           fetchDashboardStats();
-          alert(`Deleted ${data.deleted} orphaned songs`);
+          alert(`Removed ${data.deleted} unused song${data.deleted !== 1 ? 's' : ''}`);
         } else {
-          alert('Failed to delete orphaned songs');
+          alert('Failed to remove unused songs');
         }
       })
-      .catch(() => alert('Failed to delete orphaned songs'));
+      .catch(() => alert('Failed to remove unused songs'));
   }
 
   // Play a cached song (opens in a new lobby or uses existing)
@@ -1348,6 +1369,8 @@
       }
       const cacheSearchEl = document.getElementById('cache-search');
       if (cacheSearchEl) cacheSearchEl.addEventListener('input', renderCacheSongList);
+      const cacheFilterEl = document.getElementById('cache-filter');
+      if (cacheFilterEl) cacheFilterEl.addEventListener('change', renderCacheSongList);
       const cacheSortEl = document.getElementById('cache-sort');
       if (cacheSortEl) cacheSortEl.addEventListener('change', renderCacheSongList);
       dashboardInterval = setInterval(() => {

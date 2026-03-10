@@ -373,7 +373,7 @@
         <div class="cache-header">
           <h2 data-i18n="dashboard.songCache">Song Cache</h2>
           <div class="cache-header-actions">
-            <button id="clean-orphans-btn" class="btn btn-small">Clean Orphans</button>
+            <button id="clean-orphans-btn" class="btn btn-small">Remove Unused</button>
             <button id="clear-errors-btn" class="btn btn-warning btn-small">Clear Errors</button>
             <button id="nuke-cache-btn" class="btn btn-danger btn-small" data-i18n="dashboard.clearAll">Clear All</button>
           </div>
@@ -384,9 +384,15 @@
           <span class="cache-stat-pill pending"><span id="cache-pending">0</span> pending</span>
           <span class="cache-stat-pill error"><span id="cache-error">0</span> error</span>
           <span class="cache-stat-pill duration"><span id="cache-duration">0:00</span> total</span>
+          <span class="cache-stat-pill unused"><span id="cache-unused">0</span> unused</span>
         </div>
         <div class="cache-controls">
           <input type="text" id="cache-search" class="cache-search-input" placeholder="Search songs...">
+          <select id="cache-filter" class="cache-sort-select">
+            <option value="all">All songs</option>
+            <option value="unused">Unused only</option>
+            <option value="used">In playlists</option>
+          </select>
           <select id="cache-sort" class="cache-sort-select">
             <option value="date-desc">Newest first</option>
             <option value="date-asc">Oldest first</option>
