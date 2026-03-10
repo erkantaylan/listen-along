@@ -133,6 +133,29 @@ async function createTables() {
     )
   `;
 
+  const createUsersTable = `
+    CREATE TABLE IF NOT EXISTS users (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      provider VARCHAR(20) NOT NULL,
+      provider_id VARCHAR(255) NOT NULL,
+      email VARCHAR(255),
+      name VARCHAR(255),
+      avatar_url TEXT,
+      created_at BIGINT NOT NULL,
+      last_login BIGINT NOT NULL,
+      UNIQUE(provider, provider_id)
+    )
+  `;
+
+  const createSessionTable = `
+    CREATE TABLE IF NOT EXISTS "session" (
+      "sid" VARCHAR NOT NULL COLLATE "default",
+      "sess" JSON NOT NULL,
+      "expire" TIMESTAMP(6) NOT NULL,
+      CONSTRAINT "session_pkey" PRIMARY KEY ("sid")
+    )
+  `;
+
   const createIndexes = `
     CREATE INDEX IF NOT EXISTS idx_queue_songs_lobby ON queue_songs(lobby_id, sort_order);
     CREATE INDEX IF NOT EXISTS idx_lobbies_last_activity ON lobbies(last_activity);
@@ -141,6 +164,8 @@ async function createTables() {
     CREATE INDEX IF NOT EXISTS idx_playlists_user ON playlists(user_id);
     CREATE INDEX IF NOT EXISTS idx_playlist_songs_playlist ON playlist_songs(playlist_id, sort_order);
     CREATE INDEX IF NOT EXISTS idx_chat_messages_lobby ON chat_messages(lobby_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_users_provider ON users(provider, provider_id);
+    CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");
   `;
 
   await pool.query(createLobbiesTable);
@@ -150,6 +175,8 @@ async function createTables() {
   await pool.query(createPlaylistsTable);
   await pool.query(createPlaylistSongsTable);
   await pool.query(createChatMessagesTable);
+  await pool.query(createUsersTable);
+  await pool.query(createSessionTable);
   await pool.query(createIndexes);
 
   // Migrations for existing databases
@@ -233,11 +260,19 @@ async function close() {
   }
 }
 
+/**
+ * Get the connection pool (for session store, etc.)
+ */
+function getPool() {
+  return pool;
+}
+
 module.exports = {
   init,
   isAvailable,
   query,
   getClient,
+  getPool,
   cleanupExpiredLobbies,
   close
 };
