@@ -3066,6 +3066,164 @@ html, body {
   font-size: 0.875rem;
 }
 
+/* ==========================================
+   Login View
+   ========================================== */
+
+.login-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.5rem;
+  padding-top: calc(2rem + var(--safe-area-top));
+  min-height: 0;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 400px;
+  background: var(--bg-elevated);
+  border-radius: var(--border-radius-lg);
+  padding: 2.5rem 2rem;
+  text-align: center;
+}
+
+.login-card .logo {
+  margin-bottom: 0.5rem;
+}
+
+.login-subtitle {
+  color: var(--text-secondary);
+  font-size: 1rem;
+  margin-bottom: 2rem;
+}
+
+.login-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.login-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.875rem 1.5rem;
+  border: none;
+  border-radius: var(--border-radius);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+  min-height: var(--tap-target);
+  font-family: inherit;
+}
+
+.login-btn:active {
+  transform: scale(0.98);
+}
+
+.login-btn-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+/* Google button - white background per Google branding */
+.login-btn-google {
+  background: #ffffff;
+  color: #3c4043;
+}
+
+.login-btn-google:hover {
+  background: #f8f9fa;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+/* GitHub button - dark theme */
+.login-btn-github {
+  background: #24292e;
+  color: #ffffff;
+}
+
+.login-btn-github:hover {
+  background: #2f363d;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.login-no-providers {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  margin-top: 1rem;
+}
+
+/* Pending approval state */
+.login-pending {
+  margin-top: 0;
+}
+
+.pending-icon {
+  color: var(--primary);
+  margin-bottom: 1rem;
+}
+
+.pending-icon svg {
+  width: 64px;
+  height: 64px;
+}
+
+.pending-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+}
+
+.pending-message {
+  color: var(--text-secondary);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  margin-bottom: 1.5rem;
+}
+
+.pending-user-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-surface);
+  border-radius: var(--border-radius);
+  margin-bottom: 1.5rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.pending-user-info img {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+}
+
+.login-logout-btn {
+  width: 100%;
+}
+
+.login-footer-text {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+@media (max-width: 480px) {
+  .login-card {
+    padding: 2rem 1.25rem;
+    border-radius: var(--border-radius);
+  }
+}
+
 /* Pending Approval View */
 .pending-approval-card {
   background: var(--bg-elevated);
@@ -3076,22 +3234,10 @@ html, body {
   width: 100%;
 }
 
-.pending-icon {
-  font-size: 3rem;
-  margin-bottom: 1rem;
-}
-
 .pending-approval-card h2 {
   font-size: 1.25rem;
   font-weight: 600;
   margin-bottom: 0.75rem;
-}
-
-.pending-message {
-  color: var(--text-secondary);
-  font-size: 0.875rem;
-  line-height: 1.5;
-  margin-bottom: 1.5rem;
 }
 
 /* Dashboard User Management */

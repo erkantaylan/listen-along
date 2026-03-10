@@ -90,6 +90,37 @@ if (!DASHBOARD_USER || !DASHBOARD_PASS) {
   console.log('='.repeat(60));
 }
 
+// OAuth configuration
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
+const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+const BASE_URL = process.env.BASE_URL || FRONTEND_URL;
+// First approved user becomes auto-approved; set to 'true' to auto-approve everyone
+const AUTO_APPROVE = process.env.AUTO_APPROVE === 'true';
+
+// Auth token helpers
+function createAuthToken(userId) {
+  const payload = Buffer.from(JSON.stringify({ id: userId, t: Date.now() })).toString('base64url');
+  const sig = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
+  return `${payload}.${sig}`;
+}
+
+function verifyAuthToken(token) {
+  if (!token || !token.includes('.')) return null;
+  const [payload, sig] = token.split('.');
+  const expected = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
+  if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+    return null;
+  }
+  try {
+    return JSON.parse(Buffer.from(payload, 'base64url').toString());
+  } catch {
+    return null;
+  }
+}
+
 const app = express();
 const server = http.createServer(app);
 
@@ -681,6 +712,249 @@ const dashboardAuth = (req, res, next) => {
   }
 };
 
+// ==========================================
+// OAuth Authentication
+// ==========================================
+
+// Helper: upsert user from OAuth profile
+async function upsertOAuthUser(provider, profile) {
+  if (!db.isAvailable()) return null;
+  const now = Date.now();
+  // Check if user already exists
+  const existing = await db.query(
+    'SELECT * FROM users WHERE provider = $1 AND provider_id = $2',
+    [provider, profile.id]
+  );
+  if (existing.rows.length > 0) {
+    // Update name/avatar/email on each login
+    await db.query(
+      'UPDATE users SET name = $1, avatar_url = $2, email = $3, updated_at = $4 WHERE id = $5',
+      [profile.name, profile.avatar, profile.email, now, existing.rows[0].id]
+    );
+    return existing.rows[0];
+  }
+  // Determine status: auto-approve if AUTO_APPROVE or if this is the first user
+  let status = 'pending';
+  if (AUTO_APPROVE) {
+    status = 'approved';
+  } else {
+    const countResult = await db.query('SELECT COUNT(*) as cnt FROM users');
+    if (parseInt(countResult.rows[0].cnt) === 0) {
+      status = 'approved'; // First user is auto-approved
+    }
+  }
+  const result = await db.query(
+    `INSERT INTO users (provider, provider_id, email, name, avatar_url, status, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $7) RETURNING *`,
+    [provider, profile.id, profile.email, profile.name, profile.avatar, status, now]
+  );
+  return result.rows[0];
+}
+
+// Set auth cookie and redirect
+function setAuthCookieAndRedirect(res, user) {
+  const token = createAuthToken(user.id);
+  res.cookie('listen_auth', token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    path: '/'
+  });
+  res.redirect('/');
+}
+
+// Google OAuth
+app.get('/auth/google', (req, res) => {
+  if (!GOOGLE_CLIENT_ID) {
+    return res.status(503).json({ error: 'Google OAuth not configured' });
+  }
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: `${BASE_URL}/auth/google/callback`,
+    response_type: 'code',
+    scope: 'openid email profile',
+    access_type: 'offline',
+    prompt: 'select_account'
+  });
+  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+});
+
+app.get('/auth/google/callback', async (req, res) => {
+  const { code } = req.query;
+  if (!code) return res.redirect('/?error=no_code');
+  try {
+    // Exchange code for tokens
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code,
+        client_id: GOOGLE_CLIENT_ID,
+        client_secret: GOOGLE_CLIENT_SECRET,
+        redirect_uri: `${BASE_URL}/auth/google/callback`,
+        grant_type: 'authorization_code'
+      })
+    });
+    const tokens = await tokenRes.json();
+    if (!tokens.access_token) return res.redirect('/?error=token_failed');
+    // Get user info
+    const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` }
+    });
+    const profile = await userRes.json();
+    const user = await upsertOAuthUser('google', {
+      id: profile.id,
+      email: profile.email,
+      name: profile.name,
+      avatar: profile.picture
+    });
+    if (!user) return res.redirect('/?error=db_unavailable');
+    setAuthCookieAndRedirect(res, user);
+  } catch (err) {
+    console.error('Google OAuth error:', err.message);
+    res.redirect('/?error=oauth_failed');
+  }
+});
+
+// GitHub OAuth
+app.get('/auth/github', (req, res) => {
+  if (!GITHUB_CLIENT_ID) {
+    return res.status(503).json({ error: 'GitHub OAuth not configured' });
+  }
+  const params = new URLSearchParams({
+    client_id: GITHUB_CLIENT_ID,
+    redirect_uri: `${BASE_URL}/auth/github/callback`,
+    scope: 'read:user user:email'
+  });
+  res.redirect(`https://github.com/login/oauth/authorize?${params}`);
+});
+
+app.get('/auth/github/callback', async (req, res) => {
+  const { code } = req.query;
+  if (!code) return res.redirect('/?error=no_code');
+  try {
+    // Exchange code for token
+    const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json'
+      },
+      body: JSON.stringify({
+        client_id: GITHUB_CLIENT_ID,
+        client_secret: GITHUB_CLIENT_SECRET,
+        code,
+        redirect_uri: `${BASE_URL}/auth/github/callback`
+      })
+    });
+    const tokens = await tokenRes.json();
+    if (!tokens.access_token) return res.redirect('/?error=token_failed');
+    // Get user info
+    const userRes = await fetch('https://api.github.com/user', {
+      headers: {
+        Authorization: `Bearer ${tokens.access_token}`,
+        'User-Agent': 'listen-along'
+      }
+    });
+    const profile = await userRes.json();
+    // Get primary email if not public
+    let email = profile.email;
+    if (!email) {
+      const emailsRes = await fetch('https://api.github.com/user/emails', {
+        headers: {
+          Authorization: `Bearer ${tokens.access_token}`,
+          'User-Agent': 'listen-along'
+        }
+      });
+      const emails = await emailsRes.json();
+      const primary = Array.isArray(emails) && emails.find(e => e.primary);
+      email = primary ? primary.email : null;
+    }
+    const user = await upsertOAuthUser('github', {
+      id: String(profile.id),
+      email,
+      name: profile.name || profile.login,
+      avatar: profile.avatar_url
+    });
+    if (!user) return res.redirect('/?error=db_unavailable');
+    setAuthCookieAndRedirect(res, user);
+  } catch (err) {
+    console.error('GitHub OAuth error:', err.message);
+    res.redirect('/?error=oauth_failed');
+  }
+});
+
+// Auth status endpoint
+app.get('/api/auth/me', async (req, res) => {
+  const token = parseCookie(req.headers.cookie, 'listen_auth');
+  const payload = verifyAuthToken(token);
+  if (!payload || !db.isAvailable()) {
+    return res.json({ authenticated: false });
+  }
+  try {
+    const result = await db.query('SELECT id, provider, email, name, avatar_url, status FROM users WHERE id = $1', [payload.id]);
+    if (result.rows.length === 0) {
+      return res.json({ authenticated: false });
+    }
+    const user = result.rows[0];
+    res.json({
+      authenticated: true,
+      user: {
+        id: user.id,
+        provider: user.provider,
+        email: user.email,
+        name: user.name,
+        avatarUrl: user.avatar_url,
+        status: user.status
+      }
+    });
+  } catch (err) {
+    console.error('Auth check error:', err.message);
+    res.json({ authenticated: false });
+  }
+});
+
+// Logout endpoint
+app.post('/api/auth/logout', (req, res) => {
+  res.clearCookie('listen_auth', { path: '/' });
+  res.json({ success: true });
+});
+
+// Admin: list pending users (dashboard auth)
+app.get('/api/auth/users', dashboardAuth, async (req, res) => {
+  if (!db.isAvailable()) return res.json({ users: [] });
+  try {
+    const result = await db.query('SELECT id, provider, email, name, avatar_url, status, created_at FROM users ORDER BY created_at DESC');
+    res.json({ users: result.rows });
+  } catch (err) {
+    console.error('List users error:', err.message);
+    res.status(500).json({ error: 'Failed to list users' });
+  }
+});
+
+// Admin: approve/deny user (dashboard auth)
+app.post('/api/auth/users/:userId/status', dashboardAuth, express.json(), async (req, res) => {
+  const { status } = req.body;
+  if (!['approved', 'denied'].includes(status)) {
+    return res.status(400).json({ error: 'Status must be approved or denied' });
+  }
+  try {
+    await db.query('UPDATE users SET status = $1, updated_at = $2 WHERE id = $3', [status, Date.now(), req.params.userId]);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Update user status error:', err.message);
+    res.status(500).json({ error: 'Failed to update user status' });
+  }
+});
+
+// Simple cookie parser (no dependency needed)
+function parseCookie(cookieHeader, name) {
+  if (!cookieHeader) return null;
+  const match = cookieHeader.split(';').find(c => c.trim().startsWith(name + '='));
+  return match ? match.split('=').slice(1).join('=').trim() : null;
+}
+
 // Dashboard stats endpoint
 app.get('/api/dashboard/stats', dashboardAuth, async (req, res) => {
   // Calculate disk usage from songs directory
@@ -931,7 +1205,20 @@ app.get('/dashboard', dashboardAuth, (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
-// Serve index for root (auth guard applied above)
+// Serve login page
+app.get('/login', (req, res) => {
+  res.sendFile(path.join(frontendPath, 'index.html'));
+});
+
+// Auth providers info (which providers are configured)
+app.get('/api/auth/providers', (req, res) => {
+  res.json({
+    google: !!GOOGLE_CLIENT_ID,
+    github: !!GITHUB_CLIENT_ID
+  });
+});
+
+// Serve index for root
 app.get('/', (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
