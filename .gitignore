@@ -30,3 +30,6 @@ Thumbs.db
 # Build
 dist/
 build/
+
+# Gas Town (added by gt)
+__pycache__/
