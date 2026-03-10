@@ -7,6 +7,8 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const session = require('express-session');
+const PgSession = require('connect-pg-simple')(session);
 const ytdlp = require('./ytdlp');
 const playback = require('./playback');
 const lobby = require('./lobby');
@@ -17,6 +19,7 @@ const covers = require('./covers');
 const playlist = require('./playlist');
 const chat = require('./chat');
 const spotify = require('./spotify');
+const auth = require('./auth');
 const QRCode = require('qrcode');
 const pkg = require('../package.json');
 
@@ -100,15 +103,81 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
+// Session configuration
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+if (!process.env.SESSION_SECRET) {
+  console.log('Warning: SESSION_SECRET not set, using random secret (sessions will not persist across restarts)');
+}
+
+const sessionConfig = {
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    sameSite: 'lax'
+  }
+};
+
+// Use PostgreSQL session store if database is available (configured in start())
+let sessionMiddleware;
+function initSession(pgPool) {
+  if (pgPool) {
+    sessionConfig.store = new PgSession({
+      pool: pgPool,
+      tableName: 'session',
+      createTableIfMissing: true
+    });
+  }
+  sessionMiddleware = session(sessionConfig);
+  app.use(sessionMiddleware);
+
+  // Initialize Passport
+  auth.init();
+  app.use(auth.passport.initialize());
+  app.use(auth.passport.session());
+
+  // Auth routes (public)
+  auth.setupRoutes(app);
+}
+
 // Serve static frontend files
 // In Docker: /app/src/index.js -> /app/frontend (../frontend)
 // Local dev: backend/src/index.js -> frontend (../../frontend)
 const frontendPath = process.env.FRONTEND_PATH || path.join(__dirname, '../frontend');
+
+// Serve login page static assets without auth
+app.get('/login', (req, res) => {
+  if (req.isAuthenticated && req.isAuthenticated()) {
+    return res.redirect('/');
+  }
+  res.sendFile(path.join(frontendPath, 'login.html'));
+});
 app.use(express.static(frontendPath));
 
 // Socket.IO setup with CORS
 const io = new Server(server, {
   cors: corsOptions
+});
+
+// Auth guard - protect all routes except public ones
+app.use((req, res, next) => {
+  // Public paths that don't require authentication
+  const publicPaths = ['/health', '/auth/', '/login', '/api/auth/user', '/api/version'];
+  const isPublic = publicPaths.some(p => req.path === p || req.path.startsWith(p));
+  if (isPublic) return next();
+
+  // Static assets are already served above by express.static
+  // If we get here with a non-API path and it wasn't caught by static, apply auth
+  if (req.isAuthenticated && !req.isAuthenticated()) {
+    if (req.path.startsWith('/api/')) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    return res.redirect('/login');
+  }
+  next();
 });
 
 // Health check endpoint
@@ -725,7 +794,7 @@ app.delete('/api/dashboard/lobbies/:id', dashboardAuth, (req, res) => {
   res.json({ success: true });
 });
 
-// Serve lobby page
+// Serve lobby page (auth guard applied above)
 app.get('/lobby/:id', (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
@@ -735,7 +804,7 @@ app.get('/dashboard', dashboardAuth, (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
-// Serve index for root
+// Serve index for root (auth guard applied above)
 app.get('/', (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
@@ -1772,6 +1841,11 @@ async function handleLeave(socket, lobbyId) {
 async function start() {
   // Initialize database if DATABASE_URL is set
   const dbAvailable = await db.init();
+
+  // Initialize session middleware (with or without DB store)
+  const pgPool = dbAvailable ? db.getPool() : null;
+  initSession(pgPool);
+
   if (dbAvailable) {
     console.log('Database persistence enabled');
 
@@ -1795,6 +1869,11 @@ async function start() {
 
   // Initialize Spotify integration (logs status, no-op if creds missing)
   spotify.init();
+
+  // Share session with Socket.IO for authenticated socket connections
+  if (sessionMiddleware) {
+    io.engine.use(sessionMiddleware);
+  }
 
   server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
