@@ -188,6 +188,10 @@
     chatMessages: document.getElementById('chat-messages'),
     chatInput: document.getElementById('chat-input'),
     chatSendBtn: document.getElementById('chat-send-btn'),
+    chatMentionSongBtn: document.getElementById('chat-mention-song-btn'),
+    chatSongPreview: document.getElementById('chat-song-preview'),
+    chatSongPreviewTitle: document.getElementById('chat-song-preview-title'),
+    chatSongPreviewRemove: document.getElementById('chat-song-preview-remove'),
     chatTicker: document.getElementById('chat-ticker'),
     chatTickerContent: document.getElementById('chat-ticker-content'),
 
@@ -520,6 +524,12 @@
       elements.chatInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') sendChatMessage();
       });
+    }
+    if (elements.chatMentionSongBtn) {
+      elements.chatMentionSongBtn.addEventListener('click', toggleSongMention);
+    }
+    if (elements.chatSongPreviewRemove) {
+      elements.chatSongPreviewRemove.addEventListener('click', clearSongMention);
     }
 
     // Queue drag and drop reordering
@@ -2784,20 +2794,54 @@
   let tickerMessages = [];
   const MAX_TICKER_MESSAGES = 4;
 
+  // Song mention state
+  let pendingSongMention = null; // { id, title, thumbnail }
+
+  function toggleSongMention() {
+    if (pendingSongMention) {
+      clearSongMention();
+      return;
+    }
+    // Find the currently playing song
+    const song = state.currentTrack;
+    if (!song) return;
+    pendingSongMention = {
+      id: song.id,
+      title: song.title,
+      thumbnail: song.thumbnail || null
+    };
+    if (elements.chatSongPreview) elements.chatSongPreview.hidden = false;
+    if (elements.chatSongPreviewTitle) elements.chatSongPreviewTitle.textContent = song.title;
+    if (elements.chatMentionSongBtn) elements.chatMentionSongBtn.classList.add('active');
+    if (elements.chatInput) elements.chatInput.focus();
+  }
+
+  function clearSongMention() {
+    pendingSongMention = null;
+    if (elements.chatSongPreview) elements.chatSongPreview.hidden = true;
+    if (elements.chatMentionSongBtn) elements.chatMentionSongBtn.classList.remove('active');
+  }
+
   function sendChatMessage() {
     if (!elements.chatInput || !socket || !state.lobbyId) return;
     const content = elements.chatInput.value.trim();
     if (!content) return;
 
-    socket.emit('chat:send', {
+    const payload = {
       lobbyId: state.lobbyId,
       userId: state.userId,
       username: state.username,
       emoji: state.emoji,
       content
-    });
+    };
+    if (pendingSongMention) {
+      payload.songMention = pendingSongMention;
+    }
+
+    socket.emit('chat:send', payload);
 
     elements.chatInput.value = '';
+    clearSongMention();
   }
 
   function handleChatMessage(msg) {
@@ -2838,6 +2882,16 @@
     const time = new Date(msg.timestamp);
     const timeStr = time.getHours().toString().padStart(2, '0') + ':' + time.getMinutes().toString().padStart(2, '0');
 
+    let songMentionHtml = '';
+    if (msg.songMention && msg.songMention.title) {
+      const thumbUrl = msg.songMention.id ? getCoverUrl(msg.songMention.id, msg.songMention.thumbnail) : sanitizeUrl(msg.songMention.thumbnail);
+      songMentionHtml = `
+        <div class="chat-song-mention">
+          ${thumbUrl ? `<img class="chat-song-mention-thumb" src="${thumbUrl}" alt="">` : '<div class="chat-song-mention-thumb-placeholder"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div>'}
+          <span class="chat-song-mention-title">${escapeHtml(msg.songMention.title)}</span>
+        </div>`;
+    }
+
     div.innerHTML = `
       <div class="chat-msg-avatar">${msg.emoji || getInitials(msg.username)}</div>
       <div class="chat-msg-body">
@@ -2846,6 +2900,7 @@
           <span class="chat-msg-time">${timeStr}</span>
         </div>
         <div class="chat-msg-text">${escapeHtml(msg.content)}</div>
+        ${songMentionHtml}
       </div>
     `;
 
@@ -2872,9 +2927,10 @@
     }
 
     elements.chatTicker.hidden = false;
-    elements.chatTickerContent.innerHTML = tickerMessages.map(msg =>
-      `<span class="ticker-msg"><span class="ticker-user">${escapeHtml(msg.username)}</span>: ${escapeHtml(msg.content)}</span>`
-    ).join('');
+    elements.chatTickerContent.innerHTML = tickerMessages.map(msg => {
+      const songBadge = msg.songMention ? ' <span class="ticker-song-badge">' + escapeHtml(msg.songMention.title) + '</span>' : '';
+      return `<span class="ticker-msg"><span class="ticker-user">${escapeHtml(msg.username)}</span>: ${escapeHtml(msg.content)}${songBadge}</span>`;
+    }).join('');
 
     // Set animation duration based on content width for consistent scroll speed
     const contentWidth = elements.chatTickerContent.scrollWidth;
@@ -2891,6 +2947,7 @@
 
   function resetChat() {
     tickerMessages = [];
+    clearSongMention();
     if (elements.chatMessages) {
       elements.chatMessages.innerHTML = `
         <div class="chat-empty">

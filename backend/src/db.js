@@ -169,6 +169,10 @@ async function createTables() {
     ALTER TABLE lobbies ADD COLUMN IF NOT EXISTS current_index INTEGER DEFAULT -1
   `).catch(() => {}); // Ignore if column already exists
 
+  await pool.query(`
+    ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS song_mention TEXT
+  `).catch(() => {}); // Ignore if column already exists
+
   console.log('Database tables initialized');
 }
 

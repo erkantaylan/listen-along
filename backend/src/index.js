@@ -1619,7 +1619,7 @@ io.on('connection', (socket) => {
 
 
   // Chat: send message
-  socket.on('chat:send', async ({ lobbyId, userId, username, emoji, content }) => {
+  socket.on('chat:send', async ({ lobbyId, userId, username, emoji, content, songMention }) => {
     if (!lobbyId) lobbyId = currentLobby;
     if (!lobbyId || !content || !content.trim()) return;
 
@@ -1638,7 +1638,8 @@ io.on('connection', (socket) => {
       userId || 'anonymous',
       username || 'Anonymous',
       emoji || '',
-      content.trim()
+      content.trim(),
+      songMention || null
     );
 
     // Broadcast to all in lobby (including sender)

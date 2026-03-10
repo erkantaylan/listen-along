@@ -1494,6 +1494,118 @@ html, body {
   min-width: var(--tap-target);
 }
 
+/* Song mention button */
+.chat-mention-song-btn {
+  color: var(--text-muted);
+  padding: 0.5rem;
+  border-radius: var(--border-radius);
+  transition: color 0.15s, background 0.15s;
+}
+
+.chat-mention-song-btn:hover {
+  color: var(--primary);
+  background: var(--bg-surface);
+}
+
+.chat-mention-song-btn.active {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 15%, transparent);
+}
+
+.chat-mention-song-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Song mention preview bar (above input) */
+.chat-song-preview {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 1rem;
+  background: color-mix(in srgb, var(--primary) 10%, var(--bg-elevated));
+  border-top: 1px solid var(--bg-surface);
+  font-size: 0.8125rem;
+}
+
+.chat-song-preview-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.chat-song-preview-label {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.chat-song-preview-title {
+  color: var(--primary);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Song mention card in chat messages */
+.chat-song-mention {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.375rem;
+  padding: 0.375rem 0.5rem;
+  background: var(--bg-surface);
+  border-radius: var(--border-radius);
+  border-left: 3px solid var(--primary);
+}
+
+.chat-song-mention-thumb {
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.chat-song-mention-thumb-placeholder {
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.chat-song-mention-thumb-placeholder svg {
+  width: 18px;
+  height: 18px;
+}
+
+.chat-song-mention-title {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Song badge in ticker */
+.ticker-song-badge {
+  display: inline-block;
+  padding: 0 0.375rem;
+  margin-left: 0.25rem;
+  background: color-mix(in srgb, var(--primary) 20%, transparent);
+  border-radius: 3px;
+  font-size: 0.75rem;
+  color: var(--primary);
+}
+
 .chat-input-bar .btn svg {
   width: 20px;
   height: 20px;

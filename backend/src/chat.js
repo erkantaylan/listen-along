@@ -46,8 +46,8 @@ function cleanupSocket(socketId) {
 /**
  * Create a chat message object
  */
-function createMessage(lobbyId, userId, username, emoji, content) {
-  return {
+function createMessage(lobbyId, userId, username, emoji, content, songMention) {
+  const msg = {
     id: crypto.randomUUID(),
     lobbyId,
     userId,
@@ -56,13 +56,21 @@ function createMessage(lobbyId, userId, username, emoji, content) {
     content: content.slice(0, MAX_MESSAGE_LENGTH),
     timestamp: Date.now()
   };
+  if (songMention && songMention.id && songMention.title) {
+    msg.songMention = {
+      id: songMention.id,
+      title: String(songMention.title).slice(0, 200),
+      thumbnail: songMention.thumbnail || null
+    };
+  }
+  return msg;
 }
 
 /**
  * Add a message to in-memory store and optionally persist to DB
  */
-async function addMessage(lobbyId, userId, username, emoji, content) {
-  const msg = createMessage(lobbyId, userId, username, emoji, content);
+async function addMessage(lobbyId, userId, username, emoji, content, songMention) {
+  const msg = createMessage(lobbyId, userId, username, emoji, content, songMention);
 
   // In-memory store
   if (!lobbyMessages.has(lobbyId)) {
@@ -80,9 +88,10 @@ async function addMessage(lobbyId, userId, username, emoji, content) {
   if (db.isAvailable()) {
     try {
       await db.query(
-        `INSERT INTO chat_messages (id, lobby_id, user_id, username, emoji, content, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [msg.id, msg.lobbyId, msg.userId, msg.username, msg.emoji, msg.content, msg.timestamp]
+        `INSERT INTO chat_messages (id, lobby_id, user_id, username, emoji, content, created_at, song_mention)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [msg.id, msg.lobbyId, msg.userId, msg.username, msg.emoji, msg.content, msg.timestamp,
+         msg.songMention ? JSON.stringify(msg.songMention) : null]
       );
     } catch (err) {
       console.error('Failed to persist chat message:', err.message);
@@ -106,7 +115,7 @@ async function getHistory(lobbyId, limit = 50) {
   if (db.isAvailable()) {
     try {
       const result = await db.query(
-        `SELECT id, lobby_id as "lobbyId", user_id as "userId", username, emoji, content, created_at as timestamp
+        `SELECT id, lobby_id as "lobbyId", user_id as "userId", username, emoji, content, created_at as timestamp, song_mention as "songMention"
          FROM chat_messages
          WHERE lobby_id = $1
          ORDER BY created_at DESC
@@ -116,7 +125,8 @@ async function getHistory(lobbyId, limit = 50) {
 
       const messages = result.rows.reverse().map(row => ({
         ...row,
-        timestamp: parseInt(row.timestamp)
+        timestamp: parseInt(row.timestamp),
+        songMention: row.songMention ? (typeof row.songMention === 'string' ? JSON.parse(row.songMention) : row.songMention) : undefined
       }));
 
       // Cache in memory
