@@ -146,11 +146,11 @@ async function startDownload(url, metadata = {}, lobbyId = null) {
     try {
       await downloadSong(songId, url, lobbyId);
     } catch (err) {
-      console.error(`Download failed for ${url}:`, err.message);
+      console.error('Download failed for %s: %s', url, err.message);
     }
   } else {
     downloadSong(songId, url, lobbyId).catch(err => {
-      console.error(`Download failed for ${url}:`, err.message);
+      console.error('Download failed for %s: %s', url, err.message);
     });
   }
 
