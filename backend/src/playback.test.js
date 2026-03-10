@@ -363,6 +363,70 @@ describe('Playback Module', () => {
       const stateAfter = playback.getState('test-lobby');
       assert.equal(stateAfter.shuffledIndices.length, 5);
     });
+
+    test('getNextShuffleIndex records current track in history', () => {
+      const io = createMockIo();
+      playback.initLobby('test-lobby');
+      playback.toggleShuffle('test-lobby', true, 5, io);
+
+      playback.getNextShuffleIndex('test-lobby', 5, 'track-A');
+      playback.getNextShuffleIndex('test-lobby', 5, 'track-B');
+
+      const state = playback.getState('test-lobby');
+      assert.deepStrictEqual(state.shuffleHistory, ['track-A', 'track-B']);
+    });
+
+    test('getNextShuffleIndex does not record null track', () => {
+      const io = createMockIo();
+      playback.initLobby('test-lobby');
+      playback.toggleShuffle('test-lobby', true, 5, io);
+
+      playback.getNextShuffleIndex('test-lobby', 5, null);
+
+      const state = playback.getState('test-lobby');
+      assert.deepStrictEqual(state.shuffleHistory, []);
+    });
+
+    test('getPreviousShuffleTrackId pops from history', () => {
+      const io = createMockIo();
+      playback.initLobby('test-lobby');
+      playback.toggleShuffle('test-lobby', true, 5, io);
+
+      // Build up history
+      playback.getNextShuffleIndex('test-lobby', 5, 'track-A');
+      playback.getNextShuffleIndex('test-lobby', 5, 'track-B');
+      playback.getNextShuffleIndex('test-lobby', 5, 'track-C');
+
+      // Go back
+      assert.equal(playback.getPreviousShuffleTrackId('test-lobby'), 'track-C');
+      assert.equal(playback.getPreviousShuffleTrackId('test-lobby'), 'track-B');
+      assert.equal(playback.getPreviousShuffleTrackId('test-lobby'), 'track-A');
+      assert.equal(playback.getPreviousShuffleTrackId('test-lobby'), null);
+    });
+
+    test('toggleShuffle clears history', () => {
+      const io = createMockIo();
+      playback.initLobby('test-lobby');
+      playback.toggleShuffle('test-lobby', true, 5, io);
+
+      playback.getNextShuffleIndex('test-lobby', 5, 'track-A');
+      assert.equal(playback.getState('test-lobby').shuffleHistory.length, 1);
+
+      // Toggling off should clear history
+      playback.toggleShuffle('test-lobby', false, 5, io);
+      assert.deepStrictEqual(playback.getState('test-lobby').shuffleHistory, []);
+
+      // Toggling back on should also have empty history
+      playback.toggleShuffle('test-lobby', true, 5, io);
+      assert.deepStrictEqual(playback.getState('test-lobby').shuffleHistory, []);
+    });
+
+    test('getPreviousShuffleTrackId returns null when shuffle disabled', () => {
+      const io = createMockIo();
+      playback.initLobby('test-lobby');
+
+      assert.equal(playback.getPreviousShuffleTrackId('test-lobby'), null);
+    });
   });
 
   describe('setRepeatMode', () => {

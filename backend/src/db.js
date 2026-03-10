@@ -173,6 +173,10 @@ async function createTables() {
     ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS song_mention TEXT
   `).catch(() => {}); // Ignore if column already exists
 
+  await pool.query(`
+    ALTER TABLE playback_state ADD COLUMN IF NOT EXISTS shuffle_history JSONB DEFAULT '[]'
+  `).catch(() => {}); // Ignore if column already exists
+
   console.log('Database tables initialized');
 }
 

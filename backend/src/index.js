@@ -1501,7 +1501,9 @@ io.on('connection', (socket) => {
 
     if (shuffleState.shuffleEnabled && songs.length > 1) {
       // Shuffle mode: get next index from shuffle order
-      const nextIndex = playback.getNextShuffleIndex(lobbyId, songs.length);
+      const currentState = playback.getState(lobbyId);
+      const currentTrackId = currentState && currentState.currentTrack ? currentState.currentTrack.id : null;
+      const nextIndex = playback.getNextShuffleIndex(lobbyId, songs.length, currentTrackId);
       if (nextIndex !== null && songs[nextIndex]) {
         const nextSong = songs[nextIndex];
         console.log(`Shuffle: playing song at index ${nextIndex} in lobby ${lobbyId}: ${nextSong.title}`);
@@ -1568,6 +1570,21 @@ io.on('connection', (socket) => {
       return;
     }
 
+    const shuffleState = playback.getShuffleState(lobbyId);
+    const songs = queue.getSongs();
+
+    if (shuffleState.shuffleEnabled && songs.length > 1) {
+      // Shuffle mode: pick next from shuffle order, record history
+      const currentState = playback.getState(lobbyId);
+      const currentTrackId = currentState && currentState.currentTrack ? currentState.currentTrack.id : null;
+      const nextIndex = playback.getNextShuffleIndex(lobbyId, songs.length, currentTrackId);
+      if (nextIndex !== null && songs[nextIndex]) {
+        playback.setTrack(lobbyId, songs[nextIndex], true, io);
+      }
+      io.to(lobbyId).emit('queue:update', { lobbyId, songs });
+      return;
+    }
+
     if (repeatMode === 'all') {
       // Move current song to end of queue (circular)
       queue.moveCurrentToEnd();
@@ -1610,6 +1627,27 @@ io.on('connection', (socket) => {
     const queue = await getQueueAsync(lobbyId);
     const songs = queue.getSongs();
     if (songs.length === 0) return;
+
+    const shuffleState = playback.getShuffleState(lobbyId);
+
+    // In shuffle mode, use history to go back to the actual previous song
+    if (shuffleState.shuffleEnabled) {
+      const prevTrackId = playback.getPreviousShuffleTrackId(lobbyId);
+      if (prevTrackId) {
+        const prevSong = songs.find(s => s.id === prevTrackId);
+        if (prevSong) {
+          playback.setTrack(lobbyId, prevSong, true, io);
+          io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+          return;
+        }
+      }
+      // No history or song not found — restart current track
+      playback.seek(lobbyId, 0, io);
+      if (!state.isPlaying) {
+        playback.resume(lobbyId, io);
+      }
+      return;
+    }
 
     const currentIndex = state.currentTrack
       ? songs.findIndex(s => s.id === state.currentTrack.id)
@@ -1668,6 +1706,24 @@ io.on('connection', (socket) => {
     const currentSong = queue.getCurrentSong();
     if (!currentSong) {
       playback.trackEnded(lobbyId, io);
+      return;
+    }
+
+    const shuffleState = playback.getShuffleState(lobbyId);
+    const songs = queue.getSongs();
+
+    if (shuffleState.shuffleEnabled && songs.length > 1) {
+      // Shuffle mode: pick next from shuffle order, record history
+      const currentState = playback.getState(lobbyId);
+      const currentTrackId = currentState && currentState.currentTrack ? currentState.currentTrack.id : null;
+      const nextIndex = playback.getNextShuffleIndex(lobbyId, songs.length, currentTrackId);
+      if (nextIndex !== null && songs[nextIndex]) {
+        playback.setTrack(lobbyId, songs[nextIndex], true, io);
+        console.log(`Shuffle: playing song at index ${nextIndex} in lobby ${lobbyId}: ${songs[nextIndex].title}`);
+      } else {
+        playback.trackEnded(lobbyId, io);
+      }
+      io.to(lobbyId).emit('queue:update', { lobbyId, songs });
       return;
     }
 
