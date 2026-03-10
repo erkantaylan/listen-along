@@ -103,6 +103,13 @@
   // Run migration on load
   migratePlaybackMode();
 
+  // Auth state
+  const auth = {
+    checked: false,
+    authenticated: false,
+    user: null // { id, provider, email, name, avatarUrl, status }
+  };
+
   // App State
   const state = {
     lobbyId: null,
@@ -142,6 +149,7 @@
   // DOM Elements
   const elements = {
     // Views
+    loginView: document.getElementById('login-view'),
     landingView: document.getElementById('landing-view'),
     lobbyView: document.getElementById('lobby-view'),
     dashboardView: document.getElementById('dashboard-view'),
@@ -350,12 +358,101 @@
     }
   }
 
+  // ==========================================
+  // Authentication
+  // ==========================================
+
+  async function checkAuth() {
+    try {
+      const res = await fetch('/api/auth/me', { credentials: 'same-origin' });
+      const data = await res.json();
+      auth.checked = true;
+      auth.authenticated = data.authenticated;
+      auth.user = data.user || null;
+      return data;
+    } catch {
+      auth.checked = true;
+      auth.authenticated = false;
+      return { authenticated: false };
+    }
+  }
+
+  async function setupLoginView() {
+    // Fetch which providers are available
+    try {
+      const res = await fetch('/api/auth/providers');
+      const providers = await res.json();
+      const googleBtn = document.getElementById('google-login-btn');
+      const githubBtn = document.getElementById('github-login-btn');
+      const noProviders = document.getElementById('login-no-providers');
+
+      if (providers.google && googleBtn) {
+        googleBtn.hidden = false;
+        googleBtn.addEventListener('click', () => { window.location.href = '/auth/google'; });
+      }
+      if (providers.github && githubBtn) {
+        githubBtn.hidden = false;
+        githubBtn.addEventListener('click', () => { window.location.href = '/auth/github'; });
+      }
+      if (!providers.google && !providers.github && noProviders) {
+        noProviders.hidden = false;
+      }
+    } catch {
+      // If providers check fails, show both buttons as fallback
+      const googleBtn = document.getElementById('google-login-btn');
+      const githubBtn = document.getElementById('github-login-btn');
+      if (googleBtn) { googleBtn.hidden = false; googleBtn.addEventListener('click', () => { window.location.href = '/auth/google'; }); }
+      if (githubBtn) { githubBtn.hidden = false; githubBtn.addEventListener('click', () => { window.location.href = '/auth/github'; }); }
+    }
+
+    // Logout button
+    const logoutBtn = document.getElementById('login-logout-btn');
+    if (logoutBtn) {
+      logoutBtn.addEventListener('click', async () => {
+        await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+        auth.authenticated = false;
+        auth.user = null;
+        showLoginCard();
+        showView('login');
+      });
+    }
+  }
+
   function showRejectedView() {
     showView('pending');
     if (elements.pendingIcon) elements.pendingIcon.textContent = '\u274C';
     if (elements.pendingTitle) elements.pendingTitle.textContent = 'Access Denied';
     if (elements.pendingMessage) elements.pendingMessage.textContent = 'Your account has been rejected by the admin. Contact the administrator for more information.';
     if (elements.pendingRetryBtn) elements.pendingRetryBtn.style.display = 'none';
+  }
+
+  function showLoginCard() {
+    const loginCard = document.querySelector('.login-card:not(.login-pending)');
+    const pendingCard = document.getElementById('login-pending');
+    if (loginCard) loginCard.hidden = false;
+    if (pendingCard) pendingCard.hidden = true;
+  }
+
+  function showPendingCard() {
+    const loginCard = document.querySelector('.login-card:not(.login-pending)');
+    const pendingCard = document.getElementById('login-pending');
+    if (loginCard) loginCard.hidden = true;
+    if (pendingCard) {
+      pendingCard.hidden = false;
+      const userInfo = document.getElementById('pending-user-info');
+      if (userInfo && auth.user) {
+        userInfo.textContent = '';
+        if (auth.user.avatarUrl) {
+          const img = document.createElement('img');
+          img.src = auth.user.avatarUrl;
+          img.alt = '';
+          userInfo.appendChild(img);
+        }
+        const span = document.createElement('span');
+        span.textContent = `${auth.user.name || auth.user.email || 'User'} (${auth.user.provider})`;
+        userInfo.appendChild(span);
+      }
+    }
   }
 
   // Initialize Application
@@ -371,17 +468,43 @@
       return;
     }
 
-    // Register user and check approval status
-    const userStatus = await registerUser();
-    if (userStatus === 'pending') {
-      showView('pending');
-      setupPendingRetry();
-      return;
-    } else if (userStatus === 'rejected') {
-      showRejectedView();
+    // Set up login view buttons
+    await setupLoginView();
+
+    // Check authentication status
+    const authData = await checkAuth();
+
+    if (!authData.authenticated) {
+      // Not logged in - show login page
+      showView('login');
       return;
     }
 
+    if (authData.user && authData.user.status === 'pending') {
+      // User is pending approval
+      showPendingCard();
+      showView('login');
+      return;
+    }
+
+    if (authData.user && authData.user.status === 'denied') {
+      // User was denied
+      showPendingCard();
+      const pendingTitle = document.querySelector('.pending-title');
+      const pendingMsg = document.querySelector('.pending-message');
+      if (pendingTitle) pendingTitle.textContent = 'Access denied';
+      if (pendingMsg) pendingMsg.textContent = 'Your account request was denied by an administrator.';
+      showView('login');
+      return;
+    }
+
+    // User is authenticated and approved - proceed with normal app
+    initAuthenticatedApp();
+  }
+
+  function initAuthenticatedApp() {
+    // Show landing view by default (no longer has active class in HTML)
+    showView('landing');
     setupSocket();
     setupEventListeners();
     setupProfileEditor();
@@ -390,10 +513,6 @@
     setupMediaSession();
     setupSoloAudioHooks();
     fetchVersion();
-    fetchLobbies();
-    fetchPlaylists();
-    // Auto-refresh lobbies while on landing page
-    lobbiesInterval = setInterval(fetchLobbies, 10000);
   }
 
   // Setup language selector
@@ -1517,6 +1636,9 @@
 
   // View Management
   function showView(viewName) {
+    if (elements.loginView) {
+      elements.loginView.classList.remove('active');
+    }
     elements.landingView.classList.remove('active');
     elements.lobbyView.classList.remove('active');
     if (elements.soloView) {
@@ -1541,7 +1663,9 @@
       lobbiesInterval = null;
     }
 
-    if (viewName === 'landing') {
+    if (viewName === 'login') {
+      if (elements.loginView) elements.loginView.classList.add('active');
+    } else if (viewName === 'landing') {
       elements.landingView.classList.add('active');
       fetchLobbies();
       fetchPlaylists();
