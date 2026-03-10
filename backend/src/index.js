@@ -354,13 +354,27 @@ app.get('/api/covers/:id', (req, res) => {
 
   const cached = covers.getCachedCover(songId);
   if (cached) {
+    // Validate cached path is within COVERS_DIR to prevent path traversal
+    const resolvedPath = path.resolve(cached.path);
+    const coversBase = path.resolve(covers.COVERS_DIR);
+    if (!resolvedPath.startsWith(coversBase + path.sep) && resolvedPath !== coversBase) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     res.setHeader('Content-Type', cached.contentType);
     res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
-    return res.sendFile(cached.path);
+    return res.sendFile(resolvedPath);
   }
 
-  // Not cached - redirect to fallback URL if provided
+  // Not cached - redirect to fallback URL if provided (validate to prevent open redirect)
   if (fallbackUrl) {
+    try {
+      const parsed = new URL(fallbackUrl);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return res.status(400).json({ error: 'Invalid fallback URL' });
+      }
+    } catch {
+      return res.status(400).json({ error: 'Invalid fallback URL' });
+    }
     return res.redirect(fallbackUrl);
   }
 

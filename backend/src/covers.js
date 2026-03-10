@@ -66,6 +66,10 @@ function getExtension(url, contentType) {
 async function cacheCover(songId, thumbnailUrl) {
   if (!thumbnailUrl) return null;
 
+  // Sanitize songId to prevent path traversal
+  songId = path.basename(songId);
+  if (!songId) return null;
+
   try {
     ensureCoversDir();
 
@@ -125,6 +129,10 @@ async function cacheCover(songId, thumbnailUrl) {
  * @returns {{ path: string, contentType: string } | null}
  */
 function getCachedCover(songId) {
+  // Sanitize songId to prevent path traversal
+  songId = path.basename(songId);
+  if (!songId) return null;
+
   // Check memory cache first
   if (coverCache.has(songId)) {
     const cached = coverCache.get(songId);
