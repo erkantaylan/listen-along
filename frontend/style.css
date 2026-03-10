@@ -1671,6 +1671,45 @@ html, body {
   border-radius: 4px;
 }
 
+.listener-badge.following {
+  color: var(--primary);
+  background: rgba(var(--primary-rgb, 29, 185, 84), 0.15);
+}
+
+/* Follow button in listener list */
+.follow-btn {
+  background: none;
+  border: 1.5px solid var(--text-muted);
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.follow-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: rgba(var(--primary-rgb, 29, 185, 84), 0.1);
+}
+
+.follow-btn.following {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: rgba(var(--primary-rgb, 29, 185, 84), 0.15);
+}
+
+.follow-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
 /* Toast Notifications */
 .toast-container {
   position: fixed;

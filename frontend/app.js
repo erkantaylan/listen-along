@@ -130,7 +130,9 @@
     volumeBeforeMute: 1,
     hideErroredSongs: storageGet(STORAGE_KEYS.HIDE_ERRORED_SONGS) !== 'false', // default true
     queueSort: storageGet(STORAGE_KEYS.QUEUE_SORT) || 'default', // 'default', 'newest', 'oldest'
-    queueCurrentIndex: -1 // Cursor position for jam mode persistent queue
+    queueCurrentIndex: -1, // Cursor position for jam mode persistent queue
+    followingSocketId: null, // socketId of user we're following
+    followingUsername: null  // username of user we're following (for display)
   };
 
   // DOM Elements
@@ -434,6 +436,10 @@
     socket.on('chat:message', handleChatMessage);
     socket.on('chat:history', handleChatHistory);
     socket.on('chat:error', (data) => showToast(data.message, 'error'));
+
+    // Follow Events (independent mode)
+    socket.on('follow:sync', handleFollowSync);
+    socket.on('follow:error', (data) => showToast(data.message, 'error'));
   }
 
   // Event Listeners Setup
@@ -1929,11 +1935,54 @@
 
   function handleUsersUpdated(data) {
     state.listeners = data.users || [];
+    // If the user we're following left, clear follow state
+    if (state.followingSocketId) {
+      const leaderStillHere = state.listeners.some(u => u.socketId === state.followingSocketId);
+      if (!leaderStillHere) {
+        state.followingSocketId = null;
+        state.followingUsername = null;
+        showToast(t('follow.leaderLeft', 'The user you were following has left'), 'info');
+      }
+    }
     updateListeners();
     // In independent mode, re-render queue to show who's listening to each song
     if (state.listeningMode === 'independent') {
       updateQueue();
     }
+  }
+
+  function handleFollowSync(data) {
+    if (!data.track) return;
+    // Find the full song in queue to play it
+    const song = state.queue.find(s => s.title === data.track.title);
+    if (song) {
+      playLocalTrack(song);
+    } else if (data.track.url) {
+      // Track has a URL (full song object from server)
+      playLocalTrack(data.track);
+    }
+  }
+
+  function startFollowing(targetSocketId) {
+    const target = state.listeners.find(u => u.socketId === targetSocketId);
+    if (!target) return;
+
+    state.followingSocketId = targetSocketId;
+    state.followingUsername = target.username;
+    socket.emit('follow:start', {
+      lobbyId: state.lobbyId,
+      targetSocketId
+    });
+    updateListeners();
+    showToast(t('follow.started', 'Following {name}', { name: target.username }), 'info');
+  }
+
+  function stopFollowing() {
+    state.followingSocketId = null;
+    state.followingUsername = null;
+    socket.emit('follow:stop', { lobbyId: state.lobbyId });
+    updateListeners();
+    showToast(t('follow.stopped', 'Stopped following'), 'info');
   }
 
   function toggleUserMode() {
@@ -2015,6 +2064,8 @@
 
   function playPrevious() {
     if (state.listeningMode === 'independent') {
+      // Manual navigation breaks follow mode
+      if (state.followingSocketId) stopFollowing();
       // If more than 3 seconds in, restart current track; otherwise go to previous
       const audio = elements.audioPlayer;
       if (audio.currentTime > 3) {
@@ -2052,6 +2103,8 @@
 
   function playNext() {
     if (state.listeningMode === 'independent') {
+      // Manual navigation breaks follow mode
+      if (state.followingSocketId) stopFollowing();
       advanceLocalQueue();
       return;
     }
@@ -2382,6 +2435,8 @@
     if (!song) return;
 
     if (state.listeningMode === 'independent') {
+      // Manual song selection breaks follow mode
+      if (state.followingSocketId) stopFollowing();
       playLocalTrack(song);
       return;
     }
@@ -2771,6 +2826,26 @@
         }
       }
 
+      // Follow button for independent mode (only show for other listening users)
+      let followBtn = '';
+      if (state.listeningMode === 'independent' && user.socketId !== socket.id && user.mode === 'listening') {
+        const isFollowing = state.followingSocketId === user.socketId;
+        if (isFollowing) {
+          followBtn = `<button class="follow-btn following" data-socket-id="${user.socketId}" title="${t('follow.stopFollowing', 'Stop following')}">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg>
+          </button>`;
+        } else {
+          followBtn = `<button class="follow-btn" data-socket-id="${user.socketId}" title="${t('follow.followUser', 'Follow')}">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg>
+          </button>`;
+        }
+      }
+
+      // Show "Following" badge if this user is being followed by us
+      const followingBadge = (state.followingSocketId === user.socketId)
+        ? `<span class="listener-badge following">${t('follow.following', 'Following')}</span>`
+        : '';
+
       return `
       <li class="listener-item ${user.mode === 'lobby' ? 'lobby-mode' : ''}">
         <div class="listener-avatar${user.emoji ? ' emoji' : ''}">${avatar}</div>
@@ -2778,10 +2853,27 @@
           <span class="listener-name">${escapeHtml(user.username)}</span>
           ${nowListening}
         </div>
+        ${followBtn}
+        ${followingBadge}
         ${modeIcon}
         ${user.isHost ? '<span class="listener-badge">Host</span>' : ''}
       </li>`;
     }).join('');
+
+    // Attach follow button click handlers
+    if (state.listeningMode === 'independent') {
+      elements.listenersList.querySelectorAll('.follow-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const targetSocketId = btn.dataset.socketId;
+          if (state.followingSocketId === targetSocketId) {
+            stopFollowing();
+          } else {
+            startFollowing(targetSocketId);
+          }
+        });
+      });
+    }
   }
 
   function resetLobbyUI() {
@@ -2802,6 +2894,8 @@
     state.repeatMode = 'off';
     state.userMode = 'listening';
     state.queueCurrentIndex = -1;
+    state.followingSocketId = null;
+    state.followingUsername = null;
     updatePlayButton();
     updatePlaybackModeUI();
     updateModeButton();

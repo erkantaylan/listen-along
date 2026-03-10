@@ -961,6 +961,71 @@ io.on('connection', (socket) => {
       io.to(lobbyId).emit('users:updated', {
         users: lobby.getLobbyUsers(lobbyId)
       });
+
+      // Notify followers of this user to sync to the same track
+      const followers = lobby.getFollowers(lobbyId, socket.id);
+      if (followers.length > 0 && track) {
+        // Find the song in queue that matches this track
+        const queue = getQueue(lobbyId);
+        const songs = queue.getSongs();
+        const songIndex = songs.findIndex(s => s.title === track.title);
+        const song = songIndex >= 0 ? songs[songIndex] : null;
+
+        for (const follower of followers) {
+          io.to(follower.socketId).emit('follow:sync', {
+            leaderSocketId: socket.id,
+            track: song || { title: track.title, thumbnail: track.thumbnail }
+          });
+        }
+      }
+    }
+  });
+
+  // Follow another user in independent mode (listen to same songs)
+  socket.on('follow:start', ({ lobbyId, targetSocketId }) => {
+    if (!lobbyId) lobbyId = currentLobby;
+    if (!lobbyId) return;
+
+    if (lobby.getListeningMode(lobbyId) !== 'independent') return;
+
+    const user = lobby.setUserFollowing(lobbyId, socket.id, targetSocketId);
+    if (!user) {
+      socket.emit('follow:error', { message: 'Cannot follow that user' });
+      return;
+    }
+
+    // Get the target user's current track so follower can sync immediately
+    const users = lobby.getLobbyUsers(lobbyId);
+    const target = users.find(u => u.socketId === targetSocketId);
+
+    io.to(lobbyId).emit('users:updated', { users });
+
+    if (target && target.currentTrack) {
+      // Find the full song object in queue
+      const queue = getQueue(lobbyId);
+      const songs = queue.getSongs();
+      const songIndex = songs.findIndex(s => s.title === target.currentTrack.title);
+      const song = songIndex >= 0 ? songs[songIndex] : null;
+
+      socket.emit('follow:sync', {
+        leaderSocketId: targetSocketId,
+        track: song || target.currentTrack
+      });
+    }
+
+    console.log(`User ${socket.id} now following ${targetSocketId} in lobby ${lobbyId}`);
+  });
+
+  // Stop following
+  socket.on('follow:stop', ({ lobbyId }) => {
+    if (!lobbyId) lobbyId = currentLobby;
+    if (!lobbyId) return;
+
+    const user = lobby.setUserFollowing(lobbyId, socket.id, null);
+    if (user) {
+      io.to(lobbyId).emit('users:updated', {
+        users: lobby.getLobbyUsers(lobbyId)
+      });
     }
   });
 
@@ -1667,6 +1732,10 @@ io.on('connection', (socket) => {
 async function handleLeave(socket, lobbyId) {
   const queue = await getQueueAsync(lobbyId);
   queue.removeUserPosition(socket.id);
+
+  // Clear follow relationships: unfollow anyone this user was following,
+  // and notify anyone following this user that they've been unfollowed
+  lobby.clearFollowersOf(lobbyId, socket.id);
 
   const user = lobby.leaveLobby(lobbyId, socket.id);
   if (user) {
