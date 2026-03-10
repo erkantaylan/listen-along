@@ -445,6 +445,26 @@ html, body {
   font-size: 0.8rem;
 }
 
+.track-source-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  text-decoration: none;
+  margin-top: 0.25rem;
+  transition: color var(--transition);
+}
+
+.track-source-link:hover {
+  color: #ff0000;
+}
+
+.track-source-link svg {
+  width: 14px;
+  height: 14px;
+}
+
 /* Progress Bar */
 .progress-container {
   width: 100%;
@@ -937,6 +957,15 @@ html, body {
 .queue-item-remove {
   padding: 0.5rem;
   color: var(--text-muted);
+}
+
+.queue-item-youtube {
+  padding: 0.5rem;
+  color: var(--text-muted);
+}
+
+.queue-item-youtube:hover {
+  color: #ff0000;
 }
 
 .queue-item-meta {

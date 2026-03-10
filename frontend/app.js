@@ -2444,6 +2444,17 @@
     elements.trackTitle.textContent = track.title || 'Unknown Track';
     elements.trackArtist.textContent = track.artist || '';
 
+    // Update YouTube source link
+    const sourceLink = document.getElementById('track-source-link');
+    if (sourceLink) {
+      if (track.url && track.url.startsWith('http')) {
+        sourceLink.href = track.url;
+        sourceLink.hidden = false;
+      } else {
+        sourceLink.hidden = true;
+      }
+    }
+
     const thumbUrl = track.id ? getCoverUrl(track.id, track.thumbnail) : sanitizeUrl(track.thumbnail);
     if (thumbUrl) {
       elements.albumArt.innerHTML = `<img src="${thumbUrl}" alt="Album art">`;
@@ -2633,6 +2644,9 @@
               <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
             </button>
           </div>
+          ${song.url && song.url.startsWith('http') ? `<button class="btn-icon queue-item-youtube" aria-label="Open on YouTube" title="Open on YouTube" onclick="window.app.openSource(${index})">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47.13-1.33.22-2.65.28-1.3.07-2.49.1-3.59.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33-.22 2.65-.28 1.3-.07 2.49-.1 3.59-.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z"/></svg>
+          </button>` : ''}
           <button class="btn-icon queue-item-play" aria-label="Play" onclick="window.app.playSongAt(${index})">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
           </button>
@@ -2729,6 +2743,8 @@
   function resetLobbyUI() {
     elements.trackTitle.textContent = t('player.noTrackPlaying', 'No track playing');
     elements.trackArtist.textContent = t('player.addSongHint', 'Add a song to get started');
+    const sourceLink = document.getElementById('track-source-link');
+    if (sourceLink) sourceLink.hidden = true;
     elements.progressBar.value = 0;
     elements.currentTime.textContent = '0:00';
     elements.duration.textContent = '0:00';
@@ -3395,6 +3411,9 @@
           </div>
         </div>
         <div class="queue-item-actions">
+          ${song.url && song.url.startsWith('http') ? `<button class="btn-icon queue-item-youtube" aria-label="Open on YouTube" title="Open on YouTube" onclick="window.app.soloOpenSource(${index})">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47.13-1.33.22-2.65.28-1.3.07-2.49.1-3.59.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33-.22 2.65-.28 1.3-.07 2.49-.1 3.59-.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z"/></svg>
+          </button>` : ''}
           <button class="btn-icon queue-item-play" aria-label="Play" onclick="window.app.soloPlayTrack(${index})">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
           </button>
@@ -3481,12 +3500,41 @@
     joinLobby(lobbyId);
   }
 
+  function openSource(index) {
+    const song = state.queue[index];
+    if (song && song.url && song.url.startsWith('http')) {
+      window.open(song.url, '_blank', 'noopener,noreferrer');
+    }
+  }
+
+  function copySourceUrl(index) {
+    const song = state.queue[index];
+    if (song && song.url && song.url.startsWith('http')) {
+      navigator.clipboard.writeText(song.url).then(() => {
+        showToast(t('queue.urlCopied', 'YouTube link copied to clipboard'));
+      }).catch(() => {
+        // Fallback for older browsers
+        showToast(song.url);
+      });
+    }
+  }
+
+  function soloOpenSource(index) {
+    const song = state.soloPlaylistSongs[index];
+    if (song && song.url && song.url.startsWith('http')) {
+      window.open(song.url, '_blank', 'noopener,noreferrer');
+    }
+  }
+
   // Expose API for inline handlers
   window.app = {
     removeSong,
     moveSongUp,
     moveSongDown,
     playSongAt,
+    openSource,
+    copySourceUrl,
+    soloOpenSource,
     openPlaylist,
     deletePlaylist: deletePlaylistAction,
     soloPlayTrack: soloPlayTrack,
