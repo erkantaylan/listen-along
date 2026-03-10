@@ -1399,6 +1399,15 @@ io.on('connection', (socket) => {
     io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
   });
 
+  // Clear all songs from queue
+  socket.on('queue:clear', async ({ lobbyId }) => {
+    if (!verifyLobbyMembership(lobbyId)) return;
+    const queue = await getQueueAsync(lobbyId);
+    queue.clear();
+    playback.trackEnded(lobbyId, io);
+    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
+  });
+
   // Get current queue state
   socket.on('queue:get', async (lobbyId) => {
     const queue = await getQueueAsync(lobbyId);

@@ -62,7 +62,8 @@
     "remove": "Sıradan kaldır",
     "downloading": "İndiriliyor...",
     "ready": "Hazır",
-    "error": "Hata"
+    "error": "Hata",
+    "clearQueue": "Sırayı temizle"
   },
   "chat": {
     "noMessages": "Henüz mesaj yok",

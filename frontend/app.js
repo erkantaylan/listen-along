@@ -182,6 +182,7 @@
     queueList: document.getElementById('queue-list'),
     hideErroredCheckbox: document.getElementById('hide-errored-songs'),
     queueSortSelect: document.getElementById('queue-sort'),
+    clearQueueBtn: document.getElementById('clear-queue-btn'),
 
     // Chat (inside social tab)
     chatMessages: document.getElementById('chat-messages'),
@@ -542,6 +543,11 @@
         storageSet(STORAGE_KEYS.QUEUE_SORT, state.queueSort);
         updateQueue();
       });
+    }
+
+    // Clear Queue
+    if (elements.clearQueueBtn) {
+      elements.clearQueueBtn.addEventListener('click', clearQueue);
     }
 
     // Tab Navigation
@@ -2309,6 +2315,11 @@
       lobbyId: state.lobbyId,
       songId: song.id
     });
+  }
+
+  function clearQueue() {
+    if (!state.queue.length) return;
+    socket.emit('queue:clear', { lobbyId: state.lobbyId });
   }
 
   function moveSongUp(index) {

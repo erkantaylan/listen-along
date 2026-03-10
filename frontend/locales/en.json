@@ -62,7 +62,8 @@
     "remove": "Remove from queue",
     "downloading": "Downloading...",
     "ready": "Ready",
-    "error": "Error"
+    "error": "Error",
+    "clearQueue": "Clear queue"
   },
   "chat": {
     "noMessages": "No messages yet",
