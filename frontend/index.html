@@ -338,6 +338,22 @@
     </section>
   </div>
 
+  <!-- Pending Approval View -->
+  <div id="pending-view" class="view">
+    <main class="landing-content">
+      <div class="logo">
+        <img class="logo-icon" src="/icon-192.png" alt="listen-along">
+        <h1>listen-along</h1>
+      </div>
+      <div class="pending-approval-card">
+        <div id="pending-icon" class="pending-icon">&#x23F3;</div>
+        <h2 id="pending-title">Waiting for Approval</h2>
+        <p id="pending-message" class="pending-message">Your account is pending admin approval. You'll be able to access lobbies once approved.</p>
+        <button id="pending-retry-btn" class="btn btn-primary">Check Status</button>
+      </div>
+    </main>
+  </div>
+
   <!-- Dashboard View -->
   <div id="dashboard-view" class="view">
     <header class="dashboard-header">
@@ -369,6 +385,29 @@
           <li class="dashboard-empty" data-i18n="dashboard.noActiveLobbies">No active lobbies</li>
         </ul>
       </section>
+      <section class="dashboard-users">
+        <div class="users-header">
+          <h2>User Management</h2>
+        </div>
+        <div class="users-stats-inline">
+          <span class="cache-stat-pill user-approved"><span id="users-approved">0</span> approved</span>
+          <span class="cache-stat-pill user-pending"><span id="users-pending">0</span> pending</span>
+          <span class="cache-stat-pill user-rejected"><span id="users-rejected">0</span> rejected</span>
+        </div>
+        <div class="users-controls">
+          <input type="text" id="users-search" class="cache-search-input" placeholder="Search users...">
+          <select id="users-filter" class="cache-sort-select">
+            <option value="all">All users</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </div>
+        <ul id="dashboard-user-list" class="dashboard-user-list">
+          <li class="dashboard-empty">No registered users</li>
+        </ul>
+      </section>
+
       <section class="dashboard-cache">
         <div class="cache-header">
           <h2 data-i18n="dashboard.songCache">Song Cache</h2>

@@ -145,6 +145,13 @@
     landingView: document.getElementById('landing-view'),
     lobbyView: document.getElementById('lobby-view'),
     dashboardView: document.getElementById('dashboard-view'),
+    pendingView: document.getElementById('pending-view'),
+
+    // Pending Approval
+    pendingIcon: document.getElementById('pending-icon'),
+    pendingTitle: document.getElementById('pending-title'),
+    pendingMessage: document.getElementById('pending-message'),
+    pendingRetryBtn: document.getElementById('pending-retry-btn'),
 
     // Landing
     createLobbyBtn: document.getElementById('create-lobby-btn'),
@@ -276,6 +283,14 @@
     clearErrorsBtn: document.getElementById('clear-errors-btn'),
     cleanOrphansBtn: document.getElementById('clean-orphans-btn'),
 
+    // Dashboard User Management
+    dashboardUserList: document.getElementById('dashboard-user-list'),
+    usersApproved: document.getElementById('users-approved'),
+    usersPending: document.getElementById('users-pending'),
+    usersRejected: document.getElementById('users-rejected'),
+    usersSearch: document.getElementById('users-search'),
+    usersFilter: document.getElementById('users-filter'),
+
     // Room Type Modal
     roomTypeModal: document.getElementById('room-type-modal'),
     roomTypeLobbyName: document.getElementById('room-type-lobby-name'),
@@ -295,6 +310,54 @@
   // Lobbies auto-refresh state
   let lobbiesInterval = null;
 
+  // User registration and approval
+  async function registerUser() {
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: state.userId,
+          username: state.username,
+          emoji: state.emoji
+        })
+      });
+      if (!res.ok) return 'approved'; // On error, allow access
+      const data = await res.json();
+      return data.status || 'approved';
+    } catch {
+      return 'approved'; // On network error, allow access
+    }
+  }
+
+  function setupPendingRetry() {
+    if (elements.pendingRetryBtn) {
+      elements.pendingRetryBtn.addEventListener('click', async () => {
+        elements.pendingRetryBtn.disabled = true;
+        elements.pendingRetryBtn.textContent = 'Checking...';
+        const status = await registerUser();
+        if (status === 'approved') {
+          // Reload to get full app
+          window.location.reload();
+        } else if (status === 'rejected') {
+          showRejectedView();
+        } else {
+          showToast('Still waiting for approval', 'info');
+          elements.pendingRetryBtn.disabled = false;
+          elements.pendingRetryBtn.textContent = 'Check Status';
+        }
+      });
+    }
+  }
+
+  function showRejectedView() {
+    showView('pending');
+    if (elements.pendingIcon) elements.pendingIcon.textContent = '\u274C';
+    if (elements.pendingTitle) elements.pendingTitle.textContent = 'Access Denied';
+    if (elements.pendingMessage) elements.pendingMessage.textContent = 'Your account has been rejected by the admin. Contact the administrator for more information.';
+    if (elements.pendingRetryBtn) elements.pendingRetryBtn.style.display = 'none';
+  }
+
   // Initialize Application
   async function init() {
     // Initialize i18n first
@@ -305,6 +368,17 @@
 
     // Check for dashboard route first (no socket needed)
     if (checkUrlForDashboard()) {
+      return;
+    }
+
+    // Register user and check approval status
+    const userStatus = await registerUser();
+    if (userStatus === 'pending') {
+      showView('pending');
+      setupPendingRetry();
+      return;
+    } else if (userStatus === 'rejected') {
+      showRejectedView();
       return;
     }
 
@@ -471,7 +545,8 @@
           username: state.username,
           emoji: state.emoji,
           listeningMode,
-          lobbyId: state.pendingLobbyId
+          lobbyId: state.pendingLobbyId,
+          userId: state.userId
         });
         state.pendingLobbyId = null;
       });
@@ -883,6 +958,116 @@
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / 1024 / 1024).toFixed(1) + ' MB';
   }
+
+  // Dashboard User Management
+  let dashboardUsers = [];
+
+  function fetchDashboardUsers() {
+    fetch('/api/dashboard/users', { credentials: 'include' })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(data => {
+        dashboardUsers = data.users || [];
+        updateUserStats();
+        renderDashboardUserList();
+      })
+      .catch(err => {
+        console.error('Failed to fetch users:', err);
+      });
+  }
+
+  function updateUserStats() {
+    const counts = { approved: 0, pending: 0, rejected: 0 };
+    for (const u of dashboardUsers) {
+      if (counts[u.status] !== undefined) counts[u.status]++;
+    }
+    if (elements.usersApproved) elements.usersApproved.textContent = counts.approved;
+    if (elements.usersPending) elements.usersPending.textContent = counts.pending;
+    if (elements.usersRejected) elements.usersRejected.textContent = counts.rejected;
+  }
+
+  function renderDashboardUserList() {
+    if (!elements.dashboardUserList) return;
+
+    const searchTerm = (elements.usersSearch ? elements.usersSearch.value : '').toLowerCase();
+    const filterStatus = elements.usersFilter ? elements.usersFilter.value : 'all';
+
+    let filtered = dashboardUsers;
+    if (filterStatus !== 'all') {
+      filtered = filtered.filter(u => u.status === filterStatus);
+    }
+    if (searchTerm) {
+      filtered = filtered.filter(u =>
+        (u.username || '').toLowerCase().includes(searchTerm) ||
+        (u.email || '').toLowerCase().includes(searchTerm) ||
+        (u.user_id || '').toLowerCase().includes(searchTerm)
+      );
+    }
+
+    if (filtered.length === 0) {
+      elements.dashboardUserList.innerHTML = '<li class="dashboard-empty">No users found</li>';
+      return;
+    }
+
+    elements.dashboardUserList.innerHTML = filtered.map(user => {
+      const date = new Date(parseInt(user.created_at)).toLocaleDateString();
+      const statusClass = 'status-' + user.status;
+      const showApprove = user.status !== 'approved';
+      const showReject = user.status !== 'rejected';
+      return `
+        <li class="dashboard-user-item" data-user-id="${escapeHtml(user.id)}">
+          <div class="dashboard-user-avatar">${user.emoji || '\uD83C\uDFB5'}</div>
+          <div class="dashboard-user-info">
+            <div class="dashboard-user-name">${escapeHtml(user.username)}</div>
+            <div class="dashboard-user-meta">${escapeHtml(user.user_id)} &middot; ${user.provider || 'local'} &middot; ${date}</div>
+          </div>
+          <span class="dashboard-user-status ${statusClass}">${user.status}</span>
+          <div class="dashboard-user-actions">
+            ${showApprove ? `<button class="btn btn-small btn-approve" onclick="window.dashboardApproveUser('${escapeHtml(user.id)}')">Approve</button>` : ''}
+            ${showReject ? `<button class="btn btn-small btn-reject" onclick="window.dashboardRejectUser('${escapeHtml(user.id)}')">Reject</button>` : ''}
+          </div>
+        </li>
+      `;
+    }).join('');
+  }
+
+  window.dashboardApproveUser = function(userId) {
+    fetch(`/api/dashboard/users/${encodeURIComponent(userId)}/approve`, {
+      method: 'PUT',
+      credentials: 'include'
+    })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(() => {
+        fetchDashboardUsers();
+      })
+      .catch(err => {
+        console.error('Failed to approve user:', err);
+        showToast('Failed to approve user', 'error');
+      });
+  };
+
+  window.dashboardRejectUser = function(userId) {
+    fetch(`/api/dashboard/users/${encodeURIComponent(userId)}/reject`, {
+      method: 'PUT',
+      credentials: 'include'
+    })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(() => {
+        fetchDashboardUsers();
+      })
+      .catch(err => {
+        console.error('Failed to reject user:', err);
+        showToast('Failed to reject user', 'error');
+      });
+  };
 
   function fetchCachedSongs() {
     fetch('/api/dashboard/cache/songs', { credentials: 'include' })
@@ -1340,6 +1525,9 @@
     if (elements.dashboardView) {
       elements.dashboardView.classList.remove('active');
     }
+    if (elements.pendingView) {
+      elements.pendingView.classList.remove('active');
+    }
 
     // Stop dashboard polling when leaving
     if (dashboardInterval) {
@@ -1387,6 +1575,12 @@
         fetchDashboardStats();
         fetchCacheStats();
       }, 2000);
+      // User management
+      fetchDashboardUsers();
+      if (elements.usersSearch) elements.usersSearch.addEventListener('input', renderDashboardUserList);
+      if (elements.usersFilter) elements.usersFilter.addEventListener('change', renderDashboardUserList);
+    } else if (viewName === 'pending' && elements.pendingView) {
+      elements.pendingView.classList.add('active');
     }
   }
 
@@ -1397,11 +1591,11 @@
     const selectedMode = document.querySelector('input[name="listeningMode"]:checked');
     const listeningMode = selectedMode ? selectedMode.value : 'synchronized';
     const name = elements.lobbyNameInput ? elements.lobbyNameInput.value.trim() : '';
-    socket.emit('lobby:create', { username: state.username, emoji: state.emoji, listeningMode, name: name || undefined });
+    socket.emit('lobby:create', { username: state.username, emoji: state.emoji, listeningMode, name: name || undefined, userId: state.userId });
   }
 
   function joinLobby(lobbyId) {
-    socket.emit('lobby:join', { lobbyId, username: state.username, emoji: state.emoji });
+    socket.emit('lobby:join', { lobbyId, username: state.username, emoji: state.emoji, userId: state.userId });
   }
 
   function leaveLobby() {

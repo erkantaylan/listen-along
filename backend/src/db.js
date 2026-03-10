@@ -141,18 +141,10 @@ async function createTables() {
       email VARCHAR(255),
       name VARCHAR(255),
       avatar_url TEXT,
+      status VARCHAR(20) DEFAULT 'pending',
       created_at BIGINT NOT NULL,
       last_login BIGINT NOT NULL,
       UNIQUE(provider, provider_id)
-    )
-  `;
-
-  const createSessionTable = `
-    CREATE TABLE IF NOT EXISTS "session" (
-      "sid" VARCHAR NOT NULL COLLATE "default",
-      "sess" JSON NOT NULL,
-      "expire" TIMESTAMP(6) NOT NULL,
-      CONSTRAINT "session_pkey" PRIMARY KEY ("sid")
     )
   `;
 
@@ -165,7 +157,7 @@ async function createTables() {
     CREATE INDEX IF NOT EXISTS idx_playlist_songs_playlist ON playlist_songs(playlist_id, sort_order);
     CREATE INDEX IF NOT EXISTS idx_chat_messages_lobby ON chat_messages(lobby_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_users_provider ON users(provider, provider_id);
-    CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");
+    CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
   `;
 
   await pool.query(createLobbiesTable);
@@ -176,7 +168,6 @@ async function createTables() {
   await pool.query(createPlaylistSongsTable);
   await pool.query(createChatMessagesTable);
   await pool.query(createUsersTable);
-  await pool.query(createSessionTable);
   await pool.query(createIndexes);
 
   // Migrations for existing databases

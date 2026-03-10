@@ -96,7 +96,7 @@ const server = http.createServer(app);
 // CORS configuration
 const corsOptions = {
   origin: FRONTEND_URL,
-  methods: ['GET', 'POST'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
   credentials: true
 };
 
@@ -199,6 +199,82 @@ app.get('/api/version', (req, res) => {
     version: process.env.VERSION || pkg.version,
     name: pkg.name
   });
+});
+
+// User registration / status check
+app.post('/api/auth/register', async (req, res) => {
+  if (!db.isAvailable()) {
+    // No database — skip approval, everyone is approved
+    return res.json({ status: 'approved' });
+  }
+
+  const { userId, username, emoji } = req.body;
+  if (!userId || !username) {
+    return res.status(400).json({ error: 'userId and username are required' });
+  }
+
+  try {
+    // Check if user already exists
+    const existing = await db.query(
+      'SELECT id, user_id, username, emoji, status, created_at FROM users WHERE user_id = $1',
+      [userId]
+    );
+
+    if (existing.rows.length > 0) {
+      const user = existing.rows[0];
+      // Update username/emoji if changed
+      if (user.username !== username || user.emoji !== (emoji || null)) {
+        await db.query(
+          'UPDATE users SET username = $1, emoji = $2, updated_at = $3 WHERE user_id = $4',
+          [username, emoji || null, Date.now(), userId]
+        );
+      }
+      return res.json({ status: user.status, userId: user.user_id });
+    }
+
+    // New user — check if this is the first user (auto-approve)
+    const countResult = await db.query('SELECT COUNT(*) as count FROM users');
+    const isFirst = parseInt(countResult.rows[0].count) === 0;
+    const status = isFirst ? 'approved' : 'pending';
+
+    const now = Date.now();
+    await db.query(
+      `INSERT INTO users (user_id, username, emoji, provider, status, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [userId, username, emoji || null, 'local', status, now, now]
+    );
+
+    return res.json({ status, userId });
+  } catch (err) {
+    console.error('User registration error:', err.message);
+    res.status(500).json({ error: 'Registration failed' });
+  }
+});
+
+// Check user approval status
+app.get('/api/auth/status', async (req, res) => {
+  if (!db.isAvailable()) {
+    return res.json({ status: 'approved' });
+  }
+
+  const userId = req.query.userId;
+  if (!userId) {
+    return res.status(400).json({ error: 'userId is required' });
+  }
+
+  try {
+    const result = await db.query(
+      'SELECT status FROM users WHERE user_id = $1',
+      [userId]
+    );
+    if (result.rows.length === 0) {
+      return res.json({ status: 'unregistered' });
+    }
+    res.json({ status: result.rows[0].status });
+  } catch (err) {
+    console.error('Auth status error:', err.message);
+    res.status(500).json({ error: 'Failed to check status' });
+  }
 });
 
 // Generate QR code for a lobby invite link
@@ -767,6 +843,57 @@ app.delete('/api/dashboard/cache/orphaned', dashboardAuth, async (req, res) => {
   }
 });
 
+// List all registered users (dashboard only)
+app.get('/api/dashboard/users', dashboardAuth, async (req, res) => {
+  if (!db.isAvailable()) {
+    return res.json({ users: [] });
+  }
+
+  try {
+    const result = await db.query(
+      'SELECT id, user_id, username, emoji, email, avatar_url, provider, status, created_at, updated_at FROM users ORDER BY created_at DESC'
+    );
+    res.json({ users: result.rows });
+  } catch (err) {
+    console.error('List users error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+// Approve a user (dashboard only)
+app.put('/api/dashboard/users/:id/approve', dashboardAuth, async (req, res) => {
+  try {
+    const result = await db.query(
+      'UPDATE users SET status = $1, updated_at = $2 WHERE id = $3 RETURNING user_id, username, status',
+      ['approved', Date.now(), req.params.id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json({ success: true, user: result.rows[0] });
+  } catch (err) {
+    console.error('Approve user error:', err.message);
+    res.status(500).json({ error: 'Failed to approve user' });
+  }
+});
+
+// Reject a user (dashboard only)
+app.put('/api/dashboard/users/:id/reject', dashboardAuth, async (req, res) => {
+  try {
+    const result = await db.query(
+      'UPDATE users SET status = $1, updated_at = $2 WHERE id = $3 RETURNING user_id, username, status',
+      ['rejected', Date.now(), req.params.id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json({ success: true, user: result.rows[0] });
+  } catch (err) {
+    console.error('Reject user error:', err.message);
+    res.status(500).json({ error: 'Failed to reject user' });
+  }
+});
+
 // Delete a lobby (dashboard only)
 app.delete('/api/dashboard/lobbies/:id', dashboardAuth, (req, res) => {
   const lobbyId = req.params.id;
@@ -861,8 +988,26 @@ io.on('connection', (socket) => {
     return socket.rooms.has(lobbyId);
   };
 
+  // Check user approval status (returns true if approved or DB unavailable)
+  const checkUserApproved = async (userId) => {
+    if (!db.isAvailable() || !userId) return true;
+    try {
+      const result = await db.query('SELECT status FROM users WHERE user_id = $1', [userId]);
+      if (result.rows.length === 0) return true; // Unregistered users pass through (frontend handles registration)
+      return result.rows[0].status === 'approved';
+    } catch {
+      return true; // On DB error, allow access
+    }
+  };
+
   // Create a new lobby
-  socket.on('lobby:create', async ({ username, emoji, listeningMode, name, lobbyId: requestedId }) => {
+  socket.on('lobby:create', async ({ username, emoji, listeningMode, name, lobbyId: requestedId, userId }) => {
+    // Check user approval
+    if (!(await checkUserApproved(userId))) {
+      socket.emit('lobby:error', { message: 'Your account is pending approval' });
+      return;
+    }
+
     // Validate name uniqueness if provided
     if (name && name.trim()) {
       const trimmedName = name.trim();
@@ -906,7 +1051,13 @@ io.on('connection', (socket) => {
   });
 
   // Handle joining a lobby room (integrates with lobby system)
-  socket.on('lobby:join', async ({ lobbyId, username, emoji }) => {
+  socket.on('lobby:join', async ({ lobbyId, username, emoji, userId }) => {
+    // Check user approval
+    if (!(await checkUserApproved(userId))) {
+      socket.emit('lobby:error', { message: 'Your account is pending approval' });
+      return;
+    }
+
     // Check if lobby exists; if not, ask user to select room type
     let lobbyData = await lobby.getLobbyAsync(lobbyId);
     if (!lobbyData) {
