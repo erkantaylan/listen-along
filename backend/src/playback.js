@@ -35,6 +35,7 @@ function initLobby(lobbyId) {
     shuffleEnabled: false,   // Shuffle mode toggle
     shuffledIndices: [],     // Shuffled playback order (indices into queue)
     shuffleIndex: 0,         // Current position in shuffled order
+    shuffleHistory: [],      // Stack of previously-played track IDs for back navigation
     repeatMode: 'off',       // 'off', 'all', 'one'
   };
 
@@ -55,7 +56,7 @@ async function initLobbyFromDB(lobbyId) {
   if (db.isAvailable()) {
     try {
       const result = await db.query(
-        'SELECT current_track, position, is_playing, shuffle_enabled, shuffled_indices, shuffle_index, repeat_mode FROM playback_state WHERE lobby_id = $1',
+        'SELECT current_track, position, is_playing, shuffle_enabled, shuffled_indices, shuffle_index, shuffle_history, repeat_mode FROM playback_state WHERE lobby_id = $1',
         [lobbyId]
       );
 
@@ -69,6 +70,7 @@ async function initLobbyFromDB(lobbyId) {
         state.shuffleEnabled = row.shuffle_enabled || false;
         state.shuffledIndices = row.shuffled_indices || [];
         state.shuffleIndex = row.shuffle_index || 0;
+        state.shuffleHistory = row.shuffle_history || [];
         state.repeatMode = row.repeat_mode || 'off';
       }
     } catch (err) {
@@ -90,8 +92,8 @@ async function persistState(lobbyId) {
 
   try {
     await db.query(
-      `INSERT INTO playback_state (lobby_id, current_track, position, is_playing, shuffle_enabled, shuffled_indices, shuffle_index, repeat_mode)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO playback_state (lobby_id, current_track, position, is_playing, shuffle_enabled, shuffled_indices, shuffle_index, shuffle_history, repeat_mode)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        ON CONFLICT (lobby_id) DO UPDATE SET
          current_track = $2,
          position = $3,
@@ -99,7 +101,8 @@ async function persistState(lobbyId) {
          shuffle_enabled = $5,
          shuffled_indices = $6,
          shuffle_index = $7,
-         repeat_mode = $8`,
+         shuffle_history = $8,
+         repeat_mode = $9`,
       [
         lobbyId,
         state.currentTrack ? JSON.stringify(state.currentTrack) : null,
@@ -108,6 +111,7 @@ async function persistState(lobbyId) {
         state.shuffleEnabled,
         JSON.stringify(state.shuffledIndices),
         state.shuffleIndex,
+        JSON.stringify(state.shuffleHistory),
         state.repeatMode
       ]
     );
@@ -440,6 +444,7 @@ function toggleShuffle(lobbyId, enabled, queueLength, io) {
   if (!state) return null;
 
   state.shuffleEnabled = enabled;
+  state.shuffleHistory = [];
 
   if (enabled && queueLength > 0) {
     // Generate shuffled indices (0 to queueLength-1)
@@ -474,12 +479,18 @@ function getShuffleState(lobbyId) {
 
 /**
  * Get next song index when shuffle is enabled
- * Returns the queue index of the next song to play
+ * Returns the queue index of the next song to play.
+ * Pushes the current track onto shuffle history for back-navigation.
  */
-function getNextShuffleIndex(lobbyId, queueLength) {
+function getNextShuffleIndex(lobbyId, queueLength, currentTrackId) {
   const state = getState(lobbyId);
   if (!state || !state.shuffleEnabled || queueLength === 0) {
     return null;
+  }
+
+  // Record current track in history so "previous" can return to it
+  if (currentTrackId) {
+    state.shuffleHistory.push(currentTrackId);
   }
 
   // Move to next position in shuffle order
@@ -495,6 +506,25 @@ function getNextShuffleIndex(lobbyId, queueLength) {
   persistState(lobbyId);
 
   return state.shuffledIndices[state.shuffleIndex];
+}
+
+/**
+ * Get previous song ID from shuffle history.
+ * Pops from the history stack so repeated back-presses walk further back.
+ * Returns the track ID of the previously-played song, or null if no history.
+ */
+function getPreviousShuffleTrackId(lobbyId) {
+  const state = getState(lobbyId);
+  if (!state || !state.shuffleEnabled || state.shuffleHistory.length === 0) {
+    return null;
+  }
+
+  const previousTrackId = state.shuffleHistory.pop();
+
+  // Persist state
+  persistState(lobbyId);
+
+  return previousTrackId;
 }
 
 /**
@@ -606,6 +636,7 @@ module.exports = {
   toggleShuffle,
   getShuffleState,
   getNextShuffleIndex,
+  getPreviousShuffleTrackId,
   updateShuffleForQueueChange,
   stopSyncTimer,
   // Exported for testing
