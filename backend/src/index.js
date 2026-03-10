@@ -1189,6 +1189,7 @@ io.on('connection', (socket) => {
 
     // If this is the first song and nothing is playing, start playback
     if (queue.getSongs().length === 1) {
+      queue.setCurrentIndex(0);
       playback.setTrack(lobbyId, song, true, io);
     }
   });
