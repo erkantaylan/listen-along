@@ -778,7 +778,9 @@ async function upsertOAuthUser(provider, profile) {
        ON CONFLICT (provider, provider_id) DO NOTHING`,
       [existing.rows[0].id, provider, profile.id, profile.email, profile.name, profile.avatar, now]
     );
-    return existing.rows[0];
+    // Re-fetch to return updated data
+    const updated = await db.query('SELECT * FROM users WHERE id = $1', [existing.rows[0].id]);
+    return updated.rows[0] || null;
   }
 
   // Check if another user exists with the same email — link accounts
@@ -800,7 +802,9 @@ async function upsertOAuthUser(provider, profile) {
         'UPDATE users SET updated_at = $1 WHERE id = $2',
         [now, existingUser.id]
       );
-      return existingUser;
+      // Re-fetch to return updated data
+      const refreshed = await db.query('SELECT * FROM users WHERE id = $1', [existingUser.id]);
+      return refreshed.rows[0] || null;
     }
   }
 

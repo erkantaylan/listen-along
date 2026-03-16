@@ -231,14 +231,14 @@ async function createTables() {
   // Migrate existing users' provider data into user_providers junction table
   await pool.query(`
     INSERT INTO user_providers (user_id, provider, provider_id, email, name, avatar_url, linked_at)
-    SELECT id, provider, provider_id, email, name, avatar_url, COALESCE(created_at, ${Date.now()})
+    SELECT id, provider, provider_id, email, name, avatar_url, COALESCE(created_at, $1)
     FROM users
     WHERE provider IS NOT NULL AND provider != 'local'
       AND provider_id IS NOT NULL
       AND NOT EXISTS (
         SELECT 1 FROM user_providers up WHERE up.user_id = users.id AND up.provider = users.provider
       )
-  `).catch(() => {});
+  `, [Date.now()]).catch(() => {});
 
   console.log('Database tables initialized');
 }
