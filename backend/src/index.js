@@ -121,6 +121,30 @@ function verifyAuthToken(token) {
   }
 }
 
+// OAuth CSRF state helpers — signed token instead of raw userId
+function createOAuthState(userId) {
+  const payload = Buffer.from(JSON.stringify({ id: userId, t: Date.now() })).toString('base64url');
+  const sig = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
+  return `${payload}.${sig}`;
+}
+
+function verifyOAuthState(state) {
+  if (!state || !state.includes('.')) return null;
+  const [payload, sig] = state.split('.');
+  const expected = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
+  if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+    return null;
+  }
+  try {
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString());
+    // Expire after 10 minutes
+    if (!data.id || !data.t || Date.now() - data.t > 10 * 60 * 1000) return null;
+    return data.id;
+  } catch {
+    return null;
+  }
+}
+
 const app = express();
 const server = http.createServer(app);
 
@@ -195,7 +219,7 @@ const io = new Server(server, {
 // Auth guard - protect all routes except public ones
 app.use((req, res, next) => {
   // Public paths that don't require authentication
-  const publicPaths = ['/health', '/auth/', '/login', '/changelog', '/api/auth/', '/api/version', '/api/changelog', '/api/profile'];
+  const publicPaths = ['/health', '/auth/', '/login', '/changelog', '/api/auth/', '/api/version', '/api/changelog'];
   const isPublic = publicPaths.some(p => req.path === p || req.path.startsWith(p));
   if (isPublic) return next();
 
@@ -1171,14 +1195,16 @@ app.get('/auth/google/link', (req, res) => {
     scope: 'openid email profile',
     access_type: 'offline',
     prompt: 'select_account',
-    state: userId
+    state: createOAuthState(userId)
   });
   res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
 });
 
 app.get('/auth/google/link/callback', async (req, res) => {
-  const { code, state: userId } = req.query;
-  if (!code || !userId) return res.redirect('/?error=link_failed');
+  const { code, state } = req.query;
+  if (!code || !state) return res.redirect('/?error=link_failed');
+  const userId = verifyOAuthState(state);
+  if (!userId) return res.redirect('/?error=link_failed');
   // Verify the user making the request is the one who started the link
   const authUserId = getAuthUserId(req);
   if (!authUserId || authUserId !== userId) return res.redirect('/?error=link_failed');
@@ -1220,14 +1246,16 @@ app.get('/auth/github/link', (req, res) => {
     client_id: GITHUB_CLIENT_ID,
     redirect_uri: `${BASE_URL}/auth/github/link/callback`,
     scope: 'read:user user:email',
-    state: userId
+    state: createOAuthState(userId)
   });
   res.redirect(`https://github.com/login/oauth/authorize?${params}`);
 });
 
 app.get('/auth/github/link/callback', async (req, res) => {
-  const { code, state: userId } = req.query;
-  if (!code || !userId) return res.redirect('/?error=link_failed');
+  const { code, state } = req.query;
+  if (!code || !state) return res.redirect('/?error=link_failed');
+  const userId = verifyOAuthState(state);
+  if (!userId) return res.redirect('/?error=link_failed');
   const authUserId = getAuthUserId(req);
   if (!authUserId || authUserId !== userId) return res.redirect('/?error=link_failed');
   try {
