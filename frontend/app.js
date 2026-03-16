@@ -492,8 +492,8 @@
       showPendingCard();
       const pendingTitle = document.querySelector('.pending-title');
       const pendingMsg = document.querySelector('.pending-message');
-      if (pendingTitle) pendingTitle.textContent = 'Access denied';
-      if (pendingMsg) pendingMsg.textContent = 'Your account request was denied by an administrator.';
+      if (pendingTitle) pendingTitle.textContent = 'Access unavailable';
+      if (pendingMsg) pendingMsg.textContent = 'This is a private application. If you believe you should have access, contact the administrator directly.';
       showView('login');
       return;
     }

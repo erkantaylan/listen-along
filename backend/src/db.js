@@ -136,15 +136,18 @@ async function createTables() {
   const createUsersTable = `
     CREATE TABLE IF NOT EXISTS users (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      provider VARCHAR(20) NOT NULL,
-      provider_id VARCHAR(255) NOT NULL,
+      user_id VARCHAR(255),
+      username VARCHAR(255),
+      emoji VARCHAR(10),
+      provider VARCHAR(20) NOT NULL DEFAULT 'local',
+      provider_id VARCHAR(255),
       email VARCHAR(255),
       name VARCHAR(255),
       avatar_url TEXT,
-      status VARCHAR(20) DEFAULT 'pending',
+      status VARCHAR(20) DEFAULT 'approved',
       created_at BIGINT NOT NULL,
-      last_login BIGINT NOT NULL,
-      UNIQUE(provider, provider_id)
+      updated_at BIGINT,
+      UNIQUE NULLS NOT DISTINCT(provider, provider_id)
     )
   `;
 
@@ -194,6 +197,14 @@ async function createTables() {
   await pool.query(`
     ALTER TABLE playback_state ADD COLUMN IF NOT EXISTS shuffle_history JSONB DEFAULT '[]'
   `).catch(() => {}); // Ignore if column already exists
+
+  // Users table migrations (OAuth support)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS user_id VARCHAR(255)`).catch(() => {});
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(255)`).catch(() => {});
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS emoji VARCHAR(10)`).catch(() => {});
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at BIGINT`).catch(() => {});
+  await pool.query(`ALTER TABLE users ALTER COLUMN provider SET DEFAULT 'local'`).catch(() => {});
+  await pool.query(`ALTER TABLE users ALTER COLUMN status SET DEFAULT 'approved'`).catch(() => {});
 
   console.log('Database tables initialized');
 }
