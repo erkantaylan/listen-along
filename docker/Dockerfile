@@ -10,6 +10,7 @@ RUN npm install --production
 
 COPY backend/ ./
 COPY frontend/ ./frontend/
+COPY CHANGELOG.md ./CHANGELOG.md
 
 EXPOSE 3000
 

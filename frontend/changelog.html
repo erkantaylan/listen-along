@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#1db954">
+  <title>Changelog - listen-along</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #121212;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .container {
+      max-width: 640px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem;
+      width: 100%;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    .header a {
+      color: #1db954;
+      text-decoration: none;
+      font-size: 0.9rem;
+    }
+    .header a:hover { text-decoration: underline; }
+    h1 { font-size: 1.5rem; color: #fff; }
+    h2 {
+      font-size: 1.1rem;
+      color: #1db954;
+      margin: 1.5rem 0 0.75rem;
+      padding-bottom: 0.25rem;
+      border-bottom: 1px solid #333;
+    }
+    h2:first-of-type { margin-top: 0; }
+    ul { list-style: none; padding: 0; }
+    li {
+      padding: 0.35rem 0;
+      padding-left: 1rem;
+      position: relative;
+      font-size: 0.9rem;
+      line-height: 1.5;
+      color: #ccc;
+    }
+    li::before {
+      content: "\2022";
+      position: absolute;
+      left: 0;
+      color: #666;
+    }
+    .tag-feat { color: #1db954; }
+    .tag-fix { color: #e8a838; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <a href="/">&larr; Back</a>
+      <h1>Changelog</h1>
+    </div>
+    <div id="changelog-content">Loading...</div>
+  </div>
+  <script>
+    fetch('/api/changelog')
+      .then(r => r.json())
+      .then(data => {
+        const el = document.getElementById('changelog-content');
+        if (!data.changelog) { el.textContent = 'No changelog available.'; return; }
+        // Simple markdown-to-html for changelog format
+        let html = '';
+        for (const line of data.changelog.split('\n')) {
+          if (line.startsWith('## ')) {
+            html += `<h2>${line.slice(3)}</h2><ul>`;
+          } else if (line.startsWith('- ')) {
+            let text = line.slice(2);
+            if (text.startsWith('feat:')) text = `<span class="tag-feat">feat:</span>${text.slice(5)}`;
+            else if (text.startsWith('fix:')) text = `<span class="tag-fix">fix:</span>${text.slice(4)}`;
+            html += `<li>${text}</li>`;
+          }
+        }
+        html += '</ul>';
+        el.innerHTML = html;
+      })
+      .catch(() => {
+        document.getElementById('changelog-content').textContent = 'Failed to load changelog.';
+      });
+  </script>
+</body>
+</html>

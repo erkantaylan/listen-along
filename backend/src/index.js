@@ -196,7 +196,7 @@ const io = new Server(server, {
 // Auth guard - protect all routes except public ones
 app.use((req, res, next) => {
   // Public paths that don't require authentication
-  const publicPaths = ['/health', '/auth/', '/login', '/api/auth/user', '/api/version'];
+  const publicPaths = ['/health', '/auth/', '/login', '/changelog', '/api/auth/user', '/api/version', '/api/changelog'];
   const isPublic = publicPaths.some(p => req.path === p || req.path.startsWith(p));
   if (isPublic) return next();
 
@@ -230,6 +230,26 @@ app.get('/api/version', (req, res) => {
     version: process.env.VERSION || pkg.version,
     name: pkg.name
   });
+});
+
+// Changelog endpoint - serves CHANGELOG.md as JSON
+app.get('/api/changelog', (req, res) => {
+  // In Docker: /app/CHANGELOG.md, locally: ../../CHANGELOG.md from backend/src/
+  const changelogPath = [
+    path.join(__dirname, '..', 'CHANGELOG.md'),
+    path.join(__dirname, '..', '..', 'CHANGELOG.md')
+  ].find(p => fs.existsSync(p));
+  try {
+    const content = fs.readFileSync(changelogPath, 'utf8');
+    res.json({ changelog: content });
+  } catch {
+    res.status(404).json({ error: 'Changelog not found' });
+  }
+});
+
+// Changelog page
+app.get('/changelog', (req, res) => {
+  res.sendFile(path.join(frontendPath, 'changelog.html'));
 });
 
 // User registration / status check
