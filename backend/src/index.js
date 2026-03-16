@@ -195,7 +195,7 @@ const io = new Server(server, {
 // Auth guard - protect all routes except public ones
 app.use((req, res, next) => {
   // Public paths that don't require authentication
-  const publicPaths = ['/health', '/auth/', '/login', '/changelog', '/api/auth/user', '/api/version', '/api/changelog'];
+  const publicPaths = ['/health', '/auth/', '/login', '/changelog', '/api/auth/', '/api/version', '/api/changelog'];
   const isPublic = publicPaths.some(p => req.path === p || req.path.startsWith(p));
   if (isPublic) return next();
 
