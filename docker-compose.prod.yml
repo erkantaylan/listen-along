@@ -19,6 +19,8 @@ services:
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
       - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
       - SESSION_SECRET=${SESSION_SECRET:-}
+      - FRONTEND_URL=${FRONTEND_URL:-}
+      - BASE_URL=${BASE_URL:-}
     depends_on:
       postgres:
         condition: service_healthy
