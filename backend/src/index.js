@@ -135,7 +135,6 @@ app.use(cors(corsOptions));
 app.use(express.json());
 
 // Session configuration
-const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 if (!process.env.SESSION_SECRET) {
   console.log('Warning: SESSION_SECRET not set, using random secret (sessions will not persist across restarts)');
 }
