@@ -57,6 +57,14 @@ html, body {
   flex-direction: column;
 }
 
+/* Lobby view must be exactly viewport height so player stays pinned at bottom */
+#lobby-view.active {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
 /* Landing View */
 .landing-content {
   flex: 1;
@@ -340,8 +348,7 @@ html, body {
   padding: 0.5rem;
   padding-top: calc(0.5rem + var(--safe-area-top));
   background: var(--bg-elevated);
-  position: sticky;
-  top: 0;
+  flex-shrink: 0;
   z-index: 100;
 }
 
@@ -705,22 +712,23 @@ html, body {
   display: none;
   flex: 1;
   flex-direction: column;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+  overflow: hidden;
+  min-height: 0;
 }
 
 .tab-panel.active {
   display: flex;
 }
 
-/* Add Song Input */
+/* Add Song Input — pinned at bottom of queue tab */
 .add-song {
   display: flex;
   gap: 0.5rem;
   padding: 1rem;
   background: var(--bg-elevated);
-  position: sticky;
-  top: 0;
+  flex-shrink: 0;
+  order: 2;
+  border-top: 1px solid var(--bg-surface);
 }
 
 .add-song input {
@@ -762,6 +770,8 @@ html, body {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
+  flex-shrink: 0;
+  order: 0;
 }
 
 .queue-sort-select {
@@ -802,10 +812,14 @@ html, body {
   color: var(--text-primary);
 }
 
-/* Queue List */
+/* Queue List — scrollable area between filter and input */
 .queue-list {
   list-style: none;
   padding: 0.5rem 0;
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  order: 1;
 }
 
 .queue-item {
@@ -1147,6 +1161,7 @@ html, body {
   padding: 0.75rem 1rem;
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--bg-surface);
+  flex-shrink: 0;
 }
 
 .profile-editor-row {
@@ -1247,6 +1262,7 @@ html, body {
   height: 28px;
   display: flex;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .chat-ticker-content {
@@ -1486,6 +1502,7 @@ html, body {
   padding: 0.75rem 1rem;
   background: var(--bg-elevated);
   border-top: 1px solid var(--bg-surface);
+  flex-shrink: 0;
 }
 
 .chat-input-bar input {
@@ -1545,6 +1562,7 @@ html, body {
   background: color-mix(in srgb, var(--primary) 10%, var(--bg-elevated));
   border-top: 1px solid var(--bg-surface);
   font-size: 0.8125rem;
+  flex-shrink: 0;
 }
 
 .chat-song-preview-info {
