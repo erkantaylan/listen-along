@@ -752,16 +752,8 @@ async function upsertOAuthUser(provider, profile) {
     );
     return existing.rows[0];
   }
-  // Determine status: auto-approve if AUTO_APPROVE or if this is the first user
-  let status = 'pending';
-  if (AUTO_APPROVE) {
-    status = 'approved';
-  } else {
-    const countResult = await db.query('SELECT COUNT(*) as cnt FROM users');
-    if (parseInt(countResult.rows[0].cnt) === 0) {
-      status = 'approved'; // First user is auto-approved
-    }
-  }
+  // Auto-approve all new users by default; revoke access later if needed
+  const status = 'approved';
   const result = await db.query(
     `INSERT INTO users (provider, provider_id, email, name, avatar_url, status, created_at, updated_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $7) RETURNING *`,
