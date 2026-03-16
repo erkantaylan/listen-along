@@ -1478,17 +1478,17 @@
 
     let songs = [...cachedSongsData];
 
-    // Update unused count
-    const unusedCount = cachedSongsData.filter(s => !s.playlist_count).length;
+    // Update unused count (song is unused if not in any playlist or queue)
+    const unusedCount = cachedSongsData.filter(s => !s.playlist_count && !s.queue_count).length;
     if (elements.cacheUnused) elements.cacheUnused.textContent = unusedCount;
 
     // Apply usage filter
     const filterEl = document.getElementById('cache-filter');
     const filterBy = filterEl ? filterEl.value : 'all';
     if (filterBy === 'unused') {
-      songs = songs.filter(s => !s.playlist_count);
+      songs = songs.filter(s => !s.playlist_count && !s.queue_count);
     } else if (filterBy === 'used') {
-      songs = songs.filter(s => s.playlist_count > 0);
+      songs = songs.filter(s => s.playlist_count > 0 || s.queue_count > 0);
     }
 
     // Apply search filter
@@ -1523,16 +1523,23 @@
       const duration = formatDuration(song.duration);
       const fileSize = formatFileSize(song.file_size);
       const statusClass = song.status;
-      const isUnused = !song.playlist_count;
+      const isUnused = !song.playlist_count && !song.queue_count;
+      let usageLabel = '';
+      if (!isUnused) {
+        const parts = [];
+        if (song.playlist_count) parts.push(`${song.playlist_count} list${song.playlist_count > 1 ? 's' : ''}`);
+        if (song.queue_count) parts.push(`${song.queue_count} queue${song.queue_count > 1 ? 's' : ''}`);
+        usageLabel = parts.join(', ');
+      }
       const usageBadge = isUnused
         ? '<span class="cache-song-status unused">unused</span>'
-        : `<span class="cache-song-status used">in ${song.playlist_count} list${song.playlist_count > 1 ? 's' : ''}</span>`;
+        : `<span class="cache-song-status used">in ${usageLabel}</span>`;
       const thumbnail = song.thumbnail_url
         ? `<img class="cache-song-thumb" src="${escapeHtml(song.thumbnail_url)}" alt="">`
         : `<div class="cache-song-thumb-placeholder"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div>`;
 
       return `
-        <li class="cache-song-item${isUnused ? ' cache-song-unused' : ''}">
+        <li class="cache-song-item${isUnused ? ' cache-song-unused' : ''}" data-song-id="${escapeHtml(song.id)}">
           ${thumbnail}
           <div class="cache-song-info">
             <div class="cache-song-title">${escapeHtml(song.title || 'Unknown')}</div>
@@ -1606,7 +1613,7 @@
   }
 
   function cleanOrphanedSongs() {
-    const unusedCount = cachedSongsData.filter(s => !s.playlist_count).length;
+    const unusedCount = cachedSongsData.filter(s => !s.playlist_count && !s.queue_count).length;
     if (!confirm(`Remove ${unusedCount} song${unusedCount !== 1 ? 's' : ''} not used in any playlist or queue?`)) return;
 
     fetch('/api/dashboard/cache/orphaned', { method: 'DELETE', credentials: 'include' })

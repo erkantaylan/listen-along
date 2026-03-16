@@ -347,10 +347,9 @@ async function getAllSongs() {
     const result = await db.query(`
       SELECT s.id, s.url, s.title, s.duration, s.file_path, s.thumbnail_url,
              s.status, s.error_message, s.created_at, s.updated_at,
-             COUNT(DISTINCT ps.playlist_id)::int AS playlist_count
+             (SELECT COUNT(DISTINCT ps.playlist_id) FROM playlist_songs ps WHERE ps.url = s.url)::int AS playlist_count,
+             (SELECT COUNT(DISTINCT qs.lobby_id) FROM queue_songs qs WHERE qs.url = s.url)::int AS queue_count
       FROM songs s
-      LEFT JOIN playlist_songs ps ON ps.url = s.url
-      GROUP BY s.id
       ORDER BY s.updated_at DESC
     `);
     // Attach file size for each song that has a file on disk
