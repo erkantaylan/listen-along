@@ -205,6 +205,8 @@ async function createTables() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at BIGINT`).catch(() => {});
   await pool.query(`ALTER TABLE users ALTER COLUMN provider SET DEFAULT 'local'`).catch(() => {});
   await pool.query(`ALTER TABLE users ALTER COLUMN status SET DEFAULT 'approved'`).catch(() => {});
+  // Drop old last_login NOT NULL constraint (replaced by updated_at)
+  await pool.query(`ALTER TABLE users ALTER COLUMN last_login DROP NOT NULL`).catch(() => {});
 
   console.log('Database tables initialized');
 }
