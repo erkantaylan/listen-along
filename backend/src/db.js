@@ -151,6 +151,20 @@ async function createTables() {
     )
   `;
 
+  const createUserProvidersTable = `
+    CREATE TABLE IF NOT EXISTS user_providers (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      provider VARCHAR(20) NOT NULL,
+      provider_id VARCHAR(255) NOT NULL,
+      email VARCHAR(255),
+      name VARCHAR(255),
+      avatar_url TEXT,
+      linked_at BIGINT NOT NULL,
+      UNIQUE(provider, provider_id)
+    )
+  `;
+
   const createIndexes = `
     CREATE INDEX IF NOT EXISTS idx_queue_songs_lobby ON queue_songs(lobby_id, sort_order);
     CREATE INDEX IF NOT EXISTS idx_lobbies_last_activity ON lobbies(last_activity);
@@ -161,6 +175,8 @@ async function createTables() {
     CREATE INDEX IF NOT EXISTS idx_chat_messages_lobby ON chat_messages(lobby_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_users_provider ON users(provider, provider_id);
     CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
+    CREATE INDEX IF NOT EXISTS idx_user_providers_user ON user_providers(user_id);
+    CREATE INDEX IF NOT EXISTS idx_user_providers_provider ON user_providers(provider, provider_id);
   `;
 
   await pool.query(createLobbiesTable);
@@ -171,6 +187,7 @@ async function createTables() {
   await pool.query(createPlaylistSongsTable);
   await pool.query(createChatMessagesTable);
   await pool.query(createUsersTable);
+  await pool.query(createUserProvidersTable);
   await pool.query(createIndexes);
 
   // Migrations for existing databases
@@ -207,6 +224,21 @@ async function createTables() {
   await pool.query(`ALTER TABLE users ALTER COLUMN status SET DEFAULT 'approved'`).catch(() => {});
   // Drop old last_login NOT NULL constraint (replaced by updated_at)
   await pool.query(`ALTER TABLE users ALTER COLUMN last_login DROP NOT NULL`).catch(() => {});
+
+  // Profile feature: add display_name column for user-chosen name
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(255)`).catch(() => {});
+
+  // Migrate existing users' provider data into user_providers junction table
+  await pool.query(`
+    INSERT INTO user_providers (user_id, provider, provider_id, email, name, avatar_url, linked_at)
+    SELECT id, provider, provider_id, email, name, avatar_url, COALESCE(created_at, ${Date.now()})
+    FROM users
+    WHERE provider IS NOT NULL AND provider != 'local'
+      AND provider_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM user_providers up WHERE up.user_id = users.id AND up.provider = users.provider
+      )
+  `).catch(() => {});
 
   console.log('Database tables initialized');
 }

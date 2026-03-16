@@ -195,7 +195,7 @@ const io = new Server(server, {
 // Auth guard - protect all routes except public ones
 app.use((req, res, next) => {
   // Public paths that don't require authentication
-  const publicPaths = ['/health', '/auth/', '/login', '/changelog', '/api/auth/', '/api/version', '/api/changelog'];
+  const publicPaths = ['/health', '/auth/', '/login', '/changelog', '/api/auth/', '/api/version', '/api/changelog', '/api/profile'];
   const isPublic = publicPaths.some(p => req.path === p || req.path.startsWith(p));
   if (isPublic) return next();
 
@@ -739,7 +739,28 @@ const dashboardAuth = (req, res, next) => {
 async function upsertOAuthUser(provider, profile) {
   if (!db.isAvailable()) return null;
   const now = Date.now();
-  // Check if user already exists
+
+  // Check if this provider account is already linked via user_providers
+  const linkedProvider = await db.query(
+    'SELECT user_id FROM user_providers WHERE provider = $1 AND provider_id = $2',
+    [provider, profile.id]
+  );
+  if (linkedProvider.rows.length > 0) {
+    // User exists via junction table — update their info and return
+    const userId = linkedProvider.rows[0].user_id;
+    await db.query(
+      'UPDATE user_providers SET email = $1, name = $2, avatar_url = $3, linked_at = $4 WHERE provider = $5 AND provider_id = $6',
+      [profile.email, profile.name, profile.avatar, now, provider, profile.id]
+    );
+    await db.query(
+      'UPDATE users SET avatar_url = COALESCE(avatar_url, $1), updated_at = $2 WHERE id = $3',
+      [profile.avatar, now, userId]
+    );
+    const user = await db.query('SELECT * FROM users WHERE id = $1', [userId]);
+    return user.rows[0] || null;
+  }
+
+  // Check legacy users table for existing user
   const existing = await db.query(
     'SELECT * FROM users WHERE provider = $1 AND provider_id = $2',
     [provider, profile.id]
@@ -750,16 +771,57 @@ async function upsertOAuthUser(provider, profile) {
       'UPDATE users SET name = $1, avatar_url = $2, email = $3, updated_at = $4 WHERE id = $5',
       [profile.name, profile.avatar, profile.email, now, existing.rows[0].id]
     );
+    // Ensure provider is in junction table
+    await db.query(
+      `INSERT INTO user_providers (user_id, provider, provider_id, email, name, avatar_url, linked_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (provider, provider_id) DO NOTHING`,
+      [existing.rows[0].id, provider, profile.id, profile.email, profile.name, profile.avatar, now]
+    );
     return existing.rows[0];
   }
-  // Auto-approve all new users by default; revoke access later if needed
+
+  // Check if another user exists with the same email — link accounts
+  if (profile.email) {
+    const emailMatch = await db.query(
+      'SELECT * FROM users WHERE email = $1 AND provider != $2 LIMIT 1',
+      [profile.email, provider]
+    );
+    if (emailMatch.rows.length > 0) {
+      const existingUser = emailMatch.rows[0];
+      // Link this provider to the existing user
+      await db.query(
+        `INSERT INTO user_providers (user_id, provider, provider_id, email, name, avatar_url, linked_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (provider, provider_id) DO NOTHING`,
+        [existingUser.id, provider, profile.id, profile.email, profile.name, profile.avatar, now]
+      );
+      await db.query(
+        'UPDATE users SET updated_at = $1 WHERE id = $2',
+        [now, existingUser.id]
+      );
+      return existingUser;
+    }
+  }
+
+  // Create new user
   const status = 'approved';
   const result = await db.query(
     `INSERT INTO users (provider, provider_id, email, name, avatar_url, status, created_at, updated_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $7) RETURNING *`,
     [provider, profile.id, profile.email, profile.name, profile.avatar, status, now]
   );
-  return result.rows[0];
+  const newUser = result.rows[0];
+
+  // Also add to user_providers junction table
+  await db.query(
+    `INSERT INTO user_providers (user_id, provider, provider_id, email, name, avatar_url, linked_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (provider, provider_id) DO NOTHING`,
+    [newUser.id, provider, profile.id, profile.email, profile.name, profile.avatar, now]
+  );
+
+  return newUser;
 }
 
 // Set auth cookie and redirect
@@ -904,7 +966,7 @@ app.get('/api/auth/me', async (req, res) => {
     return res.json({ authenticated: false });
   }
   try {
-    const result = await db.query('SELECT id, provider, email, name, avatar_url, status FROM users WHERE id = $1', [payload.id]);
+    const result = await db.query('SELECT id, provider, email, name, display_name, emoji, avatar_url, status FROM users WHERE id = $1', [payload.id]);
     if (result.rows.length === 0) {
       return res.json({ authenticated: false });
     }
@@ -915,7 +977,9 @@ app.get('/api/auth/me', async (req, res) => {
         id: user.id,
         provider: user.provider,
         email: user.email,
-        name: user.name,
+        name: user.display_name || user.name,
+        displayName: user.display_name,
+        emoji: user.emoji,
         avatarUrl: user.avatar_url,
         status: user.status
       }
@@ -964,6 +1028,263 @@ function parseCookie(cookieHeader, name) {
   if (!cookieHeader) return null;
   const match = cookieHeader.split(';').find(c => c.trim().startsWith(name + '='));
   return match ? match.split('=').slice(1).join('=').trim() : null;
+}
+
+// Helper: get authenticated user ID from cookie
+function getAuthUserId(req) {
+  const token = parseCookie(req.headers.cookie, 'listen_auth');
+  const payload = verifyAuthToken(token);
+  return payload ? payload.id : null;
+}
+
+// ==========================================
+// Profile API
+// ==========================================
+
+// Get current user's profile with linked providers
+app.get('/api/profile', async (req, res) => {
+  const userId = getAuthUserId(req);
+  if (!userId || !db.isAvailable()) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  try {
+    const userResult = await db.query(
+      'SELECT id, display_name, username, emoji, name, email, avatar_url, provider FROM users WHERE id = $1',
+      [userId]
+    );
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const user = userResult.rows[0];
+
+    // Get linked providers
+    const providersResult = await db.query(
+      'SELECT provider, provider_id, email, name, avatar_url, linked_at FROM user_providers WHERE user_id = $1 ORDER BY linked_at ASC',
+      [userId]
+    );
+
+    res.json({
+      id: user.id,
+      displayName: user.display_name || user.username || user.name || 'User',
+      emoji: user.emoji,
+      email: user.email,
+      avatarUrl: user.avatar_url,
+      providers: providersResult.rows.map(p => ({
+        provider: p.provider,
+        email: p.email,
+        name: p.name,
+        avatarUrl: p.avatar_url,
+        linkedAt: p.linked_at
+      }))
+    });
+  } catch (err) {
+    console.error('Profile fetch error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch profile' });
+  }
+});
+
+// Update profile (display name, emoji)
+app.put('/api/profile', express.json(), async (req, res) => {
+  const userId = getAuthUserId(req);
+  if (!userId || !db.isAvailable()) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  const { displayName, emoji } = req.body;
+  if (!displayName || typeof displayName !== 'string' || displayName.trim().length === 0) {
+    return res.status(400).json({ error: 'displayName is required' });
+  }
+  if (displayName.trim().length > 30) {
+    return res.status(400).json({ error: 'displayName must be 30 characters or less' });
+  }
+  try {
+    await db.query(
+      'UPDATE users SET display_name = $1, emoji = $2, updated_at = $3 WHERE id = $4',
+      [displayName.trim(), emoji || null, Date.now(), userId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Profile update error:', err.message);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+// Unlink a provider from account
+app.delete('/api/profile/providers/:provider', async (req, res) => {
+  const userId = getAuthUserId(req);
+  if (!userId || !db.isAvailable()) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  const provider = req.params.provider;
+  try {
+    // Ensure user has at least one other provider (can't unlink the last one)
+    const countResult = await db.query(
+      'SELECT COUNT(*) as count FROM user_providers WHERE user_id = $1',
+      [userId]
+    );
+    if (parseInt(countResult.rows[0].count) <= 1) {
+      return res.status(400).json({ error: 'Cannot unlink the only connected account' });
+    }
+
+    await db.query(
+      'DELETE FROM user_providers WHERE user_id = $1 AND provider = $2',
+      [userId, provider]
+    );
+
+    // If the unlinked provider was the primary on users table, update to another linked provider
+    const user = await db.query('SELECT provider FROM users WHERE id = $1', [userId]);
+    if (user.rows[0] && user.rows[0].provider === provider) {
+      const remaining = await db.query(
+        'SELECT provider, provider_id, email, name, avatar_url FROM user_providers WHERE user_id = $1 LIMIT 1',
+        [userId]
+      );
+      if (remaining.rows.length > 0) {
+        const p = remaining.rows[0];
+        await db.query(
+          'UPDATE users SET provider = $1, provider_id = $2, email = COALESCE($3, email), updated_at = $4 WHERE id = $5',
+          [p.provider, p.provider_id, p.email, Date.now(), userId]
+        );
+      }
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Provider unlink error:', err.message);
+    res.status(500).json({ error: 'Failed to unlink provider' });
+  }
+});
+
+// OAuth linking routes — when user is already logged in and wants to connect another provider
+app.get('/auth/google/link', (req, res) => {
+  if (!GOOGLE_CLIENT_ID) {
+    return res.status(503).json({ error: 'Google OAuth not configured' });
+  }
+  const userId = getAuthUserId(req);
+  if (!userId) return res.redirect('/');
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: `${BASE_URL}/auth/google/link/callback`,
+    response_type: 'code',
+    scope: 'openid email profile',
+    access_type: 'offline',
+    prompt: 'select_account',
+    state: userId
+  });
+  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+});
+
+app.get('/auth/google/link/callback', async (req, res) => {
+  const { code, state: userId } = req.query;
+  if (!code || !userId) return res.redirect('/?error=link_failed');
+  // Verify the user making the request is the one who started the link
+  const authUserId = getAuthUserId(req);
+  if (!authUserId || authUserId !== userId) return res.redirect('/?error=link_failed');
+  try {
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code,
+        client_id: GOOGLE_CLIENT_ID,
+        client_secret: GOOGLE_CLIENT_SECRET,
+        redirect_uri: `${BASE_URL}/auth/google/link/callback`,
+        grant_type: 'authorization_code'
+      })
+    });
+    const tokens = await tokenRes.json();
+    if (!tokens.access_token) return res.redirect('/?error=link_token_failed');
+    const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` }
+    });
+    const profile = await userRes.json();
+    await linkProviderToUser(userId, 'google', {
+      id: profile.id, email: profile.email, name: profile.name, avatar: profile.picture
+    });
+    res.redirect('/#profile');
+  } catch (err) {
+    console.error('Google link error:', err.message);
+    res.redirect('/?error=link_failed');
+  }
+});
+
+app.get('/auth/github/link', (req, res) => {
+  if (!GITHUB_CLIENT_ID) {
+    return res.status(503).json({ error: 'GitHub OAuth not configured' });
+  }
+  const userId = getAuthUserId(req);
+  if (!userId) return res.redirect('/');
+  const params = new URLSearchParams({
+    client_id: GITHUB_CLIENT_ID,
+    redirect_uri: `${BASE_URL}/auth/github/link/callback`,
+    scope: 'read:user user:email',
+    state: userId
+  });
+  res.redirect(`https://github.com/login/oauth/authorize?${params}`);
+});
+
+app.get('/auth/github/link/callback', async (req, res) => {
+  const { code, state: userId } = req.query;
+  if (!code || !userId) return res.redirect('/?error=link_failed');
+  const authUserId = getAuthUserId(req);
+  if (!authUserId || authUserId !== userId) return res.redirect('/?error=link_failed');
+  try {
+    const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        client_id: GITHUB_CLIENT_ID,
+        client_secret: GITHUB_CLIENT_SECRET,
+        code,
+        redirect_uri: `${BASE_URL}/auth/github/link/callback`
+      })
+    });
+    const tokens = await tokenRes.json();
+    if (!tokens.access_token) return res.redirect('/?error=link_token_failed');
+    const userRes = await fetch('https://api.github.com/user', {
+      headers: { Authorization: `Bearer ${tokens.access_token}`, 'User-Agent': 'listen-along' }
+    });
+    const profile = await userRes.json();
+    let email = profile.email;
+    if (!email) {
+      const emailsRes = await fetch('https://api.github.com/user/emails', {
+        headers: { Authorization: `Bearer ${tokens.access_token}`, 'User-Agent': 'listen-along' }
+      });
+      const emails = await emailsRes.json();
+      const primary = Array.isArray(emails) && emails.find(e => e.primary);
+      email = primary ? primary.email : null;
+    }
+    await linkProviderToUser(userId, 'github', {
+      id: String(profile.id), email, name: profile.name || profile.login, avatar: profile.avatar_url
+    });
+    res.redirect('/#profile');
+  } catch (err) {
+    console.error('GitHub link error:', err.message);
+    res.redirect('/?error=link_failed');
+  }
+});
+
+// Link a provider to an existing user account
+async function linkProviderToUser(userId, provider, profile) {
+  if (!db.isAvailable()) return;
+  const now = Date.now();
+  // Check if this provider account is already linked to another user
+  const existing = await db.query(
+    'SELECT user_id FROM user_providers WHERE provider = $1 AND provider_id = $2',
+    [provider, profile.id]
+  );
+  if (existing.rows.length > 0) {
+    if (existing.rows[0].user_id === userId) return; // Already linked to this user
+    // Remove from the other user — the current user is claiming this provider
+    await db.query(
+      'DELETE FROM user_providers WHERE provider = $1 AND provider_id = $2',
+      [provider, profile.id]
+    );
+  }
+  await db.query(
+    `INSERT INTO user_providers (user_id, provider, provider_id, email, name, avatar_url, linked_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (provider, provider_id) DO UPDATE SET user_id = $1, email = $4, name = $5, avatar_url = $6, linked_at = $7`,
+    [userId, provider, profile.id, profile.email, profile.name, profile.avatar, now]
+  );
 }
 
 // Dashboard stats endpoint

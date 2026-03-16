@@ -49,6 +49,7 @@ html, body {
   display: none;
   min-height: 100vh;
   min-height: -webkit-fill-available;
+  position: relative;
 }
 
 .view.active {
@@ -3408,4 +3409,188 @@ html, body {
 
 .btn-reject:hover {
   background: #c82333;
+}
+
+/* ==========================================
+   Profile Page
+   ========================================== */
+
+.landing-profile-btn {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--bg-elevated);
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: background 0.2s, color 0.2s;
+  z-index: 10;
+}
+
+.landing-profile-btn:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.landing-profile-btn svg {
+  width: 22px;
+  height: 22px;
+}
+
+.profile-content {
+  padding: 1rem;
+  max-width: 480px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.profile-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--bg-elevated);
+  border-radius: var(--border-radius-lg);
+  padding: 1.25rem;
+}
+
+.profile-card-actions {
+  display: flex;
+  justify-content: center;
+}
+
+.profile-avatar-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 1rem;
+  position: relative;
+}
+
+.profile-page-emoji-btn {
+  font-size: 3rem;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  border: 2px solid var(--bg-surface);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.2s;
+}
+
+.profile-page-emoji-btn:hover {
+  border-color: var(--primary);
+}
+
+.profile-avatar-section .emoji-picker {
+  position: absolute;
+  top: 88px;
+  z-index: 20;
+}
+
+.profile-name-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.profile-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.profile-name-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.profile-name-row .profile-name-input {
+  flex: 1;
+}
+
+.profile-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.profile-section-title {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.profile-providers-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.profile-provider-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem;
+  background: var(--bg-dark);
+  border-radius: var(--border-radius);
+  border: 1px solid var(--bg-elevated);
+}
+
+.profile-provider-item.connected {
+  border-color: var(--primary);
+}
+
+.profile-provider-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.profile-provider-info > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.provider-icon {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.profile-provider-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.profile-provider-email {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.profile-provider-empty {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 1rem;
+}
+
+.profile-link-btn,
+.profile-unlink-btn {
+  white-space: nowrap;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
 }
