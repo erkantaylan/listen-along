@@ -1419,7 +1419,7 @@ io.on('connection', (socket) => {
 
     // Send current queue state to new joiner
     const queue = await getQueueAsync(lobbyId);
-    socket.emit('queue:update', { lobbyId, songs: queue.getSongs() });
+    socket.emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
   });
 
   socket.on('lobby:leave', ({ lobbyId }) => {
@@ -1770,14 +1770,14 @@ io.on('connection', (socket) => {
       });
     }
 
-    // Broadcast updated queue to all in lobby
-    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
-
     // If this is the first song and nothing is playing, start playback
     if (queue.getSongs().length === 1) {
       queue.setCurrentIndex(0);
       playback.setTrack(lobbyId, song, true, io);
     }
+
+    // Broadcast updated queue to all in lobby (after potential currentIndex change)
+    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
   });
 
   // Handle playlist add after user confirms via dialog
@@ -1827,12 +1827,12 @@ io.on('connection', (socket) => {
 
         console.log(`Single song from playlist "${playlistData.title}" added to lobby ${lobbyId}: ${item.title}`);
 
-        io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
-
         if (wasEmpty) {
           queue.setCurrentIndex(0);
           playback.setTrack(lobbyId, song, true, io);
         }
+
+        io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
       } else {
         // Filter items by selectedIndices if provided, otherwise use all
         const items = Array.isArray(selectedIndices)
@@ -1870,20 +1870,20 @@ io.on('connection', (socket) => {
           covers.cacheCover(firstSong.id, firstItem.thumbnail).catch(() => {});
         }
 
-        // Emit queue update immediately so first song appears in UI
-        io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+        // Start playback immediately if queue was empty
+        if (wasEmpty) {
+          queue.setCurrentIndex(0);
+          playback.setTrack(lobbyId, firstSong, true, io);
+        }
+
+        // Emit queue update immediately so first song appears in UI (after potential currentIndex change)
+        io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
 
         socket.emit('queue:playlist-progress', {
           current: 1,
           total: items.length,
           title: firstItem.title
         });
-
-        // Start playback immediately if queue was empty
-        if (wasEmpty) {
-          queue.setCurrentIndex(0);
-          playback.setTrack(lobbyId, firstSong, true, io);
-        }
 
         // Add remaining songs sequentially (download one at a time)
         const addRemaining = async () => {
@@ -1920,7 +1920,7 @@ io.on('connection', (socket) => {
             });
 
             // Emit queue update after each song so UI updates progressively
-            io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+            io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
           }
 
           console.log(`Playlist "${playlistData.title}" added to lobby ${lobbyId} (${items.length} songs)`);
@@ -1952,7 +1952,7 @@ io.on('connection', (socket) => {
     const removed = queue.removeSong(songId);
     if (removed) {
       console.log(`Song removed from lobby ${lobbyId}: ${removed.title}`);
-      io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+      io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
     }
   });
 
@@ -1962,7 +1962,7 @@ io.on('connection', (socket) => {
     const success = queue.reorderSong(songId, newIndex);
     if (success) {
       console.log(`Song reordered in lobby ${lobbyId}: moved to position ${newIndex}`);
-      io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+      io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
     }
   });
 
@@ -1997,7 +1997,7 @@ io.on('connection', (socket) => {
   // Get current queue state
   socket.on('queue:get', async (lobbyId) => {
     const queue = await getQueueAsync(lobbyId);
-    socket.emit('queue:update', { lobbyId, songs: queue.getSongs() });
+    socket.emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
   });
 
   // Advance to next song (when current song ends)
@@ -2027,7 +2027,7 @@ io.on('connection', (socket) => {
         playback.setTrack(lobbyId, currentSong, true, io);
       }
     }
-    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
   });
 
   // Toggle playback (play/pause)
@@ -2088,7 +2088,7 @@ io.on('connection', (socket) => {
       if (nextIndex !== null && songs[nextIndex]) {
         playback.setTrack(lobbyId, songs[nextIndex], true, io);
       }
-      io.to(lobbyId).emit('queue:update', { lobbyId, songs });
+      io.to(lobbyId).emit('queue:update', { lobbyId, songs, currentIndex: queue.getCurrentIndex() });
       return;
     }
 
@@ -2110,7 +2110,7 @@ io.on('connection', (socket) => {
       playback.setTrack(lobbyId, null, false, io);
     }
 
-    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
   });
 
   // Go to previous track
@@ -2144,7 +2144,7 @@ io.on('connection', (socket) => {
         const prevSong = songs.find(s => s.id === prevTrackId);
         if (prevSong) {
           playback.setTrack(lobbyId, prevSong, true, io);
-          io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+          io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
           return;
         }
       }
@@ -2176,7 +2176,7 @@ io.on('connection', (socket) => {
     }
 
     playback.setTrack(lobbyId, songs[prevIndex], true, io);
-    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
   });
 
   // Handle track ended - coordinates playback and queue with repeat modes
@@ -2230,7 +2230,7 @@ io.on('connection', (socket) => {
       } else {
         playback.trackEnded(lobbyId, io);
       }
-      io.to(lobbyId).emit('queue:update', { lobbyId, songs });
+      io.to(lobbyId).emit('queue:update', { lobbyId, songs, currentIndex: queue.getCurrentIndex() });
       return;
     }
 
@@ -2246,7 +2246,7 @@ io.on('connection', (socket) => {
     const nextSong = queue.getCurrentSong();
 
     // Update queue state for all clients
-    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
 
     if (nextSong) {
       // Play next track
