@@ -564,20 +564,22 @@ html, body {
 
 .progress-bar::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 12px;
-  height: 12px;
-  background: var(--text-primary);
+  width: 14px;
+  height: 14px;
+  background: var(--primary);
   border-radius: 50%;
   cursor: pointer;
+  box-shadow: 0 0 4px rgba(29, 185, 84, 0.6);
 }
 
 .progress-bar::-moz-range-thumb {
-  width: 12px;
-  height: 12px;
-  background: var(--text-primary);
+  width: 14px;
+  height: 14px;
+  background: var(--primary);
   border-radius: 50%;
   cursor: pointer;
   border: none;
+  box-shadow: 0 0 4px rgba(29, 185, 84, 0.6);
 }
 
 .time-display {
