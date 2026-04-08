@@ -1680,6 +1680,8 @@
     });
 
     audio.addEventListener('error', (e) => {
+      // Suppress errors when audio src was cleared (e.g. leaving a lobby)
+      if (!audio.src || audio.src === window.location.href) return;
       console.error('Audio error:', e);
       showToast('Error playing audio', 'error');
     });
@@ -1844,6 +1846,8 @@
 
   // Try to play audio, handling Safari restrictions
   function playAudioWithUnlock(src, position, shouldPlay) {
+    // Don't attempt playback if user has left the lobby
+    if (!state.lobbyId && !state.soloPlaylistId) return;
     const audio = elements.audioPlayer;
 
     if (src && audio.src !== src) {
@@ -2007,6 +2011,8 @@
 
   function leaveLobby() {
     socket.emit('lobby:leave', { lobbyId: state.lobbyId });
+    storageRemove(STORAGE_KEYS.LAST_LOBBY);
+    hideRejoinPrompt();
     state.lobbyId = null;
     state.isHost = false;
     state.lobbyName = null;
