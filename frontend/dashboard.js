@@ -1,6 +1,6 @@
 // Dashboard admin panel and cache management
 import { state, elements, viewActivators, setDashboardInterval } from './state.js';
-import { showView, showToast, escapeHtml, formatUptime, formatAge, formatDuration, formatFileSize } from './ui.js';
+import { showView, showToast, escapeHtml, formatUptime, formatAge, formatDuration, formatFileSize, toLower } from './ui.js';
 
 let cachedSongsData = [];
 let dashboardUsers = [];
@@ -106,8 +106,8 @@ export function renderCacheSongList() {
   else if (filterBy === 'used') songs = songs.filter(s => s.playlist_count > 0 || s.queue_count > 0);
 
   const searchEl = document.getElementById('cache-search');
-  const query = searchEl ? searchEl.value.toLowerCase() : '';
-  if (query) songs = songs.filter(s => (s.title || '').toLowerCase().includes(query));
+  const query = searchEl ? searchEl.value.toLocaleLowerCase('tr') : '';
+  if (query) songs = songs.filter(s => (s.title || '').toLocaleLowerCase('tr').includes(query));
 
   const sortEl = document.getElementById('cache-sort');
   const sortBy = sortEl ? sortEl.value : 'date-desc';
@@ -209,11 +209,11 @@ function updateUserStats() {
 
 export function renderDashboardUserList() {
   if (!elements.dashboardUserList) return;
-  const searchTerm = (elements.usersSearch ? elements.usersSearch.value : '').toLowerCase();
+  const searchTerm = (elements.usersSearch ? elements.usersSearch.value : '').toLocaleLowerCase('tr');
   const filterStatus = elements.usersFilter ? elements.usersFilter.value : 'all';
   let filtered = dashboardUsers;
   if (filterStatus !== 'all') filtered = filtered.filter(u => u.status === filterStatus);
-  if (searchTerm) filtered = filtered.filter(u => (u.username || '').toLowerCase().includes(searchTerm) || (u.email || '').toLowerCase().includes(searchTerm) || (u.user_id || '').toLowerCase().includes(searchTerm));
+  if (searchTerm) filtered = filtered.filter(u => (u.username || '').toLocaleLowerCase('tr').includes(searchTerm) || (u.email || '').toLocaleLowerCase('tr').includes(searchTerm) || (u.user_id || '').toLocaleLowerCase('tr').includes(searchTerm));
   if (filtered.length === 0) { elements.dashboardUserList.innerHTML = '<li class="dashboard-empty">No users found</li>'; return; }
   elements.dashboardUserList.innerHTML = filtered.map(user => {
     const date = new Date(parseInt(user.created_at)).toLocaleDateString();

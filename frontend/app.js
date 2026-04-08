@@ -6,7 +6,7 @@ import { checkAuth, setupLoginView, showPendingCard, setupProfileEditor, setupPr
 import { checkUrlForDashboard, dashboardJoinLobby, dashboardRemoveLobby, deleteCachedSong, playCachedSong, dashboardApproveUser, dashboardRejectUser } from './dashboard.js';
 import { createLobby, joinLobby, leaveLobby, shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyPinned, handleUserJoined, handleUserLeft, handleLobbyClosed, checkUrlForLobby, joinLobbyFromCard, updatePinButton, togglePin, promptRenameLobby } from './lobby.js';
 import { handlePlaybackState, handlePlaybackSync, handleTrackChanged, handleShuffleState, handleDownloadStatus, handleDownloadProgress, handleModeChanged, handleUsersUpdated, handleFollowSync, toggleUserMode, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, advanceLocalQueue, updateNowPlaying, updatePlayButton, updatePlaybackModeUI, updateListeningModeBadge, updateModeButton, _setQueueFns } from './playback.js';
-import { handleQueueUpdated, handlePlaylistConfirm, handleSongAdded, addSong, removeSong, clearQueue, moveSongUp, moveSongDown, playSongAt, setupQueueDragAndDrop, showLibraryDialog, showImportPlaylistDialog, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './queue.js';
+import { handleQueueUpdated, handlePlaylistConfirm, handleSongAdded, addSong, removeSong, clearQueue, moveSongUp, moveSongDown, playSongAt, setupQueueDragAndDrop, setupQueueSearch, showLibraryDialog, showImportPlaylistDialog, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './queue.js';
 import { toggleSongMention, clearSongMention, sendChatMessage, handleChatMessage, handleChatHistory, requestChatHistory, resetChat } from './chat.js';
 import { createNewPlaylist, deletePlaylistAction, openPlaylist, leaveSoloPlayer, soloPlayTrack, soloTogglePlayback, soloPrevious, soloNext, soloCycleRepeat, soloSeek, soloAddSong, soloRemoveSong, setupSoloSearch, setupSoloAudioHooks, soloOpenSource, fetchPlaylists } from './playlist.js';
 
@@ -139,6 +139,7 @@ function setupEventListeners() {
   if (elements.chatSongPreviewRemove) elements.chatSongPreviewRemove.addEventListener('click', clearSongMention);
 
   setupQueueDragAndDrop();
+  setupQueueSearch();
 
   if (elements.hideErroredCheckbox) {
     elements.hideErroredCheckbox.checked = state.hideErroredSongs;

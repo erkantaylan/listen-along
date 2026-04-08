@@ -105,6 +105,11 @@ export function formatFileSize(bytes) {
   return (bytes / 1024 / 1024).toFixed(1) + ' MB';
 }
 
+// Turkish-safe case-insensitive lowercase (handles İ/ı/I/i correctly)
+export function toLower(text) {
+  return text.toLocaleLowerCase('tr');
+}
+
 export function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;

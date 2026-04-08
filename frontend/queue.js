@@ -1,6 +1,6 @@
 // Queue management, drag-drop reordering, and queue display
 import { state, elements, socket, STORAGE_KEYS, storageSet } from './state.js';
-import { showToast, escapeHtml, sanitizeUrl, getCoverUrl, getInitials, formatDuration, t } from './ui.js';
+import { showToast, escapeHtml, sanitizeUrl, getCoverUrl, getInitials, formatDuration, t, toLower } from './ui.js';
 import { stopFollowing, playLocalTrack, updatePlayButton, updatePlaybackModeUI, updateModeButton } from './playback.js';
 
 export function handleQueueUpdated(data) {
@@ -55,8 +55,8 @@ export function showLibraryDialog() {
     var listEl = document.getElementById('library-list');
     var searchEl = document.getElementById('library-search');
     function renderLibrary() {
-      var q = searchEl.value.toLowerCase();
-      var filtered = q ? songs.filter(function(s) { return (s.title || '').toLowerCase().includes(q); }) : songs;
+      var q = searchEl.value.toLocaleLowerCase('tr');
+      var filtered = q ? songs.filter(function(s) { return (s.title || '').toLocaleLowerCase('tr').includes(q); }) : songs;
       if (filtered.length === 0) { listEl.innerHTML = '<div class="library-empty">No songs found</div>'; return; }
       listEl.innerHTML = filtered.map(function(song) {
         var dur = formatDuration(song.duration);
@@ -119,7 +119,7 @@ function showPlaylistDialog(data) {
   if (loadingEl) loadingEl.remove();
   const items = data.items || [];
   const hasSongMeta = data.songMeta && data.songMeta.title;
-  const songListHtml = items.map((item, i) => `<label class="playlist-song-item" data-index="${i}" data-title="${escapeHtml(item.title).toLowerCase()}"><input type="checkbox" checked data-song-index="${i}"><span class="playlist-song-title">${escapeHtml(item.title)}</span><span class="playlist-song-duration">${formatDuration(item.duration)}</span></label>`).join('');
+  const songListHtml = items.map((item, i) => `<label class="playlist-song-item" data-index="${i}" data-title="${escapeHtml(item.title).toLocaleLowerCase('tr')}"><input type="checkbox" checked data-song-index="${i}"><span class="playlist-song-title">${escapeHtml(item.title)}</span><span class="playlist-song-duration">${formatDuration(item.duration)}</span></label>`).join('');
   const dialog = document.createElement('div');
   dialog.id = 'playlist-dialog';
   dialog.className = 'playlist-dialog-overlay';
@@ -129,7 +129,7 @@ function showPlaylistDialog(data) {
   const searchInput = document.getElementById('playlist-search');
   const countEl = document.getElementById('playlist-selected-count');
   function updateCount() { countEl.textContent = `${songList.querySelectorAll('input[type="checkbox"]:checked').length} / ${items.length}`; }
-  searchInput.addEventListener('input', () => { const query = searchInput.value.toLowerCase(); songList.querySelectorAll('.playlist-song-item').forEach(el => { el.style.display = el.dataset.title.includes(query) ? '' : 'none'; }); });
+  searchInput.addEventListener('input', () => { const query = searchInput.value.toLocaleLowerCase('tr'); songList.querySelectorAll('.playlist-song-item').forEach(el => { el.style.display = el.dataset.title.includes(query) ? '' : 'none'; }); });
   document.getElementById('playlist-select-all').addEventListener('click', () => { songList.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = true; }); updateCount(); });
   document.getElementById('playlist-select-none').addEventListener('click', () => { songList.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = false; }); updateCount(); });
   songList.addEventListener('change', updateCount);
@@ -258,8 +258,19 @@ export function updateQueue() {
     const listenersHtml = getQueueListenersHtml(song.title);
     let positionClass = '';
     if (isJamMode && curIdx >= 0) { if (index === curIdx) positionClass = 'now-playing'; else if (index < curIdx) positionClass = 'played'; }
-    return `<li class="queue-item ${isPlaying ? 'playing' : ''} ${positionClass}" data-index="${index}" data-url="${escapeHtml(song.url)}" draggable="true"><div class="queue-item-drag-handle" title="Drag to reorder"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg></div><div class="queue-item-thumb">${thumbUrl ? `<img src="${thumbUrl}" alt="">` : ''}${downloadHtml.icon}</div><div class="queue-item-info"><div class="queue-item-title">${escapeHtml(song.title)}</div><div class="queue-item-meta"><span class="queue-item-duration">${song.duration ? formatDuration(song.duration) : ''}</span>${song.addedBy ? `<span class="queue-item-added-by">${escapeHtml(song.addedBy)}</span>` : ''}${downloadHtml.badge}</div>${downloadHtml.progressBar}</div>${listenersHtml}<div class="queue-item-actions"><div class="queue-item-reorder"><button class="btn-icon-small queue-item-up" aria-label="Move up" onclick="window.app.moveSongUp(${index})" ${!canMoveUp ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg></button><button class="btn-icon-small queue-item-down" aria-label="Move down" onclick="window.app.moveSongDown(${index})" ${!canMoveDown ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg></button></div>${song.url && song.url.startsWith('http') ? `<button class="btn-icon queue-item-youtube" aria-label="Open on YouTube" title="Open on YouTube" onclick="window.app.openSource(${index})"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47.13-1.33.22-2.65.28-1.3.07-2.49.1-3.59.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33-.22 2.65-.28 1.3-.07 2.49-.1 3.59-.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z"/></svg></button>` : ''}<button class="btn-icon queue-item-play" aria-label="Play" onclick="window.app.playSongAt(${index})"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button><button class="btn-icon queue-item-remove" aria-label="Remove from queue" onclick="window.app.removeSong(${index})"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div></li>`;
+    return `<li class="queue-item ${isPlaying ? 'playing' : ''} ${positionClass}" data-index="${index}" data-url="${escapeHtml(song.url)}" data-title="${toLower(escapeHtml(song.title))}" draggable="true"><div class="queue-item-drag-handle" title="Drag to reorder"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg></div><div class="queue-item-thumb">${thumbUrl ? `<img src="${thumbUrl}" alt="">` : ''}${downloadHtml.icon}</div><div class="queue-item-info"><div class="queue-item-title">${escapeHtml(song.title)}</div><div class="queue-item-meta"><span class="queue-item-duration">${song.duration ? formatDuration(song.duration) : ''}</span>${song.addedBy ? `<span class="queue-item-added-by">${escapeHtml(song.addedBy)}</span>` : ''}${downloadHtml.badge}</div>${downloadHtml.progressBar}</div>${listenersHtml}<div class="queue-item-actions"><div class="queue-item-reorder"><button class="btn-icon-small queue-item-up" aria-label="Move up" onclick="window.app.moveSongUp(${index})" ${!canMoveUp ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg></button><button class="btn-icon-small queue-item-down" aria-label="Move down" onclick="window.app.moveSongDown(${index})" ${!canMoveDown ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg></button></div>${song.url && song.url.startsWith('http') ? `<button class="btn-icon queue-item-youtube" aria-label="Open on YouTube" title="Open on YouTube" onclick="window.app.openSource(${index})"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47.13-1.33.22-2.65.28-1.3.07-2.49.1-3.59.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33-.22 2.65-.28 1.3-.07 2.49-.1 3.59-.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z"/></svg></button>` : ''}<button class="btn-icon queue-item-play" aria-label="Play" onclick="window.app.playSongAt(${index})"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button><button class="btn-icon queue-item-remove" aria-label="Remove from queue" onclick="window.app.removeSong(${index})"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div></li>`;
   }).join('');
+}
+
+export function setupQueueSearch() {
+  const searchInput = document.getElementById('queue-search-input');
+  if (!searchInput) return;
+  searchInput.addEventListener('input', () => {
+    const query = toLower(searchInput.value);
+    elements.queueList.querySelectorAll('.queue-item').forEach(el => {
+      el.style.display = (el.dataset.title || '').includes(query) ? '' : 'none';
+    });
+  });
 }
 
 export function updateListeners() {

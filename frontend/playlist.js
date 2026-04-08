@@ -1,6 +1,6 @@
 // Personal playlists and solo player mode
 import { state, elements, viewActivators, STORAGE_KEYS, storageSet } from './state.js';
-import { showView, showToast, escapeHtml, sanitizeUrl, formatDuration, formatTime, t } from './ui.js';
+import { showView, showToast, escapeHtml, sanitizeUrl, formatDuration, formatTime, t, toLower } from './ui.js';
 import { playAudioWithUnlock } from './audio.js';
 
 // Register landing view activator (appended to existing)
@@ -192,7 +192,7 @@ export function updateSoloQueue() {
   elements.soloQueueList.innerHTML = state.soloPlaylistSongs.map((song, index) => {
     const thumbUrl = sanitizeUrl(song.thumbnail);
     const isPlaying = index === state.soloCurrentIndex;
-    return `<li class="queue-item ${isPlaying ? 'playing' : ''}" data-index="${index}" data-title="${escapeHtml(song.title).toLowerCase()}"><div class="queue-item-thumb" onclick="window.app.soloPlayTrack(${index})">${thumbUrl ? `<img src="${thumbUrl}" alt="">` : ''}</div><div class="queue-item-info" onclick="window.app.soloPlayTrack(${index})" style="cursor:pointer"><div class="queue-item-title">${escapeHtml(song.title)}</div><div class="queue-item-meta"><span class="queue-item-duration">${song.duration ? formatDuration(song.duration) : ''}</span></div></div><div class="queue-item-actions">${song.url && song.url.startsWith('http') ? `<button class="btn-icon queue-item-youtube" aria-label="Open on YouTube" title="Open on YouTube" onclick="window.app.soloOpenSource(${index})"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47.13-1.33.22-2.65.28-1.3.07-2.49.1-3.59.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33-.22 2.65-.28 1.3-.07 2.49-.1 3.59-.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z"/></svg></button>` : ''}<button class="btn-icon queue-item-play" aria-label="Play" onclick="window.app.soloPlayTrack(${index})"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button><button class="btn-icon queue-item-remove" aria-label="Remove from playlist" onclick="window.app.soloRemoveSong(${index})"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div></li>`;
+    return `<li class="queue-item ${isPlaying ? 'playing' : ''}" data-index="${index}" data-title="${toLower(escapeHtml(song.title))}"><div class="queue-item-thumb" onclick="window.app.soloPlayTrack(${index})">${thumbUrl ? `<img src="${thumbUrl}" alt="">` : ''}</div><div class="queue-item-info" onclick="window.app.soloPlayTrack(${index})" style="cursor:pointer"><div class="queue-item-title">${escapeHtml(song.title)}</div><div class="queue-item-meta"><span class="queue-item-duration">${song.duration ? formatDuration(song.duration) : ''}</span></div></div><div class="queue-item-actions">${song.url && song.url.startsWith('http') ? `<button class="btn-icon queue-item-youtube" aria-label="Open on YouTube" title="Open on YouTube" onclick="window.app.soloOpenSource(${index})"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47.13-1.33.22-2.65.28-1.3.07-2.49.1-3.59.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33-.22 2.65-.28 1.3-.07 2.49-.1 3.59-.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z"/></svg></button>` : ''}<button class="btn-icon queue-item-play" aria-label="Play" onclick="window.app.soloPlayTrack(${index})"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button><button class="btn-icon queue-item-remove" aria-label="Remove from playlist" onclick="window.app.soloRemoveSong(${index})"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div></li>`;
   }).join('');
 }
 
@@ -200,7 +200,7 @@ export function setupSoloSearch() {
   const searchInput = document.getElementById('solo-search-input');
   if (!searchInput) return;
   searchInput.addEventListener('input', () => {
-    const query = searchInput.value.toLowerCase();
+    const query = toLower(searchInput.value);
     if (!elements.soloQueueList) return;
     elements.soloQueueList.querySelectorAll('.queue-item').forEach(el => { el.style.display = (el.dataset.title || '').includes(query) ? '' : 'none'; });
   });
