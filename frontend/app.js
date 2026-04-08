@@ -514,6 +514,7 @@
     setupAudioPlayer();
     setupMediaSession();
     setupSoloAudioHooks();
+    setupSoloSearch();
     fetchVersion();
 
     // Handle #profile hash for OAuth link redirect
@@ -3061,6 +3062,14 @@
     const list = elements.queueList;
     let draggedIndex = -1;
 
+    // Double-click to play a song
+    list.addEventListener('dblclick', (e) => {
+      const item = e.target.closest('.queue-item');
+      if (!item) return;
+      const index = parseInt(item.dataset.index, 10);
+      if (!isNaN(index)) playSongAt(index);
+    });
+
     list.addEventListener('dragstart', (e) => {
       const item = e.target.closest('.queue-item');
       if (!item) {
@@ -4198,7 +4207,7 @@
       const isPlaying = index === state.soloCurrentIndex;
 
       return `
-      <li class="queue-item ${isPlaying ? 'playing' : ''}" data-index="${index}">
+      <li class="queue-item ${isPlaying ? 'playing' : ''}" data-index="${index}" data-title="${escapeHtml(song.title).toLowerCase()}">
         <div class="queue-item-thumb" onclick="window.app.soloPlayTrack(${index})">
           ${thumbUrl ? `<img src="${thumbUrl}" alt="">` : ''}
         </div>
@@ -4221,6 +4230,19 @@
         </div>
       </li>`;
     }).join('');
+  }
+
+  function setupSoloSearch() {
+    const searchInput = document.getElementById('solo-search-input');
+    if (!searchInput) return;
+
+    searchInput.addEventListener('input', () => {
+      const query = searchInput.value.toLowerCase();
+      if (!elements.soloQueueList) return;
+      elements.soloQueueList.querySelectorAll('.queue-item').forEach(el => {
+        el.style.display = (el.dataset.title || '').includes(query) ? '' : 'none';
+      });
+    });
   }
 
   // Hook audio events for solo player
