@@ -10,6 +10,7 @@ const EventEmitter = require('events');
 const db = require('./db');
 const covers = require('./covers');
 const { v4: uuidv4 } = require('uuid');
+const ytdlp = require('./ytdlp');
 
 // Event emitter for download progress
 const downloadEvents = new EventEmitter();
@@ -192,7 +193,7 @@ async function downloadSong(songId, url, lobbyId = null) {
       const target = isUrl ? url : `ytsearch:${url}`;
 
       // yt-dlp outputs raw audio to stdout
-      const ytdlp = spawn('yt-dlp', [
+      const ytdlpProc = spawn('yt-dlp', [
         '-f', 'bestaudio',
         '-o', '-',
         '--no-playlist',
@@ -213,13 +214,13 @@ async function downloadSong(songId, url, lobbyId = null) {
       });
 
       // Pipe yt-dlp output to ffmpeg input
-      ytdlp.stdout.pipe(ffmpeg.stdin);
+      ytdlpProc.stdout.pipe(ffmpeg.stdin);
 
       let ytdlpError = '';
       let ffmpegError = '';
       let lastProgressEmit = 0;
 
-      ytdlp.stderr.on('data', (data) => {
+      ytdlpProc.stderr.on('data', (data) => {
         const output = data.toString();
         ytdlpError += output;
 
@@ -247,8 +248,11 @@ async function downloadSong(songId, url, lobbyId = null) {
         ffmpegError += data.toString();
       });
 
-      ytdlp.on('close', (code) => {
+      let ytdlpExitError = null;
+
+      ytdlpProc.on('close', (code) => {
         if (code !== 0 && code !== null) {
+          ytdlpExitError = ytdlp.parseError(ytdlpError, code);
           ffmpeg.stdin.end();
         } else {
           // yt-dlp finished, now transcoding (90-100%)
@@ -267,7 +271,7 @@ async function downloadSong(songId, url, lobbyId = null) {
         if (code === 0) {
           resolve();
         } else {
-          reject(new Error(`ffmpeg error (${code}): ${ffmpegError.slice(0, 200)}`));
+          reject(ytdlpExitError || new Error(`ffmpeg error (${code}): ${ffmpegError.slice(0, 200)}`));
         }
       });
 
@@ -275,7 +279,7 @@ async function downloadSong(songId, url, lobbyId = null) {
         reject(err);
       });
 
-      ytdlp.on('error', (err) => {
+      ytdlpProc.on('error', (err) => {
         reject(err);
       });
     });

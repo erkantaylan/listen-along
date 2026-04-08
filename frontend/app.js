@@ -3393,10 +3393,12 @@
       case 'ready':
         icon = '<span class="queue-item-status ready" title="Ready">✓</span>';
         break;
-      case 'error':
-        icon = '<span class="queue-item-status error" title="Download failed">❌</span>';
-        badge = '<span class="queue-item-badge error">error</span>';
+      case 'error': {
+        const errorMsg = downloadInfo.error || 'Download failed';
+        icon = `<span class="queue-item-status error" title="${escapeHtml(errorMsg)}">❌</span>`;
+        badge = `<span class="queue-item-badge error" title="${escapeHtml(errorMsg)}">${escapeHtml(errorMsg)}</span>`;
         break;
+      }
     }
 
     return { icon, badge, progressBar };
