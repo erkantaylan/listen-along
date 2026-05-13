@@ -1545,6 +1545,46 @@ app.delete('/api/dashboard/cache/orphaned', dashboardAuth, async (req, res) => {
   }
 });
 
+// yt-dlp cookies management (dashboard only)
+const COOKIES_PATH = path.join(path.dirname(downloader.SONGS_PATH), 'cookies.txt');
+
+app.get('/api/dashboard/cookies', dashboardAuth, (req, res) => {
+  try {
+    if (fs.existsSync(COOKIES_PATH)) {
+      const stat = fs.statSync(COOKIES_PATH);
+      res.json({ present: true, size: stat.size, updatedAt: stat.mtimeMs });
+    } else {
+      res.json({ present: false });
+    }
+  } catch {
+    res.json({ present: false });
+  }
+});
+
+app.post('/api/dashboard/cookies', dashboardAuth, express.text({ type: '*/*', limit: '2mb' }), (req, res) => {
+  try {
+    const content = req.body;
+    if (!content || !content.includes('youtube.com')) {
+      return res.status(400).json({ error: 'Does not look like a YouTube cookies file' });
+    }
+    fs.mkdirSync(path.dirname(COOKIES_PATH), { recursive: true });
+    fs.writeFileSync(COOKIES_PATH, content, 'utf8');
+    console.log(`[cookies] Updated yt-dlp cookies file (${content.length} bytes)`);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/dashboard/cookies', dashboardAuth, (req, res) => {
+  try {
+    if (fs.existsSync(COOKIES_PATH)) fs.unlinkSync(COOKIES_PATH);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Delete disk files that have no DB record (e.g. after postgres was reset)
 app.delete('/api/dashboard/cache/unregistered', dashboardAuth, async (req, res) => {
   try {

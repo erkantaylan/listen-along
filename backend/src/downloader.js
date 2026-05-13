@@ -36,6 +36,18 @@ function drainDownloadQueue() {
 // Directory for cached songs
 const SONGS_PATH = process.env.SONGS_PATH || '/data/songs';
 
+// Cookies file for yt-dlp (same volume as songs)
+const COOKIES_PATH = path.join(path.dirname(SONGS_PATH), 'cookies.txt');
+
+function getCookiesArgs() {
+  try {
+    if (fs.existsSync(COOKIES_PATH) && fs.statSync(COOKIES_PATH).size > 0) {
+      return ['--cookies', COOKIES_PATH];
+    }
+  } catch {}
+  return [];
+}
+
 // Ensure songs directory exists
 function ensureSongsDir() {
   if (!fs.existsSync(SONGS_PATH)) {
@@ -229,6 +241,7 @@ async function downloadSong(songId, url, lobbyId = null) {
         '-o', '-',
         '--no-playlist',
         '--extractor-args', 'youtube:player_client=web_safari,web',
+        ...getCookiesArgs(),
         target
       ], {
         stdio: ['ignore', 'pipe', 'pipe']

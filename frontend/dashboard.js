@@ -23,6 +23,11 @@ viewActivators.dashboard = () => {
   if (cacheFilterEl) cacheFilterEl.addEventListener('change', renderCacheSongList);
   const cacheSortEl = document.getElementById('cache-sort');
   if (cacheSortEl) cacheSortEl.addEventListener('change', renderCacheSongList);
+  const cookiesSaveBtn = document.getElementById('cookies-save-btn');
+  if (cookiesSaveBtn) cookiesSaveBtn.onclick = saveCookies;
+  const cookiesDeleteBtn = document.getElementById('cookies-delete-btn');
+  if (cookiesDeleteBtn) cookiesDeleteBtn.onclick = deleteCookies;
+  fetchCookiesStatus();
   setDashboardInterval(setInterval(() => { fetchDashboardStats(); fetchCacheStats(); }, 2000));
   fetchDashboardUsers();
   if (elements.usersSearch) elements.usersSearch.addEventListener('input', renderDashboardUserList);
@@ -297,4 +302,56 @@ export function dashboardRejectUser(userId) {
     .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
     .then(() => fetchDashboardUsers())
     .catch(err => { console.error('Failed to reject user:', err); showToast('Failed to reject user', 'error'); });
+}
+
+function fetchCookiesStatus() {
+  const statusEl = document.getElementById('cookies-status');
+  if (!statusEl) return;
+  fetch('/api/dashboard/cookies', { credentials: 'include' })
+    .then(res => res.json())
+    .then(data => {
+      if (data.exists) {
+        const ago = formatAge(data.updatedAt);
+        statusEl.textContent = `Cookies active — updated ${ago}`;
+        statusEl.className = 'cookies-status cookies-active';
+      } else {
+        statusEl.textContent = 'No cookies set';
+        statusEl.className = 'cookies-status cookies-none';
+      }
+    })
+    .catch(() => { statusEl.textContent = 'Could not load cookie status'; });
+}
+
+function saveCookies() {
+  const textarea = document.getElementById('cookies-input');
+  const content = textarea ? textarea.value.trim() : '';
+  if (!content) { showToast('Paste cookies.txt content first', 'error'); return; }
+  fetch('/api/dashboard/cookies', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'text/plain' },
+    body: content
+  })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        showToast('Cookies saved', 'success');
+        if (textarea) textarea.value = '';
+        fetchCookiesStatus();
+      } else {
+        showToast(data.error || 'Failed to save cookies', 'error');
+      }
+    })
+    .catch(() => showToast('Failed to save cookies', 'error'));
+}
+
+function deleteCookies() {
+  if (!confirm('Remove YouTube cookies?')) return;
+  fetch('/api/dashboard/cookies', { method: 'DELETE', credentials: 'include' })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) { showToast('Cookies removed', 'success'); fetchCookiesStatus(); }
+      else showToast('Failed to remove cookies', 'error');
+    })
+    .catch(() => showToast('Failed to remove cookies', 'error'));
 }

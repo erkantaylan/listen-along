@@ -1,4 +1,17 @@
 const { spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+const COOKIES_PATH = path.join(path.dirname(process.env.SONGS_PATH || '/data/songs'), 'cookies.txt');
+
+function getCookiesArgs() {
+  try {
+    if (fs.existsSync(COOKIES_PATH) && fs.statSync(COOKIES_PATH).size > 0) {
+      return ['--cookies', COOKIES_PATH];
+    }
+  } catch {}
+  return [];
+}
 
 /**
  * Extract metadata for a YouTube video or search query
@@ -70,6 +83,7 @@ function createTranscodedStream(query) {
     '-f', 'bestaudio',
     '-o', '-',
     '--no-playlist',
+    ...getCookiesArgs(),
     target
   ], {
     stdio: ['ignore', 'pipe', 'pipe']
