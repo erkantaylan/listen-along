@@ -5,8 +5,38 @@ import { showView, showToast, escapeHtml, formatUptime, formatAge, formatDuratio
 let cachedSongsData = [];
 let dashboardUsers = [];
 
+function initSidebarNav() {
+  const sidebar = document.getElementById('dashboard-sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+  const hamburger = document.getElementById('sidebar-hamburger');
+  const closeBtn = document.getElementById('sidebar-close');
+  const titleEl = document.getElementById('dashboard-section-title');
+
+  const openSidebar = () => { sidebar.classList.add('open'); overlay.classList.add('open'); };
+  const closeSidebar = () => { sidebar.classList.remove('open'); overlay.classList.remove('open'); };
+
+  if (hamburger) hamburger.addEventListener('click', openSidebar);
+  if (closeBtn) closeBtn.addEventListener('click', closeSidebar);
+  if (overlay) overlay.addEventListener('click', closeSidebar);
+
+  document.querySelectorAll('.sidebar-link[data-section]').forEach(link => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      const target = link.dataset.section;
+      document.querySelectorAll('.sidebar-link').forEach(l => l.classList.remove('active'));
+      link.classList.add('active');
+      document.querySelectorAll('.dashboard-section').forEach(s => s.classList.remove('active'));
+      const section = document.querySelector(`.dashboard-section[data-section="${target}"]`);
+      if (section) section.classList.add('active');
+      if (titleEl) titleEl.textContent = link.textContent.trim();
+      closeSidebar();
+    });
+  });
+}
+
 // Register view activator
 viewActivators.dashboard = () => {
+  initSidebarNav();
   fetchDashboardStats();
   fetchCacheStats();
   fetchCachedSongs();

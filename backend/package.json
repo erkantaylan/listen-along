@@ -1,6 +1,6 @@
 {
   "name": "listen-along-backend",
-  "version": "2.28.19",
+  "version": "2.28.20",
   "description": "Backend server for listen-along - synced music listening",
   "main": "src/index.js",
   "scripts": {

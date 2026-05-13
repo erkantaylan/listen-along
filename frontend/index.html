@@ -407,119 +407,162 @@
 
   <!-- Dashboard View -->
   <div id="dashboard-view" class="view">
-    <header class="dashboard-header">
-      <h1 data-i18n="dashboard.title">Dashboard</h1>
-      <span id="dashboard-uptime" class="dashboard-uptime"></span>
-    </header>
-    <main class="dashboard-content">
-      <div class="dashboard-stats">
-        <div class="stat-card stat-card--disk">
-          <span class="stat-value" id="stat-disk">-</span>
-          <span class="stat-label">Disk Usage</span>
-        </div>
-        <div class="stat-card stat-card--mini">
-          <span class="stat-value" id="stat-lobbies">0</span>
-          <span class="stat-label" data-i18n="dashboard.activeLobbies">Lobbies</span>
-        </div>
-        <div class="stat-card stat-card--mini">
-          <span class="stat-value" id="stat-users">0</span>
-          <span class="stat-label" data-i18n="dashboard.connectedUsers">Users</span>
-        </div>
-        <div class="stat-card stat-card--mini">
-          <span class="stat-value" id="stat-memory">0</span>
-          <span class="stat-label" data-i18n="dashboard.memory">Memory</span>
-        </div>
+    <aside class="dashboard-sidebar" id="dashboard-sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-title" data-i18n="dashboard.title">Dashboard</span>
+        <button class="sidebar-close" id="sidebar-close" aria-label="Close menu">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
       </div>
-      <section class="dashboard-lobbies">
-        <h2 data-i18n="dashboard.activeLobbies">Active Lobbies</h2>
-        <ul id="dashboard-lobby-list" class="dashboard-lobby-list">
-          <li class="dashboard-empty" data-i18n="dashboard.noActiveLobbies">No active lobbies</li>
-        </ul>
-      </section>
-      <section class="dashboard-users">
-        <div class="users-header">
-          <h2>User Management</h2>
-        </div>
-        <div class="users-stats-inline">
-          <span class="cache-stat-pill user-approved"><span id="users-approved">0</span> approved</span>
-          <span class="cache-stat-pill user-pending"><span id="users-pending">0</span> pending</span>
-          <span class="cache-stat-pill user-rejected"><span id="users-rejected">0</span> rejected</span>
-        </div>
-        <div class="users-controls">
-          <input type="text" id="users-search" class="cache-search-input" placeholder="Search users...">
-          <select id="users-filter" class="cache-sort-select">
-            <option value="all">All users</option>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-          </select>
-        </div>
-        <ul id="dashboard-user-list" class="dashboard-user-list">
-          <li class="dashboard-empty">No registered users</li>
-        </ul>
-      </section>
+      <nav class="sidebar-nav">
+        <a href="#" class="sidebar-link active" data-section="overview">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
+          Overview
+        </a>
+        <a href="#" class="sidebar-link" data-section="lobbies">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
+          Lobbies
+        </a>
+        <a href="#" class="sidebar-link" data-section="users">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+          Users
+        </a>
+        <a href="#" class="sidebar-link" data-section="cache">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+          Cache
+        </a>
+        <a href="#" class="sidebar-link" data-section="cookies">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z"/></svg>
+          Cookies
+        </a>
+      </nav>
+      <div class="sidebar-footer">
+        <span id="dashboard-uptime" class="dashboard-uptime"></span>
+        <a href="/" class="sidebar-back-link">← Back to app</a>
+      </div>
+    </aside>
 
-      <section class="dashboard-cookies">
-        <h2>YouTube Cookies</h2>
-        <p class="cookies-status" id="cookies-status">Checking...</p>
-        <details class="cookies-howto">
-          <summary>How to get cookies.txt</summary>
-          <ol>
-            <li>Install the <strong>Get cookies.txt LOCALLY</strong> extension (<a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank">Chrome</a> / <a href="https://addons.mozilla.org/firefox/addon/get-cookies-txt-locally/" target="_blank">Firefox</a>)</li>
-            <li>Open <a href="https://youtube.com" target="_blank">youtube.com</a> in your browser — <strong>no login needed</strong>, just visit the page so YouTube sets session cookies</li>
-            <li>Click the extension icon while on YouTube and export cookies</li>
-            <li>Open the downloaded <code>youtube.com_cookies.txt</code> file in a text editor, select all, and paste below</li>
-          </ol>
-        </details>
-        <textarea id="cookies-input" placeholder="Paste cookies.txt content here..." rows="6" style="width:100%;font-family:monospace;font-size:12px;margin-top:8px"></textarea>
-        <div style="display:flex;gap:8px;margin-top:8px">
-          <button id="cookies-save-btn" class="btn btn-small">Save Cookies</button>
-          <button id="cookies-delete-btn" class="btn btn-warning btn-small">Remove Cookies</button>
-        </div>
-      </section>
+    <div class="dashboard-body">
+      <header class="dashboard-topbar">
+        <button class="sidebar-hamburger" id="sidebar-hamburger" aria-label="Open menu">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+        </button>
+        <span class="dashboard-topbar-title" id="dashboard-section-title">Overview</span>
+      </header>
 
-      <section class="dashboard-cache">
-        <div class="cache-header">
-          <h2 data-i18n="dashboard.songCache">Song Cache</h2>
-          <div class="cache-header-actions">
-            <button id="redownload-missing-btn" class="btn btn-small">Re-download Missing</button>
-            <button id="purge-unregistered-btn" class="btn btn-warning btn-small">Purge Unregistered Files</button>
-            <button id="clean-orphans-btn" class="btn btn-warning btn-small">Remove All Unused</button>
-            <button id="clear-errors-btn" class="btn btn-warning btn-small">Clear Errors</button>
-            <button id="nuke-cache-btn" class="btn btn-danger btn-small" data-i18n="dashboard.clearAll">Clear All</button>
+      <main class="dashboard-main">
+        <section class="dashboard-section active" data-section="overview">
+          <div class="dashboard-stats">
+            <div class="stat-card stat-card--disk">
+              <span class="stat-value" id="stat-disk">-</span>
+              <span class="stat-label">Disk Usage</span>
+            </div>
+            <div class="stat-card stat-card--mini">
+              <span class="stat-value" id="stat-lobbies">0</span>
+              <span class="stat-label" data-i18n="dashboard.activeLobbies">Lobbies</span>
+            </div>
+            <div class="stat-card stat-card--mini">
+              <span class="stat-value" id="stat-users">0</span>
+              <span class="stat-label" data-i18n="dashboard.connectedUsers">Users</span>
+            </div>
+            <div class="stat-card stat-card--mini">
+              <span class="stat-value" id="stat-memory">0</span>
+              <span class="stat-label" data-i18n="dashboard.memory">Memory (MB)</span>
+            </div>
           </div>
-        </div>
-        <div class="cache-stats-inline">
-          <span class="cache-stat-pill ready"><span id="cache-ready">0</span> ready</span>
-          <span class="cache-stat-pill downloading"><span id="cache-downloading">0</span> downloading</span>
-          <span class="cache-stat-pill pending"><span id="cache-pending">0</span> pending</span>
-          <span class="cache-stat-pill error"><span id="cache-error">0</span> error</span>
-          <span class="cache-stat-pill duration"><span id="cache-duration">0:00</span> total</span>
-          <span class="cache-stat-pill unused"><span id="cache-unused">0</span> unused</span>
-        </div>
-        <div class="cache-controls">
-          <input type="text" id="cache-search" class="cache-search-input" placeholder="Search songs...">
-          <select id="cache-filter" class="cache-sort-select">
-            <option value="all">All songs</option>
-            <option value="unused">Unused only</option>
-            <option value="used">In use</option>
-          </select>
-          <select id="cache-sort" class="cache-sort-select">
-            <option value="date-desc">Newest first</option>
-            <option value="date-asc">Oldest first</option>
-            <option value="name-asc">Name A-Z</option>
-            <option value="name-desc">Name Z-A</option>
-            <option value="duration-desc">Longest first</option>
-            <option value="duration-asc">Shortest first</option>
-            <option value="size-desc">Largest first</option>
-            <option value="size-asc">Smallest first</option>
-          </select>
-        </div>
-        <ul id="cache-song-list" class="cache-song-list">
-          <li class="dashboard-empty" data-i18n="dashboard.noCachedSongs">No cached songs</li>
-        </ul>
-      </section>
-    </main>
+        </section>
+
+        <section class="dashboard-section" data-section="lobbies">
+          <h2 class="section-heading" data-i18n="dashboard.activeLobbies">Active Lobbies</h2>
+          <ul id="dashboard-lobby-list" class="dashboard-lobby-list">
+            <li class="dashboard-empty" data-i18n="dashboard.noActiveLobbies">No active lobbies</li>
+          </ul>
+        </section>
+
+        <section class="dashboard-section" data-section="users">
+          <h2 class="section-heading">User Management</h2>
+          <div class="users-stats-inline">
+            <span class="cache-stat-pill user-approved"><span id="users-approved">0</span> approved</span>
+            <span class="cache-stat-pill user-pending"><span id="users-pending">0</span> pending</span>
+            <span class="cache-stat-pill user-rejected"><span id="users-rejected">0</span> rejected</span>
+          </div>
+          <div class="users-controls">
+            <input type="text" id="users-search" class="cache-search-input" placeholder="Search users...">
+            <select id="users-filter" class="cache-sort-select">
+              <option value="all">All users</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+            </select>
+          </div>
+          <ul id="dashboard-user-list" class="dashboard-user-list">
+            <li class="dashboard-empty">No registered users</li>
+          </ul>
+        </section>
+
+        <section class="dashboard-section" data-section="cache">
+          <div class="cache-header">
+            <h2 class="section-heading" data-i18n="dashboard.songCache">Song Cache</h2>
+            <div class="cache-header-actions">
+              <button id="redownload-missing-btn" class="btn btn-small">Re-download Missing</button>
+              <button id="purge-unregistered-btn" class="btn btn-warning btn-small">Purge Unregistered</button>
+              <button id="clean-orphans-btn" class="btn btn-warning btn-small">Remove Unused</button>
+              <button id="clear-errors-btn" class="btn btn-warning btn-small">Clear Errors</button>
+              <button id="nuke-cache-btn" class="btn btn-danger btn-small" data-i18n="dashboard.clearAll">Clear All</button>
+            </div>
+          </div>
+          <div class="cache-stats-inline">
+            <span class="cache-stat-pill ready"><span id="cache-ready">0</span> ready</span>
+            <span class="cache-stat-pill downloading"><span id="cache-downloading">0</span> downloading</span>
+            <span class="cache-stat-pill pending"><span id="cache-pending">0</span> pending</span>
+            <span class="cache-stat-pill error"><span id="cache-error">0</span> error</span>
+            <span class="cache-stat-pill duration"><span id="cache-duration">0:00</span> total</span>
+            <span class="cache-stat-pill unused"><span id="cache-unused">0</span> unused</span>
+          </div>
+          <div class="cache-controls">
+            <input type="text" id="cache-search" class="cache-search-input" placeholder="Search songs...">
+            <select id="cache-filter" class="cache-sort-select">
+              <option value="all">All songs</option>
+              <option value="unused">Unused only</option>
+              <option value="used">In use</option>
+            </select>
+            <select id="cache-sort" class="cache-sort-select">
+              <option value="date-desc">Newest first</option>
+              <option value="date-asc">Oldest first</option>
+              <option value="name-asc">Name A-Z</option>
+              <option value="name-desc">Name Z-A</option>
+              <option value="duration-desc">Longest first</option>
+              <option value="duration-asc">Shortest first</option>
+              <option value="size-desc">Largest first</option>
+              <option value="size-asc">Smallest first</option>
+            </select>
+          </div>
+          <ul id="cache-song-list" class="cache-song-list">
+            <li class="dashboard-empty" data-i18n="dashboard.noCachedSongs">No cached songs</li>
+          </ul>
+        </section>
+
+        <section class="dashboard-section" data-section="cookies">
+          <h2 class="section-heading">YouTube Cookies</h2>
+          <p class="cookies-status" id="cookies-status">Checking...</p>
+          <details class="cookies-howto">
+            <summary>How to get cookies.txt</summary>
+            <ol>
+              <li>Install the <strong>Get cookies.txt LOCALLY</strong> extension (<a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank">Chrome</a> / <a href="https://addons.mozilla.org/firefox/addon/get-cookies-txt-locally/" target="_blank">Firefox</a>)</li>
+              <li>Open <a href="https://youtube.com" target="_blank">youtube.com</a> in your browser — <strong>no login needed</strong>, just visit the page so YouTube sets session cookies</li>
+              <li>Click the extension icon while on YouTube and export cookies</li>
+              <li>Open the downloaded <code>youtube.com_cookies.txt</code> file in a text editor, select all, and paste below</li>
+            </ol>
+          </details>
+          <textarea id="cookies-input" placeholder="Paste cookies.txt content here..." rows="6" style="width:100%;font-family:monospace;font-size:12px;margin-top:8px"></textarea>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button id="cookies-save-btn" class="btn btn-small">Save Cookies</button>
+            <button id="cookies-delete-btn" class="btn btn-warning btn-small">Remove Cookies</button>
+          </div>
+        </section>
+      </main>
+    </div>
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
   </div>
 
   <!-- Profile View -->
