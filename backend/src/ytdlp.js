@@ -255,11 +255,113 @@ function getPlaylistItems(url) {
   });
 }
 
+/**
+ * Fetch a single Spotify track's metadata via yt-dlp
+ * @param {string} url - Spotify track URL
+ * @returns {Promise<Object>} Track metadata with searchQuery for YouTube lookup
+ */
+function getSpotifyTrack(url) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('yt-dlp', ['-j', '--no-warnings', '--no-playlist', url]);
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout.on('data', d => { stdout += d.toString(); });
+    proc.stderr.on('data', d => { stderr += d.toString(); });
+
+    proc.on('close', (code) => {
+      if (code !== 0) return reject(parseSpotifyError(stderr, code));
+      try {
+        const info = JSON.parse(stdout);
+        const artist = info.artist || info.uploader || 'Unknown Artist';
+        const title = info.track || info.title || 'Unknown';
+        resolve({
+          title: `${title} - ${artist}`,
+          artist,
+          thumbnail: info.thumbnail || null,
+          duration: info.duration || 0,
+          searchQuery: `${title} ${artist}`
+        });
+      } catch {
+        reject(new Error('Failed to parse Spotify track metadata'));
+      }
+    });
+
+    proc.on('error', err => reject(new Error(`Failed to spawn yt-dlp: ${err.message}`)));
+  });
+}
+
+/**
+ * Fetch Spotify playlist items via yt-dlp (no API credentials needed)
+ * @param {string} url - Spotify playlist URL
+ * @returns {Promise<Object>} Playlist with items array (each has searchQuery for YouTube)
+ */
+function getSpotifyPlaylistItems(url) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('yt-dlp', ['--flat-playlist', '-J', '--no-warnings', url]);
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout.on('data', d => { stdout += d.toString(); });
+    proc.stderr.on('data', d => { stderr += d.toString(); });
+
+    proc.on('close', (code) => {
+      if (code !== 0) return reject(parseSpotifyError(stderr, code));
+      try {
+        const playlist = JSON.parse(stdout);
+        const entries = playlist.entries || [];
+
+        const items = entries.map(entry => {
+          const artist = entry.artist || entry.uploader || playlist.uploader || 'Unknown Artist';
+          const trackTitle = entry.track || entry.title || 'Unknown';
+          return {
+            title: `${trackTitle} - ${artist}`,
+            artist,
+            thumbnail: entry.thumbnail || null,
+            duration: entry.duration || 0,
+            searchQuery: `${trackTitle} ${artist}`
+          };
+        });
+
+        resolve({
+          title: playlist.title || 'Spotify Playlist',
+          items,
+          total: items.length,
+          limited: false
+        });
+      } catch {
+        reject(new Error('Failed to parse Spotify playlist data'));
+      }
+    });
+
+    proc.on('error', err => reject(new Error(`Failed to spawn yt-dlp: ${err.message}`)));
+  });
+}
+
+function parseSpotifyError(stderr, code) {
+  const lower = stderr.toLowerCase();
+  if (lower.includes('private') || lower.includes('login') || lower.includes('authentication')) {
+    const err = new Error('This Spotify playlist is private or requires login');
+    err.code = 'SPOTIFY_PRIVATE';
+    return err;
+  }
+  if (lower.includes('not found') || lower.includes('does not exist')) {
+    const err = new Error('Spotify playlist not found');
+    err.code = 'SPOTIFY_NOT_FOUND';
+    return err;
+  }
+  const err = new Error(`yt-dlp Spotify error (code ${code}): ${stderr.slice(0, 200)}`);
+  err.code = 'YTDLP_ERROR';
+  return err;
+}
+
 module.exports = {
   getMetadata,
   createTranscodedStream,
   parseError,
   checkAvailable,
   isPlaylistUrl,
-  getPlaylistItems
+  getPlaylistItems,
+  getSpotifyTrack,
+  getSpotifyPlaylistItems
 };

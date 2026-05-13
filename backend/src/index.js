@@ -986,45 +986,6 @@ app.get('/auth/github/callback', async (req, res) => {
   }
 });
 
-// Spotify status / diagnostics (dashboard-protected)
-app.get('/api/spotify/status', dashboardAuth, async (req, res) => {
-  if (!spotify.isEnabled()) return res.json({ enabled: false });
-  const status = { enabled: true, hasUserAuth: spotify.hasUserAuth() };
-  if (spotify.hasUserAuth()) {
-    try {
-      const me = await spotify.spotifyMe();
-      status.account = { id: me.id, name: me.display_name, country: me.country, product: me.product };
-    } catch (e) {
-      status.accountError = e.message;
-    }
-  }
-  res.json(status);
-});
-
-// Spotify OAuth setup (dashboard-protected — run once to get refresh token)
-app.get('/auth/spotify/setup', dashboardAuth, (req, res) => {
-  if (!spotify.isEnabled()) return res.status(503).send('Spotify not configured (missing SPOTIFY_CLIENT_ID/SECRET)');
-  const params = new URLSearchParams({
-    client_id: process.env.SPOTIFY_CLIENT_ID,
-    response_type: 'code',
-    redirect_uri: `${BASE_URL}/auth/spotify/callback`,
-    scope: 'playlist-read-private playlist-read-collaborative'
-  });
-  res.redirect(`https://accounts.spotify.com/authorize?${params}`);
-});
-
-app.get('/auth/spotify/callback', dashboardAuth, async (req, res) => {
-  const { code, error } = req.query;
-  if (error || !code) return res.status(400).send(`Spotify auth error: ${error || 'no code'}`);
-  try {
-    await spotify.exchangeCode(code, `${BASE_URL}/auth/spotify/callback`);
-    res.send('<h2>Spotify connected!</h2><p>Playlist import is now enabled. You can close this tab.</p>');
-  } catch (err) {
-    console.error('Spotify setup error:', err.message);
-    res.status(500).send(`Spotify setup failed: ${err.message}`);
-  }
-});
-
 // Auth status endpoint
 app.get('/api/auth/me', async (req, res) => {
   const token = parseCookie(req.headers.cookie, 'listen_auth');
@@ -2015,34 +1976,22 @@ io.on('connection', (socket) => {
     // Check if this is a Spotify URL
     const spotifyParsed = inputUrl ? spotify.parseSpotifyUrl(inputUrl) : null;
     if (spotifyParsed) {
-      if (!spotify.isEnabled()) {
-        socket.emit('queue:error', { message: 'Spotify links are not supported on this server — try pasting a YouTube link instead' });
-        return;
-      }
-
       try {
         if (spotifyParsed.type === 'playlist') {
-          if (!spotify.hasUserAuth()) {
-            socket.emit('queue:error', { message: 'Spotify playlist import requires one-time setup — ask the server admin to visit /auth/spotify/setup' });
-            return;
-          }
-          // Spotify playlist: fetch tracks, present confirmation dialog
           socket.emit('queue:adding', { status: 'Loading Spotify playlist...' });
-          const playlist = await spotify.getPlaylistTracks(spotifyParsed.id);
+          const playlist = await ytdlp.getSpotifyPlaylistItems(inputUrl);
 
           if (playlist.items.length === 0) {
             socket.emit('queue:error', { message: 'Spotify playlist is empty' });
             return;
           }
 
-          // Cache playlist items for confirmation
           cachePlaylist(inputUrl, {
             title: playlist.title,
             items: playlist.items.map(item => ({
               title: item.title,
               duration: item.duration,
               thumbnail: item.thumbnail,
-              // Store searchQuery so we can find on YouTube later
               url: `ytsearch:${item.searchQuery}`,
               uploader: item.artist
             })),
@@ -2065,9 +2014,9 @@ io.on('connection', (socket) => {
           return;
         }
 
-        // Spotify track: fetch metadata and search YouTube
+        // Spotify track: look up via yt-dlp then search YouTube
         socket.emit('queue:adding', { status: 'Looking up Spotify track...' });
-        const trackInfo = await spotify.getTrack(spotifyParsed.id);
+        const trackInfo = await ytdlp.getSpotifyTrack(inputUrl);
 
         socket.emit('queue:adding', { status: 'Finding on YouTube...' });
         const metadata = await ytdlp.getMetadata(`ytsearch:${trackInfo.searchQuery}`);
@@ -2085,7 +2034,6 @@ io.on('connection', (socket) => {
         console.error('[Spotify] Import failed:', {
           url: inputUrl,
           type: spotifyParsed.type,
-          id: spotifyParsed.id,
           error: err.message,
           stack: err.stack
         });
@@ -2773,9 +2721,6 @@ async function start() {
   } else {
     console.log('Running in memory-only mode');
   }
-
-  // Initialize Spotify integration (logs status, no-op if creds missing)
-  spotify.init();
 
   // Share session with Socket.IO for authenticated socket connections
   if (sessionMiddleware) {
