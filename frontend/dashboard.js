@@ -13,7 +13,8 @@ viewActivators.dashboard = () => {
   if (elements.nukeCacheBtn) elements.nukeCacheBtn.onclick = nukeAllCachedSongs;
   if (elements.clearErrorsBtn) elements.clearErrorsBtn.onclick = clearErrorSongs;
   if (elements.cleanOrphansBtn) elements.cleanOrphansBtn.onclick = cleanOrphanedSongs;
-  if (elements.purgeUnregisteredBtn) elements.purgeUnregisteredBtn.onclick = purgeUnregisteredFiles;
+  const purgeBtn = document.getElementById('purge-unregistered-btn');
+  if (purgeBtn) purgeBtn.onclick = purgeUnregisteredFiles;
   const cacheSearchEl = document.getElementById('cache-search');
   if (cacheSearchEl) cacheSearchEl.addEventListener('input', renderCacheSongList);
   const cacheFilterEl = document.getElementById('cache-filter');
