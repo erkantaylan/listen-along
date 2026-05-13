@@ -193,10 +193,12 @@ async function downloadSong(songId, url, lobbyId = null) {
       const target = isUrl ? url : `ytsearch:${url}`;
 
       // yt-dlp outputs raw audio to stdout
+      // player_client=web avoids SABR (Server ABR) format which breaks pipe mode
       const ytdlpProc = spawn('yt-dlp', [
         '-f', 'bestaudio',
         '-o', '-',
         '--no-playlist',
+        '--extractor-args', 'youtube:player_client=web_safari,web',
         target
       ], {
         stdio: ['ignore', 'pipe', 'pipe']
@@ -271,7 +273,8 @@ async function downloadSong(songId, url, lobbyId = null) {
         if (code === 0) {
           resolve();
         } else {
-          reject(ytdlpExitError || new Error(`ffmpeg error (${code}): ${ffmpegError.slice(0, 200)}`));
+          if (ytdlpError) console.error(`[yt-dlp stderr] ${ytdlpError.slice(-500)}`);
+          reject(ytdlpExitError || new Error(`ffmpeg error (${code}): ${ffmpegError.slice(-300)}`));
         }
       });
 
