@@ -13,6 +13,7 @@ viewActivators.dashboard = () => {
   if (elements.nukeCacheBtn) elements.nukeCacheBtn.onclick = nukeAllCachedSongs;
   if (elements.clearErrorsBtn) elements.clearErrorsBtn.onclick = clearErrorSongs;
   if (elements.cleanOrphansBtn) elements.cleanOrphansBtn.onclick = cleanOrphanedSongs;
+  if (elements.purgeUnregisteredBtn) elements.purgeUnregisteredBtn.onclick = purgeUnregisteredFiles;
   const cacheSearchEl = document.getElementById('cache-search');
   if (cacheSearchEl) cacheSearchEl.addEventListener('input', renderCacheSongList);
   const cacheFilterEl = document.getElementById('cache-filter');
@@ -40,7 +41,13 @@ export function fetchDashboardStats() {
       if (elements.statLobbies) elements.statLobbies.textContent = data.totalLobbies;
       if (elements.statUsers) elements.statUsers.textContent = data.totalUsers;
       if (elements.statMemory) elements.statMemory.textContent = Math.round(data.memoryUsage.heapUsed / 1024 / 1024);
-      if (elements.statDisk) elements.statDisk.textContent = `${(data.diskUsage.bytes / 1024 / 1024).toFixed(1)} MB (${data.diskUsage.fileCount} files)`;
+      if (elements.statDisk) {
+        let diskText = `${(data.diskUsage.bytes / 1024 / 1024).toFixed(1)} MB (${data.diskUsage.fileCount} files)`;
+        if (data.diskUsage.unregisteredFiles > 0) {
+          diskText += ` — ⚠️ ${data.diskUsage.unregisteredFiles} unregistered (${(data.diskUsage.unregisteredBytes / 1024 / 1024).toFixed(1)} MB)`;
+        }
+        elements.statDisk.textContent = diskText;
+      }
       if (elements.dashboardUptime) elements.dashboardUptime.textContent = `Uptime: ${formatUptime(data.uptime)}`;
       if (elements.dashboardLobbyList) updateDashboardLobbies(data.lobbies);
     })
@@ -175,6 +182,19 @@ function clearErrorSongs() {
     .then(res => res.json())
     .then(data => { if (data.success) { fetchCacheStats(); fetchCachedSongs(); fetchDashboardStats(); alert(`Deleted ${data.deleted} error songs`); } else alert('Failed to delete error songs'); })
     .catch(() => alert('Failed to delete error songs'));
+}
+
+function purgeUnregisteredFiles() {
+  if (!confirm('Delete all files on disk that have no database record? This frees space from old files left after a database reset.')) return;
+  fetch('/api/dashboard/cache/unregistered', { method: 'DELETE', credentials: 'include' })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        fetchCacheStats(); fetchDashboardStats();
+        alert(`Removed ${data.deleted} unregistered file${data.deleted !== 1 ? 's' : ''} (${(data.bytes / 1024 / 1024).toFixed(1)} MB freed)`);
+      } else alert('Failed to purge unregistered files');
+    })
+    .catch(() => alert('Failed to purge unregistered files'));
 }
 
 function cleanOrphanedSongs() {

@@ -1324,16 +1324,28 @@ app.get('/api/dashboard/stats', dashboardAuth, async (req, res) => {
   // Calculate disk usage from songs directory
   let diskUsageBytes = 0;
   let diskFileCount = 0;
+  let unregisteredFileCount = 0;
+  let unregisteredBytes = 0;
   try {
     const songsDir = downloader.SONGS_PATH;
     if (fs.existsSync(songsDir)) {
+      const knownPathsResult = db.isAvailable()
+        ? await db.query('SELECT file_path FROM songs WHERE file_path IS NOT NULL')
+        : { rows: [] };
+      const knownPaths = new Set(knownPathsResult.rows.map(r => r.file_path));
+
       const files = fs.readdirSync(songsDir);
       for (const file of files) {
         try {
-          const stat = fs.statSync(path.join(songsDir, file));
+          const fullPath = path.join(songsDir, file);
+          const stat = fs.statSync(fullPath);
           if (stat.isFile()) {
             diskUsageBytes += stat.size;
             diskFileCount++;
+            if (!knownPaths.has(fullPath)) {
+              unregisteredFileCount++;
+              unregisteredBytes += stat.size;
+            }
           }
         } catch {}
       }
@@ -1345,7 +1357,7 @@ app.get('/api/dashboard/stats', dashboardAuth, async (req, res) => {
     totalUsers: 0,
     uptime: process.uptime(),
     memoryUsage: process.memoryUsage(),
-    diskUsage: { bytes: diskUsageBytes, fileCount: diskFileCount },
+    diskUsage: { bytes: diskUsageBytes, fileCount: diskFileCount, unregisteredFiles: unregisteredFileCount, unregisteredBytes },
     lobbies: []
   };
 
@@ -1478,6 +1490,17 @@ app.delete('/api/dashboard/cache/orphaned', dashboardAuth, async (req, res) => {
   } catch (err) {
     console.error('Delete orphaned songs error:', err.message);
     res.status(500).json({ error: 'Failed to delete orphaned songs' });
+  }
+});
+
+// Delete disk files that have no DB record (e.g. after postgres was reset)
+app.delete('/api/dashboard/cache/unregistered', dashboardAuth, async (req, res) => {
+  try {
+    const result = await downloader.deleteUnregisteredFiles();
+    res.json({ success: true, deleted: result.deleted, bytes: result.bytes });
+  } catch (err) {
+    console.error('Delete unregistered files error:', err.message);
+    res.status(500).json({ error: 'Failed to delete unregistered files' });
   }
 });
 

@@ -531,6 +531,46 @@ async function deleteOrphanedSongs() {
 }
 
 /**
+ * Delete files on disk that have no matching record in the songs DB table.
+ * These accumulate when postgres is reset/restored while the songs volume persists.
+ * @returns {Promise<{deleted: number, bytes: number}>}
+ */
+async function deleteUnregisteredFiles() {
+  if (!db.isAvailable()) return { deleted: 0, bytes: 0 };
+
+  try {
+    const result = await db.query('SELECT file_path FROM songs WHERE file_path IS NOT NULL');
+    const knownPaths = new Set(result.rows.map(r => r.file_path));
+
+    if (!fs.existsSync(SONGS_PATH)) return { deleted: 0, bytes: 0 };
+
+    const diskFiles = fs.readdirSync(SONGS_PATH);
+    let deleted = 0;
+    let bytes = 0;
+
+    for (const file of diskFiles) {
+      const fullPath = path.join(SONGS_PATH, file);
+      if (!knownPaths.has(fullPath)) {
+        try {
+          const stat = fs.statSync(fullPath);
+          if (stat.isFile()) {
+            bytes += stat.size;
+            fs.unlinkSync(fullPath);
+            deleted++;
+          }
+        } catch {}
+      }
+    }
+
+    console.log(`Deleted ${deleted} unregistered disk files (${(bytes / 1024 / 1024).toFixed(1)} MB)`);
+    return { deleted, bytes };
+  } catch (err) {
+    console.error('Error deleting unregistered files:', err.message);
+    return { deleted: 0, bytes: 0 };
+  }
+}
+
+/**
  * Clean up old cached songs (older than maxAge)
  * @param {number} maxAge - Maximum age in milliseconds (default 7 days)
  */
@@ -579,6 +619,7 @@ module.exports = {
   deleteAllSongs,
   deleteErrorSongs,
   deleteOrphanedSongs,
+  deleteUnregisteredFiles,
   cleanupOldSongs,
   downloadEvents,
   SONGS_PATH

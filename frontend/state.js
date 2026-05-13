@@ -233,6 +233,7 @@ export const elements = {
   nukeCacheBtn: document.getElementById('nuke-cache-btn'),
   clearErrorsBtn: document.getElementById('clear-errors-btn'),
   cleanOrphansBtn: document.getElementById('clean-orphans-btn'),
+  purgeUnregisteredBtn: document.getElementById('purge-unregistered-btn'),
   dashboardUserList: document.getElementById('dashboard-user-list'),
   usersApproved: document.getElementById('users-approved'),
   usersPending: document.getElementById('users-pending'),
