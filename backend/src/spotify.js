@@ -199,23 +199,27 @@ async function getTrack(trackId) {
 async function getPlaylistTracks(playlistId) {
   const data = await spotifyApi(`/v1/playlists/${encodeURIComponent(playlistId)}`);
   const playlistTitle = data.name || 'Spotify Playlist';
-  const total = data.tracks && data.tracks.total ? data.tracks.total : 0;
 
-  console.log(`[Spotify] Playlist "${playlistTitle}" (${playlistId}): total=${total}, items=${data.tracks && data.tracks.items ? data.tracks.items.length : 'null'}, next=${data.tracks && data.tracks.next ? 'yes' : 'no'}`);
+  // Fetch tracks from the dedicated endpoint (Spotify API change, late 2024:
+  // GET /playlists/{id} no longer returns embedded tracks items)
+  let allTrackItems = [];
+  let nextUrl = `/v1/playlists/${encodeURIComponent(playlistId)}/tracks`;
 
-  let allTrackItems = data.tracks && data.tracks.items ? [...data.tracks.items] : [];
-  let nextUrl = data.tracks && data.tracks.next ? data.tracks.next : null;
-
-  // Paginate through remaining tracks
   while (nextUrl) {
-    // Extract path from full URL for our spotifyApi helper
-    const parsed = new URL(nextUrl);
+    const parsed = new URL(nextUrl, 'https://api.spotify.com');
     const pageData = await spotifyApi(parsed.pathname + parsed.search);
     if (pageData.items) {
       allTrackItems = allTrackItems.concat(pageData.items);
     }
     nextUrl = pageData.next || null;
+    if (nextUrl) {
+      const p = new URL(nextUrl);
+      nextUrl = p.pathname + p.search;
+    }
   }
+
+  const total = allTrackItems.length;
+  console.log(`[Spotify] Playlist "${playlistTitle}" (${playlistId}): fetched ${total} items`);
 
   const nullTrackCount = allTrackItems.filter(item => !item.track).length;
   if (nullTrackCount > 0) console.warn(`[Spotify] ${nullTrackCount} items had null track (local files / unavailable tracks), skipping`);
@@ -244,7 +248,7 @@ async function getPlaylistTracks(playlistId) {
   return {
     title: playlistTitle,
     items,
-    total,
+    total: items.length,
     limited: false
   };
 }
