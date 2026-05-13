@@ -13,6 +13,8 @@ viewActivators.dashboard = () => {
   if (elements.nukeCacheBtn) elements.nukeCacheBtn.onclick = nukeAllCachedSongs;
   if (elements.clearErrorsBtn) elements.clearErrorsBtn.onclick = clearErrorSongs;
   if (elements.cleanOrphansBtn) elements.cleanOrphansBtn.onclick = cleanOrphanedSongs;
+  const redownloadBtn = document.getElementById('redownload-missing-btn');
+  if (redownloadBtn) redownloadBtn.onclick = redownloadMissingSongs;
   const purgeBtn = document.getElementById('purge-unregistered-btn');
   if (purgeBtn) purgeBtn.onclick = purgeUnregisteredFiles;
   const cacheSearchEl = document.getElementById('cache-search');
@@ -183,6 +185,20 @@ function clearErrorSongs() {
     .then(res => res.json())
     .then(data => { if (data.success) { fetchCacheStats(); fetchCachedSongs(); fetchDashboardStats(); alert(`Deleted ${data.deleted} error songs`); } else alert('Failed to delete error songs'); })
     .catch(() => alert('Failed to delete error songs'));
+}
+
+function redownloadMissingSongs() {
+  fetch('/api/dashboard/cache/redownload-missing', { method: 'POST', credentials: 'include' })
+    .then(res => res.json())
+    .then(data => {
+      if (data.success) {
+        fetchCacheStats();
+        fetchCachedSongs();
+        if (data.queued === 0) alert('All songs are already cached.');
+        else alert(`Queued ${data.queued} song${data.queued !== 1 ? 's' : ''} for download. They will appear in the list as they complete.`);
+      } else alert('Failed to queue downloads: ' + (data.error || 'unknown error'));
+    })
+    .catch(() => alert('Failed to queue downloads'));
 }
 
 function purgeUnregisteredFiles() {

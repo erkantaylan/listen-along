@@ -1482,6 +1482,52 @@ app.delete('/api/dashboard/cache/errors', dashboardAuth, async (req, res) => {
   }
 });
 
+// Re-download all songs in queues/playlists that are missing or broken
+app.post('/api/dashboard/cache/redownload-missing', dashboardAuth, async (req, res) => {
+  try {
+    // Collect all unique URLs + best available metadata from queues and playlists
+    const result = await db.query(`
+      SELECT url, title, duration, thumbnail
+      FROM (
+        SELECT url, title, duration, thumbnail FROM queue_songs
+        UNION
+        SELECT url, title, duration, thumbnail FROM playlist_songs
+      ) all_songs
+      WHERE url NOT IN (
+        SELECT url FROM songs
+        WHERE status = 'ready'
+          AND file_path IS NOT NULL
+          AND file_path != ''
+      )
+    `);
+
+    if (result.rows.length === 0) {
+      return res.json({ success: true, queued: 0, message: 'All songs already cached' });
+    }
+
+    // Fire off downloads in background — don't await them all
+    let queued = 0;
+    for (const row of result.rows) {
+      try {
+        await downloader.startDownload(row.url, {
+          title: row.title,
+          duration: row.duration,
+          thumbnail: row.thumbnail
+        });
+        queued++;
+      } catch (err) {
+        console.error(`[redownload] Failed to queue ${row.url}:`, err.message);
+      }
+    }
+
+    console.log(`[redownload] Queued ${queued} missing songs for download`);
+    res.json({ success: true, queued, total: result.rows.length });
+  } catch (err) {
+    console.error('Redownload missing error:', err.message);
+    res.status(500).json({ error: 'Failed to queue missing downloads' });
+  }
+});
+
 // Delete orphaned cached songs (not in any queue or playlist)
 app.delete('/api/dashboard/cache/orphaned', dashboardAuth, async (req, res) => {
   try {
