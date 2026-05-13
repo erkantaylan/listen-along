@@ -160,6 +160,7 @@ export function renderCacheSongList() {
       ${thumbnail}
       <div class="cache-song-info"><div class="cache-song-title">${escapeHtml(song.title || 'Unknown')}</div>
         <div class="cache-song-meta"><span>${duration}</span><span>${fileSize}</span><span class="cache-song-status ${song.status}">${song.status}</span>${usageBadge}</div>
+        ${song.status === 'error' && song.error_message ? `<div class="cache-song-error">${escapeHtml(song.error_message)}</div>` : ''}
       </div>
       <div class="cache-song-actions">
         ${song.status === 'ready' ? `<button class="btn-icon" onclick="window.playCachedSong(${JSON.stringify(song.url)})" title="Play"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button>` : ''}

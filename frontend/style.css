@@ -2303,6 +2303,13 @@ html, body {
   opacity: 0.7;
 }
 
+.cache-song-error {
+  font-size: 11px;
+  color: #dc3545;
+  margin-top: 2px;
+  opacity: 0.85;
+}
+
 .cache-song-actions {
   display: flex;
   gap: 0.375rem;

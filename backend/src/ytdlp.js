@@ -27,6 +27,7 @@ function getMetadata(query) {
       '-j',                    // JSON output
       '--no-playlist',         // Single video only
       '-f', 'bestaudio',       // Audio format selection
+      '--extractor-args', 'youtube:player_client=ios,web_safari,web',
       target
     ];
 
@@ -83,6 +84,7 @@ function createTranscodedStream(query) {
     '-f', 'bestaudio',
     '-o', '-',
     '--no-playlist',
+    '--extractor-args', 'youtube:player_client=ios,web_safari,web',
     ...getCookiesArgs(),
     target
   ], {

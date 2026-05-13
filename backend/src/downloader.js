@@ -231,16 +231,16 @@ async function downloadSong(songId, url, lobbyId = null) {
     console.log(`Starting download: ${url}`);
 
     await new Promise((resolve, reject) => {
-      const isUrl = url.startsWith('http://') || url.startsWith('https://');
+      const isUrl = url.startsWith('http://') || url.startsWith('https://') || url.startsWith('ytsearch:');
       const target = isUrl ? url : `ytsearch:${url}`;
 
       // yt-dlp outputs raw audio to stdout
-      // player_client=web avoids SABR (Server ABR) format which breaks pipe mode
+      // ios client bypasses n-challenge entirely; web_safari/web as fallback avoid SABR pipe issues
       const ytdlpProc = spawn('yt-dlp', [
         '-f', 'bestaudio',
         '-o', '-',
         '--no-playlist',
-        '--extractor-args', 'youtube:player_client=web_safari,web',
+        '--extractor-args', 'youtube:player_client=ios,web_safari,web',
         ...getCookiesArgs(),
         target
       ], {
