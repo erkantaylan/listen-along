@@ -194,11 +194,11 @@ function redownloadMissingSongs() {
       if (data.success) {
         fetchCacheStats();
         fetchCachedSongs();
-        if (data.queued === 0) alert('All songs are already cached.');
-        else alert(`Queued ${data.queued} song${data.queued !== 1 ? 's' : ''} for download. They will appear in the list as they complete.`);
-      } else alert('Failed to queue downloads: ' + (data.error || 'unknown error'));
+        if (data.queued === 0) showToast('All songs are already cached', 'info');
+        else showToast(`Queued ${data.queued} song${data.queued !== 1 ? 's' : ''} for download`, 'success');
+      } else showToast('Failed to queue downloads: ' + (data.error || 'unknown error'), 'error');
     })
-    .catch(() => alert('Failed to queue downloads'));
+    .catch(() => showToast('Failed to queue downloads', 'error'));
 }
 
 function purgeUnregisteredFiles() {
@@ -208,10 +208,10 @@ function purgeUnregisteredFiles() {
     .then(data => {
       if (data.success) {
         fetchCacheStats(); fetchDashboardStats();
-        alert(`Removed ${data.deleted} unregistered file${data.deleted !== 1 ? 's' : ''} (${(data.bytes / 1024 / 1024).toFixed(1)} MB freed)`);
-      } else alert('Failed to purge unregistered files');
+        showToast(`Removed ${data.deleted} unregistered file${data.deleted !== 1 ? 's' : ''} (${(data.bytes / 1024 / 1024).toFixed(1)} MB freed)`, 'success');
+      } else showToast('Failed to purge unregistered files', 'error');
     })
-    .catch(() => alert('Failed to purge unregistered files'));
+    .catch(() => showToast('Failed to purge unregistered files', 'error'));
 }
 
 function cleanOrphanedSongs() {

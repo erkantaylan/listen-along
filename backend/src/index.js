@@ -209,7 +209,13 @@ app.get('/login', (req, res) => {
   }
   res.sendFile(path.join(frontendPath, 'login.html'));
 });
-app.use(express.static(frontendPath));
+app.use(express.static(frontendPath, {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.js') || filePath.endsWith('.css')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    }
+  }
+}));
 
 // Socket.IO setup with CORS
 const io = new Server(server, {
