@@ -3364,6 +3364,21 @@ html, body {
   flex-shrink: 0;
 }
 
+.dashboard-user-avatar-img {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.dashboard-user-handle {
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-left: 0.35rem;
+  font-size: 0.8rem;
+}
+
 .dashboard-user-info {
   flex: 1;
   min-width: 0;

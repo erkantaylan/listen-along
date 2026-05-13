@@ -213,15 +213,23 @@ export function renderDashboardUserList() {
   const filterStatus = elements.usersFilter ? elements.usersFilter.value : 'all';
   let filtered = dashboardUsers;
   if (filterStatus !== 'all') filtered = filtered.filter(u => u.status === filterStatus);
-  if (searchTerm) filtered = filtered.filter(u => (u.username || '').toLocaleLowerCase('tr').includes(searchTerm) || (u.email || '').toLocaleLowerCase('tr').includes(searchTerm) || (u.user_id || '').toLocaleLowerCase('tr').includes(searchTerm));
+  if (searchTerm) filtered = filtered.filter(u => (u.username || '').toLocaleLowerCase('tr').includes(searchTerm) || (u.name || '').toLocaleLowerCase('tr').includes(searchTerm) || (u.email || '').toLocaleLowerCase('tr').includes(searchTerm) || (u.user_id || '').toLocaleLowerCase('tr').includes(searchTerm));
   if (filtered.length === 0) { elements.dashboardUserList.innerHTML = '<li class="dashboard-empty">No users found</li>'; return; }
   elements.dashboardUserList.innerHTML = filtered.map(user => {
     const date = new Date(parseInt(user.created_at)).toLocaleDateString();
     const showApprove = user.status !== 'approved';
     const showReject = user.status !== 'rejected';
+    const avatarHtml = user.avatar_url
+      ? `<img class="dashboard-user-avatar-img" src="${escapeHtml(user.avatar_url)}" alt="" loading="lazy">`
+      : `<div class="dashboard-user-avatar">${user.emoji || '\uD83C\uDFB5'}</div>`;
+    const displayName = user.name || user.username;
+    const subName = user.name && user.username && user.name !== user.username ? `<span class="dashboard-user-handle">@${escapeHtml(user.username)}</span>` : '';
     return `<li class="dashboard-user-item" data-user-id="${escapeHtml(user.id)}">
-      <div class="dashboard-user-avatar">${user.emoji || '\uD83C\uDFB5'}</div>
-      <div class="dashboard-user-info"><div class="dashboard-user-name">${escapeHtml(user.username)}</div><div class="dashboard-user-meta">${escapeHtml(user.user_id)} &middot; ${user.provider || 'local'} &middot; ${date}</div></div>
+      ${avatarHtml}
+      <div class="dashboard-user-info">
+        <div class="dashboard-user-name">${escapeHtml(displayName)}${subName}</div>
+        <div class="dashboard-user-meta">${escapeHtml(user.email || user.user_id)} &middot; ${user.provider || 'local'} &middot; ${date}</div>
+      </div>
       <span class="dashboard-user-status status-${user.status}">${user.status}</span>
       <div class="dashboard-user-actions">
         ${showApprove ? `<button class="btn btn-small btn-approve" onclick="window.dashboardApproveUser('${escapeHtml(user.id)}')">Approve</button>` : ''}
