@@ -2,6 +2,7 @@ const https = require('https');
 
 let accessToken = null;
 let tokenExpiry = 0;
+let refreshToken = process.env.SPOTIFY_REFRESH_TOKEN || null;
 let enabled = false;
 let tokenFetchInFlight = null;
 
@@ -10,10 +11,6 @@ const REQUEST_TIMEOUT_MS = 15000;
 const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
 const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
 
-/**
- * Initialize Spotify integration.
- * Logs status and returns whether Spotify is enabled.
- */
 function init() {
   if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET) {
     console.log('Spotify integration disabled: missing SPOTIFY_CLIENT_ID/SPOTIFY_CLIENT_SECRET');
@@ -21,22 +18,26 @@ function init() {
     return false;
   }
   enabled = true;
-  console.log('Spotify integration enabled');
+  if (refreshToken) {
+    console.log('[Spotify] Integration enabled (Authorization Code flow — playlist import ready)');
+  } else {
+    console.log('[Spotify] Integration enabled (Client Credentials only — playlist import requires setup, visit /auth/spotify/setup)');
+  }
   return true;
 }
 
-/**
- * Check if Spotify integration is enabled
- */
-function isEnabled() {
-  return enabled;
+function isEnabled() { return enabled; }
+
+function hasUserAuth() { return !!refreshToken; }
+
+function setRefreshToken(token) {
+  refreshToken = token;
+  // Invalidate cached access token so next call uses the new refresh token
+  accessToken = null;
+  tokenExpiry = 0;
+  console.log('[Spotify] Refresh token stored — Authorization Code flow active');
 }
 
-/**
- * Check if a URL is a Spotify track or playlist URL
- * @param {string} url
- * @returns {{ type: 'track'|'playlist', id: string } | null}
- */
 function parseSpotifyUrl(url) {
   if (!url || typeof url !== 'string') return null;
   try {
@@ -54,21 +55,10 @@ function parseSpotifyUrl(url) {
   }
 }
 
-/**
- * Get an access token using Client Credentials flow
- */
-function getAccessToken() {
-  if (accessToken && Date.now() < tokenExpiry) {
-    return Promise.resolve(accessToken);
-  }
-
-  // Deduplicate concurrent token requests
-  if (tokenFetchInFlight) return tokenFetchInFlight;
-
-  tokenFetchInFlight = new Promise((resolve, reject) => {
+function postToAccounts(body) {
+  return new Promise((resolve, reject) => {
     const credentials = Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString('base64');
-    const body = 'grant_type=client_credentials';
-
+    const bodyStr = typeof body === 'string' ? body : new URLSearchParams(body).toString();
     const options = {
       hostname: 'accounts.spotify.com',
       path: '/api/token',
@@ -76,187 +66,139 @@ function getAccessToken() {
       headers: {
         'Authorization': `Basic ${credentials}`,
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Content-Length': Buffer.byteLength(body)
+        'Content-Length': Buffer.byteLength(bodyStr)
       }
     };
-
     const req = https.request(options, (res) => {
       let data = '';
-      res.on('data', (chunk) => { data += chunk; });
+      res.on('data', chunk => { data += chunk; });
       res.on('end', () => {
         if (res.statusCode !== 200) {
           return reject(new Error(`Spotify auth failed (${res.statusCode}): ${data.slice(0, 200)}`));
         }
-        try {
-          const json = JSON.parse(data);
-          accessToken = json.access_token;
-          tokenExpiry = Date.now() + (json.expires_in - 60) * 1000;
-          console.log(`[Spotify] Access token refreshed, expires in ${json.expires_in}s`);
-          resolve(accessToken);
-        } catch (e) {
-          reject(new Error('Failed to parse Spotify auth response'));
-        }
+        try { resolve(JSON.parse(data)); }
+        catch { reject(new Error('Failed to parse Spotify auth response')); }
       });
     });
-
-    req.setTimeout(REQUEST_TIMEOUT_MS, () => {
-      req.destroy(new Error(`Spotify auth request timed out after ${REQUEST_TIMEOUT_MS}ms`));
-    });
-
-    req.on('error', (err) => {
-      reject(new Error(`Spotify auth request failed: ${err.message}`));
-    });
-
-    req.write(body);
+    req.setTimeout(REQUEST_TIMEOUT_MS, () => req.destroy(new Error('Spotify auth timed out')));
+    req.on('error', err => reject(new Error(`Spotify auth request failed: ${err.message}`)));
+    req.write(bodyStr);
     req.end();
-  }).finally(() => {
-    tokenFetchInFlight = null;
   });
+}
+
+// Exchange authorization code for tokens (called once during setup)
+async function exchangeCode(code, redirectUri) {
+  const json = await postToAccounts({ grant_type: 'authorization_code', code, redirect_uri: redirectUri });
+  accessToken = json.access_token;
+  tokenExpiry = Date.now() + (json.expires_in - 60) * 1000;
+  setRefreshToken(json.refresh_token);
+  return json;
+}
+
+function getAccessToken() {
+  if (accessToken && Date.now() < tokenExpiry) return Promise.resolve(accessToken);
+  if (tokenFetchInFlight) return tokenFetchInFlight;
+
+  tokenFetchInFlight = (async () => {
+    let json;
+    if (refreshToken) {
+      json = await postToAccounts({ grant_type: 'refresh_token', refresh_token: refreshToken });
+      // Spotify may issue a new refresh token — rotate if so
+      if (json.refresh_token) setRefreshToken(json.refresh_token);
+    } else {
+      json = await postToAccounts('grant_type=client_credentials');
+    }
+    accessToken = json.access_token;
+    tokenExpiry = Date.now() + (json.expires_in - 60) * 1000;
+    const flow = refreshToken ? 'refresh' : 'client_credentials';
+    console.log(`[Spotify] Access token refreshed (${flow}), expires in ${json.expires_in}s`);
+    return accessToken;
+  })().finally(() => { tokenFetchInFlight = null; });
 
   return tokenFetchInFlight;
 }
 
-/**
- * Make a request to the Spotify API
- * @param {string} path - API path (e.g., /v1/tracks/xxx)
- * @returns {Promise<Object>}
- */
 async function spotifyApi(path, attempt = 1) {
   const token = await getAccessToken();
   return new Promise((resolve, reject) => {
-    const options = {
+    const req = https.request({
       hostname: 'api.spotify.com',
       path,
       method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    };
-
-    const req = https.request(options, (res) => {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }, (res) => {
       let data = '';
-      res.on('data', (chunk) => { data += chunk; });
+      res.on('data', chunk => { data += chunk; });
       res.on('end', () => {
         if (res.statusCode === 429 && attempt <= 3) {
-          const retryAfter = parseInt(res.headers['retry-after'] || '2', 10);
-          console.warn(`[Spotify] Rate limited on ${path}, retrying in ${retryAfter}s (attempt ${attempt}/3)`);
-          setTimeout(() => {
-            spotifyApi(path, attempt + 1).then(resolve).catch(reject);
-          }, retryAfter * 1000);
+          const wait = parseInt(res.headers['retry-after'] || '2', 10);
+          console.warn(`[Spotify] Rate limited on ${path}, retrying in ${wait}s (attempt ${attempt}/3)`);
+          setTimeout(() => spotifyApi(path, attempt + 1).then(resolve).catch(reject), wait * 1000);
           return;
         }
         if (res.statusCode !== 200) {
           return reject(new Error(`Spotify API error (${res.statusCode}): ${data.slice(0, 200)}`));
         }
-        try {
-          resolve(JSON.parse(data));
-        } catch (e) {
-          reject(new Error(`Failed to parse Spotify API response for ${path}`));
-        }
+        try { resolve(JSON.parse(data)); }
+        catch { reject(new Error(`Failed to parse Spotify API response for ${path}`)); }
       });
     });
-
-    req.setTimeout(REQUEST_TIMEOUT_MS, () => {
-      req.destroy(new Error(`Spotify API request timed out after ${REQUEST_TIMEOUT_MS}ms (${path})`));
-    });
-
-    req.on('error', (err) => {
-      reject(new Error(`Spotify API request failed: ${err.message} (${path})`));
-    });
-
+    req.setTimeout(REQUEST_TIMEOUT_MS, () => req.destroy(new Error(`Spotify API request timed out (${path})`)));
+    req.on('error', err => reject(new Error(`Spotify API request failed: ${err.message} (${path})`)));
     req.end();
   });
 }
 
-/**
- * Get track metadata from Spotify
- * @param {string} trackId - Spotify track ID
- * @returns {Promise<{ title: string, artist: string, thumbnail: string, duration: number, searchQuery: string }>}
- */
 async function getTrack(trackId) {
   const data = await spotifyApi(`/v1/tracks/${encodeURIComponent(trackId)}`);
   const artists = data.artists ? data.artists.map(a => a.name).join(', ') : 'Unknown Artist';
-  const title = data.name;
-  const thumbnail = data.album && data.album.images && data.album.images.length > 0
-    ? data.album.images[0].url
-    : null;
-  const duration = data.duration_ms ? data.duration_ms / 1000 : 0;
-
+  const thumbnail = data.album && data.album.images && data.album.images.length > 0 ? data.album.images[0].url : null;
   return {
-    title: `${title} - ${artists}`,
+    title: `${data.name} - ${artists}`,
     artist: artists,
     thumbnail,
-    duration,
-    searchQuery: `${title} ${artists}`
+    duration: data.duration_ms ? data.duration_ms / 1000 : 0,
+    searchQuery: `${data.name} ${artists}`
   };
 }
 
-/**
- * Get all tracks from a Spotify playlist (with pagination)
- * @param {string} playlistId - Spotify playlist ID
- * @returns {Promise<{ title: string, items: Array<{ title: string, artist: string, thumbnail: string, duration: number, searchQuery: string }>, total: number, limited: boolean }>}
- */
 async function getPlaylistTracks(playlistId) {
   const data = await spotifyApi(`/v1/playlists/${encodeURIComponent(playlistId)}`);
   const playlistTitle = data.name || 'Spotify Playlist';
 
-  // Fetch tracks from the dedicated endpoint (Spotify API change, late 2024:
-  // GET /playlists/{id} no longer returns embedded tracks items)
   let allTrackItems = [];
   let nextUrl = `/v1/playlists/${encodeURIComponent(playlistId)}/tracks`;
-
   while (nextUrl) {
-    const parsed = new URL(nextUrl, 'https://api.spotify.com');
-    const pageData = await spotifyApi(parsed.pathname + parsed.search);
-    if (pageData.items) {
-      allTrackItems = allTrackItems.concat(pageData.items);
-    }
-    nextUrl = pageData.next || null;
-    if (nextUrl) {
-      const p = new URL(nextUrl);
-      nextUrl = p.pathname + p.search;
-    }
+    const p = new URL(nextUrl, 'https://api.spotify.com');
+    const page = await spotifyApi(p.pathname + p.search);
+    if (page.items) allTrackItems = allTrackItems.concat(page.items);
+    nextUrl = page.next ? (() => { const u = new URL(page.next); return u.pathname + u.search; })() : null;
   }
 
-  const total = allTrackItems.length;
-  console.log(`[Spotify] Playlist "${playlistTitle}" (${playlistId}): fetched ${total} items`);
-
-  const nullTrackCount = allTrackItems.filter(item => !item.track).length;
-  if (nullTrackCount > 0) console.warn(`[Spotify] ${nullTrackCount} items had null track (local files / unavailable tracks), skipping`);
-  console.log(`[Spotify] Fetched ${allTrackItems.length} total items, ${allTrackItems.length - nullTrackCount} valid tracks`);
+  const nullCount = allTrackItems.filter(i => !i.track).length;
+  if (nullCount > 0) console.warn(`[Spotify] ${nullCount} items skipped (local files / unavailable tracks)`);
+  console.log(`[Spotify] Playlist "${playlistTitle}": ${allTrackItems.length - nullCount} valid tracks`);
 
   const items = allTrackItems
-    .filter(item => item.track)
-    .map(item => {
-      const track = item.track;
-      const artists = track.artists ? track.artists.map(a => a.name).join(', ') : 'Unknown Artist';
-      const title = track.name;
-      const thumbnail = track.album && track.album.images && track.album.images.length > 0
-        ? track.album.images[0].url
-        : null;
-      const duration = track.duration_ms ? track.duration_ms / 1000 : 0;
-
+    .filter(i => i.track)
+    .map(i => {
+      const t = i.track;
+      const artists = t.artists ? t.artists.map(a => a.name).join(', ') : 'Unknown Artist';
+      const thumbnail = t.album && t.album.images && t.album.images.length > 0 ? t.album.images[0].url : null;
       return {
-        title: `${title} - ${artists}`,
+        title: `${t.name} - ${artists}`,
         artist: artists,
         thumbnail,
-        duration,
-        searchQuery: `${title} ${artists}`
+        duration: t.duration_ms ? t.duration_ms / 1000 : 0,
+        searchQuery: `${t.name} ${artists}`
       };
     });
 
-  return {
-    title: playlistTitle,
-    items,
-    total: items.length,
-    limited: false
-  };
+  return { title: playlistTitle, items, total: items.length, limited: false };
 }
 
 module.exports = {
-  init,
-  isEnabled,
-  parseSpotifyUrl,
-  getTrack,
-  getPlaylistTracks
+  init, isEnabled, hasUserAuth, setRefreshToken, exchangeCode,
+  parseSpotifyUrl, getTrack, getPlaylistTracks
 };

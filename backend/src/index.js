@@ -986,6 +986,30 @@ app.get('/auth/github/callback', async (req, res) => {
   }
 });
 
+// Spotify OAuth setup (dashboard-protected — run once to get refresh token)
+app.get('/auth/spotify/setup', dashboardAuth, (req, res) => {
+  if (!spotify.isEnabled()) return res.status(503).send('Spotify not configured (missing SPOTIFY_CLIENT_ID/SECRET)');
+  const params = new URLSearchParams({
+    client_id: process.env.SPOTIFY_CLIENT_ID,
+    response_type: 'code',
+    redirect_uri: `${BASE_URL}/auth/spotify/callback`,
+    scope: 'playlist-read-private playlist-read-collaborative'
+  });
+  res.redirect(`https://accounts.spotify.com/authorize?${params}`);
+});
+
+app.get('/auth/spotify/callback', dashboardAuth, async (req, res) => {
+  const { code, error } = req.query;
+  if (error || !code) return res.status(400).send(`Spotify auth error: ${error || 'no code'}`);
+  try {
+    await spotify.exchangeCode(code, `${BASE_URL}/auth/spotify/callback`);
+    res.send('<h2>Spotify connected!</h2><p>Playlist import is now enabled. You can close this tab.</p>');
+  } catch (err) {
+    console.error('Spotify setup error:', err.message);
+    res.status(500).send(`Spotify setup failed: ${err.message}`);
+  }
+});
+
 // Auth status endpoint
 app.get('/api/auth/me', async (req, res) => {
   const token = parseCookie(req.headers.cookie, 'listen_auth');
@@ -1983,6 +2007,10 @@ io.on('connection', (socket) => {
 
       try {
         if (spotifyParsed.type === 'playlist') {
+          if (!spotify.hasUserAuth()) {
+            socket.emit('queue:error', { message: 'Spotify playlist import requires one-time setup — ask the server admin to visit /auth/spotify/setup' });
+            return;
+          }
           // Spotify playlist: fetch tracks, present confirmation dialog
           socket.emit('queue:adding', { status: 'Loading Spotify playlist...' });
           const playlist = await spotify.getPlaylistTracks(spotifyParsed.id);
