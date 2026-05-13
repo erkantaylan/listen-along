@@ -58,10 +58,26 @@ function isCachedFileValid(filePath) {
   if (!filePath) return false;
   try {
     const stats = fs.statSync(filePath);
-    return stats.isFile() && stats.size > 0;
+    return stats.isFile() && stats.size > 10240; // must be >10KB to be a real audio file
   } catch {
     return false;
   }
+}
+
+function validateAudioFile(filePath) {
+  return new Promise((resolve) => {
+    const proc = spawn('ffprobe', [
+      '-v', 'error',
+      '-select_streams', 'a:0',
+      '-show_entries', 'stream=codec_type',
+      '-of', 'csv=p=0',
+      filePath
+    ]);
+    let stdout = '';
+    proc.stdout.on('data', d => { stdout += d.toString(); });
+    proc.on('close', (code) => resolve(code === 0 && stdout.trim() === 'audio'));
+    proc.on('error', () => resolve(false));
+  });
 }
 
 /**
@@ -287,9 +303,14 @@ async function downloadSong(songId, url, lobbyId = null) {
       });
     });
 
-    // Verify file was created
+    // Verify file was created and is a valid audio file
     if (!isCachedFileValid(outputPath)) {
       throw new Error('Download completed but file is invalid');
+    }
+    const audioValid = await validateAudioFile(outputPath);
+    if (!audioValid) {
+      fs.unlinkSync(outputPath);
+      throw new Error('Download produced an unplayable file (corrupt or wrong format)');
     }
 
     // Update status to ready
