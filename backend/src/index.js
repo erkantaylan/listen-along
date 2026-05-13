@@ -986,6 +986,21 @@ app.get('/auth/github/callback', async (req, res) => {
   }
 });
 
+// Spotify status / diagnostics (dashboard-protected)
+app.get('/api/spotify/status', dashboardAuth, async (req, res) => {
+  if (!spotify.isEnabled()) return res.json({ enabled: false });
+  const status = { enabled: true, hasUserAuth: spotify.hasUserAuth() };
+  if (spotify.hasUserAuth()) {
+    try {
+      const me = await spotify.spotifyMe();
+      status.account = { id: me.id, name: me.display_name, country: me.country, product: me.product };
+    } catch (e) {
+      status.accountError = e.message;
+    }
+  }
+  res.json(status);
+});
+
 // Spotify OAuth setup (dashboard-protected — run once to get refresh token)
 app.get('/auth/spotify/setup', dashboardAuth, (req, res) => {
   if (!spotify.isEnabled()) return res.status(503).send('Spotify not configured (missing SPOTIFY_CLIENT_ID/SECRET)');

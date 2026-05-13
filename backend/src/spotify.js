@@ -92,7 +92,15 @@ async function exchangeCode(code, redirectUri) {
   const json = await postToAccounts({ grant_type: 'authorization_code', code, redirect_uri: redirectUri });
   accessToken = json.access_token;
   tokenExpiry = Date.now() + (json.expires_in - 60) * 1000;
+  console.log(`[Spotify] Granted scopes: ${json.scope}`);
   setRefreshToken(json.refresh_token);
+  // Log which account connected
+  try {
+    const me = await spotifyApi('/v1/me');
+    console.log(`[Spotify] Connected account: ${me.display_name} (${me.id}) country=${me.country}`);
+  } catch (e) {
+    console.warn('[Spotify] Could not fetch /v1/me after setup:', e.message);
+  }
   return json;
 }
 
@@ -198,7 +206,11 @@ async function getPlaylistTracks(playlistId) {
   return { title: playlistTitle, items, total: items.length, limited: false };
 }
 
+async function spotifyMe() {
+  return spotifyApi('/v1/me');
+}
+
 module.exports = {
-  init, isEnabled, hasUserAuth, setRefreshToken, exchangeCode,
+  init, isEnabled, hasUserAuth, setRefreshToken, exchangeCode, spotifyMe,
   parseSpotifyUrl, getTrack, getPlaylistTracks
 };
