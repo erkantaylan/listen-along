@@ -18,6 +18,21 @@ const downloadEvents = new EventEmitter();
 // Track active downloads with their progress
 const activeDownloads = new Map();
 
+// Concurrency-limited download queue
+const MAX_CONCURRENT_DOWNLOADS = 3;
+let activeDownloadCount = 0;
+const pendingDownloadQueue = []; // { songId, url, lobbyId }
+
+function drainDownloadQueue() {
+  while (activeDownloadCount < MAX_CONCURRENT_DOWNLOADS && pendingDownloadQueue.length > 0) {
+    const { songId, url, lobbyId } = pendingDownloadQueue.shift();
+    activeDownloadCount++;
+    downloadSong(songId, url, lobbyId)
+      .catch(err => { console.error('Download failed for %s: %s', url, err.message); })
+      .finally(() => { activeDownloadCount--; drainDownloadQueue(); });
+  }
+}
+
 // Directory for cached songs
 const SONGS_PATH = process.env.SONGS_PATH || '/data/songs';
 
@@ -158,7 +173,7 @@ async function startDownload(url, metadata = {}, lobbyId = null) {
     lobbyId
   });
 
-  // Start download - await if waitForComplete flag is set, otherwise background
+  // Start download - await if waitForComplete flag is set, otherwise queue
   if (metadata.waitForComplete) {
     try {
       await downloadSong(songId, url, lobbyId);
@@ -166,9 +181,8 @@ async function startDownload(url, metadata = {}, lobbyId = null) {
       console.error('Download failed for %s: %s', url, err.message);
     }
   } else {
-    downloadSong(songId, url, lobbyId).catch(err => {
-      console.error('Download failed for %s: %s', url, err.message);
-    });
+    pendingDownloadQueue.push({ songId, url, lobbyId });
+    drainDownloadQueue();
   }
 
   return songId;
