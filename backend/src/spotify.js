@@ -175,7 +175,7 @@ async function spotifyApi(path, attempt = 1) {
  */
 async function getTrack(trackId) {
   const data = await spotifyApi(`/v1/tracks/${encodeURIComponent(trackId)}`);
-  const artists = data.artists.map(a => a.name).join(', ');
+  const artists = data.artists ? data.artists.map(a => a.name).join(', ') : 'Unknown Artist';
   const title = data.name;
   const thumbnail = data.album && data.album.images && data.album.images.length > 0
     ? data.album.images[0].url
@@ -197,9 +197,11 @@ async function getTrack(trackId) {
  * @returns {Promise<{ title: string, items: Array<{ title: string, artist: string, thumbnail: string, duration: number, searchQuery: string }>, total: number, limited: boolean }>}
  */
 async function getPlaylistTracks(playlistId) {
-  const data = await spotifyApi(`/v1/playlists/${encodeURIComponent(playlistId)}?fields=name,tracks.items(track(name,artists(name),album(images),duration_ms)),tracks.total,tracks.next`);
+  const data = await spotifyApi(`/v1/playlists/${encodeURIComponent(playlistId)}`);
   const playlistTitle = data.name || 'Spotify Playlist';
   const total = data.tracks && data.tracks.total ? data.tracks.total : 0;
+
+  console.log(`[Spotify] Playlist "${playlistTitle}" (${playlistId}): total=${total}, items=${data.tracks && data.tracks.items ? data.tracks.items.length : 'null'}, next=${data.tracks && data.tracks.next ? 'yes' : 'no'}`);
 
   let allTrackItems = data.tracks && data.tracks.items ? [...data.tracks.items] : [];
   let nextUrl = data.tracks && data.tracks.next ? data.tracks.next : null;
@@ -215,11 +217,15 @@ async function getPlaylistTracks(playlistId) {
     nextUrl = pageData.next || null;
   }
 
+  const nullTrackCount = allTrackItems.filter(item => !item.track).length;
+  if (nullTrackCount > 0) console.warn(`[Spotify] ${nullTrackCount} items had null track (local files / unavailable tracks), skipping`);
+  console.log(`[Spotify] Fetched ${allTrackItems.length} total items, ${allTrackItems.length - nullTrackCount} valid tracks`);
+
   const items = allTrackItems
     .filter(item => item.track)
     .map(item => {
       const track = item.track;
-      const artists = track.artists.map(a => a.name).join(', ');
+      const artists = track.artists ? track.artists.map(a => a.name).join(', ') : 'Unknown Artist';
       const title = track.name;
       const thumbnail = track.album && track.album.images && track.album.images.length > 0
         ? track.album.images[0].url
