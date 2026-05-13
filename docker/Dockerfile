@@ -1,6 +1,8 @@
 FROM node:20-alpine
 
 RUN apk add --no-cache python3 py3-pip ffmpeg
+
+ARG YTDLP_CACHE_BUST=1
 RUN pip3 install --break-system-packages --upgrade yt-dlp
 
 WORKDIR /app
