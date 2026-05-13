@@ -2039,7 +2039,13 @@ io.on('connection', (socket) => {
         duration = metadata.duration;
         thumbnail = trackInfo.thumbnail || metadata.thumbnail;
       } catch (err) {
-        console.error('Spotify processing error:', err);
+        console.error('[Spotify] Import failed:', {
+          url: inputUrl,
+          type: spotifyParsed.type,
+          id: spotifyParsed.id,
+          error: err.message,
+          stack: err.stack
+        });
         socket.emit('queue:error', { message: `Failed to process Spotify link: ${err.message}` });
         return;
       }

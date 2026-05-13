@@ -3,6 +3,9 @@ const https = require('https');
 let accessToken = null;
 let tokenExpiry = 0;
 let enabled = false;
+let tokenFetchInFlight = null;
+
+const REQUEST_TIMEOUT_MS = 15000;
 
 const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
 const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
@@ -55,11 +58,14 @@ function parseSpotifyUrl(url) {
  * Get an access token using Client Credentials flow
  */
 function getAccessToken() {
-  return new Promise((resolve, reject) => {
-    if (accessToken && Date.now() < tokenExpiry) {
-      return resolve(accessToken);
-    }
+  if (accessToken && Date.now() < tokenExpiry) {
+    return Promise.resolve(accessToken);
+  }
 
+  // Deduplicate concurrent token requests
+  if (tokenFetchInFlight) return tokenFetchInFlight;
+
+  tokenFetchInFlight = new Promise((resolve, reject) => {
     const credentials = Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString('base64');
     const body = 'grant_type=client_credentials';
 
@@ -79,18 +85,22 @@ function getAccessToken() {
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
         if (res.statusCode !== 200) {
-          return reject(new Error(`Spotify auth failed (${res.statusCode}): ${data}`));
+          return reject(new Error(`Spotify auth failed (${res.statusCode}): ${data.slice(0, 200)}`));
         }
         try {
           const json = JSON.parse(data);
           accessToken = json.access_token;
-          // Expire 60 seconds early to avoid edge cases
           tokenExpiry = Date.now() + (json.expires_in - 60) * 1000;
+          console.log(`[Spotify] Access token refreshed, expires in ${json.expires_in}s`);
           resolve(accessToken);
         } catch (e) {
           reject(new Error('Failed to parse Spotify auth response'));
         }
       });
+    });
+
+    req.setTimeout(REQUEST_TIMEOUT_MS, () => {
+      req.destroy(new Error(`Spotify auth request timed out after ${REQUEST_TIMEOUT_MS}ms`));
     });
 
     req.on('error', (err) => {
@@ -99,7 +109,11 @@ function getAccessToken() {
 
     req.write(body);
     req.end();
+  }).finally(() => {
+    tokenFetchInFlight = null;
   });
+
+  return tokenFetchInFlight;
 }
 
 /**
@@ -107,7 +121,7 @@ function getAccessToken() {
  * @param {string} path - API path (e.g., /v1/tracks/xxx)
  * @returns {Promise<Object>}
  */
-async function spotifyApi(path) {
+async function spotifyApi(path, attempt = 1) {
   const token = await getAccessToken();
   return new Promise((resolve, reject) => {
     const options = {
@@ -123,19 +137,31 @@ async function spotifyApi(path) {
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
+        if (res.statusCode === 429 && attempt <= 3) {
+          const retryAfter = parseInt(res.headers['retry-after'] || '2', 10);
+          console.warn(`[Spotify] Rate limited on ${path}, retrying in ${retryAfter}s (attempt ${attempt}/3)`);
+          setTimeout(() => {
+            spotifyApi(path, attempt + 1).then(resolve).catch(reject);
+          }, retryAfter * 1000);
+          return;
+        }
         if (res.statusCode !== 200) {
           return reject(new Error(`Spotify API error (${res.statusCode}): ${data.slice(0, 200)}`));
         }
         try {
           resolve(JSON.parse(data));
         } catch (e) {
-          reject(new Error('Failed to parse Spotify API response'));
+          reject(new Error(`Failed to parse Spotify API response for ${path}`));
         }
       });
     });
 
+    req.setTimeout(REQUEST_TIMEOUT_MS, () => {
+      req.destroy(new Error(`Spotify API request timed out after ${REQUEST_TIMEOUT_MS}ms (${path})`));
+    });
+
     req.on('error', (err) => {
-      reject(new Error(`Spotify API request failed: ${err.message}`));
+      reject(new Error(`Spotify API request failed: ${err.message} (${path})`));
     });
 
     req.end();
