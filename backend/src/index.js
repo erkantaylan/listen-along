@@ -1979,7 +1979,7 @@ io.on('connection', (socket) => {
       try {
         if (spotifyParsed.type === 'playlist') {
           socket.emit('queue:adding', { status: 'Loading Spotify playlist...' });
-          const playlist = await ytdlp.getSpotifyPlaylistItems(inputUrl);
+          const playlist = await spotify.getPlaylistTracks(inputUrl);
 
           if (playlist.items.length === 0) {
             socket.emit('queue:error', { message: 'Spotify playlist is empty' });
@@ -2014,9 +2014,9 @@ io.on('connection', (socket) => {
           return;
         }
 
-        // Spotify track: look up via yt-dlp then search YouTube
+        // Spotify track: look up metadata then search YouTube
         socket.emit('queue:adding', { status: 'Looking up Spotify track...' });
-        const trackInfo = await ytdlp.getSpotifyTrack(inputUrl);
+        const trackInfo = await spotify.getTrack(inputUrl);
 
         socket.emit('queue:adding', { status: 'Finding on YouTube...' });
         const metadata = await ytdlp.getMetadata(`ytsearch:${trackInfo.searchQuery}`);
