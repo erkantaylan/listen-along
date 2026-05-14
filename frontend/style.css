@@ -2145,31 +2145,6 @@ html, body {
 }
 
 .stat-card--mini {
-
-.dashboard-stats {
-  display: grid;
-  grid-template-columns: 1fr repeat(3, auto);
-  gap: 0.5rem;
-  margin-bottom: 1.5rem;
-  align-items: stretch;
-}
-
-.stat-card {
-  background: var(--bg-elevated);
-  border-radius: var(--border-radius-lg);
-  padding: 0.75rem;
-  text-align: center;
-}
-
-.stat-card--disk {
-  padding: 1rem 1.25rem;
-}
-
-.stat-card--disk .stat-value {
-  font-size: 1.5rem;
-}
-
-.stat-card--mini {
   padding: 0.5rem 0.75rem;
 }
 
