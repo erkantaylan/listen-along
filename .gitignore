@@ -3,6 +3,7 @@
 .claude/
 .beads/
 .logs/
+CLAUDE.local.md
 
 # Dependencies
 node_modules/
