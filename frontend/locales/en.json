@@ -11,7 +11,12 @@
     "activeLobbies": "Active Lobbies",
     "noActiveLobbies": "No active lobbies",
     "myPlaylists": "My Playlists",
+    "playlists": "Playlists",
+    "allPublic": "All public",
+    "mine": "Mine",
     "noPlaylists": "No playlists yet",
+    "noPublicPlaylists": "No public playlists yet.",
+    "noMinePlaylists": "You haven't created any playlists yet.",
     "newPlaylist": "+ New"
   },
   "listeningMode": {

@@ -2720,6 +2720,56 @@ html, body {
   color: var(--text-primary);
 }
 
+.playlists-filter {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 0.75rem;
+  padding: 0.25rem;
+  background: var(--bg-elevated);
+  border-radius: var(--border-radius);
+}
+
+.playlists-filter-btn {
+  flex: 1;
+  padding: 0.4rem 0.75rem;
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
+  border-radius: calc(var(--border-radius) - 2px);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+
+.playlists-filter-btn:hover {
+  color: var(--text-primary);
+}
+
+.playlists-filter-btn.active {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.playlist-item-name-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.playlist-item-lock {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.playlist-item-lock svg {
+  width: 12px;
+  height: 12px;
+}
+
 .playlists-list {
   list-style: none;
   display: flex;

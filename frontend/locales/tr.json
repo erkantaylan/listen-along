@@ -11,7 +11,12 @@
     "activeLobbies": "Aktif Lobiler",
     "noActiveLobbies": "Aktif lobi yok",
     "myPlaylists": "Çalma Listelerim",
+    "playlists": "Çalma Listeleri",
+    "allPublic": "Tüm herkese açık",
+    "mine": "Benim",
     "noPlaylists": "Henüz çalma listesi yok",
+    "noPublicPlaylists": "Henüz herkese açık çalma listesi yok.",
+    "noMinePlaylists": "Henüz çalma listesi oluşturmadın.",
     "newPlaylist": "+ Yeni"
   },
   "listeningMode": {

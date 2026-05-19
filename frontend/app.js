@@ -8,7 +8,7 @@ import { createLobby, joinLobby, leaveLobby, shareLobby, handleLobbyCreated, han
 import { handlePlaybackState, handlePlaybackSync, handleTrackChanged, handleShuffleState, handleDownloadStatus, handleDownloadProgress, handleModeChanged, handleUsersUpdated, handleFollowSync, toggleUserMode, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, advanceLocalQueue, updateNowPlaying, updatePlayButton, updatePlaybackModeUI, updateListeningModeBadge, updateModeButton, _setQueueFns } from './playback.js';
 import { handleQueueUpdated, handlePlaylistConfirm, handleSongAdded, addSong, removeSong, clearQueue, moveSongUp, moveSongDown, playSongAt, setupQueueDragAndDrop, setupQueueSearch, showLibraryDialog, showImportPlaylistDialog, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './queue.js';
 import { toggleSongMention, clearSongMention, sendChatMessage, handleChatMessage, handleChatHistory, requestChatHistory, resetChat } from './chat.js';
-import { createNewPlaylist, deletePlaylistAction, openPlaylist, leaveSoloPlayer, soloPlayTrack, soloTogglePlayback, soloPrevious, soloNext, soloCycleRepeat, soloSeek, soloAddSong, soloRemoveSong, setupSoloSearch, setupSoloAudioHooks, soloOpenSource, fetchPlaylists } from './playlist.js';
+import { createNewPlaylist, deletePlaylistAction, openPlaylist, leaveSoloPlayer, soloPlayTrack, soloTogglePlayback, soloPrevious, soloNext, soloCycleRepeat, soloSeek, soloAddSong, soloRemoveSong, setupSoloSearch, setupSoloAudioHooks, soloOpenSource, fetchPlaylists, togglePlaylistPrivacy } from './playlist.js';
 
 // Wire up cross-module dependencies
 _setQueueFns(updateQueue, updateListeners);
@@ -223,6 +223,7 @@ window.app = {
   removeSong, moveSongUp, moveSongDown, playSongAt,
   openSource, copySourceUrl, soloOpenSource,
   openPlaylist, deletePlaylist: deletePlaylistAction,
+  togglePlaylistPrivacy,
   soloPlayTrack, soloRemoveSong, joinLobbyFromCard
 };
 window.dashboardJoinLobby = dashboardJoinLobby;

@@ -1,12 +1,23 @@
 // Personal playlists and solo player mode
-import { state, elements, viewActivators, STORAGE_KEYS, storageSet } from './state.js';
+import { state, elements, viewActivators, auth, STORAGE_KEYS, storageSet } from './state.js';
 import { showView, showToast, escapeHtml, sanitizeUrl, formatDuration, formatTime, t, toLower } from './ui.js';
 import { playAudioWithUnlock } from './audio.js';
 
+function currentUserId() {
+  return auth.user && auth.user.id ? auth.user.id : null;
+}
+
 // Register landing view activator (appended to existing)
 const originalLandingActivator = viewActivators.landing;
+let playlistFilterWired = false;
 viewActivators.landing = () => {
   if (originalLandingActivator) originalLandingActivator();
+  if (!playlistFilterWired) {
+    if (elements.playlistsFilterPublic) elements.playlistsFilterPublic.addEventListener('click', () => setPlaylistFilter('public'));
+    if (elements.playlistsFilterMine) elements.playlistsFilterMine.addEventListener('click', () => setPlaylistFilter('mine'));
+    playlistFilterWired = true;
+  }
+  setPlaylistFilter(state.playlistFilter || 'public');
   fetchPlaylists();
 };
 
@@ -14,38 +25,99 @@ viewActivators.landing = () => {
 viewActivators.profile = undefined; // handled by auth.js loadProfilePage
 
 export function fetchPlaylists() {
-  fetch(`/api/playlists?userId=${encodeURIComponent(state.userId)}`)
+  fetch('/api/playlists', { credentials: 'same-origin' })
     .then(res => res.json())
     .then(data => { state.playlists = data.playlists || []; renderPlaylists(); })
     .catch(() => {});
 }
 
+export function setPlaylistFilter(filter) {
+  if (filter !== 'public' && filter !== 'mine') return;
+  state.playlistFilter = filter;
+  if (elements.playlistsFilterPublic) {
+    const isPublic = filter === 'public';
+    elements.playlistsFilterPublic.classList.toggle('active', isPublic);
+    elements.playlistsFilterPublic.setAttribute('aria-selected', String(isPublic));
+  }
+  if (elements.playlistsFilterMine) {
+    const isMine = filter === 'mine';
+    elements.playlistsFilterMine.classList.toggle('active', isMine);
+    elements.playlistsFilterMine.setAttribute('aria-selected', String(isMine));
+  }
+  renderPlaylists();
+}
+
+function visiblePlaylists() {
+  const me = currentUserId();
+  if (state.playlistFilter === 'mine') {
+    return me ? state.playlists.filter(p => p.created_by === me) : [];
+  }
+  return state.playlists.filter(p => p.is_public);
+}
+
 export function renderPlaylists() {
   if (!elements.playlistsSection || !elements.playlistsList) return;
-  if (state.playlists.length === 0) {
-    elements.playlistsSection.hidden = false;
-    elements.playlistsList.innerHTML = '<li class="playlists-empty">No playlists yet. Create one to save songs!</li>';
+  elements.playlistsSection.hidden = false;
+  const me = currentUserId();
+  const list = visiblePlaylists();
+  if (list.length === 0) {
+    const emptyMsg = state.playlistFilter === 'mine'
+      ? t('landing.noMinePlaylists', 'You haven\'t created any playlists yet.')
+      : t('landing.noPublicPlaylists', 'No public playlists yet.');
+    elements.playlistsList.innerHTML = `<li class="playlists-empty">${escapeHtml(emptyMsg)}</li>`;
     return;
   }
-  elements.playlistsSection.hidden = false;
-  elements.playlistsList.innerHTML = state.playlists.map(p => `<li class="playlist-item" data-id="${escapeHtml(p.id)}"><div class="playlist-item-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg></div><div class="playlist-item-info" onclick="window.app.openPlaylist('${escapeHtml(p.id)}')"><div class="playlist-item-name">${escapeHtml(p.name)}</div><div class="playlist-item-meta">${p.song_count || 0} song${(p.song_count || 0) !== 1 ? 's' : ''}</div></div><div class="playlist-item-actions"><button class="btn-icon" onclick="window.app.deletePlaylist('${escapeHtml(p.id)}')" aria-label="Delete playlist"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button></div></li>`).join('');
+  elements.playlistsList.innerHTML = list.map(p => {
+    const isOwner = me && p.created_by === me;
+    const lockIcon = p.is_public
+      ? ''
+      : '<span class="playlist-item-lock" title="Private" aria-label="Private"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM8.9 6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2H8.9V6z"/></svg></span>';
+    const privacyBtn = isOwner
+      ? `<button class="btn-icon playlist-item-privacy" onclick="window.app.togglePlaylistPrivacy('${escapeHtml(p.id)}')" aria-label="${p.is_public ? 'Make private' : 'Make public'}" title="${p.is_public ? 'Make private' : 'Make public'}">${p.is_public
+          ? '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6h1.9c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2z"/></svg>'
+          : '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM8.9 6c0-1.71 1.39-3.1 3.1-3.1s3.1 1.39 3.1 3.1v2H8.9V6z"/></svg>'
+        }</button>`
+      : '';
+    const deleteBtn = isOwner
+      ? `<button class="btn-icon" onclick="window.app.deletePlaylist('${escapeHtml(p.id)}')" aria-label="Delete playlist" title="Delete playlist"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>`
+      : '';
+    const count = p.song_count || 0;
+    return `<li class="playlist-item" data-id="${escapeHtml(p.id)}"><div class="playlist-item-icon"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg></div><div class="playlist-item-info" onclick="window.app.openPlaylist('${escapeHtml(p.id)}')"><div class="playlist-item-name-row"><span class="playlist-item-name">${escapeHtml(p.name)}</span>${lockIcon}</div><div class="playlist-item-meta">${count} song${count !== 1 ? 's' : ''}</div></div><div class="playlist-item-actions">${privacyBtn}${deleteBtn}</div></li>`;
+  }).join('');
 }
 
 export function createNewPlaylist() {
   const name = prompt('Playlist name:');
   if (!name || !name.trim()) return;
-  fetch('/api/playlists', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: state.userId, name: name.trim() }) })
+  fetch('/api/playlists', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) })
     .then(res => { if (!res.ok) throw new Error('Failed to create'); return res.json(); })
     .then(created => { showToast(`Playlist "${created.name}" created`, 'success'); fetchPlaylists(); })
     .catch(() => showToast('Could not create playlist. Database may be unavailable.', 'error'));
 }
 
 export function deletePlaylistAction(playlistId) {
-  if (!confirm('Delete this playlist?')) return;
-  fetch(`/api/playlists/${playlistId}?userId=${encodeURIComponent(state.userId)}`, { method: 'DELETE' })
+  const p = state.playlists.find(x => x.id === playlistId);
+  const label = p && p.name ? `"${p.name}"` : 'this playlist';
+  if (!confirm(`Delete ${label}? This cannot be undone.`)) return;
+  fetch(`/api/playlists/${playlistId}`, { method: 'DELETE', credentials: 'same-origin' })
     .then(res => { if (!res.ok) throw new Error('Failed'); return res.json(); })
     .then(() => { showToast('Playlist deleted', 'success'); fetchPlaylists(); })
     .catch(() => showToast('Failed to delete playlist', 'error'));
+}
+
+export function togglePlaylistPrivacy(playlistId) {
+  const p = state.playlists.find(x => x.id === playlistId);
+  if (!p) return;
+  const next = !p.is_public;
+  fetch(`/api/playlists/${playlistId}`, {
+    method: 'PATCH',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ is_public: next })
+  })
+    .then(res => { if (!res.ok) throw new Error('Failed'); return res.json(); })
+    .then(() => { showToast(next ? 'Playlist is now public' : 'Playlist is now private', 'success'); fetchPlaylists(); })
+    .catch(() => showToast('Failed to update playlist visibility', 'error'));
 }
 
 export function openPlaylist(playlistId) {

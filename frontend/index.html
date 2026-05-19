@@ -107,11 +107,15 @@
         </ul>
       </section>
 
-      <!-- Personal Playlists Section -->
-      <section id="playlists-section" class="playlists-section" hidden>
+      <!-- Playlists Section -->
+      <section id="playlists-section" class="playlists-section">
         <div class="playlists-header">
-          <h2 data-i18n="landing.myPlaylists">My Playlists</h2>
+          <h2 data-i18n="landing.playlists">Playlists</h2>
           <button id="create-playlist-btn" class="btn btn-small btn-primary" data-i18n="landing.newPlaylist">+ New</button>
+        </div>
+        <div class="playlists-filter" role="tablist" aria-label="Playlist filter">
+          <button id="playlists-filter-public" class="playlists-filter-btn active" role="tab" aria-selected="true" data-filter="public" data-i18n="landing.allPublic">All public</button>
+          <button id="playlists-filter-mine" class="playlists-filter-btn" role="tab" aria-selected="false" data-filter="mine" data-i18n="landing.mine">Mine</button>
         </div>
         <ul id="playlists-list" class="playlists-list">
           <li class="playlists-empty" data-i18n="landing.noPlaylists">No playlists yet</li>
