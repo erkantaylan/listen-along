@@ -240,11 +240,11 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
     const pl1 = await playlist.createPlaylist('user-42', 'Road Trip Mix');
     assert.ok(pl1, 'Playlist should be created');
 
-    await playlist.addSong(pl1.id, { url: 'https://youtube.com/watch?v=rt1', title: 'Highway Star', duration: 360 });
-    await playlist.addSong(pl1.id, { url: 'https://youtube.com/watch?v=rt2', title: 'Born to Run', duration: 270 });
+    await playlist.addSong(pl1.id, 'user-42', { url: 'https://youtube.com/watch?v=rt1', title: 'Highway Star', duration: 360 });
+    await playlist.addSong(pl1.id, 'user-42', { url: 'https://youtube.com/watch?v=rt2', title: 'Born to Run', duration: 270 });
 
     const pl2 = await playlist.createPlaylist('user-42', 'Chill Vibes');
-    await playlist.addSong(pl2.id, { url: 'https://youtube.com/watch?v=cv1', title: 'Lofi Beat', duration: 180 });
+    await playlist.addSong(pl2.id, 'user-42', { url: 'https://youtube.com/watch?v=cv1', title: 'Lofi Beat', duration: 180 });
 
     // Simulate server restart
     simulateRestart();

@@ -606,17 +606,17 @@ app.get('/api/covers/:id', (req, res) => {
   res.status(404).json({ error: 'Cover not found' });
 });
 
-// Playlist endpoints (require database)
-app.get('/api/playlists', async (req, res) => {
-  const { userId } = req.query;
-  if (!userId) {
-    return res.status(400).json({ error: 'Missing query parameter: userId' });
-  }
+// Playlist endpoints — auth required, user derived from req.user.id only.
+// Visibility: GET list returns all public playlists plus the requester's own
+// private ones. GET :id returns 404 (not 403) for private-not-owned to avoid
+// leaking existence. Mutating routes return 403 on non-owner since the
+// resource is established to exist.
+app.get('/api/playlists', auth.requireAuth, async (req, res) => {
   if (!db.isAvailable()) {
     return res.json({ playlists: [] });
   }
   try {
-    const playlists = await playlist.getPlaylistsByUser(userId);
+    const playlists = await playlist.getVisiblePlaylists(req.user.id);
     res.json({ playlists });
   } catch (err) {
     console.error('Get playlists error:', err.message);
@@ -624,16 +624,16 @@ app.get('/api/playlists', async (req, res) => {
   }
 });
 
-app.post('/api/playlists', async (req, res) => {
-  const { userId, name } = req.body;
-  if (!userId || !name) {
-    return res.status(400).json({ error: 'Missing required fields: userId, name' });
+app.post('/api/playlists', auth.requireAuth, async (req, res) => {
+  const { name } = req.body;
+  if (!name) {
+    return res.status(400).json({ error: 'Missing required field: name' });
   }
   if (!db.isAvailable()) {
     return res.status(503).json({ error: 'Database not available' });
   }
   try {
-    const created = await playlist.createPlaylist(userId, name);
+    const created = await playlist.createPlaylist(req.user.id, name);
     res.status(201).json(created);
   } catch (err) {
     console.error('Create playlist error:', err.message);
@@ -641,12 +641,12 @@ app.post('/api/playlists', async (req, res) => {
   }
 });
 
-app.get('/api/playlists/:id', async (req, res) => {
+app.get('/api/playlists/:id', auth.requireAuth, async (req, res) => {
   if (!db.isAvailable()) {
     return res.status(503).json({ error: 'Database not available' });
   }
   try {
-    const p = await playlist.getPlaylist(req.params.id);
+    const p = await playlist.getPlaylistVisible(req.params.id, req.user.id);
     if (!p) {
       return res.status(404).json({ error: 'Playlist not found' });
     }
@@ -657,39 +657,44 @@ app.get('/api/playlists/:id', async (req, res) => {
   }
 });
 
-app.patch('/api/playlists/:id', async (req, res) => {
-  const { userId, name } = req.body;
-  if (!userId || !name) {
-    return res.status(400).json({ error: 'Missing required fields: userId, name' });
+app.patch('/api/playlists/:id', auth.requireAuth, async (req, res) => {
+  const { name, is_public } = req.body;
+  if (typeof name === 'undefined' && typeof is_public === 'undefined') {
+    return res.status(400).json({ error: 'Missing fields: name or is_public' });
+  }
+  if (typeof is_public !== 'undefined' && typeof is_public !== 'boolean') {
+    return res.status(400).json({ error: 'is_public must be a boolean' });
   }
   if (!db.isAvailable()) {
     return res.status(503).json({ error: 'Database not available' });
   }
   try {
-    const updated = await playlist.renamePlaylist(req.params.id, userId, name);
-    if (!updated) {
-      return res.status(404).json({ error: 'Playlist not found or unauthorized' });
+    let updated;
+    if (typeof is_public !== 'undefined') {
+      updated = await playlist.setVisibility(req.params.id, req.user.id, is_public);
+      if (updated === 'not_found') return res.status(404).json({ error: 'Playlist not found' });
+      if (updated === 'forbidden') return res.status(403).json({ error: 'Not the owner' });
+    }
+    if (typeof name !== 'undefined') {
+      updated = await playlist.renamePlaylist(req.params.id, req.user.id, name);
+      if (updated === 'not_found') return res.status(404).json({ error: 'Playlist not found' });
+      if (updated === 'forbidden') return res.status(403).json({ error: 'Not the owner' });
     }
     res.json(updated);
   } catch (err) {
-    console.error('Rename playlist error:', err.message);
-    res.status(500).json({ error: 'Failed to rename playlist' });
+    console.error('Update playlist error:', err.message);
+    res.status(500).json({ error: 'Failed to update playlist' });
   }
 });
 
-app.delete('/api/playlists/:id', async (req, res) => {
-  const userId = req.query.userId || (req.body && req.body.userId);
-  if (!userId) {
-    return res.status(400).json({ error: 'Missing required field: userId' });
-  }
+app.delete('/api/playlists/:id', auth.requireAuth, async (req, res) => {
   if (!db.isAvailable()) {
     return res.status(503).json({ error: 'Database not available' });
   }
   try {
-    const deleted = await playlist.deletePlaylist(req.params.id, userId);
-    if (!deleted) {
-      return res.status(404).json({ error: 'Playlist not found or unauthorized' });
-    }
+    const result = await playlist.deletePlaylist(req.params.id, req.user.id);
+    if (result === 'not_found') return res.status(404).json({ error: 'Playlist not found' });
+    if (result === 'forbidden') return res.status(403).json({ error: 'Not the owner' });
     res.json({ success: true });
   } catch (err) {
     console.error('Delete playlist error:', err.message);
@@ -697,7 +702,7 @@ app.delete('/api/playlists/:id', async (req, res) => {
   }
 });
 
-app.post('/api/playlists/:id/songs', async (req, res) => {
+app.post('/api/playlists/:id/songs', auth.requireAuth, async (req, res) => {
   const { url, title, duration, thumbnail } = req.body;
   if (!url) {
     return res.status(400).json({ error: 'Missing required field: url' });
@@ -706,10 +711,9 @@ app.post('/api/playlists/:id/songs', async (req, res) => {
     return res.status(503).json({ error: 'Database not available' });
   }
   try {
-    const song = await playlist.addSong(req.params.id, { url, title, duration, thumbnail });
-    if (!song) {
-      return res.status(404).json({ error: 'Playlist not found' });
-    }
+    const song = await playlist.addSong(req.params.id, req.user.id, { url, title, duration, thumbnail });
+    if (song === 'not_found') return res.status(404).json({ error: 'Playlist not found' });
+    if (song === 'forbidden') return res.status(403).json({ error: 'Not the owner' });
     res.status(201).json(song);
   } catch (err) {
     console.error('Add playlist song error:', err.message);
@@ -717,15 +721,14 @@ app.post('/api/playlists/:id/songs', async (req, res) => {
   }
 });
 
-app.delete('/api/playlists/:playlistId/songs/:songId', async (req, res) => {
+app.delete('/api/playlists/:playlistId/songs/:songId', auth.requireAuth, async (req, res) => {
   if (!db.isAvailable()) {
     return res.status(503).json({ error: 'Database not available' });
   }
   try {
-    const removed = await playlist.removeSong(req.params.playlistId, req.params.songId);
-    if (!removed) {
-      return res.status(404).json({ error: 'Song not found in playlist' });
-    }
+    const result = await playlist.removeSong(req.params.playlistId, req.params.songId, req.user.id);
+    if (result === 'forbidden') return res.status(403).json({ error: 'Not the owner' });
+    if (result === 'not_found') return res.status(404).json({ error: 'Song not found in playlist' });
     res.json({ success: true });
   } catch (err) {
     console.error('Remove playlist song error:', err.message);
