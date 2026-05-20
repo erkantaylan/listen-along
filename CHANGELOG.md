@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.29.0 (2026-05-20)
+
+- feat(playlists): playlists are now public by default; creators can make them private
+- feat(playlists): home page defaults to "All public" filter; users can switch to "Mine"
+- feat(playlists): delete button is creator-only and prompts for confirmation
+- feat(playlists): privacy toggle (creator-only) with lock indicator for private playlists
+- fix(playlists): playlist endpoints now derive user from authenticated session, not request body (security fix)
+- refactor(playlists): rename `playlists.user_id` column to `created_by`; add `is_public` column with idempotent migration
+
 ## v2.25.0 (2026-03-16)
 
 - feat: add Google and GitHub OAuth login
