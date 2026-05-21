@@ -500,9 +500,12 @@ html, body {
   flex-shrink: 0;
 }
 
+/* Mobile-first: >=44px touch targets. Icon size is kept the same — the
+   larger box comes from the button dimensions, not a scaled-up SVG.
+   Desktop slims these back down in the >=600px media query. */
 .sticky-player-controls .btn-control {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   padding: 0;
 }
 
@@ -512,15 +515,15 @@ html, body {
 }
 
 .sticky-player-controls .btn-play {
-  width: 36px;
-  height: 36px;
+  width: 48px;
+  height: 48px;
   background: var(--text-primary);
   color: var(--bg-dark);
 }
 
 .sticky-player-controls .btn-play svg {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
 }
 
 .sticky-player-controls .volume-bar {
@@ -533,7 +536,7 @@ html, body {
 }
 
 .sticky-player-progress .progress-bar {
-  height: 3px;
+  height: 8px;
 }
 
 .sticky-player-progress .time-display {
@@ -545,6 +548,16 @@ html, body {
   margin-top: 0.125rem;
 }
 
+/* Mobile-first: larger, sunlight-readable track text. Desktop restores the
+   slimmer sizes in the >=600px media query. */
+.sticky-player .track-title {
+  font-size: 1rem;
+}
+
+.sticky-player .track-artist {
+  font-size: 0.875rem;
+}
+
 /* Progress Bar */
 .progress-container {
   width: 100%;
@@ -554,18 +567,18 @@ html, body {
 
 .progress-bar {
   width: 100%;
-  height: 4px;
+  height: 8px;
   -webkit-appearance: none;
   appearance: none;
   background: var(--bg-surface);
-  border-radius: 2px;
+  border-radius: 4px;
   cursor: pointer;
 }
 
 .progress-bar::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
   background: var(--primary);
   border-radius: 50%;
   cursor: pointer;
@@ -573,8 +586,8 @@ html, body {
 }
 
 .progress-bar::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
   background: var(--primary);
   border-radius: 50%;
   cursor: pointer;
@@ -638,26 +651,26 @@ html, body {
 
 .volume-bar {
   flex: 1;
-  height: 4px;
+  height: 8px;
   -webkit-appearance: none;
   appearance: none;
   background: var(--bg-surface);
-  border-radius: 2px;
+  border-radius: 4px;
   cursor: pointer;
 }
 
 .volume-bar::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 12px;
-  height: 12px;
+  width: 18px;
+  height: 18px;
   background: var(--text-primary);
   border-radius: 50%;
   cursor: pointer;
 }
 
 .volume-bar::-moz-range-thumb {
-  width: 12px;
-  height: 12px;
+  width: 18px;
+  height: 18px;
   background: var(--text-primary);
   border-radius: 50%;
   cursor: pointer;
@@ -1811,12 +1824,43 @@ html, body {
   background: var(--primary);
 }
 
-/* Sticky player: hide secondary controls on small screens */
+/* Sticky player on small phones: instead of hiding volume/repeat/shuffle,
+   drop the full control cluster onto its own second row so everything
+   stays reachable. */
 @media (max-width: 479px) {
-  .sticky-player-controls .volume-bar,
-  .sticky-player-controls #volume-btn,
-  .sticky-player-controls #repeat-btn,
-  .sticky-player-controls #shuffle-btn {
+  .sticky-player-row {
+    flex-wrap: wrap;
+  }
+
+  .sticky-player-controls {
+    width: 100%;
+    justify-content: center;
+    gap: 0.125rem;
+    margin-top: 0.25rem;
+  }
+
+  .sticky-player-controls .volume-bar {
+    flex: 1;
+    width: auto;
+    min-width: 40px;
+    max-width: 140px;
+  }
+}
+
+/* Smallest phones: reclaim horizontal space so the control row never
+   overflows — shrink the album art and drop the volume slider (the mute
+   button stays). */
+@media (max-width: 360px) {
+  .sticky-player .album-art {
+    width: 32px;
+    height: 32px;
+  }
+
+  .sticky-player-controls {
+    gap: 0;
+  }
+
+  .sticky-player-controls .volume-bar {
     display: none;
   }
 }
@@ -1838,11 +1882,61 @@ html, body {
 
   .sticky-player-controls .volume-bar {
     width: 80px;
+    flex: none;
+    height: 4px;
   }
 
   .sticky-player .album-art {
     width: 48px;
     height: 48px;
+  }
+
+  /* Desktop: restore the slimmer, mouse-oriented sizing. */
+  .sticky-player-controls .btn-control {
+    width: 32px;
+    height: 32px;
+  }
+
+  .sticky-player-controls .btn-play {
+    width: 36px;
+    height: 36px;
+  }
+
+  .sticky-player-controls .btn-play svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .sticky-player-progress .progress-bar {
+    height: 3px;
+  }
+
+  .sticky-player-progress .progress-bar::-webkit-slider-thumb {
+    width: 14px;
+    height: 14px;
+  }
+
+  .sticky-player-progress .progress-bar::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+  }
+
+  .sticky-player-controls .volume-bar::-webkit-slider-thumb {
+    width: 12px;
+    height: 12px;
+  }
+
+  .sticky-player-controls .volume-bar::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+  }
+
+  .sticky-player .track-title {
+    font-size: 0.85rem;
+  }
+
+  .sticky-player .track-artist {
+    font-size: 0.75rem;
   }
 }
 
