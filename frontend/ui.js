@@ -5,7 +5,6 @@ export function showView(viewName) {
   if (elements.loginView) elements.loginView.classList.remove('active');
   elements.landingView.classList.remove('active');
   elements.lobbyView.classList.remove('active');
-  if (elements.soloView) elements.soloView.classList.remove('active');
   if (elements.dashboardView) elements.dashboardView.classList.remove('active');
   if (elements.pendingView) elements.pendingView.classList.remove('active');
   if (elements.profileView) elements.profileView.classList.remove('active');
@@ -19,9 +18,6 @@ export function showView(viewName) {
       break;
     case 'landing':
       elements.landingView.classList.add('active');
-      break;
-    case 'solo':
-      elements.soloView.classList.add('active');
       break;
     case 'lobby':
       elements.lobbyView.classList.add('active');

@@ -18,7 +18,6 @@ export function setupAudioPlayer(advanceLocalQueue) {
   });
 
   audio.addEventListener('ended', () => {
-    if (state.soloPlaylistId) return;
     if (state.listeningMode === 'independent') {
       advanceLocalQueue();
       return;
@@ -107,12 +106,7 @@ export function setupVolumeControls() {
     elements.volumeBar.value = volumePercent;
     elements.volumeBar.addEventListener('input', handleVolumeChange);
   }
-  if (elements.soloVolumeBar) {
-    elements.soloVolumeBar.value = volumePercent;
-    elements.soloVolumeBar.addEventListener('input', handleVolumeChange);
-  }
   if (elements.volumeBtn) elements.volumeBtn.addEventListener('click', toggleMute);
-  if (elements.soloVolumeBtn) elements.soloVolumeBtn.addEventListener('click', toggleMute);
   updateVolumeIcon();
 }
 
@@ -124,7 +118,6 @@ function handleVolumeChange(e) {
   storageSet(STORAGE_KEYS.VOLUME, volume);
   const percent = Math.round(volume * 100);
   if (elements.volumeBar) elements.volumeBar.value = percent;
-  if (elements.soloVolumeBar) elements.soloVolumeBar.value = percent;
   updateVolumeIcon();
 }
 
@@ -141,7 +134,6 @@ export function toggleMute() {
   storageSet(STORAGE_KEYS.VOLUME, state.volume);
   const percent = Math.round(state.volume * 100);
   if (elements.volumeBar) elements.volumeBar.value = percent;
-  if (elements.soloVolumeBar) elements.soloVolumeBar.value = percent;
   updateVolumeIcon();
 }
 
@@ -156,11 +148,10 @@ function updateVolumeIcon() {
     iconPath = '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>';
   }
   if (elements.volumeIcon) elements.volumeIcon.innerHTML = iconPath;
-  if (elements.soloVolumeIcon) elements.soloVolumeIcon.innerHTML = iconPath;
 }
 
 export function playAudioWithUnlock(src, position, shouldPlay) {
-  if (!state.lobbyId && !state.soloPlaylistId) return;
+  if (!state.lobbyId) return;
   const audio = elements.audioPlayer;
   if (src && audio.src !== src) audio.src = src;
   if (position !== undefined && isFinite(position)) audio.currentTime = position;

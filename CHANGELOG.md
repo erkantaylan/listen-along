@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.30.0 (2026-05-21)
+
+- revert(playlists): remove the personal-playlist feature entirely (shipped in v2.29.0 by mistake)
+- remove: playlist tables, API endpoints, solo player, and playlist-URL import (Spotify/YouTube); idempotent migration drops `playlists`/`playlist_songs`
+- internal: replace yt-dlp `--no-playlist` flag with URL `list` param stripping so single-video downloads are unaffected
+
 ## v2.29.0 (2026-05-20)
 
 - feat(playlists): playlists are now public by default; creators can make them private

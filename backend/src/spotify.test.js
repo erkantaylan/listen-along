@@ -9,11 +9,6 @@ describe('spotify', () => {
       assert.deepStrictEqual(result, { type: 'track', id: '4cOdK2wGLETKBW3PvgPWqT' });
     });
 
-    it('parses a playlist URL', () => {
-      const result = parseSpotifyUrl('https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M');
-      assert.deepStrictEqual(result, { type: 'playlist', id: '37i9dQZF1DXcBWIGoYBM5M' });
-    });
-
     it('parses a track URL with query parameters', () => {
       const result = parseSpotifyUrl('https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT?si=abcdef123456');
       assert.deepStrictEqual(result, { type: 'track', id: '4cOdK2wGLETKBW3PvgPWqT' });

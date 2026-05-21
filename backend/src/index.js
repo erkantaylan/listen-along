@@ -16,7 +16,6 @@ const { getQueue, getQueueAsync, deleteQueue } = require('./queue');
 const db = require('./db');
 const downloader = require('./downloader');
 const covers = require('./covers');
-const playlist = require('./playlist');
 const chat = require('./chat');
 const spotify = require('./spotify');
 const auth = require('./auth');
@@ -47,31 +46,6 @@ function rateLimit(req, res, next) {
 
   record.count++;
   next();
-}
-
-// Cache playlist items after initial fetch to avoid re-fetching on confirm
-// Key: playlist URL, Value: { items, title, total, limited, fetchedAt }
-const playlistCache = new Map();
-const PLAYLIST_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
-function getCachedPlaylist(url) {
-  const entry = playlistCache.get(url);
-  if (!entry) return null;
-  if (Date.now() - entry.fetchedAt > PLAYLIST_CACHE_TTL) {
-    playlistCache.delete(url);
-    return null;
-  }
-  return entry;
-}
-
-function cachePlaylist(url, playlist) {
-  playlistCache.set(url, { ...playlist, fetchedAt: Date.now() });
-  // Evict old entries
-  if (playlistCache.size > 100) {
-    const oldest = [...playlistCache.entries()]
-      .sort((a, b) => a[1].fetchedAt - b[1].fetchedAt)[0];
-    if (oldest) playlistCache.delete(oldest[0]);
-  }
 }
 
 // Dashboard authentication
@@ -604,136 +578,6 @@ app.get('/api/covers/:id', (req, res) => {
   }
 
   res.status(404).json({ error: 'Cover not found' });
-});
-
-// Playlist endpoints — auth required, user derived from req.user.id only.
-// Visibility: GET list returns all public playlists plus the requester's own
-// private ones. GET :id returns 404 (not 403) for private-not-owned to avoid
-// leaking existence. Mutating routes return 403 on non-owner since the
-// resource is established to exist.
-app.get('/api/playlists', auth.requireAuth, async (req, res) => {
-  if (!db.isAvailable()) {
-    return res.json({ playlists: [] });
-  }
-  try {
-    const playlists = await playlist.getVisiblePlaylists(req.user.id);
-    res.json({ playlists });
-  } catch (err) {
-    console.error('Get playlists error:', err.message);
-    res.status(500).json({ error: 'Failed to fetch playlists' });
-  }
-});
-
-app.post('/api/playlists', auth.requireAuth, async (req, res) => {
-  const { name } = req.body;
-  if (!name) {
-    return res.status(400).json({ error: 'Missing required field: name' });
-  }
-  if (!db.isAvailable()) {
-    return res.status(503).json({ error: 'Database not available' });
-  }
-  try {
-    const created = await playlist.createPlaylist(req.user.id, name);
-    res.status(201).json(created);
-  } catch (err) {
-    console.error('Create playlist error:', err.message);
-    res.status(500).json({ error: 'Failed to create playlist' });
-  }
-});
-
-app.get('/api/playlists/:id', auth.requireAuth, async (req, res) => {
-  if (!db.isAvailable()) {
-    return res.status(503).json({ error: 'Database not available' });
-  }
-  try {
-    const p = await playlist.getPlaylistVisible(req.params.id, req.user.id);
-    if (!p) {
-      return res.status(404).json({ error: 'Playlist not found' });
-    }
-    res.json(p);
-  } catch (err) {
-    console.error('Get playlist error:', err.message);
-    res.status(500).json({ error: 'Failed to fetch playlist' });
-  }
-});
-
-app.patch('/api/playlists/:id', auth.requireAuth, async (req, res) => {
-  const { name, is_public } = req.body;
-  if (typeof name === 'undefined' && typeof is_public === 'undefined') {
-    return res.status(400).json({ error: 'Missing fields: name or is_public' });
-  }
-  if (typeof is_public !== 'undefined' && typeof is_public !== 'boolean') {
-    return res.status(400).json({ error: 'is_public must be a boolean' });
-  }
-  if (!db.isAvailable()) {
-    return res.status(503).json({ error: 'Database not available' });
-  }
-  try {
-    let updated;
-    if (typeof is_public !== 'undefined') {
-      updated = await playlist.setVisibility(req.params.id, req.user.id, is_public);
-      if (updated === 'not_found') return res.status(404).json({ error: 'Playlist not found' });
-      if (updated === 'forbidden') return res.status(403).json({ error: 'Not the owner' });
-    }
-    if (typeof name !== 'undefined') {
-      updated = await playlist.renamePlaylist(req.params.id, req.user.id, name);
-      if (updated === 'not_found') return res.status(404).json({ error: 'Playlist not found' });
-      if (updated === 'forbidden') return res.status(403).json({ error: 'Not the owner' });
-    }
-    res.json(updated);
-  } catch (err) {
-    console.error('Update playlist error:', err.message);
-    res.status(500).json({ error: 'Failed to update playlist' });
-  }
-});
-
-app.delete('/api/playlists/:id', auth.requireAuth, async (req, res) => {
-  if (!db.isAvailable()) {
-    return res.status(503).json({ error: 'Database not available' });
-  }
-  try {
-    const result = await playlist.deletePlaylist(req.params.id, req.user.id);
-    if (result === 'not_found') return res.status(404).json({ error: 'Playlist not found' });
-    if (result === 'forbidden') return res.status(403).json({ error: 'Not the owner' });
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Delete playlist error:', err.message);
-    res.status(500).json({ error: 'Failed to delete playlist' });
-  }
-});
-
-app.post('/api/playlists/:id/songs', auth.requireAuth, async (req, res) => {
-  const { url, title, duration, thumbnail } = req.body;
-  if (!url) {
-    return res.status(400).json({ error: 'Missing required field: url' });
-  }
-  if (!db.isAvailable()) {
-    return res.status(503).json({ error: 'Database not available' });
-  }
-  try {
-    const song = await playlist.addSong(req.params.id, req.user.id, { url, title, duration, thumbnail });
-    if (song === 'not_found') return res.status(404).json({ error: 'Playlist not found' });
-    if (song === 'forbidden') return res.status(403).json({ error: 'Not the owner' });
-    res.status(201).json(song);
-  } catch (err) {
-    console.error('Add playlist song error:', err.message);
-    res.status(500).json({ error: 'Failed to add song to playlist' });
-  }
-});
-
-app.delete('/api/playlists/:playlistId/songs/:songId', auth.requireAuth, async (req, res) => {
-  if (!db.isAvailable()) {
-    return res.status(503).json({ error: 'Database not available' });
-  }
-  try {
-    const result = await playlist.removeSong(req.params.playlistId, req.params.songId, req.user.id);
-    if (result === 'forbidden') return res.status(403).json({ error: 'Not the owner' });
-    if (result === 'not_found') return res.status(404).json({ error: 'Song not found in playlist' });
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Remove playlist song error:', err.message);
-    res.status(500).json({ error: 'Failed to remove song from playlist' });
-  }
 });
 
 // Dashboard basic authentication middleware
@@ -1491,17 +1335,13 @@ app.delete('/api/dashboard/cache/errors', dashboardAuth, async (req, res) => {
   }
 });
 
-// Re-download all songs in queues/playlists that are missing or broken
+// Re-download all songs in queues that are missing or broken
 app.post('/api/dashboard/cache/redownload-missing', dashboardAuth, async (req, res) => {
   try {
-    // Collect all unique URLs + best available metadata from queues and playlists
+    // Collect all unique URLs + best available metadata from queues
     const result = await db.query(`
       SELECT url, title, duration, thumbnail
-      FROM (
-        SELECT url, title, duration, thumbnail FROM queue_songs
-        UNION
-        SELECT url, title, duration, thumbnail FROM playlist_songs
-      ) all_songs
+      FROM queue_songs
       WHERE url NOT IN (
         SELECT url FROM songs
         WHERE status = 'ready'
@@ -1537,7 +1377,7 @@ app.post('/api/dashboard/cache/redownload-missing', dashboardAuth, async (req, r
   }
 });
 
-// Delete orphaned cached songs (not in any queue or playlist)
+// Delete orphaned cached songs (not in any queue)
 app.delete('/api/dashboard/cache/orphaned', dashboardAuth, async (req, res) => {
   try {
     const count = await downloader.deleteOrphanedSongs();
@@ -2095,43 +1935,6 @@ io.on('connection', (socket) => {
     const spotifyParsed = inputUrl ? spotify.parseSpotifyUrl(inputUrl) : null;
     if (spotifyParsed) {
       try {
-        if (spotifyParsed.type === 'playlist') {
-          socket.emit('queue:adding', { status: 'Loading Spotify playlist...' });
-          const playlist = await spotify.getPlaylistTracks(inputUrl);
-
-          if (playlist.items.length === 0) {
-            socket.emit('queue:error', { message: 'Spotify playlist is empty' });
-            return;
-          }
-
-          cachePlaylist(inputUrl, {
-            title: playlist.title,
-            items: playlist.items.map(item => ({
-              title: item.title,
-              duration: item.duration,
-              thumbnail: item.thumbnail,
-              url: `ytsearch:${item.searchQuery}`,
-              uploader: item.artist
-            })),
-            total: playlist.total,
-            limited: playlist.limited
-          });
-
-          socket.emit('queue:playlist-confirm', {
-            lobbyId,
-            url: inputUrl,
-            playlistTitle: playlist.title,
-            songCount: playlist.items.length,
-            totalCount: playlist.total,
-            limited: playlist.limited,
-            items: playlist.items.map(item => ({ title: item.title, duration: item.duration, thumbnail: item.thumbnail })),
-            firstSong: playlist.items[0] ? { title: playlist.items[0].title, duration: playlist.items[0].duration } : null,
-            songMeta: null,
-            addedBy
-          });
-          return;
-        }
-
         // Spotify track: look up metadata then search YouTube
         socket.emit('queue:adding', { status: 'Looking up Spotify track...' });
         const trackInfo = await spotify.getTrack(inputUrl);
@@ -2156,54 +1959,6 @@ io.on('connection', (socket) => {
           stack: err.stack
         });
         socket.emit('queue:error', { message: `Failed to process Spotify link: ${err.message}` });
-        return;
-      }
-    }
-
-    // Check if this is a playlist URL
-    if (!spotifyParsed && inputUrl && ytdlp.isPlaylistUrl(inputUrl)) {
-      try {
-        // Check if URL also contains a specific video (watch?v=xxx&list=yyy)
-        let videoId = null;
-        try {
-          const parsed = new URL(inputUrl);
-          videoId = parsed.searchParams.get('v');
-        } catch {}
-
-        // Fetch playlist info, and song metadata in parallel if URL has a video ID
-        const [playlist, songMeta] = await Promise.all([
-          ytdlp.getPlaylistItems(inputUrl),
-          videoId ? ytdlp.getMetadata(`https://www.youtube.com/watch?v=${videoId}`).catch(() => null) : Promise.resolve(null)
-        ]);
-
-        const items = playlist.items;
-
-        if (items.length === 0) {
-          socket.emit('queue:error', { message: 'Playlist is empty' });
-          return;
-        }
-
-        // Cache playlist items to avoid re-fetching when user confirms
-        cachePlaylist(inputUrl, playlist);
-
-        // Send playlist info with full items list for selection UI
-        socket.emit('queue:playlist-confirm', {
-          lobbyId,
-          url: inputUrl,
-          playlistTitle: playlist.title,
-          songCount: items.length,
-          totalCount: playlist.total,
-          limited: playlist.limited,
-          items: items.map(item => ({ title: item.title, duration: item.duration, thumbnail: item.thumbnail })),
-          firstSong: items[0] ? { title: items[0].title, duration: items[0].duration } : null,
-          songMeta: songMeta ? { title: songMeta.title, uploader: songMeta.uploader, duration: songMeta.duration } : null,
-          addedBy
-        });
-
-        return;
-      } catch (err) {
-        console.error('Playlist fetch error:', err);
-        socket.emit('queue:error', { message: `Failed to load playlist: ${err.message}` });
         return;
       }
     }
@@ -2257,168 +2012,6 @@ io.on('connection', (socket) => {
 
     // Broadcast updated queue to all in lobby (after potential currentIndex change)
     io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
-  });
-
-  // Handle playlist add after user confirms via dialog
-  socket.on('queue:playlist-add', async ({ lobbyId, url, mode, selectedIndices, addedBy }) => {
-    const queue = await getQueueAsync(lobbyId);
-
-    try {
-      // Use cached playlist items if available, otherwise re-fetch
-      const cached = getCachedPlaylist(url);
-      let playlistData;
-      if (cached) {
-        playlistData = cached;
-      } else {
-        socket.emit('queue:adding', { status: 'Loading playlist...' });
-        playlistData = await ytdlp.getPlaylistItems(url);
-      }
-      const allItems = playlistData.items;
-
-      if (allItems.length === 0) {
-        socket.emit('queue:error', { message: 'Playlist is empty' });
-        return;
-      }
-
-      if (mode === 'single') {
-        // Add only the first song
-        const item = allItems[0];
-        const wasEmpty = queue.getSongs().length === 0;
-
-        const song = queue.addSong({
-          url: item.url,
-          title: item.title,
-          duration: item.duration,
-          addedBy,
-          thumbnail: item.thumbnail
-        });
-
-        downloader.startDownload(item.url, {
-          title: item.title,
-          duration: item.duration
-        }, lobbyId).catch(err => {
-          console.error(`Background download failed: ${err.message}`);
-        });
-
-        if (item.thumbnail) {
-          covers.cacheCover(song.id, item.thumbnail).catch(() => {});
-        }
-
-        console.log(`Single song from playlist "${playlistData.title}" added to lobby ${lobbyId}: ${item.title}`);
-
-        if (wasEmpty) {
-          queue.setCurrentIndex(0);
-          playback.setTrack(lobbyId, song, true, io);
-        }
-
-        io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
-      } else {
-        // Filter items by selectedIndices if provided, otherwise use all
-        const items = Array.isArray(selectedIndices)
-          ? selectedIndices.filter(i => i >= 0 && i < allItems.length).map(i => allItems[i])
-          : allItems;
-
-        if (items.length === 0) {
-          socket.emit('queue:error', { message: 'No songs selected' });
-          return;
-        }
-
-        console.log(`Adding ${items.length} songs from playlist "${playlistData.title}" to lobby ${lobbyId}`);
-
-        const wasEmpty = queue.getSongs().length === 0;
-
-        // Add first song immediately so playback can start right away
-        const firstItem = items[0];
-        const firstSong = queue.addSong({
-          url: firstItem.url,
-          title: firstItem.title,
-          duration: firstItem.duration,
-          addedBy,
-          thumbnail: firstItem.thumbnail
-        });
-
-        // Download first song and wait for it to start
-        downloader.startDownload(firstItem.url, {
-          title: firstItem.title,
-          duration: firstItem.duration
-        }, lobbyId).catch(err => {
-          console.error(`Background download failed for playlist item: ${err.message}`);
-        });
-
-        if (firstItem.thumbnail) {
-          covers.cacheCover(firstSong.id, firstItem.thumbnail).catch(() => {});
-        }
-
-        // Start playback immediately if queue was empty
-        if (wasEmpty) {
-          queue.setCurrentIndex(0);
-          playback.setTrack(lobbyId, firstSong, true, io);
-        }
-
-        // Emit queue update immediately so first song appears in UI (after potential currentIndex change)
-        io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
-
-        socket.emit('queue:playlist-progress', {
-          current: 1,
-          total: items.length,
-          title: firstItem.title
-        });
-
-        // Add remaining songs sequentially (download one at a time)
-        const addRemaining = async () => {
-          for (let i = 1; i < items.length; i++) {
-            const item = items[i];
-
-            const song = queue.addSong({
-              url: item.url,
-              title: item.title,
-              duration: item.duration,
-              addedBy,
-              thumbnail: item.thumbnail
-            });
-
-            // Sequential download: await each before starting next
-            try {
-              await downloader.startDownload(item.url, {
-                title: item.title,
-                duration: item.duration,
-                waitForComplete: true
-              }, lobbyId);
-            } catch (err) {
-              console.error(`Background download failed for playlist item: ${err.message}`);
-            }
-
-            if (item.thumbnail) {
-              covers.cacheCover(song.id, item.thumbnail).catch(() => {});
-            }
-
-            socket.emit('queue:playlist-progress', {
-              current: i + 1,
-              total: items.length,
-              title: item.title
-            });
-
-            // Emit queue update after each song so UI updates progressively
-            io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
-          }
-
-          console.log(`Playlist "${playlistData.title}" added to lobby ${lobbyId} (${items.length} songs)`);
-
-          socket.emit('queue:playlist-complete', {
-            playlistTitle: playlistData.title,
-            added: items.length
-          });
-        };
-
-        // Run remaining songs in background (non-blocking)
-        addRemaining().catch(err => {
-          console.error(`Error adding remaining playlist items: ${err.message}`);
-        });
-      }
-    } catch (err) {
-      console.error('Playlist add error:', err);
-      socket.emit('queue:error', { message: `Failed to add playlist: ${err.message}` });
-    }
   });
 
   // Remove song from queue

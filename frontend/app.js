@@ -6,9 +6,8 @@ import { checkAuth, setupLoginView, showPendingCard, setupProfileEditor, setupPr
 import { checkUrlForDashboard, dashboardJoinLobby, dashboardRemoveLobby, deleteCachedSong, playCachedSong, dashboardApproveUser, dashboardRejectUser } from './dashboard.js';
 import { createLobby, joinLobby, leaveLobby, shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyPinned, handleUserJoined, handleUserLeft, handleLobbyClosed, checkUrlForLobby, joinLobbyFromCard, updatePinButton, togglePin, promptRenameLobby } from './lobby.js';
 import { handlePlaybackState, handlePlaybackSync, handleTrackChanged, handleShuffleState, handleDownloadStatus, handleDownloadProgress, handleModeChanged, handleUsersUpdated, handleFollowSync, toggleUserMode, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, advanceLocalQueue, updateNowPlaying, updatePlayButton, updatePlaybackModeUI, updateListeningModeBadge, updateModeButton, _setQueueFns } from './playback.js';
-import { handleQueueUpdated, handlePlaylistConfirm, handleSongAdded, addSong, removeSong, clearQueue, moveSongUp, moveSongDown, playSongAt, setupQueueDragAndDrop, setupQueueSearch, showLibraryDialog, showImportPlaylistDialog, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './queue.js';
+import { handleQueueUpdated, handleSongAdded, addSong, removeSong, clearQueue, moveSongUp, moveSongDown, playSongAt, setupQueueDragAndDrop, setupQueueSearch, showLibraryDialog, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './queue.js';
 import { toggleSongMention, clearSongMention, sendChatMessage, handleChatMessage, handleChatHistory, requestChatHistory, resetChat } from './chat.js';
-import { createNewPlaylist, deletePlaylistAction, openPlaylist, leaveSoloPlayer, soloPlayTrack, soloTogglePlayback, soloPrevious, soloNext, soloCycleRepeat, soloSeek, soloAddSong, soloRemoveSong, setupSoloSearch, setupSoloAudioHooks, soloOpenSource, fetchPlaylists, togglePlaylistPrivacy } from './playlist.js';
 
 // Wire up cross-module dependencies
 _setQueueFns(updateQueue, updateListeners);
@@ -42,15 +41,8 @@ function setupSocket() {
     // Queue Events
     s.on('queue:update', handleQueueUpdated);
     s.on('queue:song-added', handleSongAdded);
-    s.on('queue:error', (data) => { const el = document.getElementById('playlist-loading'); if (el) el.remove(); showToast(data.message, 'error'); });
+    s.on('queue:error', (data) => showToast(data.message, 'error'));
     s.on('queue:adding', (data) => showToast(data.status, 'info'));
-    s.on('queue:playlist-confirm', handlePlaylistConfirm);
-    s.on('queue:playlist-progress', (data) => {
-      let toast = document.getElementById('playlist-progress-toast');
-      if (!toast) { toast = document.createElement('div'); toast.id = 'playlist-progress-toast'; toast.className = 'toast info'; elements.toastContainer.appendChild(toast); }
-      toast.textContent = `Adding songs: ${data.current}/${data.total}`;
-    });
-    s.on('queue:playlist-complete', (data) => { const pt = document.getElementById('playlist-progress-toast'); if (pt) pt.remove(); showToast(`Added ${data.added} songs from "${data.playlistTitle}"`, 'success'); });
 
     // Playback Events
     s.on('playback:state', handlePlaybackState);
@@ -129,8 +121,6 @@ function setupEventListeners() {
   elements.songInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') addSong(); });
   var browseLibBtn = document.getElementById('browse-library-btn');
   if (browseLibBtn) browseLibBtn.addEventListener('click', showLibraryDialog);
-  var importPlBtn = document.getElementById('import-playlist-btn');
-  if (importPlBtn) importPlBtn.addEventListener('click', showImportPlaylistDialog);
 
   // Chat
   if (elements.chatSendBtn) elements.chatSendBtn.addEventListener('click', sendChatMessage);
@@ -160,18 +150,6 @@ function setupEventListeners() {
     if (path === '/') { if (state.lobbyId) leaveLobby(resetLobbyUI, resetChat); }
     else checkUrlForLobby();
   });
-
-  // Playlist / Solo player
-  if (elements.createPlaylistBtn) elements.createPlaylistBtn.addEventListener('click', createNewPlaylist);
-  if (elements.soloBackBtn) elements.soloBackBtn.addEventListener('click', leaveSoloPlayer);
-  if (elements.soloPlayBtn) elements.soloPlayBtn.addEventListener('click', soloTogglePlayback);
-  if (elements.soloPrevBtn) elements.soloPrevBtn.addEventListener('click', soloPrevious);
-  if (elements.soloNextBtn) elements.soloNextBtn.addEventListener('click', soloNext);
-  if (elements.soloRepeatBtn) elements.soloRepeatBtn.addEventListener('click', soloCycleRepeat);
-  if (elements.soloProgressBar) elements.soloProgressBar.addEventListener('input', soloSeek);
-  if (elements.soloAddSongBtn) elements.soloAddSongBtn.addEventListener('click', soloAddSong);
-  if (elements.soloAddSongHeaderBtn) elements.soloAddSongHeaderBtn.addEventListener('click', () => { if (elements.soloSongInput) elements.soloSongInput.focus(); });
-  if (elements.soloSongInput) elements.soloSongInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') soloAddSong(); });
 }
 
 // Initialize Application
@@ -203,8 +181,6 @@ function initAuthenticatedApp() {
   checkUrlForLobby();
   setupAudioPlayer(advanceLocalQueue);
   setupMediaSession(togglePlayback, playNext, playPrevious);
-  setupSoloAudioHooks();
-  setupSoloSearch();
   fetchVersion();
 
   if (window.location.hash === '#profile') {
@@ -221,10 +197,7 @@ function initAuthenticatedApp() {
 // Expose API for inline onclick handlers
 window.app = {
   removeSong, moveSongUp, moveSongDown, playSongAt,
-  openSource, copySourceUrl, soloOpenSource,
-  openPlaylist, deletePlaylist: deletePlaylistAction,
-  togglePlaylistPrivacy,
-  soloPlayTrack, soloRemoveSong, joinLobbyFromCard
+  openSource, copySourceUrl, joinLobbyFromCard
 };
 window.dashboardJoinLobby = dashboardJoinLobby;
 window.dashboardRemoveLobby = dashboardRemoveLobby;

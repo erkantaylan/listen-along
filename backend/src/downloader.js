@@ -232,14 +232,13 @@ async function downloadSong(songId, url, lobbyId = null) {
 
     await new Promise((resolve, reject) => {
       const isUrl = url.startsWith('http://') || url.startsWith('https://') || url.startsWith('ytsearch:');
-      const target = isUrl ? url : `ytsearch:${url}`;
+      const target = isUrl ? ytdlp.stripListParam(url) : `ytsearch:${url}`;
 
       // yt-dlp outputs raw audio to stdout
       // ios client bypasses n-challenge entirely; web_safari/web as fallback avoid SABR pipe issues
       const ytdlpProc = spawn('yt-dlp', [
         '-f', 'bestaudio',
         '-o', '-',
-        '--no-playlist',
         '--extractor-args', 'youtube:player_client=android_vr',
         ...getCookiesArgs(),
         target
@@ -402,7 +401,6 @@ async function getAllSongs() {
     const result = await db.query(`
       SELECT s.id, s.url, s.title, s.duration, s.file_path, s.thumbnail_url,
              s.status, s.error_message, s.created_at, s.updated_at,
-             (SELECT COUNT(DISTINCT ps.playlist_id) FROM playlist_songs ps WHERE ps.url = s.url)::int AS playlist_count,
              (SELECT COUNT(DISTINCT qs.lobby_id) FROM queue_songs qs WHERE qs.url = s.url)::int AS queue_count
       FROM songs s
       ORDER BY s.updated_at DESC
@@ -520,7 +518,7 @@ async function deleteErrorSongs() {
 }
 
 /**
- * Delete orphaned cached songs (not in any queue or playlist)
+ * Delete orphaned cached songs (not in any queue)
  * @returns {Promise<number>} Number of songs deleted
  */
 async function deleteOrphanedSongs() {
@@ -530,7 +528,6 @@ async function deleteOrphanedSongs() {
     const result = await db.query(`
       SELECT s.id, s.file_path FROM songs s
       WHERE s.url NOT IN (SELECT DISTINCT url FROM queue_songs)
-        AND s.url NOT IN (SELECT DISTINCT url FROM playlist_songs)
     `);
     let deleted = 0;
 

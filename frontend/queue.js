@@ -9,33 +9,15 @@ export function handleQueueUpdated(data) {
   updateQueue();
 }
 
-export function handlePlaylistConfirm(data) { showPlaylistDialog(data); }
-
 export function handleSongAdded(data) {
   state.queue.push(data.song);
   updateQueue();
   showToast(`Added: ${data.song.title}`, 'success');
 }
 
-function isPlaylistUrl(url) {
-  try { const parsed = new URL(url); return parsed.searchParams.has('list'); }
-  catch { return false; }
-}
-
-function showPlaylistLoading() {
-  const existing = document.getElementById('playlist-loading');
-  if (existing) existing.remove();
-  const overlay = document.createElement('div');
-  overlay.id = 'playlist-loading';
-  overlay.className = 'playlist-dialog-overlay';
-  overlay.innerHTML = '<div class="playlist-dialog playlist-loading-dialog"><div class="playlist-loading-spinner"></div><div class="playlist-loading-text">Fetching playlist info...</div></div>';
-  document.body.appendChild(overlay);
-}
-
 export function addSong() {
   const input = elements.songInput.value.trim();
   if (!input) return;
-  if (isPlaylistUrl(input)) showPlaylistLoading();
   socket.emit('queue:add', { lobbyId: state.lobbyId, query: input, addedBy: state.username });
   elements.songInput.value = '';
 }
@@ -76,74 +58,6 @@ export function showLibraryDialog() {
       setTimeout(function() { btn.textContent = 'Add'; btn.disabled = false; }, 2000);
     });
   }).catch(function() { document.getElementById('library-list').innerHTML = '<div class="library-empty">Failed to load library</div>'; });
-}
-
-export function showImportPlaylistDialog() {
-  var existing = document.getElementById('import-playlist-dialog');
-  if (existing) existing.remove();
-  var dialog = document.createElement('div');
-  dialog.id = 'import-playlist-dialog';
-  dialog.className = 'share-overlay';
-  dialog.innerHTML = '<div class="library-dialog"><div class="library-dialog-header"><h3>Import from Playlist</h3><button class="btn-icon share-close-btn" id="import-close-btn" aria-label="Close"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div><div class="library-list" id="import-playlist-list"><div class="library-loading">Loading playlists...</div></div></div>';
-  document.body.appendChild(dialog);
-  document.getElementById('import-close-btn').addEventListener('click', function() { dialog.remove(); });
-  dialog.addEventListener('click', function(e) { if (e.target === dialog) dialog.remove(); });
-  fetch('/api/playlists?userId=' + encodeURIComponent(state.userId)).then(function(res) { return res.json(); }).then(function(data) {
-    var playlists = data.playlists || [];
-    var listEl = document.getElementById('import-playlist-list');
-    if (playlists.length === 0) { listEl.innerHTML = '<div class="library-empty">No playlists yet. Create one from the landing page.</div>'; return; }
-    listEl.innerHTML = playlists.map(function(pl) {
-      return '<div class="library-item import-playlist-item" data-id="' + escapeHtml(pl.id) + '"><div class="library-item-info"><div class="library-item-title">' + escapeHtml(pl.name) + '</div><div class="library-item-meta">' + (pl.song_count || 0) + ' songs</div></div><button class="btn btn-small btn-primary import-all-btn">Add All</button></div>';
-    }).join('');
-    listEl.addEventListener('click', function(e) {
-      var btn = e.target.closest('.import-all-btn');
-      if (!btn) return;
-      var item = btn.closest('.import-playlist-item');
-      if (!item) return;
-      btn.textContent = 'Adding...'; btn.disabled = true;
-      fetch('/api/playlists/' + item.dataset.id).then(function(res) { return res.json(); }).then(function(data) {
-        var songs = data.songs || [];
-        if (songs.length === 0) { btn.textContent = 'Empty'; return; }
-        songs.forEach(function(song) { socket.emit('queue:add', { lobbyId: state.lobbyId, url: song.url, title: song.title, duration: song.duration || 0, thumbnail: song.thumbnail || undefined, addedBy: state.username }); });
-        btn.textContent = 'Added ' + songs.length;
-        showToast('Imported ' + songs.length + ' songs from playlist', 'success');
-      }).catch(function() { btn.textContent = 'Failed'; btn.disabled = false; });
-    });
-  }).catch(function() { document.getElementById('import-playlist-list').innerHTML = '<div class="library-empty">Failed to load playlists</div>'; });
-}
-
-function showPlaylistDialog(data) {
-  const existing = document.getElementById('playlist-dialog');
-  if (existing) existing.remove();
-  const loadingEl = document.getElementById('playlist-loading');
-  if (loadingEl) loadingEl.remove();
-  const items = data.items || [];
-  const hasSongMeta = data.songMeta && data.songMeta.title;
-  const songListHtml = items.map((item, i) => `<label class="playlist-song-item" data-index="${i}" data-title="${escapeHtml(item.title).toLocaleLowerCase('tr')}"><input type="checkbox" checked data-song-index="${i}"><span class="playlist-song-title">${escapeHtml(item.title)}</span><span class="playlist-song-duration">${formatDuration(item.duration)}</span></label>`).join('');
-  const dialog = document.createElement('div');
-  dialog.id = 'playlist-dialog';
-  dialog.className = 'playlist-dialog-overlay';
-  dialog.innerHTML = `<div class="playlist-dialog playlist-dialog-selection"><div class="playlist-dialog-header"><svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg><h3>${escapeHtml(data.playlistTitle)}</h3></div><div class="playlist-selection-controls"><input type="text" id="playlist-search" class="playlist-search-input" placeholder="Search songs..."><div class="playlist-select-actions"><button class="btn btn-small" id="playlist-select-all">All</button><button class="btn btn-small" id="playlist-select-none">None</button><span class="playlist-selected-count" id="playlist-selected-count">${items.length} / ${items.length}</span></div></div><div class="playlist-song-list" id="playlist-song-list">${songListHtml}</div><div class="playlist-dialog-actions"><button class="btn btn-primary playlist-dialog-btn" id="playlist-add-selected">Add selected songs</button>${hasSongMeta ? `<button class="btn btn-secondary playlist-dialog-btn playlist-dialog-option" id="playlist-add-single">Add this song only<div class="playlist-dialog-option-detail">${escapeHtml(data.songMeta.title)} &middot; ${formatDuration(data.songMeta.duration)}</div></button>` : ''}<button class="btn btn-secondary playlist-dialog-btn playlist-dialog-cancel" id="playlist-cancel">Cancel</button></div></div>`;
-  document.body.appendChild(dialog);
-  const songList = document.getElementById('playlist-song-list');
-  const searchInput = document.getElementById('playlist-search');
-  const countEl = document.getElementById('playlist-selected-count');
-  function updateCount() { countEl.textContent = `${songList.querySelectorAll('input[type="checkbox"]:checked').length} / ${items.length}`; }
-  searchInput.addEventListener('input', () => { const query = searchInput.value.toLocaleLowerCase('tr'); songList.querySelectorAll('.playlist-song-item').forEach(el => { el.style.display = el.dataset.title.includes(query) ? '' : 'none'; }); });
-  document.getElementById('playlist-select-all').addEventListener('click', () => { songList.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = true; }); updateCount(); });
-  document.getElementById('playlist-select-none').addEventListener('click', () => { songList.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = false; }); updateCount(); });
-  songList.addEventListener('change', updateCount);
-  document.getElementById('playlist-add-selected').addEventListener('click', () => {
-    const selectedIndices = [];
-    songList.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => { selectedIndices.push(parseInt(cb.dataset.songIndex, 10)); });
-    if (selectedIndices.length === 0) return;
-    dialog.remove();
-    socket.emit('queue:playlist-add', { lobbyId: data.lobbyId, url: data.url, mode: 'all', selectedIndices, addedBy: data.addedBy });
-  });
-  const singleBtn = document.getElementById('playlist-add-single');
-  if (singleBtn) singleBtn.addEventListener('click', () => { dialog.remove(); socket.emit('queue:playlist-add', { lobbyId: data.lobbyId, url: data.url, mode: 'single', addedBy: data.addedBy }); });
-  document.getElementById('playlist-cancel').addEventListener('click', () => dialog.remove());
-  dialog.addEventListener('click', (e) => { if (e.target === dialog) dialog.remove(); });
 }
 
 export function removeSong(index) {

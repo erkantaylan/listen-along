@@ -28,14 +28,13 @@ where lobby persistence broke entirely on deployed instances.
 - Backend: Node.js + Express + Socket.IO (`backend/src/`)
 - Frontend: Vanilla JS, single-page (`frontend/`)
 - `index.js` is the main server (~1700 lines, handles all HTTP routes + socket events)
-- Domain modules: lobby.js, queue.js, playback.js, chat.js, covers.js, downloader.js, playlist.js, db.js
+- Domain modules: lobby.js, queue.js, playback.js, chat.js, covers.js, downloader.js, db.js
 - Song downloads via yt-dlp + ffmpeg, cached in `songs/` directory
 - Spotify support via Client Credentials flow (search YouTube for playback)
 
 ## User Identity
 
 - No auth system yet. Users identified by random localStorage ID (`user_` + 9 chars)
-- Playlists are scoped to this ephemeral userId
 - Future: Google OAuth login planned (see roadmap)
 
 ## Testing

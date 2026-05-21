@@ -99,29 +99,6 @@ async function createTables() {
     )
   `;
 
-  const createPlaylistsTable = `
-    CREATE TABLE IF NOT EXISTS playlists (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      created_by VARCHAR(255) NOT NULL,
-      name TEXT NOT NULL,
-      is_public BOOLEAN NOT NULL DEFAULT TRUE,
-      created_at BIGINT NOT NULL
-    )
-  `;
-
-  const createPlaylistSongsTable = `
-    CREATE TABLE IF NOT EXISTS playlist_songs (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      playlist_id UUID NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
-      url TEXT NOT NULL,
-      title TEXT DEFAULT 'Unknown',
-      duration REAL DEFAULT 0,
-      thumbnail TEXT,
-      sort_order INTEGER NOT NULL,
-      added_at BIGINT NOT NULL
-    )
-  `;
-
   const createChatMessagesTable = `
     CREATE TABLE IF NOT EXISTS chat_messages (
       id UUID PRIMARY KEY,
@@ -171,8 +148,6 @@ async function createTables() {
     CREATE INDEX IF NOT EXISTS idx_lobbies_last_activity ON lobbies(last_activity);
     CREATE INDEX IF NOT EXISTS idx_songs_url ON songs(url);
     CREATE INDEX IF NOT EXISTS idx_songs_status ON songs(status);
-    CREATE INDEX IF NOT EXISTS idx_playlists_created_by ON playlists(created_by);
-    CREATE INDEX IF NOT EXISTS idx_playlist_songs_playlist ON playlist_songs(playlist_id, sort_order);
     CREATE INDEX IF NOT EXISTS idx_chat_messages_lobby ON chat_messages(lobby_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_users_provider ON users(provider, provider_id);
     CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
@@ -184,31 +159,13 @@ async function createTables() {
   await pool.query(createPlaybackStateTable);
   await pool.query(createQueueSongsTable);
   await pool.query(createSongsTable);
-  await pool.query(createPlaylistsTable);
-  await pool.query(createPlaylistSongsTable);
   await pool.query(createChatMessagesTable);
   await pool.query(createUsersTable);
   await pool.query(createUserProvidersTable);
 
-  // Playlists schema migration: rename user_id → created_by, add is_public.
-  // Must run before createIndexes so idx_playlists_created_by references the
-  // renamed column on existing deployments.
-  await pool.query(`
-    DO $$
-    BEGIN
-      IF EXISTS (SELECT 1 FROM information_schema.columns
-                 WHERE table_name = 'playlists' AND column_name = 'user_id')
-         AND NOT EXISTS (SELECT 1 FROM information_schema.columns
-                         WHERE table_name = 'playlists' AND column_name = 'created_by')
-      THEN
-        ALTER TABLE playlists RENAME COLUMN user_id TO created_by;
-      END IF;
-    END $$;
-  `).catch(() => {});
-  await pool.query(
-    `ALTER TABLE playlists ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT TRUE`
-  ).catch(() => {});
-  await pool.query(`DROP INDEX IF EXISTS idx_playlists_user`).catch(() => {});
+  // The personal-playlist feature was removed; drop its tables so existing
+  // deployments are cleaned up (CASCADE also clears playlist_songs).
+  await pool.query(`DROP TABLE IF EXISTS playlist_songs, playlists CASCADE`).catch(() => {});
 
   await pool.query(createIndexes);
 

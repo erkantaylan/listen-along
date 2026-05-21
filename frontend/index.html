@@ -107,20 +107,6 @@
         </ul>
       </section>
 
-      <!-- Playlists Section -->
-      <section id="playlists-section" class="playlists-section">
-        <div class="playlists-header">
-          <h2 data-i18n="landing.playlists">Playlists</h2>
-          <button id="create-playlist-btn" class="btn btn-small btn-primary" data-i18n="landing.newPlaylist">+ New</button>
-        </div>
-        <div class="playlists-filter" role="tablist" aria-label="Playlist filter">
-          <button id="playlists-filter-public" class="playlists-filter-btn active" role="tab" aria-selected="true" data-filter="public" data-i18n="landing.allPublic">All public</button>
-          <button id="playlists-filter-mine" class="playlists-filter-btn" role="tab" aria-selected="false" data-filter="mine" data-i18n="landing.mine">Mine</button>
-        </div>
-        <ul id="playlists-list" class="playlists-list">
-          <li class="playlists-empty" data-i18n="landing.noPlaylists">No playlists yet</li>
-        </ul>
-      </section>
     </main>
     <footer class="landing-footer">
       <a id="version-display" class="version-text" href="/changelog" style="color: inherit; text-decoration: none;"></a>
@@ -188,9 +174,6 @@
           <button id="browse-library-btn" class="btn-icon btn-control" aria-label="Browse library" title="Browse library">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9h-4v4h-2v-4H9V9h4V5h2v4h4v2z"/></svg>
           </button>
-          <button id="import-playlist-btn" class="btn-icon btn-control" aria-label="Import playlist" title="Import from playlist">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
-          </button>
         </div>
         <div class="queue-filter">
           <label class="checkbox-label">
@@ -207,7 +190,7 @@
           </button>
         </div>
         <div style="padding: 0 0.5rem; margin-bottom: 0.5rem;">
-          <input type="text" id="queue-search-input" class="playlist-search-input" placeholder="Filter songs..." autocomplete="off">
+          <input type="text" id="queue-search-input" class="song-filter-input" placeholder="Filter songs..." autocomplete="off">
         </div>
         <ul id="queue-list" class="queue-list">
           <li class="queue-empty">
@@ -312,84 +295,6 @@
         <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47.13-1.33.22-2.65.28-1.3.07-2.49.1-3.59.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33-.22 2.65-.28 1.3-.07 2.49-.1 3.59-.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z"/></svg>
         <span>YouTube</span>
       </a>
-    </section>
-  </div>
-
-  <!-- Solo Player View -->
-  <div id="solo-view" class="view">
-    <header class="lobby-header">
-      <button id="solo-back-btn" class="btn-icon" aria-label="Back to home" data-i18n-aria-label="solo.backToHome">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-      </button>
-      <div class="lobby-info">
-        <h2 id="solo-playlist-name" data-i18n="solo.playlist">Playlist</h2>
-        <span id="solo-song-count" class="user-count">0 songs</span>
-      </div>
-      <button id="solo-add-song-header-btn" class="btn-icon" aria-label="Add song" data-i18n-aria-label="queue.addSong">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-      </button>
-    </header>
-
-    <section class="now-playing">
-      <div class="now-playing-header">
-        <div class="album-art" id="solo-album-art">
-          <div class="placeholder-art">
-            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
-          </div>
-        </div>
-        <div class="track-info">
-          <h3 id="solo-track-title" class="track-title" data-i18n="player.noTrackPlaying">No track playing</h3>
-          <p id="solo-track-artist" class="track-artist" data-i18n="player.addSongHint">Add a song to get started</p>
-        </div>
-      </div>
-      <div class="progress-container">
-        <input type="range" id="solo-progress-bar" class="progress-bar" min="0" max="100" value="0">
-        <div class="time-display">
-          <span id="solo-current-time">0:00</span>
-          <span id="solo-duration">0:00</span>
-        </div>
-      </div>
-      <div class="playback-controls">
-        <button id="solo-repeat-btn" class="btn-icon btn-control" aria-label="Repeat" data-i18n-aria-label="solo.repeat" data-mode="off">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>
-        </button>
-        <button id="solo-prev-btn" class="btn-icon btn-control" aria-label="Previous" data-i18n-aria-label="player.previous">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
-        </button>
-        <button id="solo-play-btn" class="btn-icon btn-play" aria-label="Play" data-i18n-aria-label="player.play">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-        </button>
-        <button id="solo-next-btn" class="btn-icon btn-control" aria-label="Next" data-i18n-aria-label="player.next">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
-        </button>
-        <button class="btn-icon btn-control" disabled style="visibility: hidden;">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41z"/></svg>
-        </button>
-      </div>
-      <div class="volume-control">
-        <button id="solo-volume-btn" class="btn-icon btn-control" aria-label="Mute" data-i18n-aria-label="player.mute">
-          <svg viewBox="0 0 24 24" fill="currentColor" id="solo-volume-icon"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
-        </button>
-        <input type="range" id="solo-volume-bar" class="volume-bar" min="0" max="100" value="100">
-      </div>
-    </section>
-
-    <section class="tab-panel active" style="padding-bottom: 1rem;">
-      <div class="add-song">
-        <input type="text" id="solo-song-input" placeholder="Paste YouTube URL or search..." data-i18n-placeholder="queue.searchPlaceholder" autocomplete="off">
-        <button id="solo-add-song-btn" class="btn btn-primary" aria-label="Add song" data-i18n-aria-label="queue.addSong">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-        </button>
-      </div>
-      <div style="padding: 0 0.5rem; margin-bottom: 0.5rem;">
-        <input type="text" id="solo-search-input" class="playlist-search-input" placeholder="Filter songs..." autocomplete="off">
-      </div>
-      <ul id="solo-queue-list" class="queue-list">
-        <li class="queue-empty">
-          <p data-i18n="solo.playlistEmpty">Playlist is empty</p>
-          <p class="hint" data-i18n="player.addSongHint">Add a song to get started</p>
-        </li>
-      </ul>
     </section>
   </div>
 

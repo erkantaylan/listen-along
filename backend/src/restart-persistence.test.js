@@ -30,12 +30,11 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 /**
  * Simulate a server restart by clearing in-memory module state.
  * The db module stays cached so the pool connection persists,
- * but lobby/queue/playlist modules get fresh empty Maps.
+ * but lobby/queue modules get fresh empty Maps.
  */
 function simulateRestart() {
   delete require.cache[require.resolve('./lobby')];
   delete require.cache[require.resolve('./queue')];
-  delete require.cache[require.resolve('./playlist')];
   delete require.cache[require.resolve('./playback')];
 }
 
@@ -65,7 +64,6 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
     delete require.cache[require.resolve('./db')];
     delete require.cache[require.resolve('./lobby')];
     delete require.cache[require.resolve('./queue')];
-    delete require.cache[require.resolve('./playlist')];
     delete require.cache[require.resolve('./playback')];
   });
 
@@ -231,42 +229,5 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
     assert.equal(state.shuffleEnabled, true, 'Shuffle should still be enabled');
     assert.ok(Array.isArray(state.shuffledIndices), 'Shuffled indices should be an array');
     assert.equal(state.shuffledIndices.length, 3, 'Should have 3 shuffled indices');
-  });
-
-  it('personal playlists remain accessible after restart', async () => {
-    const playlist = require('./playlist');
-
-    // Create playlists with songs
-    const pl1 = await playlist.createPlaylist('user-42', 'Road Trip Mix');
-    assert.ok(pl1, 'Playlist should be created');
-
-    await playlist.addSong(pl1.id, 'user-42', { url: 'https://youtube.com/watch?v=rt1', title: 'Highway Star', duration: 360 });
-    await playlist.addSong(pl1.id, 'user-42', { url: 'https://youtube.com/watch?v=rt2', title: 'Born to Run', duration: 270 });
-
-    const pl2 = await playlist.createPlaylist('user-42', 'Chill Vibes');
-    await playlist.addSong(pl2.id, 'user-42', { url: 'https://youtube.com/watch?v=cv1', title: 'Lofi Beat', duration: 180 });
-
-    // Simulate server restart
-    simulateRestart();
-    const playlistAfter = require('./playlist');
-
-    // Verify playlists still accessible
-    const userPlaylists = await playlistAfter.getPlaylistsByUser('user-42');
-    assert.equal(userPlaylists.length, 2, 'Both playlists should exist');
-
-    // Verify songs in first playlist
-    const restored1 = await playlistAfter.getPlaylist(pl1.id);
-    assert.ok(restored1, 'Road Trip Mix should be accessible');
-    assert.equal(restored1.name, 'Road Trip Mix');
-    assert.equal(restored1.songs.length, 2, 'Should have 2 songs');
-    assert.equal(restored1.songs[0].title, 'Highway Star');
-    assert.equal(restored1.songs[1].title, 'Born to Run');
-
-    // Verify second playlist
-    const restored2 = await playlistAfter.getPlaylist(pl2.id);
-    assert.ok(restored2, 'Chill Vibes should be accessible');
-    assert.equal(restored2.name, 'Chill Vibes');
-    assert.equal(restored2.songs.length, 1);
-    assert.equal(restored2.songs[0].title, 'Lofi Beat');
   });
 });

@@ -142,13 +142,13 @@ export function fetchCachedSongs() {
 export function renderCacheSongList() {
   if (!elements.cacheSongList) return;
   let songs = [...cachedSongsData];
-  const unusedCount = cachedSongsData.filter(s => !s.playlist_count && !s.queue_count).length;
+  const unusedCount = cachedSongsData.filter(s => !s.queue_count).length;
   if (elements.cacheUnused) elements.cacheUnused.textContent = unusedCount;
 
   const filterEl = document.getElementById('cache-filter');
   const filterBy = filterEl ? filterEl.value : 'all';
-  if (filterBy === 'unused') songs = songs.filter(s => !s.playlist_count && !s.queue_count);
-  else if (filterBy === 'used') songs = songs.filter(s => s.playlist_count > 0 || s.queue_count > 0);
+  if (filterBy === 'unused') songs = songs.filter(s => !s.queue_count);
+  else if (filterBy === 'used') songs = songs.filter(s => s.queue_count > 0);
 
   const searchEl = document.getElementById('cache-search');
   const query = searchEl ? searchEl.value.toLocaleLowerCase('tr') : '';
@@ -174,11 +174,10 @@ export function renderCacheSongList() {
   elements.cacheSongList.innerHTML = songs.map(song => {
     const duration = formatDuration(song.duration);
     const fileSize = formatFileSize(song.file_size);
-    const isUnused = !song.playlist_count && !song.queue_count;
+    const isUnused = !song.queue_count;
     let usageLabel = '';
     if (!isUnused) {
       const parts = [];
-      if (song.playlist_count) parts.push(`${song.playlist_count} list${song.playlist_count > 1 ? 's' : ''}`);
       if (song.queue_count) parts.push(`${song.queue_count} queue${song.queue_count > 1 ? 's' : ''}`);
       usageLabel = parts.join(', ');
     }
@@ -251,8 +250,8 @@ function purgeUnregisteredFiles() {
 }
 
 function cleanOrphanedSongs() {
-  const unusedCount = cachedSongsData.filter(s => !s.playlist_count && !s.queue_count).length;
-  if (!confirm(`Remove ${unusedCount} song${unusedCount !== 1 ? 's' : ''} not used in any playlist or queue?`)) return;
+  const unusedCount = cachedSongsData.filter(s => !s.queue_count).length;
+  if (!confirm(`Remove ${unusedCount} song${unusedCount !== 1 ? 's' : ''} not used in any queue?`)) return;
   fetch('/api/dashboard/cache/orphaned', { method: 'DELETE', credentials: 'include' })
     .then(res => res.json())
     .then(data => { if (data.success) { fetchCacheStats(); fetchCachedSongs(); fetchDashboardStats(); alert(`Removed ${data.deleted} unused song${data.deleted !== 1 ? 's' : ''}`); } else alert('Failed to remove unused songs'); })

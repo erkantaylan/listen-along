@@ -244,46 +244,6 @@ scenario_3() {
 }
 
 # ─────────────────────────────────────────────────────────────────
-# Scenario 4: Playlist survives restart
-# ─────────────────────────────────────────────────────────────────
-scenario_4() {
-  log "Scenario 4: Create playlist → add songs → restart → verify"
-
-  # Create playlist via API
-  local playlist
-  playlist=$(curl -sf "${BASE_URL}/api/playlists" -X POST \
-    -H 'Content-Type: application/json' \
-    -d '{"userId":"test-user-restart","name":"Restart Mix"}') || { fail "Scenario 4: Failed to create playlist"; return; }
-
-  local playlist_id
-  playlist_id=$(echo "$playlist" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const j=JSON.parse(d);process.stdout.write(j.id);})")
-
-  # Add songs
-  curl -sf "${BASE_URL}/api/playlists/${playlist_id}/songs" -X POST \
-    -H 'Content-Type: application/json' \
-    -d '{"url":"https://youtube.com/watch?v=pl1","title":"Playlist Song 1","duration":200}' > /dev/null
-
-  curl -sf "${BASE_URL}/api/playlists/${playlist_id}/songs" -X POST \
-    -H 'Content-Type: application/json' \
-    -d '{"url":"https://youtube.com/watch?v=pl2","title":"Playlist Song 2","duration":180}' > /dev/null
-
-  restart_app
-
-  # Verify playlist still exists
-  local verify
-  verify=$(curl -sf "${BASE_URL}/api/playlists/${playlist_id}") || { fail "Scenario 4: Playlist not found after restart"; return; }
-
-  local song_count
-  song_count=$(echo "$verify" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const j=JSON.parse(d);process.stdout.write(String(j.songs.length));})")
-
-  if [ "$song_count" = "2" ]; then
-    pass "Scenario 4: Playlist with 2 songs intact after restart"
-  else
-    fail "Scenario 4: Expected 2 songs, got: $song_count"
-  fi
-}
-
-# ─────────────────────────────────────────────────────────────────
 # Scenario 5: Two users → restart → both reconnect to same state
 # ─────────────────────────────────────────────────────────────────
 scenario_5() {
@@ -398,7 +358,6 @@ fi
 
 scenario_1
 scenario_3
-scenario_4
 scenario_5
 
 echo ""

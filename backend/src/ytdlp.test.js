@@ -1,43 +1,31 @@
 const { describe, it, mock } = require('node:test');
 const assert = require('node:assert');
-const { parseError, isPlaylistUrl } = require('./ytdlp');
+const { parseError, stripListParam } = require('./ytdlp');
 
 describe('ytdlp', () => {
-  describe('isPlaylistUrl', () => {
-    it('detects YouTube playlist URL with list parameter', () => {
+  describe('stripListParam', () => {
+    it('strips the list param so only the single video is fetched', () => {
       const url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf';
-      assert.strictEqual(isPlaylistUrl(url), true);
+      assert.strictEqual(stripListParam(url), 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
     });
 
-    it('detects YouTube playlist URL without video', () => {
-      const url = 'https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf';
-      assert.strictEqual(isPlaylistUrl(url), true);
+    it('strips list and index params', () => {
+      const url = 'https://www.youtube.com/watch?v=abc&list=PL123&index=4';
+      assert.strictEqual(stripListParam(url), 'https://www.youtube.com/watch?v=abc');
     });
 
-    it('returns false for regular video URL', () => {
+    it('leaves a plain video URL untouched', () => {
       const url = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
-      assert.strictEqual(isPlaylistUrl(url), false);
+      assert.strictEqual(stripListParam(url), url);
     });
 
-    it('returns false for short YouTube URL', () => {
-      const url = 'https://youtu.be/dQw4w9WgXcQ';
-      assert.strictEqual(isPlaylistUrl(url), false);
+    it('passes through search terms unchanged', () => {
+      assert.strictEqual(stripListParam('rick astley never gonna give you up'), 'rick astley never gonna give you up');
     });
 
-    it('returns false for null input', () => {
-      assert.strictEqual(isPlaylistUrl(null), false);
-    });
-
-    it('returns false for undefined input', () => {
-      assert.strictEqual(isPlaylistUrl(undefined), false);
-    });
-
-    it('returns false for non-URL string', () => {
-      assert.strictEqual(isPlaylistUrl('not a url'), false);
-    });
-
-    it('returns false for empty string', () => {
-      assert.strictEqual(isPlaylistUrl(''), false);
+    it('passes through non-string input unchanged', () => {
+      assert.strictEqual(stripListParam(null), null);
+      assert.strictEqual(stripListParam(undefined), undefined);
     });
   });
 

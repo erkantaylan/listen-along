@@ -9,15 +9,7 @@
     "createLobby": "Lobi Oluştur",
     "joinHint": "Bir linkin var mı? Tarayıcına yapıştır.",
     "activeLobbies": "Aktif Lobiler",
-    "noActiveLobbies": "Aktif lobi yok",
-    "myPlaylists": "Çalma Listelerim",
-    "playlists": "Çalma Listeleri",
-    "allPublic": "Tüm herkese açık",
-    "mine": "Benim",
-    "noPlaylists": "Henüz çalma listesi yok",
-    "noPublicPlaylists": "Henüz herkese açık çalma listesi yok.",
-    "noMinePlaylists": "Henüz çalma listesi oluşturmadın.",
-    "newPlaylist": "+ Yeni"
+    "noActiveLobbies": "Aktif lobi yok"
   },
   "listeningMode": {
     "synchronized": "Jam",
@@ -47,7 +39,7 @@
     "unmute": "Sesi aç"
   },
   "playbackMode": {
-    "replayList": "Listeyi tekrarla",
+    "replayAll": "Listeyi tekrarla",
     "playOnlyCurrent": "Sadece şuanki şarkıyı çal",
     "stopWhenEnds": "Liste bitince dur",
     "playRandom": "Rastgele çal"
@@ -83,14 +75,6 @@
     "changeAvatar": "Avatar emojisini değiştir",
     "save": "Kaydet"
   },
-  "solo": {
-    "backToHome": "Ana sayfaya dön",
-    "playlist": "Çalma Listesi",
-    "songs": "şarkı",
-    "song": "şarkı",
-    "playlistEmpty": "Çalma listesi boş",
-    "repeat": "Tekrarla"
-  },
   "dashboard": {
     "title": "Kontrol Paneli",
     "activeLobbies": "Aktif Lobiler",
@@ -120,13 +104,8 @@
     "enterSongUrl": "Lütfen şarkı URL'si veya arama terimi gir",
     "lobbyClosed": "Bu lobi kapatıldı",
     "profileSaved": "Profil kaydedildi!",
-    "playlistCreated": "Çalma listesi oluşturuldu!",
-    "enterPlaylistName": "Lütfen çalma listesi adı gir",
     "songAdded": "Şarkı eklendi!",
-    "songRemoved": "Şarkı kaldırıldı",
-    "addPlaylist": "Tüm çalma listesini ekle",
-    "addSingleSong": "Sadece bu şarkıyı ekle",
-    "addAllSongs": "Tüm şarkıları ekle"
+    "songRemoved": "Şarkı kaldırıldı"
   },
   "error": {
     "notInLobby": "Bu lobinin üyesi değilsin",

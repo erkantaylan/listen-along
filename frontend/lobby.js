@@ -5,7 +5,6 @@ import { showView, showToast, escapeHtml, formatAge, copyToClipboard, t } from '
 // Register landing view activator
 viewActivators.landing = () => {
   fetchLobbies();
-  // fetchPlaylists is registered separately by playlist.js
   setLobbiesInterval(setInterval(fetchLobbies, 10000));
 };
 

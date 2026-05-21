@@ -14,6 +14,24 @@ function getCookiesArgs() {
 }
 
 /**
+ * Strip list/index params from a YouTube URL so yt-dlp fetches only the single
+ * video, never an entire list. Search terms and non-URL targets pass through
+ * unchanged.
+ * @param {string} target - URL or search target
+ * @returns {string} target with list-expanding params removed
+ */
+function stripListParam(target) {
+  if (typeof target !== 'string' || !/^https?:\/\//i.test(target)) return target;
+  try {
+    const u = new URL(target);
+    ['list', 'index', 'start_radio', 'pp'].forEach(p => u.searchParams.delete(p));
+    return u.toString();
+  } catch {
+    return target;
+  }
+}
+
+/**
  * Extract metadata for a YouTube video or search query
  * @param {string} query - YouTube URL or search term
  * @returns {Promise<Object>} Video metadata
@@ -21,11 +39,10 @@ function getCookiesArgs() {
 function getMetadata(query) {
   return new Promise((resolve, reject) => {
     const isUrl = query.startsWith('http://') || query.startsWith('https://');
-    const target = isUrl ? query : `ytsearch:${query}`;
+    const target = isUrl ? stripListParam(query) : `ytsearch:${query}`;
 
     const args = [
       '-j',                    // JSON output
-      '--no-playlist',         // Single video only
       '-f', 'bestaudio',       // Audio format selection
       '--extractor-args', 'youtube:player_client=android_vr',
       target
@@ -77,13 +94,12 @@ function getMetadata(query) {
  */
 function createTranscodedStream(query) {
   const isUrl = query.startsWith('http://') || query.startsWith('https://');
-  const target = isUrl ? query : `ytsearch:${query}`;
+  const target = isUrl ? stripListParam(query) : `ytsearch:${query}`;
 
   // yt-dlp outputs raw audio to stdout
   const ytdlp = spawn('yt-dlp', [
     '-f', 'bestaudio',
     '-o', '-',
-    '--no-playlist',
     '--extractor-args', 'youtube:player_client=android_vr',
     ...getCookiesArgs(),
     target
@@ -194,88 +210,10 @@ function checkAvailable() {
   });
 }
 
-/**
- * Check if a URL is a YouTube playlist
- * @param {string} url - URL to check
- * @returns {boolean} True if URL contains playlist parameter
- */
-function isPlaylistUrl(url) {
-  if (!url || typeof url !== 'string') return false;
-  try {
-    const parsed = new URL(url);
-    return parsed.searchParams.has('list');
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Extract playlist items without downloading
- * @param {string} url - YouTube playlist URL
- * @returns {Promise<Object>} Playlist metadata with items array
- */
-function getPlaylistItems(url) {
-  return new Promise((resolve, reject) => {
-    const args = [
-      '--flat-playlist',     // Don't download, just list
-      '-J',                  // JSON output for entire playlist
-      '--no-warnings',
-      url
-    ];
-
-    const proc = spawn('yt-dlp', args);
-    let stdout = '';
-    let stderr = '';
-
-    proc.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    proc.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    proc.on('close', (code) => {
-      if (code !== 0) {
-        const error = parseError(stderr, code);
-        return reject(error);
-      }
-
-      try {
-        const playlist = JSON.parse(stdout);
-        const entries = playlist.entries || [];
-
-        const items = entries.map(entry => ({
-          id: entry.id,
-          title: entry.title || 'Unknown',
-          duration: entry.duration || 0,
-          url: entry.url || `https://www.youtube.com/watch?v=${entry.id}`,
-          uploader: entry.uploader || playlist.uploader || 'Unknown',
-          thumbnail: entry.thumbnail || `https://i.ytimg.com/vi/${entry.id}/hqdefault.jpg`
-        }));
-
-        resolve({
-          title: playlist.title || 'Playlist',
-          items,
-          total: entries.length,
-          limited: false
-        });
-      } catch (e) {
-        reject(new Error('Failed to parse playlist data'));
-      }
-    });
-
-    proc.on('error', (err) => {
-      reject(new Error(`Failed to spawn yt-dlp: ${err.message}`));
-    });
-  });
-}
-
 module.exports = {
   getMetadata,
   createTranscodedStream,
   parseError,
   checkAvailable,
-  isPlaylistUrl,
-  getPlaylistItems
+  stripListParam
 };
