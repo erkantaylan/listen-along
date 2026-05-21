@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.30.1 (2026-05-21)
+
+- feat(player): mobile touch ergonomics for the sticky player — 44px+ tap targets, grabbable progress/volume sliders, volume/repeat/shuffle stay reachable on small phones, sub-360px layout, larger track/artist text (CSS only; desktop unchanged)
+
 ## v2.30.0 (2026-05-21)
 
 ### Lobbies
