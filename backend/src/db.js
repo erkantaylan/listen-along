@@ -51,6 +51,7 @@ async function createTables() {
       host_id VARCHAR(255),
       name VARCHAR(50),
       listening_mode VARCHAR(20) DEFAULT 'synchronized',
+      is_public BOOLEAN NOT NULL DEFAULT TRUE,
       created_at BIGINT NOT NULL,
       last_activity BIGINT NOT NULL
     )
@@ -186,6 +187,12 @@ async function createTables() {
     ALTER TABLE lobbies ADD COLUMN IF NOT EXISTS current_index INTEGER DEFAULT -1
   `).catch(() => {}); // Ignore if column already exists
 
+  // Lobby visibility: public by default. Existing rows backfill to TRUE so no
+  // lobby silently disappears on deploy.
+  await pool.query(`
+    ALTER TABLE lobbies ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT TRUE
+  `).catch(() => {}); // Ignore if column already exists
+
   await pool.query(`
     ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS song_mention TEXT
   `).catch(() => {}); // Ignore if column already exists
@@ -250,19 +257,13 @@ async function getClient() {
 }
 
 /**
- * Clean up expired lobbies (24 hours from last activity)
+ * Time-based lobby expiry has been removed (hq-9gvy). Lobbies persist until a
+ * creator (or admin) explicitly deletes them — idleness alone never deletes a
+ * lobby. This no-op remains only so any stale caller does not crash; it never
+ * deletes rows.
  */
 async function cleanupExpiredLobbies() {
-  if (!pool) return 0;
-
-  const expiryTime = Date.now() - (24 * 60 * 60 * 1000); // 24 hours
-
-  const result = await pool.query(
-    'DELETE FROM lobbies WHERE last_activity < $1 AND (pinned IS NULL OR pinned = FALSE) RETURNING id',
-    [expiryTime]
-  );
-
-  return result.rowCount;
+  return 0;
 }
 
 /**

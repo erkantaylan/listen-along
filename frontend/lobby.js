@@ -251,8 +251,15 @@ export function fetchLobbies() {
   fetch('/api/lobbies').then(res => res.json()).then(data => renderLobbies(data.lobbies || [])).catch(() => {});
 }
 
+// Cache of the most recently rendered lobbies, keyed by id. Owner-control
+// handlers look up the (possibly quote-bearing) name here instead of through
+// inline onclick args, so user-controlled names never enter HTML attributes.
+const lobbyCache = new Map();
+
 function renderLobbies(lobbies) {
   if (!elements.lobbiesSection || !elements.lobbiesList) return;
+  lobbyCache.clear();
+  for (const l of lobbies) lobbyCache.set(l.id, l);
   if (lobbies.length === 0) { elements.lobbiesSection.hidden = true; return; }
   elements.lobbiesSection.hidden = false;
   elements.lobbiesList.innerHTML = lobbies.map(l => {
@@ -260,7 +267,48 @@ function renderLobbies(lobbies) {
     const modeClass = l.listeningMode === 'independent' ? 'independent' : 'synchronized';
     const age = formatAge(l.createdAt);
     const displayName = l.name ? escapeHtml(l.name) : escapeHtml(l.id);
+    const idArg = escapeHtml(l.id);
     const pinIcon = l.pinned ? '<svg class="pin-indicator" viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>' : '';
-    return `<li class="lobby-card" onclick="window.app.joinLobbyFromCard('${escapeHtml(l.id)}')"><div class="lobby-card-header"><span class="lobby-card-id">${pinIcon}${displayName}</span><span class="listening-mode-badge ${modeClass}">${modeLabel}</span></div><div class="lobby-card-stats"><span class="lobby-card-stat"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>${l.userCount}</span><span class="lobby-card-stat"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>${l.songCount}</span><span class="lobby-card-age">${age}</span></div></li>`;
+    // Owner-only controls: visibility toggle + delete. Non-owners never see these
+    // and never see other people's private lobbies (filtered server-side).
+    const privateBadge = (l.isOwner && !l.isPublic)
+      ? '<span class="lobby-visibility-badge private">Private</span>' : '';
+    const ownerControls = l.isOwner ? `<div class="lobby-owner-controls">`
+      + `<button type="button" class="lobby-visibility-toggle" title="${l.isPublic ? 'Make private' : 'Make public'}" onclick="event.stopPropagation();window.app.toggleLobbyVisibility('${idArg}', ${l.isPublic ? 'false' : 'true'})">${l.isPublic ? 'Public' : 'Private'}</button>`
+      + `<button type="button" class="lobby-delete-btn" title="Delete lobby" onclick="event.stopPropagation();window.app.deleteLobbyCard('${idArg}')">✕</button>`
+      + `</div>` : '';
+    return `<li class="lobby-card" onclick="window.app.joinLobbyFromCard('${idArg}')"><div class="lobby-card-header"><span class="lobby-card-id">${pinIcon}${displayName}${privateBadge}</span><span class="listening-mode-badge ${modeClass}">${modeLabel}</span></div><div class="lobby-card-stats"><span class="lobby-card-stat"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>${l.userCount}</span><span class="lobby-card-stat"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>${l.songCount}</span><span class="lobby-card-age">${age}</span>${ownerControls}</div></li>`;
   }).join('');
+}
+
+// Owner-only: toggle a lobby's public/private visibility from its card.
+export function toggleLobbyVisibility(lobbyId, makePublic) {
+  fetch(`/api/lobbies/${encodeURIComponent(lobbyId)}/visibility`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify({ is_public: makePublic })
+  })
+    .then(res => { if (!res.ok) throw new Error('visibility update failed'); return res.json(); })
+    .then(() => fetchLobbies())
+    .catch(() => showToast(t('lobbyVisibilityError', 'Failed to update visibility')));
+}
+
+// Owner-only: delete a lobby from its card, with a confirmation naming the lobby.
+export function deleteLobbyCard(lobbyId) {
+  const cached = lobbyCache.get(lobbyId);
+  const label = (cached && cached.name) || lobbyId;
+  const prompt = t(
+    'confirmDeleteLobby',
+    `Delete lobby "${label}"? This disconnects everyone and removes it permanently.`,
+    { name: label }
+  );
+  if (!confirm(prompt)) return;
+  fetch(`/api/lobbies/${encodeURIComponent(lobbyId)}`, {
+    method: 'DELETE',
+    credentials: 'same-origin'
+  })
+    .then(res => { if (!res.ok) throw new Error('delete failed'); return res.json(); })
+    .then(() => { showToast(t('lobbyDeleted', 'Lobby deleted')); fetchLobbies(); })
+    .catch(() => showToast(t('lobbyDeleteError', 'Failed to delete lobby')));
 }

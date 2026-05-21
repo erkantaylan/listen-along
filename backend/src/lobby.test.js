@@ -1,6 +1,6 @@
 const { describe, it, beforeEach, after } = require('node:test');
 const assert = require('node:assert');
-const { createLobby, getLobby, joinLobby, leaveLobby, getLobbyUsers, getListeningMode, deleteLobby, isNameTaken, renameLobby, getAllLobbies, pinLobby, lobbies, cleanupEmptyLobbies } = require('./lobby');
+const { createLobby, getLobby, joinLobby, leaveLobby, getLobbyUsers, getListeningMode, deleteLobby, isNameTaken, renameLobby, getAllLobbies, pinLobby, setVisibility, lobbies, cleanupEmptyLobbies } = require('./lobby');
 const { getQueue, deleteQueue, hasQueue } = require('./queue');
 const playback = require('./playback');
 
@@ -24,6 +24,42 @@ describe('Lobby System', () => {
       const lobby1 = createLobby('host-1');
       const lobby2 = createLobby('host-2');
       assert.notStrictEqual(lobby1.id, lobby2.id);
+    });
+
+    it('defaults new lobbies to public', () => {
+      const lobby = createLobby('host-1');
+      assert.strictEqual(lobby.isPublic, true);
+    });
+
+    it('honors an explicit private visibility', () => {
+      const lobby = createLobby('host-1', null, 'synchronized', null, false);
+      assert.strictEqual(lobby.isPublic, false);
+    });
+
+    it('normalizes a null host to null (anonymous, no owner)', () => {
+      const lobby = createLobby(null);
+      assert.strictEqual(lobby.hostId, null);
+    });
+  });
+
+  describe('visibility', () => {
+    it('setVisibility flips isPublic on the in-memory lobby', async () => {
+      const lobby = createLobby('host-1', 'vis-test');
+      assert.strictEqual(lobby.isPublic, true);
+
+      await setVisibility('vis-test', false);
+      assert.strictEqual(lobbies.get('vis-test').isPublic, false);
+
+      await setVisibility('vis-test', true);
+      assert.strictEqual(lobbies.get('vis-test').isPublic, true);
+    });
+
+    it('getAllLobbies exposes hostId and isPublic', () => {
+      createLobby('owner-x', 'all-test', 'synchronized', 'Mine', false);
+      const entry = getAllLobbies().find(l => l.id === 'all-test');
+      assert.ok(entry);
+      assert.strictEqual(entry.hostId, 'owner-x');
+      assert.strictEqual(entry.isPublic, false);
     });
   });
 
@@ -294,7 +330,9 @@ describe('Lobby System', () => {
   });
 
   describe('cleanupEmptyLobbies', () => {
-    it('cleans up queue and playback Maps for expired empty lobbies', async () => {
+    // hq-9gvy: time-based expiry was removed. An idle/empty lobby older than the
+    // old 24h timeout must NOT be deleted — it persists until explicitly deleted.
+    it('does NOT delete idle empty lobbies even past the old timeout', async () => {
       const lobby = createLobby('host-1', 'cleanup-test');
       const lobbyId = lobby.id;
 
@@ -305,20 +343,19 @@ describe('Lobby System', () => {
       assert.ok(hasQueue(lobbyId), 'queue should exist before cleanup');
       assert.ok(playback.getState(lobbyId), 'playback state should exist before cleanup');
 
-      // Make the lobby expired (older than 24h timeout)
+      // Make the lobby far older than the old 24h timeout
       const lobbyData = lobbies.get(lobbyId);
       lobbyData.lastActivity = Date.now() - (25 * 60 * 60 * 1000);
 
       await cleanupEmptyLobbies();
 
-      // Lobby should be removed from memory
-      assert.strictEqual(lobbies.has(lobbyId), false, 'lobby should be removed from memory');
-      // Queue and playback should also be cleaned up
-      assert.strictEqual(hasQueue(lobbyId), false, 'queue should be cleaned up');
-      assert.strictEqual(playback.getState(lobbyId), null, 'playback state should be cleaned up');
+      // Lobby and its state must survive — no idle deletion anymore
+      assert.ok(lobbies.has(lobbyId), 'idle lobby should NOT be removed');
+      assert.ok(hasQueue(lobbyId), 'queue for idle lobby should NOT be removed');
+      assert.ok(playback.getState(lobbyId), 'playback for idle lobby should NOT be removed');
     });
 
-    it('does not clean up pinned lobbies even if expired', async () => {
+    it('does not clean up pinned lobbies', async () => {
       const lobby = createLobby('host-1', 'pinned-test');
       const lobbyId = lobby.id;
 
@@ -328,7 +365,7 @@ describe('Lobby System', () => {
       // Pin the lobby
       await pinLobby(lobbyId, true);
 
-      // Make the lobby expired (older than 24h timeout)
+      // Make the lobby far older than the old 24h timeout
       const lobbyData = lobbies.get(lobbyId);
       lobbyData.lastActivity = Date.now() - (25 * 60 * 60 * 1000);
 

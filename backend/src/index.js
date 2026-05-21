@@ -504,16 +504,26 @@ app.get('/api/stream', rateLimit, async (req, res) => {
   }
 });
 
-// List all active lobbies (public)
+// List active lobbies. Private lobbies are hidden from everyone except their
+// creator; public lobbies are visible to all. Each entry carries isOwner so the
+// frontend can show owner-only controls (visibility toggle + delete).
 app.get('/api/lobbies', async (req, res) => {
+  const authUserId = getAuthUserId(req);
   const allLobbies = lobby.getAllLobbies();
 
-  const lobbies = await Promise.all(allLobbies.map(async l => {
+  const visible = allLobbies.filter(l => {
+    const isOwner = !!l.hostId && l.hostId === authUserId;
+    return l.isPublic !== false || isOwner;
+  });
+
+  const lobbies = await Promise.all(visible.map(async l => {
     const queue = await getQueueAsync(l.id);
     return {
       id: l.id,
       name: l.name || null,
       listeningMode: l.listeningMode,
+      isPublic: l.isPublic !== false,
+      isOwner: !!l.hostId && l.hostId === authUserId,
       pinned: l.pinned || false,
       userCount: l.userCount,
       songCount: queue.getSongs().length,
@@ -524,9 +534,11 @@ app.get('/api/lobbies', async (req, res) => {
   res.json({ lobbies });
 });
 
-// Create a new lobby
+// Create a new lobby (HTTP fallback; the primary path is the lobby:create
+// socket event). Persists the creator when the request is authenticated.
 app.post('/api/lobbies', (req, res) => {
-  const newLobby = lobby.createLobby(null);
+  const creatorId = getAuthUserId(req);
+  const newLobby = lobby.createLobby(creatorId);
   res.json({
     id: newLobby.id,
     link: `/lobby/${newLobby.id}`
@@ -917,6 +929,74 @@ function getAuthUserId(req) {
   const payload = verifyAuthToken(token);
   return payload ? payload.id : null;
 }
+
+// Tear down a lobby everywhere: notify + disconnect members, clear playback,
+// queue and chat state, then delete the row from BOTH memory and the DB.
+// Shared by the admin (dashboard) and creator delete paths. Uses the async
+// delete so the row does not resurrect on restart (there is no longer any
+// time-based cleanup to remove stale rows — hq-9gvy).
+async function destroyLobby(lobbyId, { reason } = {}) {
+  io.to(lobbyId).emit('lobby:closed', {
+    message: reason || 'This lobby has been closed.'
+  });
+  io.in(lobbyId).socketsLeave(lobbyId);
+
+  playback.cleanupLobby(lobbyId);
+  deleteQueue(lobbyId);
+  chat.cleanupLobby(lobbyId);
+
+  await lobby.deleteLobbyAsync(lobbyId);
+}
+
+// ==========================================
+// Lobby ownership & visibility (creator-only)
+// ==========================================
+
+// Toggle a lobby's public/private visibility. Creator-only: 401 if not
+// authenticated, 404 if the lobby does not exist, 403 if not the creator.
+app.patch('/api/lobbies/:id/visibility', express.json(), async (req, res) => {
+  const userId = getAuthUserId(req);
+  if (!userId) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  const { is_public } = req.body || {};
+  if (typeof is_public !== 'boolean') {
+    return res.status(400).json({ error: 'is_public must be a boolean' });
+  }
+  const lobbyData = await lobby.getLobbyAsync(req.params.id);
+  if (!lobbyData) {
+    return res.status(404).json({ error: 'Lobby not found' });
+  }
+  if (!lobbyData.hostId || lobbyData.hostId !== userId) {
+    return res.status(403).json({ error: 'Not the lobby owner' });
+  }
+  try {
+    const result = await lobby.setVisibility(req.params.id, is_public);
+    res.json({ id: req.params.id, isPublic: result.isPublic });
+  } catch (err) {
+    console.error('Lobby visibility update error:', err.message);
+    res.status(500).json({ error: 'Failed to update visibility' });
+  }
+});
+
+// Delete a lobby as its creator. 401 if not authenticated, 404 if missing,
+// 403 if not the creator. Admins use DELETE /api/dashboard/lobbies/:id instead.
+app.delete('/api/lobbies/:id', async (req, res) => {
+  const userId = getAuthUserId(req);
+  if (!userId) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  const lobbyData = await lobby.getLobbyAsync(req.params.id);
+  if (!lobbyData) {
+    return res.status(404).json({ error: 'Lobby not found' });
+  }
+  if (!lobbyData.hostId || lobbyData.hostId !== userId) {
+    return res.status(403).json({ error: 'Not the lobby owner' });
+  }
+  await destroyLobby(req.params.id, { reason: 'This lobby has been deleted by its creator.' });
+  console.log(`Lobby ${req.params.id} deleted by creator ${userId}`);
+  res.json({ success: true });
+});
 
 // ==========================================
 // Profile API
@@ -1491,7 +1571,7 @@ app.put('/api/dashboard/users/:id/reject', dashboardAuth, async (req, res) => {
 });
 
 // Delete a lobby (dashboard only)
-app.delete('/api/dashboard/lobbies/:id', dashboardAuth, (req, res) => {
+app.delete('/api/dashboard/lobbies/:id', dashboardAuth, async (req, res) => {
   const lobbyId = req.params.id;
   const lobbyData = lobby.getLobby(lobbyId);
 
@@ -1499,19 +1579,7 @@ app.delete('/api/dashboard/lobbies/:id', dashboardAuth, (req, res) => {
     return res.status(404).json({ error: 'Lobby not found' });
   }
 
-  // Notify all users in the lobby that it's being closed
-  io.to(lobbyId).emit('lobby:closed', { message: 'This lobby has been closed by an administrator.' });
-
-  // Disconnect all sockets from the room
-  io.in(lobbyId).socketsLeave(lobbyId);
-
-  // Clean up playback, queue, and chat state
-  playback.cleanupLobby(lobbyId);
-  deleteQueue(lobbyId);
-  chat.cleanupLobby(lobbyId);
-
-  // Delete the lobby
-  lobby.deleteLobby(lobbyId);
+  await destroyLobby(lobbyId, { reason: 'This lobby has been closed by an administrator.' });
 
   console.log(`Lobby ${lobbyId} deleted via dashboard`);
   res.json({ success: true });
@@ -1641,7 +1709,10 @@ io.on('connection', (socket) => {
     }
 
     const lobbyName = (name && name.trim()) ? name.trim() : null;
-    const newLobby = await lobby.createLobbyAsync(null, customId, listeningMode, lobbyName);
+    // Persist the creator when the socket is from an authenticated user (listen_auth
+    // cookie). Anonymous creators get host_id = null and thus no owner-only controls.
+    const creatorId = getAuthUserId({ headers: socket.request.headers || {} });
+    const newLobby = await lobby.createLobbyAsync(creatorId, customId, listeningMode, lobbyName);
     const result = await lobby.joinLobbyAsync(newLobby.id, socket.id, username || 'Anonymous', emoji);
 
     currentLobby = newLobby.id;
@@ -1651,6 +1722,7 @@ io.on('connection', (socket) => {
       lobbyId: newLobby.id,
       name: newLobby.name,
       listeningMode: newLobby.listeningMode,
+      isPublic: newLobby.isPublic !== false,
       pinned: newLobby.pinned || false,
       user: result.user,
       users: lobby.getLobbyUsers(newLobby.id)

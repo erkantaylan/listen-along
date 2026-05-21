@@ -4,7 +4,7 @@ import { showView, showToast, switchTab, setupLanguageSelector, fetchVersion, t 
 import { setupAudioPlayer, setupMediaSession, playAudioWithUnlock } from './audio.js';
 import { checkAuth, setupLoginView, showPendingCard, setupProfileEditor, setupProfilePage, loadProfilePage } from './auth.js';
 import { checkUrlForDashboard, dashboardJoinLobby, dashboardRemoveLobby, deleteCachedSong, playCachedSong, dashboardApproveUser, dashboardRejectUser } from './dashboard.js';
-import { createLobby, joinLobby, leaveLobby, shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyPinned, handleUserJoined, handleUserLeft, handleLobbyClosed, checkUrlForLobby, joinLobbyFromCard, updatePinButton, togglePin, promptRenameLobby } from './lobby.js';
+import { createLobby, joinLobby, leaveLobby, shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyPinned, handleUserJoined, handleUserLeft, handleLobbyClosed, checkUrlForLobby, joinLobbyFromCard, updatePinButton, togglePin, promptRenameLobby, toggleLobbyVisibility, deleteLobbyCard } from './lobby.js';
 import { handlePlaybackState, handlePlaybackSync, handleTrackChanged, handleShuffleState, handleDownloadStatus, handleDownloadProgress, handleModeChanged, handleUsersUpdated, handleFollowSync, toggleUserMode, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, advanceLocalQueue, updateNowPlaying, updatePlayButton, updatePlaybackModeUI, updateListeningModeBadge, updateModeButton, _setQueueFns } from './playback.js';
 import { handleQueueUpdated, handleSongAdded, addSong, removeSong, clearQueue, moveSongUp, moveSongDown, playSongAt, setupQueueDragAndDrop, setupQueueSearch, showLibraryDialog, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './queue.js';
 import { toggleSongMention, clearSongMention, sendChatMessage, handleChatMessage, handleChatHistory, requestChatHistory, resetChat } from './chat.js';
@@ -197,7 +197,8 @@ function initAuthenticatedApp() {
 // Expose API for inline onclick handlers
 window.app = {
   removeSong, moveSongUp, moveSongDown, playSongAt,
-  openSource, copySourceUrl, joinLobbyFromCard
+  openSource, copySourceUrl, joinLobbyFromCard,
+  toggleLobbyVisibility, deleteLobbyCard
 };
 window.dashboardJoinLobby = dashboardJoinLobby;
 window.dashboardRemoveLobby = dashboardRemoveLobby;

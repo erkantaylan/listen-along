@@ -6,23 +6,26 @@ const lobbies = new Map();
 // User connections are always in-memory (transient socket state)
 const lobbyUsers = new Map();
 
+// Periodic sweep only reclaims orphaned queue/playback state — it never deletes
+// lobbies. Time-based lobby expiry was removed in hq-9gvy.
 const LOBBY_CLEANUP_INTERVAL = 60 * 1000; // 1 minute
-const LOBBY_TIMEOUT = 24 * 60 * 60 * 1000; // 24 hours (was 5 minutes)
 
 function generateLobbyId() {
   return uuidv4().substring(0, 8);
 }
 
-async function createLobby(hostId = null, customId = null, listeningMode = 'synchronized', name = null) {
+async function createLobby(hostId = null, customId = null, listeningMode = 'synchronized', name = null, isPublic = true) {
   const id = customId || generateLobbyId();
   const now = Date.now();
   const mode = (listeningMode === 'independent') ? 'independent' : 'synchronized';
+  const pub = isPublic !== false;
 
   const lobby = {
     id,
-    hostId,
+    hostId: hostId || null,
     name: name || null,
     listeningMode: mode,
+    isPublic: pub,
     pinned: false,
     createdAt: now,
     lastActivity: now
@@ -31,8 +34,8 @@ async function createLobby(hostId = null, customId = null, listeningMode = 'sync
   if (db.isAvailable()) {
     try {
       await db.query(
-        'INSERT INTO lobbies (id, host_id, name, listening_mode, created_at, last_activity, pinned) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO UPDATE SET last_activity = $6',
-        [id, hostId, name || null, mode, now, now, false]
+        'INSERT INTO lobbies (id, host_id, name, listening_mode, is_public, created_at, last_activity, pinned) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO UPDATE SET last_activity = $7',
+        [id, hostId || null, name || null, mode, pub, now, now, false]
       );
     } catch (err) {
       console.error('Failed to persist lobby:', err.message);
@@ -53,7 +56,7 @@ async function getLobby(id) {
   if (!lobby && db.isAvailable()) {
     try {
       const result = await db.query(
-        'SELECT id, host_id, name, listening_mode, created_at, last_activity, pinned FROM lobbies WHERE id = $1',
+        'SELECT id, host_id, name, listening_mode, is_public, created_at, last_activity, pinned FROM lobbies WHERE id = $1',
         [id]
       );
       if (result.rows.length > 0) {
@@ -63,6 +66,7 @@ async function getLobby(id) {
           hostId: row.host_id,
           name: row.name || null,
           listeningMode: row.listening_mode || 'synchronized',
+          isPublic: row.is_public !== false,
           pinned: row.pinned || false,
           createdAt: parseInt(row.created_at),
           lastActivity: parseInt(row.last_activity)
@@ -310,6 +314,24 @@ async function pinLobby(lobbyId, pinned) {
   return { lobby };
 }
 
+// Set a lobby's public/private visibility. Ownership is enforced by the caller
+// (HTTP layer); this only persists the new value to memory + DB.
+async function setVisibility(lobbyId, isPublic) {
+  const pub = isPublic !== false;
+  const lobby = lobbies.get(lobbyId);
+  if (lobby) lobby.isPublic = pub;
+
+  if (db.isAvailable()) {
+    try {
+      await db.query('UPDATE lobbies SET is_public = $1 WHERE id = $2', [pub, lobbyId]);
+    } catch (err) {
+      console.error('Failed to update lobby visibility:', err.message);
+    }
+  }
+
+  return { lobby: lobby || null, isPublic: pub };
+}
+
 async function deleteLobby(id) {
   if (db.isAvailable()) {
     try {
@@ -323,41 +345,16 @@ async function deleteLobby(id) {
   return lobbies.delete(id);
 }
 
+// Time-based lobby deletion was removed in hq-9gvy: idle lobbies are NEVER
+// deleted, in memory or in the DB. They persist until a creator (or admin)
+// explicitly deletes them. This sweep now only reclaims orphaned queue/playback
+// state for lobby IDs that no longer exist in memory (e.g. lazily created by
+// getQueue() for an already-deleted lobby) — it never removes a lobby itself.
 async function cleanupEmptyLobbies() {
-  const now = Date.now();
-
-  // If DB is available, let database handle cleanup
-  if (db.isAvailable()) {
-    try {
-      const deleted = await db.cleanupExpiredLobbies();
-      if (deleted > 0) {
-        console.log(`Cleaned up ${deleted} expired lobbies from database`);
-      }
-    } catch (err) {
-      console.error('Failed to cleanup expired lobbies:', err.message);
-    }
-  }
-
-  // Also clean up in-memory lobbies that are empty and expired
   // Lazy require to avoid circular dependency (playback.js requires lobby.js)
-  const { deleteQueue, cleanupOrphanedQueues } = require('./queue');
+  const { cleanupOrphanedQueues } = require('./queue');
   const playback = require('./playback');
 
-  for (const [id, lobby] of lobbies) {
-    const users = lobbyUsers.get(id);
-    const userCount = users ? users.size : 0;
-
-    if (userCount === 0 && !lobby.pinned && (now - lobby.lastActivity) > LOBBY_TIMEOUT) {
-      playback.cleanupLobby(id);
-      deleteQueue(id);
-      lobbies.delete(id);
-      lobbyUsers.delete(id);
-      console.log(`Cleaned up empty lobby from memory: ${id}`);
-    }
-  }
-
-  // Sweep orphaned queue/playback entries for lobby IDs no longer in memory
-  // (e.g., created by lazy getQueue() after a lobby was already cleaned up)
   const validLobbyIds = new Set(lobbies.keys());
   cleanupOrphanedQueues(validLobbyIds);
   playback.cleanupOrphanedPlayback(validLobbyIds);
@@ -385,7 +382,7 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 // Sync wrapper for backward compatibility with tests
-function createLobbySync(hostId = null, customId = null, listeningMode = 'synchronized', name = null) {
+function createLobbySync(hostId = null, customId = null, listeningMode = 'synchronized', name = null, isPublic = true) {
   const id = customId || generateLobbyId();
   const now = Date.now();
   const mode = (listeningMode === 'independent') ? 'independent' : 'synchronized';
@@ -393,9 +390,10 @@ function createLobbySync(hostId = null, customId = null, listeningMode = 'synchr
   const users = new Map();
   const lobby = {
     id,
-    hostId,
+    hostId: hostId || null,
     name: name || null,
     listeningMode: mode,
+    isPublic: isPublic !== false,
     pinned: false,
     createdAt: now,
     lastActivity: now,
@@ -467,7 +465,7 @@ async function loadLobbiesFromDB() {
 
   try {
     const result = await db.query(
-      'SELECT id, host_id, name, listening_mode, created_at, last_activity, pinned FROM lobbies ORDER BY last_activity DESC'
+      'SELECT id, host_id, name, listening_mode, is_public, created_at, last_activity, pinned FROM lobbies ORDER BY last_activity DESC'
     );
 
     for (const row of result.rows) {
@@ -477,6 +475,7 @@ async function loadLobbiesFromDB() {
           hostId: row.host_id,
           name: row.name || null,
           listeningMode: row.listening_mode || 'synchronized',
+          isPublic: row.is_public !== false,
           pinned: row.pinned || false,
           createdAt: parseInt(row.created_at),
           lastActivity: parseInt(row.last_activity)
@@ -502,6 +501,8 @@ function getAllLobbies() {
       id,
       name: lobbyData.name || null,
       listeningMode: lobbyData.listeningMode || 'synchronized',
+      hostId: lobbyData.hostId || null,
+      isPublic: lobbyData.isPublic !== false,
       pinned: lobbyData.pinned || false,
       userCount,
       createdAt: lobbyData.createdAt,
@@ -539,6 +540,7 @@ module.exports = {
   clearFollowersOf,
   isNameTaken,
   renameLobby,
+  setVisibility,
   deleteLobby: deleteLobbySync,
   pinLobby,
   lobbies,

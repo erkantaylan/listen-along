@@ -2700,6 +2700,59 @@ html, body {
   color: var(--text-muted);
 }
 
+/* Owner-only lobby controls (visibility toggle + delete) */
+.lobby-owner-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.lobby-visibility-toggle {
+  font-size: 0.6875rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--bg-surface);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.lobby-visibility-toggle:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.lobby-delete-btn {
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 0.125rem 0.375rem;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.lobby-delete-btn:hover {
+  color: #ff5d5d;
+  border-color: #ff5d5d;
+}
+
+.lobby-visibility-badge {
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.0625rem 0.375rem;
+  margin-left: 0.375rem;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
+.lobby-visibility-badge.private {
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+}
+
 .song-filter-input {
   width: 100%;
   padding: 0.5rem 0.75rem;
