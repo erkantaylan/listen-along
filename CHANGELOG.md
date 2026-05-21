@@ -2,6 +2,13 @@
 
 ## v2.30.0 (2026-05-21)
 
+### Lobbies
+- feat(lobbies): lobbies now have a persistent creator (`host_id` set from the authenticated user); anonymous lobbies remain ownerless
+- feat(lobbies): public by default, with a creator-only toggle to make a lobby private; private lobbies are hidden from non-owners in listings
+- feat(lobbies): creator-only delete with a confirmation dialog (naming the lobby)
+- change(lobbies): removed time-based auto-expiry — idle lobbies are no longer deleted after 24h; deletion is now explicit only
+
+### Playlists removed
 - revert(playlists): remove the personal-playlist feature entirely (shipped in v2.29.0 by mistake)
 - remove: playlist tables, API endpoints, solo player, and playlist-URL import (Spotify/YouTube); idempotent migration drops `playlists`/`playlist_songs`
 - internal: replace yt-dlp `--no-playlist` flag with URL `list` param stripping so single-video downloads are unaffected
