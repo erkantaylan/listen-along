@@ -60,7 +60,8 @@
     "downloading": "Downloading...",
     "ready": "Ready",
     "error": "Error",
-    "clearQueue": "Clear queue"
+    "clearQueue": "Clear queue",
+    "downloadPlaylist": "Download all songs to your device"
   },
   "chat": {
     "noMessages": "No messages yet",

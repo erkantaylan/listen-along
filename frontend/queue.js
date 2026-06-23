@@ -71,6 +71,107 @@ export function clearQueue() {
   socket.emit('queue:clear', { lobbyId: state.lobbyId });
 }
 
+// --- Playlist download (to device) ---------------------------------------
+// Downloads every queued song to the user's device, ONE AT A TIME. The
+// server already has the audio cached on disk, so this just pulls each file
+// over; doing it sequentially (await per song) is the concurrency control —
+// it never kicks off 100 transfers at once. Files land in the device's
+// Downloads folder where apps like VLC can pick them up.
+
+let playlistDownloadActive = false;
+let playlistDownloadController = null;
+
+function padNum(n, width) {
+  let s = String(n);
+  while (s.length < width) s = '0' + s;
+  return s;
+}
+
+// Make a title safe to use as a filename (client side; the server also sets
+// a Content-Disposition fallback for direct hits).
+function safeFileName(title) {
+  return String(title || 'audio')
+    .replace(/[\/\\?%*:|"<>]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120) || 'audio';
+}
+
+function showDownloadProgress(done, total, title) {
+  const el = elements.playlistDownloadProgress;
+  if (!el) return;
+  el.hidden = false;
+  if (elements.pdlLabel) elements.pdlLabel.textContent = `Downloading ${done}/${total}: ${title || ''}`.trim();
+  if (elements.pdlBarFill) elements.pdlBarFill.style.width = `${Math.round((done / total) * 100)}%`;
+}
+
+function hideDownloadProgress() {
+  const el = elements.playlistDownloadProgress;
+  if (el) el.hidden = true;
+  if (elements.pdlBarFill) elements.pdlBarFill.style.width = '0%';
+}
+
+export function cancelPlaylistDownload() {
+  if (!playlistDownloadActive) return;
+  playlistDownloadActive = false;
+  if (playlistDownloadController) playlistDownloadController.abort();
+}
+
+export async function downloadPlaylist() {
+  if (playlistDownloadActive) { cancelPlaylistDownload(); return; }
+
+  const songs = (state.queue || []).filter(s => s && s.url);
+  if (!songs.length) { showToast('Queue is empty', 'error'); return; }
+
+  playlistDownloadActive = true;
+  if (elements.downloadQueueBtn) elements.downloadQueueBtn.classList.add('active');
+
+  const width = String(songs.length).length;
+  let ok = 0, failed = 0;
+
+  for (let i = 0; i < songs.length; i++) {
+    if (!playlistDownloadActive) break;
+    const song = songs[i];
+    showDownloadProgress(i, songs.length, song.title);
+
+    playlistDownloadController = new AbortController();
+    try {
+      const res = await fetch(`/api/stream?q=${encodeURIComponent(song.url)}&dl=1`, {
+        credentials: 'include',
+        signal: playlistDownloadController.signal
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const blob = await res.blob();
+      const ext = (blob.type && blob.type.includes('wav')) ? 'wav' : 'mp3';
+
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objUrl;
+      a.download = `${padNum(i + 1, width)} - ${safeFileName(song.title)}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(objUrl), 4000);
+      ok++;
+    } catch (err) {
+      if (err && err.name === 'AbortError') break;
+      console.error('Download failed for', song.title, err);
+      failed++;
+    }
+  }
+
+  showDownloadProgress(ok + failed, songs.length, '');
+  const wasCancelled = !playlistDownloadActive;
+  playlistDownloadActive = false;
+  playlistDownloadController = null;
+  if (elements.downloadQueueBtn) elements.downloadQueueBtn.classList.remove('active');
+  setTimeout(hideDownloadProgress, 1200);
+
+  if (wasCancelled) showToast(`Download cancelled — ${ok} saved`, 'info');
+  else if (failed) showToast(`Downloaded ${ok} song${ok !== 1 ? 's' : ''}, ${failed} failed`, failed > ok ? 'error' : 'info');
+  else showToast(`Downloaded ${ok} song${ok !== 1 ? 's' : ''} to your device`, 'success');
+}
+
 export function moveSongUp(index) {
   if (index <= 0) return;
   const song = state.queue[index];

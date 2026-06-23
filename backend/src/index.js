@@ -386,12 +386,28 @@ app.get('/api/metadata', rateLimit, async (req, res) => {
   }
 });
 
+// Build a safe ASCII filename for Content-Disposition. Falls back to a generic
+// name when the title has no usable characters (e.g. all-emoji titles).
+function downloadFilename(title) {
+  const base = String(title || 'audio')
+    .replace(/[\/\\?%*:|"<>]/g, ' ')   // illegal filename chars
+    .replace(/[\x00-\x1f]/g, " ")      // control chars
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
+  return (base || 'audio') + '.mp3';
+}
+
 // Stream audio - serves cached files when available, falls back to live transcoding
 app.get('/api/stream', rateLimit, async (req, res) => {
   const { q } = req.query;
   if (!q) {
     return res.status(400).json({ error: 'Missing query parameter: q' });
   }
+  // When dl is set, force the browser to save the file instead of playing it
+  // inline. Used by the "Download playlist" feature to pull cached tracks to
+  // the user's device (e.g. for offline playback in VLC).
+  const forceDownload = req.query.dl === '1' || req.query.dl === 'true';
 
   try {
     // Check if we have a cached version
@@ -410,6 +426,9 @@ app.get('/api/stream', rateLimit, async (req, res) => {
       res.setHeader('Cache-Control', 'public, max-age=31536000');
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
+      if (forceDownload) {
+        res.setHeader('Content-Disposition', `attachment; filename="${downloadFilename(cachedSong.title)}"`);
+      }
 
       // Handle Range requests for cached files
       const range = req.headers.range;
@@ -459,6 +478,9 @@ app.get('/api/stream', rateLimit, async (req, res) => {
     // Allow cross-origin requests for audio
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
+    if (forceDownload) {
+      res.setHeader('Content-Disposition', `attachment; filename="${downloadFilename(q)}"`);
+    }
 
     // Handle Range requests (required for Safari)
     const range = req.headers.range;

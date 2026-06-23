@@ -6,7 +6,7 @@ import { checkAuth, setupLoginView, showPendingCard, setupProfileEditor, setupPr
 import { checkUrlForDashboard, dashboardJoinLobby, dashboardRemoveLobby, deleteCachedSong, playCachedSong, dashboardApproveUser, dashboardRejectUser } from './dashboard.js';
 import { createLobby, joinLobby, leaveLobby, shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyPinned, handleUserJoined, handleUserLeft, handleLobbyClosed, checkUrlForLobby, joinLobbyFromCard, updatePinButton, togglePin, promptRenameLobby, toggleLobbyVisibility, deleteLobbyCard } from './lobby.js';
 import { handlePlaybackState, handlePlaybackSync, handleTrackChanged, handleShuffleState, handleDownloadStatus, handleDownloadProgress, handleModeChanged, handleUsersUpdated, handleFollowSync, toggleUserMode, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, advanceLocalQueue, updateNowPlaying, updatePlayButton, updatePlaybackModeUI, updateListeningModeBadge, updateModeButton, _setQueueFns } from './playback.js';
-import { handleQueueUpdated, handleSongAdded, addSong, removeSong, clearQueue, moveSongUp, moveSongDown, playSongAt, setupQueueDragAndDrop, setupQueueSearch, showLibraryDialog, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './queue.js';
+import { handleQueueUpdated, handleSongAdded, addSong, removeSong, clearQueue, downloadPlaylist, cancelPlaylistDownload, moveSongUp, moveSongDown, playSongAt, setupQueueDragAndDrop, setupQueueSearch, showLibraryDialog, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './queue.js';
 import { toggleSongMention, clearSongMention, sendChatMessage, handleChatMessage, handleChatHistory, requestChatHistory, resetChat } from './chat.js';
 
 // Wire up cross-module dependencies
@@ -140,6 +140,8 @@ function setupEventListeners() {
     elements.queueSortSelect.addEventListener('change', (e) => { state.queueSort = e.target.value; storageSet(STORAGE_KEYS.QUEUE_SORT, state.queueSort); updateQueue(); });
   }
   if (elements.clearQueueBtn) elements.clearQueueBtn.addEventListener('click', clearQueue);
+  if (elements.downloadQueueBtn) elements.downloadQueueBtn.addEventListener('click', downloadPlaylist);
+  if (elements.pdlCancel) elements.pdlCancel.addEventListener('click', cancelPlaylistDownload);
 
   // Tabs
   elements.navItems.forEach(item => item.addEventListener('click', () => switchTab(item.dataset.tab)));

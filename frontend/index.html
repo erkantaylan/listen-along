@@ -185,9 +185,16 @@
             <option value="newest">Newest first</option>
             <option value="oldest">Oldest first</option>
           </select>
+          <button id="download-queue-btn" class="btn-icon btn-control" aria-label="Download playlist" title="Download all songs to your device" data-i18n-title="queue.downloadPlaylist">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+          </button>
           <button id="clear-queue-btn" class="btn-icon btn-control" aria-label="Clear queue" title="Clear queue" data-i18n-title="queue.clearQueue">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
           </button>
+        </div>
+        <div id="playlist-download-progress" class="playlist-download-progress" hidden>
+          <div class="pdl-info"><span id="pdl-label">Downloading…</span><button id="pdl-cancel" class="pdl-cancel" type="button">Cancel</button></div>
+          <div class="pdl-bar"><div id="pdl-bar-fill" class="pdl-bar-fill"></div></div>
         </div>
         <div style="padding: 0 0.5rem; margin-bottom: 0.5rem;">
           <input type="text" id="queue-search-input" class="song-filter-input" placeholder="Filter songs..." autocomplete="off">

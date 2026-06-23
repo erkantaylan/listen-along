@@ -60,7 +60,8 @@
     "downloading": "İndiriliyor...",
     "ready": "Hazır",
     "error": "Hata",
-    "clearQueue": "Sırayı temizle"
+    "clearQueue": "Sırayı temizle",
+    "downloadPlaylist": "Tüm şarkıları cihazına indir"
   },
   "chat": {
     "noMessages": "Henüz mesaj yok",

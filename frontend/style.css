@@ -789,6 +789,57 @@ html, body {
   order: 0;
 }
 
+#download-queue-btn.active {
+  color: var(--primary);
+}
+
+.playlist-download-progress {
+  padding: 0.5rem 1rem;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--bg-surface);
+  flex-shrink: 0;
+  order: 0;
+}
+
+.playlist-download-progress .pdl-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.4rem;
+}
+
+.playlist-download-progress #pdl-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playlist-download-progress .pdl-cancel {
+  background: none;
+  border: none;
+  color: var(--primary);
+  cursor: pointer;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
+.playlist-download-progress .pdl-bar {
+  height: 4px;
+  background: var(--bg-surface);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.playlist-download-progress .pdl-bar-fill {
+  height: 100%;
+  width: 0;
+  background: var(--primary);
+  transition: width 0.2s ease;
+}
+
 .queue-sort-select {
   background: var(--bg-surface);
   color: var(--text-secondary);
