@@ -30,7 +30,8 @@ where lobby persistence broke entirely on deployed instances.
 - `index.js` is the main server (~1700 lines, handles all HTTP routes + socket events)
 - Domain modules: lobby.js, queue.js, playback.js, chat.js, covers.js, downloader.js, db.js
 - Song downloads via yt-dlp + ffmpeg, cached in `songs/` directory
-- Spotify support via Client Credentials flow (search YouTube for playback)
+- Spotify track links supported via `spotify-url-info` page scraping (no API
+  credentials needed); title/artist are then searched on YouTube for playback
 
 ## User Identity
 
