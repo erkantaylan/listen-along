@@ -4,6 +4,11 @@ const path = require('path');
 
 const COOKIES_PATH = path.join(path.dirname(process.env.SONGS_PATH || '/data/songs'), 'cookies.txt');
 
+// yt-dlp YouTube player client(s). Switchable via env so the client can be
+// changed (e.g. to 'web_safari,mweb' or 'tv') without a code redeploy when
+// YouTube tightens restrictions. Comma-separate for fallbacks.
+const PLAYER_CLIENT = process.env.YTDLP_PLAYER_CLIENT || 'android_vr';
+
 function getCookiesArgs() {
   try {
     if (fs.existsSync(COOKIES_PATH) && fs.statSync(COOKIES_PATH).size > 0) {
@@ -44,7 +49,8 @@ function getMetadata(query) {
     const args = [
       '-j',                    // JSON output
       '-f', 'bestaudio',       // Audio format selection
-      '--extractor-args', 'youtube:player_client=android_vr',
+      '--extractor-args', `youtube:player_client=${PLAYER_CLIENT}`,
+      ...getCookiesArgs(),     // authenticate metadata lookups too, not just downloads
       target
     ];
 
@@ -109,7 +115,7 @@ function createTranscodedStream(query) {
   const ytdlp = spawn('yt-dlp', [
     '-f', 'bestaudio',
     '-o', '-',
-    '--extractor-args', 'youtube:player_client=android_vr',
+    '--extractor-args', `youtube:player_client=${PLAYER_CLIENT}`,
     ...getCookiesArgs(),
     target
   ], {

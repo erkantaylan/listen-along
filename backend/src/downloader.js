@@ -39,6 +39,9 @@ const SONGS_PATH = process.env.SONGS_PATH || '/data/songs';
 // Cookies file for yt-dlp (same volume as songs)
 const COOKIES_PATH = path.join(path.dirname(SONGS_PATH), 'cookies.txt');
 
+// YouTube player client, switchable via env without a code redeploy (see ytdlp.js)
+const PLAYER_CLIENT = process.env.YTDLP_PLAYER_CLIENT || 'android_vr';
+
 function getCookiesArgs() {
   try {
     if (fs.existsSync(COOKIES_PATH) && fs.statSync(COOKIES_PATH).size > 0) {
@@ -262,7 +265,7 @@ async function downloadSong(songId, url, lobbyId = null) {
       const ytdlpProc = spawn('yt-dlp', [
         '-f', 'bestaudio',
         '-o', '-',
-        '--extractor-args', 'youtube:player_client=android_vr',
+        '--extractor-args', `youtube:player_client=${PLAYER_CLIENT}`,
         ...getCookiesArgs(),
         target
       ], {

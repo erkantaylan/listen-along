@@ -2,7 +2,10 @@ FROM node:20-alpine
 
 RUN apk add --no-cache python3 py3-pip ffmpeg
 
-ARG YTDLP_CACHE_BUST=1
+# Bump this value to force a fresh yt-dlp install on the next build. YouTube
+# breaks yt-dlp often and fixes land within days, so a stale binary is a common
+# cause of "can't download anything" — rebuild after bumping to pull the latest.
+ARG YTDLP_CACHE_BUST=2026-06-24
 RUN pip3 install --break-system-packages --upgrade yt-dlp
 
 WORKDIR /app

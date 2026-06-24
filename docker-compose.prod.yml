@@ -19,6 +19,7 @@ services:
       - SESSION_SECRET=${SESSION_SECRET:-}
       - FRONTEND_URL=${FRONTEND_URL:-}
       - BASE_URL=${BASE_URL:-}
+      - YTDLP_PLAYER_CLIENT=${YTDLP_PLAYER_CLIENT:-}
     depends_on:
       postgres:
         condition: service_healthy
