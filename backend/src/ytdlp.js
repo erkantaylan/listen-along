@@ -52,6 +52,13 @@ function getMetadata(query) {
     let stdout = '';
     let stderr = '';
 
+    // Watchdog: kill a hung yt-dlp so it can't hold an HTTP/socket handler
+    // open until the proxy 504s. Cleared on normal close/error below.
+    const watchdog = setTimeout(() => {
+      proc.kill('SIGKILL');
+      reject(new Error('yt-dlp metadata timed out after 45s'));
+    }, 45000);
+
     proc.stdout.on('data', (data) => {
       stdout += data.toString();
     });
@@ -61,6 +68,7 @@ function getMetadata(query) {
     });
 
     proc.on('close', (code) => {
+      clearTimeout(watchdog);
       if (code !== 0) {
         const error = parseError(stderr, code);
         return reject(error);
@@ -82,6 +90,7 @@ function getMetadata(query) {
     });
 
     proc.on('error', (err) => {
+      clearTimeout(watchdog);
       reject(new Error(`Failed to spawn yt-dlp: ${err.message}`));
     });
   });
@@ -120,11 +129,20 @@ function createTranscodedStream(query) {
   // Pipe yt-dlp output to ffmpeg input
   ytdlp.stdout.pipe(ffmpeg.stdin);
 
+  const kill = () => {
+    ytdlp.kill('SIGTERM');
+    ffmpeg.kill('SIGTERM');
+  };
+
   // Handle yt-dlp errors
   let ytdlpError = '';
   ytdlp.stderr.on('data', (data) => {
     ytdlpError += data.toString();
   });
+
+  // Drain ffmpeg's stderr. ffmpeg is verbose on stderr, and if nothing reads it
+  // the ~64KB OS pipe buffer fills and ffmpeg blocks forever. Consume/discard it.
+  ffmpeg.stderr.on('data', () => {});
 
   ytdlp.on('close', (code) => {
     if (code !== 0 && code !== null) {
@@ -132,10 +150,18 @@ function createTranscodedStream(query) {
     }
   });
 
-  const kill = () => {
-    ytdlp.kill('SIGTERM');
+  // Log spawn failures and tear down the sibling so we don't leave half the
+  // pipe running. No total-duration timeout here: this streams for the whole
+  // song; client disconnect is handled by req.on('close') -> kill() in the route.
+  ytdlp.on('error', (err) => {
+    console.error('[createTranscodedStream] yt-dlp error:', err.message);
     ffmpeg.kill('SIGTERM');
-  };
+  });
+
+  ffmpeg.on('error', (err) => {
+    console.error('[createTranscodedStream] ffmpeg error:', err.message);
+    ytdlp.kill('SIGTERM');
+  });
 
   return {
     stream: ffmpeg.stdout,
@@ -205,8 +231,13 @@ function parseError(stderr, code) {
 function checkAvailable() {
   return new Promise((resolve) => {
     const proc = spawn('yt-dlp', ['--version']);
-    proc.on('close', (code) => resolve(code === 0));
-    proc.on('error', () => resolve(false));
+    // Short watchdog so a hung yt-dlp can't block the caller indefinitely.
+    const watchdog = setTimeout(() => {
+      proc.kill('SIGKILL');
+      resolve(false);
+    }, 20000);
+    proc.on('close', (code) => { clearTimeout(watchdog); resolve(code === 0); });
+    proc.on('error', () => { clearTimeout(watchdog); resolve(false); });
   });
 }
 

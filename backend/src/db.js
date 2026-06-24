@@ -26,6 +26,11 @@ async function init() {
       connectionTimeoutMillis: 2000,
     });
 
+    // Log (don't crash on) errors from idle pooled connections. pg emits 'error'
+    // on the pool when an idle backend dies (Postgres restart / proxy idle-kill);
+    // with no listener Node would throw it and take down the process.
+    pool.on('error', (err) => console.error('[pg pool] idle client error', err));
+
     // Test connection
     await pool.query('SELECT NOW()');
     console.log('Connected to PostgreSQL');

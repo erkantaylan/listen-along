@@ -101,9 +101,14 @@ function validateAudioFile(filePath) {
       filePath
     ]);
     let stdout = '';
+    // Short watchdog so a hung ffprobe can't block downloadSong's caller.
+    const watchdog = setTimeout(() => {
+      proc.kill('SIGKILL');
+      resolve(false);
+    }, 20000);
     proc.stdout.on('data', d => { stdout += d.toString(); });
-    proc.on('close', (code) => resolve(code === 0 && stdout.trim() === 'audio'));
-    proc.on('error', () => resolve(false));
+    proc.on('close', (code) => { clearTimeout(watchdog); resolve(code === 0 && stdout.trim() === 'audio'); });
+    proc.on('error', () => { clearTimeout(watchdog); resolve(false); });
   });
 }
 
@@ -234,6 +239,24 @@ async function downloadSong(songId, url, lobbyId = null) {
       const isUrl = url.startsWith('http://') || url.startsWith('https://') || url.startsWith('ytsearch:');
       const target = isUrl ? ytdlp.stripListParam(url) : `ytsearch:${url}`;
 
+      // Watchdog: a hung yt-dlp/ffmpeg would otherwise wedge a concurrency slot
+      // forever (the slot is only freed when this promise settles). Generous 5min
+      // limit since real downloads of long tracks take a while. settle() clears it
+      // and routes both resolve/reject through the existing close/error cleanup so
+      // the rejection still hits downloadSong's catch -> drainDownloadQueue finally.
+      let settled = false;
+      const settle = (fn, arg) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(watchdog);
+        fn(arg);
+      };
+      const watchdog = setTimeout(() => {
+        try { ytdlpProc.kill('SIGKILL'); } catch {}
+        try { ffmpeg.kill('SIGKILL'); } catch {}
+        settle(reject, new Error('Download timed out after 5 minutes'));
+      }, 5 * 60 * 1000);
+
       // yt-dlp outputs raw audio to stdout
       // ios client bypasses n-challenge entirely; web_safari/web as fallback avoid SABR pipe issues
       const ytdlpProc = spawn('yt-dlp', [
@@ -313,19 +336,19 @@ async function downloadSong(songId, url, lobbyId = null) {
 
       ffmpeg.on('close', (code) => {
         if (code === 0) {
-          resolve();
+          settle(resolve);
         } else {
           if (ytdlpError) console.error(`[yt-dlp stderr] ${ytdlpError.slice(-500)}`);
-          reject(ytdlpExitError || new Error(`ffmpeg error (${code}): ${ffmpegError.slice(-300)}`));
+          settle(reject, ytdlpExitError || new Error(`ffmpeg error (${code}): ${ffmpegError.slice(-300)}`));
         }
       });
 
       ffmpeg.on('error', (err) => {
-        reject(err);
+        settle(reject, err);
       });
 
       ytdlpProc.on('error', (err) => {
-        reject(err);
+        settle(reject, err);
       });
     });
 

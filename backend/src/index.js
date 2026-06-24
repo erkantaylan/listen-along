@@ -2578,3 +2578,15 @@ const shutdown = (signal) => {
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+
+// Global crash guards: a stray promise rejection or thrown exception would
+// otherwise kill the process and trigger a restart (the main cause of the
+// 504s users were seeing). We deliberately log and KEEP THE PROCESS ALIVE.
+// Trade-off: after an uncaughtException the process state can be undefined,
+// but staying up is the intentional choice here to avoid a restart-storm.
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+});
