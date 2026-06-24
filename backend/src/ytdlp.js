@@ -57,6 +57,80 @@ function stripListParam(target) {
 }
 
 /**
+ * If a URL points at a real YouTube playlist the user wants to import, return
+ * its list id; otherwise null. Auto-generated radio/mix lists (list=RD…) are
+ * NOT real playlists — a watch URL often carries one incidentally — so those
+ * return null and are handled as a single video.
+ * @param {string} target - URL or search target
+ * @returns {string|null} playlist id, or null if not an importable playlist
+ */
+function parsePlaylistId(target) {
+  if (typeof target !== 'string' || !/^https?:\/\//i.test(target)) return null;
+  let u;
+  try { u = new URL(target); } catch { return null; }
+  if (!/(?:^|\.)youtube\.com$|(?:^|\.)youtu\.be$/i.test(u.hostname)) return null;
+  const list = u.searchParams.get('list');
+  if (!list || /^RD/i.test(list)) return null; // RD* = radio/mix, not a playlist
+  return list;
+}
+
+/**
+ * Enumerate a YouTube playlist's entries without downloading them
+ * (--flat-playlist is fast: it lists ids/titles, not full per-video metadata).
+ * Unavailable entries (deleted/private) are filtered out.
+ * @param {string} url - playlist or watch?…&list= URL
+ * @returns {Promise<Array<{id,url,title,duration,thumbnail}>>}
+ */
+function getPlaylistEntries(url) {
+  return new Promise((resolve, reject) => {
+    const args = [
+      '--flat-playlist',
+      '-J',                    // dump the whole playlist as one JSON object
+      '--extractor-args', `youtube:player_client=${PLAYER_CLIENT}`,
+      ...getPotArgs(),
+      ...getCookiesArgs(),
+      url,
+    ];
+    const proc = spawn('yt-dlp', args);
+    let stdout = '';
+    let stderr = '';
+    const watchdog = setTimeout(() => {
+      proc.kill('SIGKILL');
+      reject(new Error('Playlist read timed out after 60s'));
+    }, 60000);
+
+    proc.stdout.on('data', (d) => { stdout += d.toString(); });
+    proc.stderr.on('data', (d) => { stderr += d.toString(); });
+    proc.on('error', (err) => {
+      clearTimeout(watchdog);
+      reject(new Error(`Failed to spawn yt-dlp: ${err.message}`));
+    });
+    proc.on('close', (code) => {
+      clearTimeout(watchdog);
+      if (code !== 0) return reject(parseError(stderr, code));
+      let data;
+      try {
+        data = JSON.parse(stdout);
+      } catch (err) {
+        return reject(new Error(`Failed to parse playlist: ${err.message}`));
+      }
+      const entries = (data.entries || [])
+        .filter((e) => e && e.id && e.title &&
+          e.title !== '[Deleted video]' && e.title !== '[Private video]' &&
+          e.title !== '[Unavailable video]')
+        .map((e) => ({
+          id: e.id,
+          url: e.url || `https://www.youtube.com/watch?v=${e.id}`,
+          title: e.title,
+          duration: e.duration || 0,
+          thumbnail: (e.thumbnails && e.thumbnails.length && e.thumbnails[e.thumbnails.length - 1].url) || e.thumbnail || null,
+        }));
+      resolve(entries);
+    });
+  });
+}
+
+/**
  * Extract metadata for a YouTube video or search query
  * @param {string} query - YouTube URL or search term
  * @returns {Promise<Object>} Video metadata
@@ -300,5 +374,7 @@ module.exports = {
   createTranscodedStream,
   parseError,
   checkAvailable,
-  stripListParam
+  stripListParam,
+  parsePlaylistId,
+  getPlaylistEntries
 };

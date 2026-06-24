@@ -2051,6 +2051,52 @@ io.on('connection', (socket) => {
     const queue = await getQueueAsync(lobbyId);
     const inputUrl = url || query;
 
+    // YouTube playlist import: expand a real playlist URL into individual tracks
+    // and add them all. Per-track resilient — a deleted/blocked entry is skipped,
+    // the rest still import.
+    const playlistId = inputUrl ? ytdlp.parsePlaylistId(inputUrl) : null;
+    if (playlistId) {
+      try {
+        socket.emit('queue:adding', { status: 'Reading playlist…' });
+        const entries = await ytdlp.getPlaylistEntries(inputUrl);
+        if (!entries.length) {
+          socket.emit('queue:error', { message: 'No playable videos found in that playlist' });
+          return;
+        }
+        const MAX_PLAYLIST = 100;
+        const items = entries.slice(0, MAX_PLAYLIST);
+        let added = 0;
+        for (let i = 0; i < items.length; i++) {
+          const e = items[i];
+          try {
+            const song = queue.addSong({ url: e.url, title: e.title, duration: e.duration, addedBy, thumbnail: e.thumbnail });
+            downloader.startDownload(e.url, { title: e.title, duration: e.duration, thumbnail: e.thumbnail }, lobbyId)
+              .catch(err => console.error(`[playlist] download failed (${e.url}): ${err.message}`));
+            if (e.thumbnail) covers.cacheCover(song.id, e.thumbnail).catch(() => {});
+            // Start playback on the very first song if the queue was empty
+            if (queue.getSongs().length === 1) {
+              queue.setCurrentIndex(0);
+              playback.setTrack(lobbyId, song, true, io);
+            }
+            added++;
+            // Push the growing queue to the UI every few songs so import is visible
+            if (i % 5 === 4) {
+              io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
+            }
+          } catch (err) {
+            console.error(`[playlist] add failed for ${e.url}: ${err.message}`);
+          }
+        }
+        io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
+        const capped = entries.length > MAX_PLAYLIST ? ` (first ${MAX_PLAYLIST} of ${entries.length})` : '';
+        socket.emit('queue:adding', { status: `Added ${added} song${added !== 1 ? 's' : ''} from playlist${capped}` });
+      } catch (err) {
+        console.error('Playlist import error:', err);
+        socket.emit('queue:error', { message: err.message || 'Failed to import playlist', code: err.code });
+      }
+      return;
+    }
+
     // Check if this is a Spotify URL
     const spotifyParsed = inputUrl ? spotify.parseSpotifyUrl(inputUrl) : null;
     if (spotifyParsed) {

@@ -1,6 +1,6 @@
 const { describe, it, mock } = require('node:test');
 const assert = require('node:assert');
-const { parseError, stripListParam } = require('./ytdlp');
+const { parseError, stripListParam, parsePlaylistId } = require('./ytdlp');
 
 describe('ytdlp', () => {
   describe('stripListParam', () => {
@@ -26,6 +26,29 @@ describe('ytdlp', () => {
     it('passes through non-string input unchanged', () => {
       assert.strictEqual(stripListParam(null), null);
       assert.strictEqual(stripListParam(undefined), undefined);
+    });
+  });
+
+  describe('parsePlaylistId', () => {
+    it('returns the list id for a real playlist on a watch URL', () => {
+      assert.strictEqual(
+        parsePlaylistId('https://www.youtube.com/watch?v=abc&list=PLyUKaKIB05bRZnk6sQK&index=7'),
+        'PLyUKaKIB05bRZnk6sQK'
+      );
+    });
+
+    it('returns the list id for a playlist page URL', () => {
+      assert.strictEqual(parsePlaylistId('https://www.youtube.com/playlist?list=OLAK5uy_abc'), 'OLAK5uy_abc');
+    });
+
+    it('ignores auto-generated radio/mix lists (RD…)', () => {
+      assert.strictEqual(parsePlaylistId('https://www.youtube.com/watch?v=abc&list=RDabc'), null);
+    });
+
+    it('returns null for a plain watch URL, search term, or non-string', () => {
+      assert.strictEqual(parsePlaylistId('https://www.youtube.com/watch?v=abc'), null);
+      assert.strictEqual(parsePlaylistId('never gonna give you up'), null);
+      assert.strictEqual(parsePlaylistId(null), null);
     });
   });
 
