@@ -72,8 +72,6 @@ const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const BASE_URL = process.env.BASE_URL || FRONTEND_URL;
-// First approved user becomes auto-approved; set to 'true' to auto-approve everyone
-const AUTO_APPROVE = process.env.AUTO_APPROVE === 'true';
 
 // Auth token helpers
 function createAuthToken(userId) {
@@ -316,10 +314,8 @@ app.post('/api/auth/register', async (req, res) => {
       return res.json({ status: user.status, userId: user.user_id });
     }
 
-    // New user — check if this is the first user (auto-approve)
-    const countResult = await db.query('SELECT COUNT(*) as count FROM users');
-    const isFirst = parseInt(countResult.rows[0].count) === 0;
-    const status = isFirst ? 'approved' : 'pending';
+    // All users are approved on registration (no approval gating).
+    const status = 'approved';
 
     const now = Date.now();
     await db.query(

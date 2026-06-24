@@ -213,6 +213,8 @@ async function createTables() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at BIGINT`).catch(() => {});
   await pool.query(`ALTER TABLE users ALTER COLUMN provider SET DEFAULT 'local'`).catch(() => {});
   await pool.query(`ALTER TABLE users ALTER COLUMN status SET DEFAULT 'approved'`).catch(() => {});
+  // Approval gating removed — promote anyone still waiting (leave explicit 'denied' alone)
+  await pool.query(`UPDATE users SET status = 'approved' WHERE status = 'pending'`).catch(() => {});
   // Drop old last_login NOT NULL constraint (replaced by updated_at)
   await pool.query(`ALTER TABLE users ALTER COLUMN last_login DROP NOT NULL`).catch(() => {});
 

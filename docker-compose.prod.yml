@@ -19,7 +19,6 @@ services:
       - SESSION_SECRET=${SESSION_SECRET:-}
       - FRONTEND_URL=${FRONTEND_URL:-}
       - BASE_URL=${BASE_URL:-}
-      - AUTO_APPROVE=${AUTO_APPROVE:-false}
     depends_on:
       postgres:
         condition: service_healthy
