@@ -52,7 +52,12 @@ describe('ytdlp', () => {
 
     it('detects age-restricted video', () => {
       const err = parseError('ERROR: Sign in to confirm your age', 1);
-      assert.strictEqual(err.code, 'VIDEO_RESTRICTED');
+      assert.strictEqual(err.code, 'AGE_RESTRICTED');
+    });
+
+    it('detects bot/IP check distinctly from age restriction', () => {
+      const err = parseError("ERROR: Sign in to confirm you're not a bot", 1);
+      assert.strictEqual(err.code, 'BOT_CHECK');
     });
 
     it('detects region blocked video', () => {

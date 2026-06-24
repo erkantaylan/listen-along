@@ -199,8 +199,26 @@ function parseError(stderr, code) {
     return err;
   }
 
-  if (lowerErr.includes('sign in') || lowerErr.includes('age-restricted')) {
-    const err = new Error('Video requires sign-in or is age-restricted');
+  // "Sign in to confirm you're not a bot" is YouTube's bot/IP challenge — it is
+  // NOT an age restriction (it just contains the words "sign in"). It means this
+  // server's IP is blocked; fix is cookies / a PO token / a proxy. Check this
+  // BEFORE the age/sign-in cases so it isn't mislabeled as age-restricted.
+  if (lowerErr.includes('not a bot') || lowerErr.includes('confirm you’re not a bot')) {
+    const err = new Error("YouTube is blocking this server's IP (bot check). Add cookies or a PO token.");
+    err.code = 'BOT_CHECK';
+    return err;
+  }
+
+  if (lowerErr.includes('confirm your age') || lowerErr.includes('age-restricted') ||
+      lowerErr.includes('age restricted') || lowerErr.includes('inappropriate for some')) {
+    const err = new Error('This video is age-restricted (needs a verified-account cookie)');
+    err.code = 'AGE_RESTRICTED';
+    return err;
+  }
+
+  if (lowerErr.includes('sign in') || lowerErr.includes('members-only') ||
+      lowerErr.includes('join this channel') || lowerErr.includes('login required')) {
+    const err = new Error('Video requires sign-in (login-only or members-only)');
     err.code = 'VIDEO_RESTRICTED';
     return err;
   }
