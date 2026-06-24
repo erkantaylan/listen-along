@@ -35,6 +35,16 @@ describe('ytdlp', () => {
       assert.strictEqual(err.code, 'VIDEO_UNAVAILABLE');
     });
 
+    it('detects DRM-protected content', () => {
+      const err = parseError('ERROR: [DRM] The requested site is known to use DRM protection.', 1);
+      assert.strictEqual(err.code, 'DRM_PROTECTED');
+    });
+
+    it('detects HTTP 404 as not found', () => {
+      const err = parseError('WARNING: HTTP Error 404: Not Found. Retrying', 1);
+      assert.strictEqual(err.code, 'NOT_FOUND');
+    });
+
     it('detects private video', () => {
       const err = parseError('ERROR: Private video', 1);
       assert.strictEqual(err.code, 'VIDEO_PRIVATE');

@@ -2078,7 +2078,12 @@ io.on('connection', (socket) => {
           error: err.message,
           stack: err.stack
         });
-        socket.emit('queue:error', { message: `Failed to process Spotify link: ${err.message}` });
+        // If the YouTube lookup classified the failure (DRM, restricted, etc.),
+        // surface that reason directly; otherwise it's a Spotify-side problem.
+        socket.emit('queue:error', {
+          message: err.code ? err.message : `Failed to process Spotify link: ${err.message}`,
+          code: err.code,
+        });
         return;
       }
     }
@@ -2100,7 +2105,12 @@ io.on('connection', (socket) => {
         }
       } catch (err) {
         console.error('Metadata fetch error:', err);
-        socket.emit('queue:error', { message: 'Failed to fetch video info' });
+        // Surface the real reason (parseError gives a user-facing message + code)
+        // instead of a generic string, so the user knows why it failed.
+        socket.emit('queue:error', {
+          message: err.message || 'Failed to fetch video info',
+          code: err.code,
+        });
         return;
       }
     }

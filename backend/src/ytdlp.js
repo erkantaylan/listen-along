@@ -181,6 +181,12 @@ function createTranscodedStream(query) {
 function parseError(stderr, code) {
   const lowerErr = stderr.toLowerCase();
 
+  if (lowerErr.includes('drm')) {
+    const err = new Error("This track is DRM-protected and can't be played");
+    err.code = 'DRM_PROTECTED';
+    return err;
+  }
+
   if (lowerErr.includes('private video')) {
     const err = new Error('This video is private');
     err.code = 'VIDEO_PRIVATE';
@@ -212,7 +218,7 @@ function parseError(stderr, code) {
     return err;
   }
 
-  if (lowerErr.includes('unable to extract') || lowerErr.includes('no results')) {
+  if (lowerErr.includes('unable to extract') || lowerErr.includes('no results') || lowerErr.includes('http error 404')) {
     const err = new Error('Video not found');
     err.code = 'NOT_FOUND';
     return err;
