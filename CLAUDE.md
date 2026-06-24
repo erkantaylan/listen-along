@@ -29,7 +29,10 @@ where lobby persistence broke entirely on deployed instances.
 - Frontend: Vanilla JS, single-page (`frontend/`)
 - `index.js` is the main server (~1700 lines, handles all HTTP routes + socket events)
 - Domain modules: lobby.js, queue.js, playback.js, chat.js, covers.js, downloader.js, db.js
-- Song downloads via yt-dlp + ffmpeg, cached in `songs/` directory
+- Song downloads via yt-dlp + ffmpeg, cached in `songs/` directory. Getting
+  yt-dlp to work from a server IP (PO token sidecar, JS runtime, `tv` client) is
+  documented in `YTDLP-YOUTUBE.md` — read it before touching download code or
+  debugging "can't download" issues
 - Spotify track links supported via `spotify-url-info` page scraping (no API
   credentials needed); title/artist are then searched on YouTube for playback
 
