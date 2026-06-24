@@ -20,6 +20,15 @@ function getPotArgs() {
     : [];
 }
 
+// External JS runtime for solving YouTube's signature / n-sig challenges (with
+// the yt-dlp-ejs scripts). Empty = yt-dlp default (Deno). Set to 'node' in the
+// container, which is the runtime actually installed there.
+const JS_RUNTIME = process.env.YTDLP_JS_RUNTIME || '';
+
+function getJsRuntimeArgs() {
+  return JS_RUNTIME ? ['--js-runtimes', JS_RUNTIME] : [];
+}
+
 function getCookiesArgs() {
   try {
     if (fs.existsSync(COOKIES_PATH) && fs.statSync(COOKIES_PATH).size > 0) {
@@ -60,6 +69,7 @@ function getMetadata(query) {
     const args = [
       '-j',                    // JSON output
       '-f', 'bestaudio',       // Audio format selection
+      ...getJsRuntimeArgs(),   // JS runtime for signature / n-sig challenge solving
       '--extractor-args', `youtube:player_client=${PLAYER_CLIENT}`,
       ...getPotArgs(),         // PO token provider (bgutil) to clear the bot/IP block
       ...getCookiesArgs(),     // authenticate metadata lookups too, not just downloads
@@ -127,6 +137,7 @@ function createTranscodedStream(query) {
   const ytdlp = spawn('yt-dlp', [
     '-f', 'bestaudio',
     '-o', '-',
+    ...getJsRuntimeArgs(),
     '--extractor-args', `youtube:player_client=${PLAYER_CLIENT}`,
     ...getPotArgs(),
     ...getCookiesArgs(),

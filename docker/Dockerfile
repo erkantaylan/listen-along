@@ -1,4 +1,4 @@
-FROM node:20-alpine
+FROM node:22-alpine
 
 RUN apk add --no-cache python3 py3-pip ffmpeg
 
@@ -6,10 +6,15 @@ RUN apk add --no-cache python3 py3-pip ffmpeg
 # breaks yt-dlp often and fixes land within days, so a stale binary is a common
 # cause of "can't download anything" — rebuild after bumping to pull the latest.
 ARG YTDLP_CACHE_BUST=2026-06-24
-# yt-dlp plus the bgutil PO Token provider plugin (client side). The provider
-# server runs as the bgutil-provider sidecar (see docker-compose.prod.yml);
-# yt-dlp auto-discovers this pip-installed plugin and fetches tokens from it.
-RUN pip3 install --break-system-packages --upgrade yt-dlp bgutil-ytdlp-pot-provider
+# yt-dlp plus:
+#  - bgutil-ytdlp-pot-provider: PO Token plugin (client side; talks to the
+#    bgutil-provider sidecar) to get past YouTube's "not a bot" IP block.
+#  - yt-dlp-ejs: the EJS challenge-solver scripts yt-dlp needs to solve YouTube's
+#    signature / n-sig challenges. It runs them on a JS runtime — we use the
+#    Node already in this image (see YTDLP_JS_RUNTIME=node), as Deno (the yt-dlp
+#    default) has no clean musl/alpine build.
+RUN pip3 install --break-system-packages --upgrade \
+      yt-dlp yt-dlp-ejs bgutil-ytdlp-pot-provider
 
 WORKDIR /app
 

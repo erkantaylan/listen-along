@@ -22,6 +22,8 @@ services:
       # web_safari is a PO-token-compatible client; bgutil-provider mints the tokens
       - YTDLP_PLAYER_CLIENT=${YTDLP_PLAYER_CLIENT:-web_safari}
       - YTDLP_POT_BASE_URL=${YTDLP_POT_BASE_URL:-http://bgutil-provider:4416}
+      # JS runtime for YouTube signature / n-sig solving (Node is in the image)
+      - YTDLP_JS_RUNTIME=${YTDLP_JS_RUNTIME:-node}
     depends_on:
       postgres:
         condition: service_healthy

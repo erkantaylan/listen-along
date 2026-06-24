@@ -51,6 +51,13 @@ function getPotArgs() {
     : [];
 }
 
+// External JS runtime for signature / n-sig challenge solving (see ytdlp.js)
+const JS_RUNTIME = process.env.YTDLP_JS_RUNTIME || '';
+
+function getJsRuntimeArgs() {
+  return JS_RUNTIME ? ['--js-runtimes', JS_RUNTIME] : [];
+}
+
 function getCookiesArgs() {
   try {
     if (fs.existsSync(COOKIES_PATH) && fs.statSync(COOKIES_PATH).size > 0) {
@@ -274,6 +281,7 @@ async function downloadSong(songId, url, lobbyId = null) {
       const ytdlpProc = spawn('yt-dlp', [
         '-f', 'bestaudio',
         '-o', '-',
+        ...getJsRuntimeArgs(),
         '--extractor-args', `youtube:player_client=${PLAYER_CLIENT}`,
         ...getPotArgs(),
         ...getCookiesArgs(),
