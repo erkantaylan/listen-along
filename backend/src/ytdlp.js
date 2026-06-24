@@ -68,7 +68,7 @@ function getMetadata(query) {
 
     const args = [
       '-j',                    // JSON output
-      '-f', 'bestaudio',       // Audio format selection
+      '-f', 'bestaudio/best',  // audio-only, falling back to best (ffmpeg strips video)
       ...getJsRuntimeArgs(),   // JS runtime for signature / n-sig challenge solving
       '--extractor-args', `youtube:player_client=${PLAYER_CLIENT}`,
       ...getPotArgs(),         // PO token provider (bgutil) to clear the bot/IP block
@@ -135,7 +135,7 @@ function createTranscodedStream(query) {
 
   // yt-dlp outputs raw audio to stdout
   const ytdlp = spawn('yt-dlp', [
-    '-f', 'bestaudio',
+    '-f', 'bestaudio/best',
     '-o', '-',
     ...getJsRuntimeArgs(),
     '--extractor-args', `youtube:player_client=${PLAYER_CLIENT}`,

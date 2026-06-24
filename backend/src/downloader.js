@@ -279,7 +279,7 @@ async function downloadSong(songId, url, lobbyId = null) {
       // yt-dlp outputs raw audio to stdout
       // ios client bypasses n-challenge entirely; web_safari/web as fallback avoid SABR pipe issues
       const ytdlpProc = spawn('yt-dlp', [
-        '-f', 'bestaudio',
+        '-f', 'bestaudio/best',
         '-o', '-',
         ...getJsRuntimeArgs(),
         '--extractor-args', `youtube:player_client=${PLAYER_CLIENT}`,
