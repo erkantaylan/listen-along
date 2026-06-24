@@ -42,6 +42,15 @@ const COOKIES_PATH = path.join(path.dirname(SONGS_PATH), 'cookies.txt');
 // YouTube player client, switchable via env without a code redeploy (see ytdlp.js)
 const PLAYER_CLIENT = process.env.YTDLP_PLAYER_CLIENT || 'android_vr';
 
+// bgutil PO Token provider base URL (empty = disabled); see ytdlp.js
+const POT_BASE_URL = process.env.YTDLP_POT_BASE_URL || '';
+
+function getPotArgs() {
+  return POT_BASE_URL
+    ? ['--extractor-args', `youtubepot-bgutilhttp:base_url=${POT_BASE_URL}`]
+    : [];
+}
+
 function getCookiesArgs() {
   try {
     if (fs.existsSync(COOKIES_PATH) && fs.statSync(COOKIES_PATH).size > 0) {
@@ -266,6 +275,7 @@ async function downloadSong(songId, url, lobbyId = null) {
         '-f', 'bestaudio',
         '-o', '-',
         '--extractor-args', `youtube:player_client=${PLAYER_CLIENT}`,
+        ...getPotArgs(),
         ...getCookiesArgs(),
         target
       ], {

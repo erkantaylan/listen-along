@@ -6,7 +6,10 @@ RUN apk add --no-cache python3 py3-pip ffmpeg
 # breaks yt-dlp often and fixes land within days, so a stale binary is a common
 # cause of "can't download anything" — rebuild after bumping to pull the latest.
 ARG YTDLP_CACHE_BUST=2026-06-24
-RUN pip3 install --break-system-packages --upgrade yt-dlp
+# yt-dlp plus the bgutil PO Token provider plugin (client side). The provider
+# server runs as the bgutil-provider sidecar (see docker-compose.prod.yml);
+# yt-dlp auto-discovers this pip-installed plugin and fetches tokens from it.
+RUN pip3 install --break-system-packages --upgrade yt-dlp bgutil-ytdlp-pot-provider
 
 WORKDIR /app
 

@@ -9,6 +9,17 @@ const COOKIES_PATH = path.join(path.dirname(process.env.SONGS_PATH || '/data/son
 // YouTube tightens restrictions. Comma-separate for fallbacks.
 const PLAYER_CLIENT = process.env.YTDLP_PLAYER_CLIENT || 'android_vr';
 
+// Optional bgutil PO Token provider (sidecar) base URL. Empty = disabled (e.g.
+// local dev). In production it points at the bgutil-provider container so yt-dlp
+// can fetch Proof-of-Origin tokens and get past YouTube's "not a bot" IP block.
+const POT_BASE_URL = process.env.YTDLP_POT_BASE_URL || '';
+
+function getPotArgs() {
+  return POT_BASE_URL
+    ? ['--extractor-args', `youtubepot-bgutilhttp:base_url=${POT_BASE_URL}`]
+    : [];
+}
+
 function getCookiesArgs() {
   try {
     if (fs.existsSync(COOKIES_PATH) && fs.statSync(COOKIES_PATH).size > 0) {
@@ -50,6 +61,7 @@ function getMetadata(query) {
       '-j',                    // JSON output
       '-f', 'bestaudio',       // Audio format selection
       '--extractor-args', `youtube:player_client=${PLAYER_CLIENT}`,
+      ...getPotArgs(),         // PO token provider (bgutil) to clear the bot/IP block
       ...getCookiesArgs(),     // authenticate metadata lookups too, not just downloads
       target
     ];
@@ -116,6 +128,7 @@ function createTranscodedStream(query) {
     '-f', 'bestaudio',
     '-o', '-',
     '--extractor-args', `youtube:player_client=${PLAYER_CLIENT}`,
+    ...getPotArgs(),
     ...getCookiesArgs(),
     target
   ], {

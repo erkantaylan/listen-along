@@ -19,10 +19,14 @@ services:
       - SESSION_SECRET=${SESSION_SECRET:-}
       - FRONTEND_URL=${FRONTEND_URL:-}
       - BASE_URL=${BASE_URL:-}
-      - YTDLP_PLAYER_CLIENT=${YTDLP_PLAYER_CLIENT:-}
+      # web_safari is a PO-token-compatible client; bgutil-provider mints the tokens
+      - YTDLP_PLAYER_CLIENT=${YTDLP_PLAYER_CLIENT:-web_safari}
+      - YTDLP_POT_BASE_URL=${YTDLP_POT_BASE_URL:-http://bgutil-provider:4416}
     depends_on:
       postgres:
         condition: service_healthy
+      bgutil-provider:
+        condition: service_started
     volumes:
       - songs_data:/data/songs
       - covers_data:/data/covers
@@ -32,6 +36,17 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+    networks:
+      - listen-network
+
+  # PO Token provider — mints Proof-of-Origin tokens so yt-dlp can get past
+  # YouTube's "Sign in to confirm you're not a bot" block on this server's IP.
+  # Reached by the app over the internal network at http://bgutil-provider:4416;
+  # no published port needed.
+  bgutil-provider:
+    image: brainicism/bgutil-ytdlp-pot-provider:latest
+    restart: unless-stopped
+    init: true
     networks:
       - listen-network
 
