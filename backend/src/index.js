@@ -1,3 +1,4 @@
+require('./logger'); // timestamp + level on all console output — must be first
 require('dotenv').config();
 
 const express = require('express');
@@ -72,8 +73,6 @@ const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const BASE_URL = process.env.BASE_URL || FRONTEND_URL;
-// First approved user becomes auto-approved; set to 'true' to auto-approve everyone
-const AUTO_APPROVE = process.env.AUTO_APPROVE === 'true';
 
 // Auth token helpers
 function createAuthToken(userId) {
@@ -132,6 +131,35 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.use(express.json());
+
+// HTTP request logging — one concise line per dynamic request with status +
+// duration, a SLOW tag for anything over 5s, and a PENDING warning for requests
+// still running after 15s. The PENDING warning is the key diagnostic: a request
+// that hangs (yt-dlp/db/upstream stall) otherwise surfaces only as a proxy 504
+// with nothing in our own logs. Static assets are skipped to keep signal high.
+const STATIC_ASSET_RE = /\.(?:js|css|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|map)$/i;
+app.use((req, res, next) => {
+  if (STATIC_ASSET_RE.test(req.path)) return next();
+  const start = Date.now();
+  let logged = false;
+  const pending = setTimeout(() => {
+    console.warn(`[http] PENDING ${req.method} ${req.originalUrl} still running after 15s`);
+  }, 15000);
+  const finish = (aborted) => {
+    if (logged) return;
+    logged = true;
+    clearTimeout(pending);
+    const ms = Date.now() - start;
+    const status = aborted ? 'ABORTED' : res.statusCode;
+    const slow = ms > 5000 ? ' SLOW' : '';
+    const line = `[http] ${req.method} ${req.originalUrl} ${status} ${ms}ms${slow}`;
+    if (aborted || res.statusCode >= 500 || ms > 5000) console.warn(line);
+    else console.log(line);
+  };
+  res.on('finish', () => finish(false));
+  res.on('close', () => { if (!res.writableEnded) finish(true); });
+  next();
+});
 
 // Session configuration
 if (!process.env.SESSION_SECRET) {
@@ -287,10 +315,8 @@ app.post('/api/auth/register', async (req, res) => {
       return res.json({ status: user.status, userId: user.user_id });
     }
 
-    // New user — check if this is the first user (auto-approve)
-    const countResult = await db.query('SELECT COUNT(*) as count FROM users');
-    const isFirst = parseInt(countResult.rows[0].count) === 0;
-    const status = isFirst ? 'approved' : 'pending';
+    // All users are approved on registration (no approval gating).
+    const status = 'approved';
 
     const now = Date.now();
     await db.query(
@@ -2062,6 +2088,52 @@ io.on('connection', (socket) => {
     const queue = await getQueueAsync(lobbyId);
     const inputUrl = url || query;
 
+    // YouTube playlist import: expand a real playlist URL into individual tracks
+    // and add them all. Per-track resilient — a deleted/blocked entry is skipped,
+    // the rest still import.
+    const playlistId = inputUrl ? ytdlp.parsePlaylistId(inputUrl) : null;
+    if (playlistId) {
+      try {
+        socket.emit('queue:adding', { status: 'Reading playlist…' });
+        const entries = await ytdlp.getPlaylistEntries(inputUrl);
+        if (!entries.length) {
+          socket.emit('queue:error', { message: 'No playable videos found in that playlist' });
+          return;
+        }
+        const MAX_PLAYLIST = 100;
+        const items = entries.slice(0, MAX_PLAYLIST);
+        let added = 0;
+        for (let i = 0; i < items.length; i++) {
+          const e = items[i];
+          try {
+            const song = queue.addSong({ url: e.url, title: e.title, duration: e.duration, addedBy, thumbnail: e.thumbnail });
+            downloader.startDownload(e.url, { title: e.title, duration: e.duration, thumbnail: e.thumbnail }, lobbyId)
+              .catch(err => console.error(`[playlist] download failed (${e.url}): ${err.message}`));
+            if (e.thumbnail) covers.cacheCover(song.id, e.thumbnail).catch(() => {});
+            // Start playback on the very first song if the queue was empty
+            if (queue.getSongs().length === 1) {
+              queue.setCurrentIndex(0);
+              playback.setTrack(lobbyId, song, true, io);
+            }
+            added++;
+            // Push the growing queue to the UI every few songs so import is visible
+            if (i % 5 === 4) {
+              io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
+            }
+          } catch (err) {
+            console.error(`[playlist] add failed for ${e.url}: ${err.message}`);
+          }
+        }
+        io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
+        const capped = entries.length > MAX_PLAYLIST ? ` (first ${MAX_PLAYLIST} of ${entries.length})` : '';
+        socket.emit('queue:adding', { status: `Added ${added} song${added !== 1 ? 's' : ''} from playlist${capped}` });
+      } catch (err) {
+        console.error('Playlist import error:', err);
+        socket.emit('queue:error', { message: err.message || 'Failed to import playlist', code: err.code });
+      }
+      return;
+    }
+
     // Check if this is a Spotify URL
     const spotifyParsed = inputUrl ? spotify.parseSpotifyUrl(inputUrl) : null;
     if (spotifyParsed) {
@@ -2089,7 +2161,12 @@ io.on('connection', (socket) => {
           error: err.message,
           stack: err.stack
         });
-        socket.emit('queue:error', { message: `Failed to process Spotify link: ${err.message}` });
+        // If the YouTube lookup classified the failure (DRM, restricted, etc.),
+        // surface that reason directly; otherwise it's a Spotify-side problem.
+        socket.emit('queue:error', {
+          message: err.code ? err.message : `Failed to process Spotify link: ${err.message}`,
+          code: err.code,
+        });
         return;
       }
     }
@@ -2111,7 +2188,12 @@ io.on('connection', (socket) => {
         }
       } catch (err) {
         console.error('Metadata fetch error:', err);
-        socket.emit('queue:error', { message: 'Failed to fetch video info' });
+        // Surface the real reason (parseError gives a user-facing message + code)
+        // instead of a generic string, so the user knows why it failed.
+        socket.emit('queue:error', {
+          message: err.message || 'Failed to fetch video info',
+          code: err.code,
+        });
         return;
       }
     }
@@ -2615,3 +2697,15 @@ const shutdown = (signal) => {
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+
+// Global crash guards: a stray promise rejection or thrown exception would
+// otherwise kill the process and trigger a restart (the main cause of the
+// 504s users were seeing). We deliberately log and KEEP THE PROCESS ALIVE.
+// Trade-off: after an uncaughtException the process state can be undefined,
+// but staying up is the intentional choice here to avoid a restart-storm.
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+});

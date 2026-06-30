@@ -107,4 +107,4 @@ Google OAuth not configured (set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
 
 ## User Approval
 
-New users who log in land in **pending** status. You need to approve them from the dashboard before they can use the app. The first user is auto-approved.
+There is no approval gating — every user who logs in is approved automatically and can use the app immediately.

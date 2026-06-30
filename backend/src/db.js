@@ -26,6 +26,11 @@ async function init() {
       connectionTimeoutMillis: 2000,
     });
 
+    // Log (don't crash on) errors from idle pooled connections. pg emits 'error'
+    // on the pool when an idle backend dies (Postgres restart / proxy idle-kill);
+    // with no listener Node would throw it and take down the process.
+    pool.on('error', (err) => console.error('[pg pool] idle client error', err));
+
     // Test connection
     await pool.query('SELECT NOW()');
     console.log('Connected to PostgreSQL');
@@ -208,8 +213,22 @@ async function createTables() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at BIGINT`).catch(() => {});
   await pool.query(`ALTER TABLE users ALTER COLUMN provider SET DEFAULT 'local'`).catch(() => {});
   await pool.query(`ALTER TABLE users ALTER COLUMN status SET DEFAULT 'approved'`).catch(() => {});
-  // Drop old last_login NOT NULL constraint (replaced by updated_at)
-  await pool.query(`ALTER TABLE users ALTER COLUMN last_login DROP NOT NULL`).catch(() => {});
+  // Approval gating removed — promote anyone still waiting (leave explicit 'denied' alone)
+  await pool.query(`UPDATE users SET status = 'approved' WHERE status = 'pending'`).catch(() => {});
+  // Drop old last_login NOT NULL constraint (replaced by updated_at). Guarded so
+  // it only runs when the column exists — otherwise Postgres logs a (caught but
+  // noisy) ERROR on every boot for newer schemas that have no last_login column.
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'users' AND column_name = 'last_login'
+      ) THEN
+        ALTER TABLE users ALTER COLUMN last_login DROP NOT NULL;
+      END IF;
+    END $$;
+  `).catch(() => {});
 
   // Profile feature: add display_name column for user-chosen name
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(255)`).catch(() => {});

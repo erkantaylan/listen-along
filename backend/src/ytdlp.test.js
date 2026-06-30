@@ -1,6 +1,6 @@
 const { describe, it, mock } = require('node:test');
 const assert = require('node:assert');
-const { parseError, stripListParam } = require('./ytdlp');
+const { parseError, stripListParam, parsePlaylistId } = require('./ytdlp');
 
 describe('ytdlp', () => {
   describe('stripListParam', () => {
@@ -29,10 +29,43 @@ describe('ytdlp', () => {
     });
   });
 
+  describe('parsePlaylistId', () => {
+    it('returns the list id for a real playlist on a watch URL', () => {
+      assert.strictEqual(
+        parsePlaylistId('https://www.youtube.com/watch?v=abc&list=PLyUKaKIB05bRZnk6sQK&index=7'),
+        'PLyUKaKIB05bRZnk6sQK'
+      );
+    });
+
+    it('returns the list id for a playlist page URL', () => {
+      assert.strictEqual(parsePlaylistId('https://www.youtube.com/playlist?list=OLAK5uy_abc'), 'OLAK5uy_abc');
+    });
+
+    it('ignores auto-generated radio/mix lists (RD…)', () => {
+      assert.strictEqual(parsePlaylistId('https://www.youtube.com/watch?v=abc&list=RDabc'), null);
+    });
+
+    it('returns null for a plain watch URL, search term, or non-string', () => {
+      assert.strictEqual(parsePlaylistId('https://www.youtube.com/watch?v=abc'), null);
+      assert.strictEqual(parsePlaylistId('never gonna give you up'), null);
+      assert.strictEqual(parsePlaylistId(null), null);
+    });
+  });
+
   describe('parseError', () => {
     it('detects video unavailable', () => {
       const err = parseError('ERROR: Video unavailable', 1);
       assert.strictEqual(err.code, 'VIDEO_UNAVAILABLE');
+    });
+
+    it('detects DRM-protected content', () => {
+      const err = parseError('ERROR: [DRM] The requested site is known to use DRM protection.', 1);
+      assert.strictEqual(err.code, 'DRM_PROTECTED');
+    });
+
+    it('detects HTTP 404 as not found', () => {
+      const err = parseError('WARNING: HTTP Error 404: Not Found. Retrying', 1);
+      assert.strictEqual(err.code, 'NOT_FOUND');
     });
 
     it('detects private video', () => {
@@ -42,7 +75,12 @@ describe('ytdlp', () => {
 
     it('detects age-restricted video', () => {
       const err = parseError('ERROR: Sign in to confirm your age', 1);
-      assert.strictEqual(err.code, 'VIDEO_RESTRICTED');
+      assert.strictEqual(err.code, 'AGE_RESTRICTED');
+    });
+
+    it('detects bot/IP check distinctly from age restriction', () => {
+      const err = parseError("ERROR: Sign in to confirm you're not a bot", 1);
+      assert.strictEqual(err.code, 'BOT_CHECK');
     });
 
     it('detects region blocked video', () => {
