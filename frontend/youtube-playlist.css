@@ -1,0 +1,206 @@
+:root {
+  --yt-bg: #111318;
+  --yt-surface: #1b1e27;
+  --yt-border: #2a2e3a;
+  --yt-text: #f1f2f6;
+  --yt-text-dim: #9aa0ad;
+  --yt-accent: #ff3b3b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--yt-bg);
+  color: var(--yt-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+.yt-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+}
+
+.yt-header h1 {
+  font-size: 22px;
+  margin: 0 0 6px;
+}
+
+.yt-subtitle {
+  color: var(--yt-text-dim);
+  font-size: 14px;
+  margin: 0 0 20px;
+  line-height: 1.4;
+}
+
+.yt-player-wrap {
+  margin-bottom: 20px;
+}
+
+.yt-player-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.yt-player-frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.yt-player-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--yt-text-dim);
+  font-size: 14px;
+  text-align: center;
+  padding: 0 16px;
+}
+
+.yt-now-playing {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--yt-text-dim);
+  min-height: 18px;
+}
+
+.yt-add-form {
+  background: var(--yt-surface);
+  border: 1px solid var(--yt-border);
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 20px;
+}
+
+.yt-add-form input[type="text"] {
+  background: var(--yt-bg);
+  border: 1px solid var(--yt-border);
+  color: var(--yt-text);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  width: 100%;
+}
+
+#yt-name-input {
+  margin-bottom: 10px;
+}
+
+.yt-add-row {
+  display: flex;
+  gap: 8px;
+}
+
+.yt-add-row input {
+  flex: 1;
+}
+
+.yt-add-row button {
+  background: var(--yt-accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0 18px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.yt-add-row button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.yt-add-error {
+  color: var(--yt-accent);
+  font-size: 13px;
+  margin-top: 8px;
+}
+
+.yt-song-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.yt-song-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--yt-surface);
+  border: 1px solid var(--yt-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.yt-song-item.is-playing {
+  border-color: var(--yt-accent);
+}
+
+.yt-song-thumb {
+  width: 64px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  object-fit: cover;
+  background: #000;
+}
+
+.yt-song-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.yt-song-title {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.yt-song-meta {
+  font-size: 12px;
+  color: var(--yt-text-dim);
+}
+
+.yt-song-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.yt-song-actions button {
+  background: transparent;
+  border: 1px solid var(--yt-border);
+  color: var(--yt-text);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.yt-song-actions button:hover {
+  border-color: var(--yt-accent);
+}
+
+.yt-empty-message {
+  color: var(--yt-text-dim);
+  font-size: 14px;
+  text-align: center;
+  margin-top: 24px;
+}

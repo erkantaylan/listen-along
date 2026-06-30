@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shared YouTube Playlist</title>
+  <link rel="stylesheet" href="/youtube-playlist.css">
+</head>
+<body>
+  <div class="yt-page">
+    <header class="yt-header">
+      <h1>Shared YouTube Playlist</h1>
+      <p class="yt-subtitle">Paste a YouTube link to add a song. Anyone with this page open can add songs and play them. Playback is local to your browser — it's not synced with anyone else.</p>
+    </header>
+
+    <div class="yt-player-wrap">
+      <div class="yt-player-frame">
+        <iframe id="yt-player" src="" title="YouTube player" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+        <div id="yt-player-placeholder" class="yt-player-placeholder">Pick a song below to play it</div>
+      </div>
+      <div id="yt-now-playing" class="yt-now-playing"></div>
+    </div>
+
+    <form id="yt-add-form" class="yt-add-form">
+      <input id="yt-name-input" type="text" maxlength="50" placeholder="Your name (optional)" autocomplete="off">
+      <div class="yt-add-row">
+        <input id="yt-url-input" type="text" placeholder="Paste a YouTube video link..." autocomplete="off" required>
+        <button type="submit" id="yt-add-button">Add</button>
+      </div>
+      <div id="yt-add-error" class="yt-add-error" hidden></div>
+    </form>
+
+    <ul id="yt-song-list" class="yt-song-list"></ul>
+    <p id="yt-empty-message" class="yt-empty-message" hidden>No songs yet — paste a YouTube link above to start the list.</p>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/youtube-playlist.js"></script>
+</body>
+</html>

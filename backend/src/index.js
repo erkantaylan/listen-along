@@ -19,6 +19,7 @@ const covers = require('./covers');
 const chat = require('./chat');
 const spotify = require('./spotify');
 const auth = require('./auth');
+const youtubePlaylist = require('./youtubePlaylist');
 const QRCode = require('qrcode');
 const pkg = require('../package.json');
 
@@ -199,7 +200,7 @@ const io = new Server(server, {
 // Auth guard - protect all routes except public ones
 app.use((req, res, next) => {
   // Public paths that don't require authentication
-  const publicPaths = ['/health', '/auth/', '/login', '/changelog', '/api/auth/', '/api/version', '/api/changelog'];
+  const publicPaths = ['/health', '/auth/', '/login', '/changelog', '/api/auth/', '/api/version', '/api/changelog', '/youtube-playlist', '/api/youtube-playlist'];
   const isPublic = publicPaths.some(p => req.path === p || req.path.startsWith(p));
   if (isPublic) return next();
 
@@ -1021,6 +1022,34 @@ app.delete('/api/lobbies/:id', async (req, res) => {
 });
 
 // ==========================================
+// Shared YouTube Playlist (public, no auth, no yt-dlp)
+// ==========================================
+
+app.get('/api/youtube-playlist', (req, res) => {
+  res.json({ songs: youtubePlaylist.getSongs() });
+});
+
+app.post('/api/youtube-playlist', rateLimit, (req, res) => {
+  const { videoId, title, thumbnail, addedBy } = req.body || {};
+  try {
+    const song = youtubePlaylist.addSong({ videoId, title, thumbnail, addedBy });
+    youtubePlaylist.broadcast(io, 'song:added', song);
+    res.status(201).json({ song });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete('/api/youtube-playlist/:id', rateLimit, (req, res) => {
+  const removed = youtubePlaylist.removeSong(req.params.id);
+  if (!removed) {
+    return res.status(404).json({ error: 'Song not found' });
+  }
+  youtubePlaylist.broadcast(io, 'song:removed', { id: req.params.id });
+  res.json({ success: true });
+});
+
+// ==========================================
 // Profile API
 // ==========================================
 
@@ -1612,6 +1641,11 @@ app.get('/lobby/:id', (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
+// Serve shared YouTube playlist page (public, see publicPaths above)
+app.get('/youtube-playlist', (req, res) => {
+  res.sendFile(path.join(frontendPath, 'youtube-playlist.html'));
+});
+
 // Serve dashboard page
 app.get('/dashboard', dashboardAuth, (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
@@ -1637,6 +1671,9 @@ app.get('/', (req, res) => {
 
 // Set up playback sync handlers
 playback.setupSocketHandlers(io);
+
+// Set up shared YouTube playlist handlers (separate namespace, no auth)
+youtubePlaylist.setupSocketHandlers(io);
 
 // Set up download progress event handlers
 downloader.downloadEvents.on('status', (data) => {
