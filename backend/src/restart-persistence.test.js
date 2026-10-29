@@ -28,6 +28,35 @@ const skipReason = !PostgreSqlContainer
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
+ * Poll until `check` returns truthy. Used for queue writes, which are
+ * fire-and-forget in production code, instead of a fixed sleep.
+ */
+async function waitFor(check, message, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await check()) return;
+    await delay(25);
+  }
+  assert.fail(`Timed out waiting for: ${message}`);
+}
+
+/** Song titles persisted for a lobby, in sort order. */
+async function persistedTitles(db, lobbyId) {
+  const result = await db.query(
+    'SELECT title FROM queue_songs WHERE lobby_id = $1 ORDER BY sort_order',
+    [lobbyId]
+  );
+  return result.rows.map(r => r.title);
+}
+
+async function waitForTitles(db, lobbyId, expected) {
+  await waitFor(
+    async () => JSON.stringify(await persistedTitles(db, lobbyId)) === JSON.stringify(expected),
+    `queue_songs for ${lobbyId} to be ${expected.join(', ')}`
+  );
+}
+
+/**
  * Simulate a server restart by clearing in-memory module state.
  * The db module stays cached so the pool connection persists,
  * but lobby/queue modules get fresh empty Maps.
@@ -97,8 +126,8 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
     queue.addSong({ url: 'https://youtube.com/watch?v=song2', title: 'Song Two', duration: 200, addedBy: 'Bob' });
     queue.addSong({ url: 'https://youtube.com/watch?v=song3', title: 'Song Three', duration: 220, addedBy: 'Charlie' });
 
-    // Wait for fire-and-forget DB writes to complete
-    await delay(500);
+    // Song inserts are fire-and-forget: wait until they are in the DB
+    await waitForTitles(db, 'q-test1', ['Song One', 'Song Two', 'Song Three']);
 
     // Simulate server restart
     simulateRestart();
@@ -129,14 +158,14 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
     queue.addSong({ url: 'https://youtube.com/watch?v=c', title: 'Charlie', duration: 120, addedBy: 'User1' });
     const songD = queue.addSong({ url: 'https://youtube.com/watch?v=d', title: 'Delta', duration: 130, addedBy: 'User1' });
 
-    // Wait for initial DB writes
-    await delay(500);
+    // Wait for the initial inserts to land before reordering
+    await waitForTitles(db, 'qo-test1', ['Alpha', 'Beta', 'Charlie', 'Delta']);
 
     // Reorder: move Delta (index 3) to index 1
     queue.reorderSong(songD.id, 1);
 
-    // Wait for sort order updates
-    await delay(500);
+    // Wait for the sort order updates to land
+    await waitForTitles(db, 'qo-test1', ['Alpha', 'Delta', 'Beta', 'Charlie']);
 
     // Verify in-memory order before restart: Alpha, Delta, Beta, Charlie
     const before = queue.getSongs();
@@ -171,8 +200,7 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
     const song1 = queue.addSong({ url: 'https://youtube.com/watch?v=pb1', title: 'Track One', duration: 300, addedBy: 'DJ' });
     queue.addSong({ url: 'https://youtube.com/watch?v=pb2', title: 'Track Two', duration: 240, addedBy: 'DJ' });
 
-    // Wait for fire-and-forget DB writes
-    await delay(500);
+    await waitForTitles(db, 'pb-test1', ['Track One', 'Track Two']);
 
     // Simulate playback: play track 1 at position 90s with repeat-all
     const mockIo = { to: () => ({ emit: () => {} }) };
@@ -180,10 +208,11 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
     playback.seek('pb-test1', 90, mockIo);
     playback.setRepeatMode('pb-test1', 'all', mockIo);
 
-    // Wait for fire-and-forget persist
-    await delay(500);
+    // Wait for all queued playback persists (serialized per lobby) to finish
+    await playback.flushPersist('pb-test1');
 
-    // Simulate server restart
+    // Simulate server restart (a real restart also kills the sync timer)
+    playback.cleanupLobby('pb-test1');
     simulateRestart();
     const playbackAfter = require('./playback');
 
@@ -210,14 +239,14 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
     queue.addSong({ url: 'https://youtube.com/watch?v=sh2', title: 'Shuffle B', duration: 210, addedBy: 'DJ' });
     queue.addSong({ url: 'https://youtube.com/watch?v=sh3', title: 'Shuffle C', duration: 220, addedBy: 'DJ' });
 
-    await delay(500);
+    await waitForTitles(db, 'sh-test1', ['Shuffle A', 'Shuffle B', 'Shuffle C']);
 
     // Enable shuffle
     const mockIo = { to: () => ({ emit: () => {} }) };
     playback.initLobby('sh-test1');
     playback.toggleShuffle('sh-test1', true, 3, mockIo);
 
-    await delay(500);
+    await playback.flushPersist('sh-test1');
 
     // Simulate server restart
     simulateRestart();

@@ -81,12 +81,38 @@ async function initLobbyFromDB(lobbyId) {
   return state;
 }
 
-/**
- * Persist playback state to database
- */
-async function persistState(lobbyId) {
-  if (!db.isAvailable()) return;
+// Per-lobby chain of pending persist writes. Writes for the same lobby are
+// serialized so they commit in call order; otherwise concurrent UPSERTs on
+// different pool connections can commit out of order and leave stale state
+// (e.g. play + seek + setRepeatMode in quick succession persisting repeat 'off').
+const pendingPersists = new Map();
 
+/**
+ * Persist playback state to database. Callers may fire-and-forget; the
+ * returned promise resolves (never rejects) once this write and all earlier
+ * writes for the lobby have completed.
+ */
+function persistState(lobbyId) {
+  if (!db.isAvailable()) return Promise.resolve();
+
+  const prev = pendingPersists.get(lobbyId) || Promise.resolve();
+  const next = prev.then(() => writeState(lobbyId));
+  pendingPersists.set(lobbyId, next);
+  next.then(() => {
+    if (pendingPersists.get(lobbyId) === next) pendingPersists.delete(lobbyId);
+  });
+  return next;
+}
+
+/**
+ * Resolve once all pending persist writes for a lobby have completed.
+ */
+function flushPersist(lobbyId) {
+  return pendingPersists.get(lobbyId) || Promise.resolve();
+}
+
+async function writeState(lobbyId) {
+  // Snapshot at write time so the last write always reflects the latest state
   const state = getState(lobbyId);
   if (!state) return;
 
@@ -619,6 +645,7 @@ function setupSocketHandlers(io) {
 module.exports = {
   initLobby,
   initLobbyFromDB,
+  flushPersist,
   getState,
   getCurrentPosition,
   play,
