@@ -159,6 +159,11 @@ async function createTables() {
     CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
     CREATE INDEX IF NOT EXISTS idx_user_providers_user ON user_providers(user_id);
     CREATE INDEX IF NOT EXISTS idx_user_providers_provider ON user_providers(provider, provider_id);
+    CREATE INDEX IF NOT EXISTS idx_library_songs_created ON library_songs(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_library_songs_source_url ON library_songs(source_url);
+    CREATE INDEX IF NOT EXISTS idx_library_songs_file_path ON library_songs(file_path);
+    CREATE INDEX IF NOT EXISTS idx_song_requests_status ON song_requests(status, created_at);
+    CREATE INDEX IF NOT EXISTS idx_song_requests_youtube ON song_requests(youtube_id);
   `;
 
   await pool.query(createLobbiesTable);
@@ -168,6 +173,59 @@ async function createTables() {
   await pool.query(createChatMessagesTable);
   await pool.query(createUsersTable);
   await pool.query(createUserProvidersTable);
+
+  // Music library (songs uploaded by the CLI, plus the migrated legacy cache).
+  // Own UUID id; youtube_id is optional but unique when set (NULLs never clash).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS library_songs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      youtube_id VARCHAR(32) UNIQUE,
+      title TEXT NOT NULL,
+      artist TEXT NOT NULL,
+      album TEXT,
+      duration_sec REAL,
+      file_path TEXT NOT NULL,
+      mime_type VARCHAR(64) NOT NULL DEFAULT 'audio/mp4',
+      size_bytes BIGINT,
+      sha256 CHAR(64) NOT NULL UNIQUE,
+      source_url TEXT,
+      uploaded_by VARCHAR(255) NOT NULL,
+      uploaded_by_token UUID,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+
+  // CLI upload tokens. Only the SHA-256 of the token is stored.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS api_tokens (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name VARCHAR(100) NOT NULL,
+      token_hash CHAR(64) NOT NULL UNIQUE,
+      token_prefix VARCHAR(16),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_used_at TIMESTAMPTZ,
+      revoked_at TIMESTAMPTZ
+    )
+  `);
+
+  // Song requests: a web user queued something that is not in the library.
+  // lobby_id has no FK on purpose — the request outlives a deleted lobby.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS song_requests (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      youtube_id VARCHAR(32),
+      url TEXT,
+      title TEXT,
+      artist TEXT,
+      requested_by VARCHAR(255) NOT NULL DEFAULT 'anonymous',
+      requested_by_id VARCHAR(255),
+      lobby_id VARCHAR(8),
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      song_id UUID REFERENCES library_songs(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
 
   // The personal-playlist feature was removed; drop its tables so existing
   // deployments are cleaned up (CASCADE also clears playlist_songs).

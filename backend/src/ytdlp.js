@@ -1,42 +1,17 @@
+/**
+ * YouTube *metadata* helpers. The server no longer downloads or streams audio
+ * from YouTube (its IP is blocked; the listen-along CLI downloads on a home
+ * machine and uploads to the library). What is left here only resolves what a
+ * user typed into a YouTube video id + title, so that a library lookup or a song
+ * request can be made:
+ *   - searchYoutube:      `yt-dlp --flat-playlist ytsearch1:` (search results
+ *                         page only, no player API, so no PO token needed)
+ *   - getPlaylistEntries: `yt-dlp --flat-playlist` (playlist page only)
+ *   - getOembed:          YouTube's public oEmbed endpoint (title/channel for an id)
+ * All of these are best-effort; callers must cope with failure.
+ */
+
 const { spawn } = require('child_process');
-const fs = require('fs');
-const path = require('path');
-
-const COOKIES_PATH = path.join(path.dirname(process.env.SONGS_PATH || '/data/songs'), 'cookies.txt');
-
-// yt-dlp YouTube player client(s). Switchable via env so the client can be
-// changed (e.g. to 'web_safari,mweb' or 'tv') without a code redeploy when
-// YouTube tightens restrictions. Comma-separate for fallbacks.
-const PLAYER_CLIENT = process.env.YTDLP_PLAYER_CLIENT || 'android_vr';
-
-// Optional bgutil PO Token provider (sidecar) base URL. Empty = disabled (e.g.
-// local dev). In production it points at the bgutil-provider container so yt-dlp
-// can fetch Proof-of-Origin tokens and get past YouTube's "not a bot" IP block.
-const POT_BASE_URL = process.env.YTDLP_POT_BASE_URL || '';
-
-function getPotArgs() {
-  return POT_BASE_URL
-    ? ['--extractor-args', `youtubepot-bgutilhttp:base_url=${POT_BASE_URL}`]
-    : [];
-}
-
-// External JS runtime for solving YouTube's signature / n-sig challenges (with
-// the yt-dlp-ejs scripts). Empty = yt-dlp default (Deno). Set to 'node' in the
-// container, which is the runtime actually installed there.
-const JS_RUNTIME = process.env.YTDLP_JS_RUNTIME || '';
-
-function getJsRuntimeArgs() {
-  return JS_RUNTIME ? ['--js-runtimes', JS_RUNTIME] : [];
-}
-
-function getCookiesArgs() {
-  try {
-    if (fs.existsSync(COOKIES_PATH) && fs.statSync(COOKIES_PATH).size > 0) {
-      return ['--cookies', COOKIES_PATH];
-    }
-  } catch {}
-  return [];
-}
 
 /**
  * Strip list/index params from a YouTube URL so yt-dlp fetches only the single
@@ -86,9 +61,6 @@ function getPlaylistEntries(url) {
     const args = [
       '--flat-playlist',
       '-J',                    // dump the whole playlist as one JSON object
-      '--extractor-args', `youtube:player_client=${PLAYER_CLIENT}`,
-      ...getPotArgs(),
-      ...getCookiesArgs(),
       url,
     ];
     const proc = spawn('yt-dlp', args);
@@ -131,152 +103,6 @@ function getPlaylistEntries(url) {
 }
 
 /**
- * Extract metadata for a YouTube video or search query
- * @param {string} query - YouTube URL or search term
- * @returns {Promise<Object>} Video metadata
- */
-function getMetadata(query) {
-  return new Promise((resolve, reject) => {
-    const isUrl = query.startsWith('http://') || query.startsWith('https://');
-    const target = isUrl ? stripListParam(query) : `ytsearch:${query}`;
-
-    const args = [
-      '-j',                    // JSON output
-      '-f', 'bestaudio/best',  // audio-only, falling back to best (ffmpeg strips video)
-      ...getJsRuntimeArgs(),   // JS runtime for signature / n-sig challenge solving
-      '--extractor-args', `youtube:player_client=${PLAYER_CLIENT}`,
-      ...getPotArgs(),         // PO token provider (bgutil) to clear the bot/IP block
-      ...getCookiesArgs(),     // authenticate metadata lookups too, not just downloads
-      target
-    ];
-
-    const proc = spawn('yt-dlp', args);
-    let stdout = '';
-    let stderr = '';
-
-    // Watchdog: kill a hung yt-dlp so it can't hold an HTTP/socket handler
-    // open until the proxy 504s. Cleared on normal close/error below.
-    const watchdog = setTimeout(() => {
-      proc.kill('SIGKILL');
-      reject(new Error('yt-dlp metadata timed out after 45s'));
-    }, 45000);
-
-    proc.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    proc.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    proc.on('close', (code) => {
-      clearTimeout(watchdog);
-      if (code !== 0) {
-        const error = parseError(stderr, code);
-        return reject(error);
-      }
-
-      try {
-        const info = JSON.parse(stdout);
-        resolve({
-          id: info.id,
-          title: info.title,
-          duration: info.duration,
-          thumbnail: info.thumbnail,
-          uploader: info.uploader,
-          url: info.webpage_url
-        });
-      } catch (e) {
-        reject(new Error('Failed to parse video metadata'));
-      }
-    });
-
-    proc.on('error', (err) => {
-      clearTimeout(watchdog);
-      reject(new Error(`Failed to spawn yt-dlp: ${err.message}`));
-    });
-  });
-}
-
-/**
- * Create a transcoded audio stream (converts to mp3 via ffmpeg)
- * @param {string} query - YouTube URL or search term
- * @returns {Object} { stream, kill } - Audio stream and cleanup function
- */
-function createTranscodedStream(query) {
-  const isUrl = query.startsWith('http://') || query.startsWith('https://');
-  const target = isUrl ? stripListParam(query) : `ytsearch:${query}`;
-
-  // yt-dlp outputs raw audio to stdout
-  const ytdlp = spawn('yt-dlp', [
-    '-f', 'bestaudio/best',
-    '-o', '-',
-    ...getJsRuntimeArgs(),
-    '--extractor-args', `youtube:player_client=${PLAYER_CLIENT}`,
-    ...getPotArgs(),
-    ...getCookiesArgs(),
-    target
-  ], {
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
-
-  // ffmpeg transcodes to mp3 for browser compatibility
-  const ffmpeg = spawn('ffmpeg', [
-    '-i', 'pipe:0',           // Input from stdin
-    '-f', 'mp3',              // Output format
-    '-ab', '128k',            // Bitrate
-    '-'                       // Output to stdout
-  ], {
-    stdio: ['pipe', 'pipe', 'pipe']
-  });
-
-  // Pipe yt-dlp output to ffmpeg input
-  ytdlp.stdout.pipe(ffmpeg.stdin);
-
-  const kill = () => {
-    ytdlp.kill('SIGTERM');
-    ffmpeg.kill('SIGTERM');
-  };
-
-  // Handle yt-dlp errors
-  let ytdlpError = '';
-  ytdlp.stderr.on('data', (data) => {
-    ytdlpError += data.toString();
-  });
-
-  // Drain ffmpeg's stderr. ffmpeg is verbose on stderr, and if nothing reads it
-  // the ~64KB OS pipe buffer fills and ffmpeg blocks forever. Consume/discard it.
-  ffmpeg.stderr.on('data', () => {});
-
-  ytdlp.on('close', (code) => {
-    if (code !== 0 && code !== null) {
-      ffmpeg.stdin.end();
-    }
-  });
-
-  // Log spawn failures and tear down the sibling so we don't leave half the
-  // pipe running. No total-duration timeout here: this streams for the whole
-  // song; client disconnect is handled by req.on('close') -> kill() in the route.
-  ytdlp.on('error', (err) => {
-    console.error('[createTranscodedStream] yt-dlp error:', err.message);
-    ffmpeg.kill('SIGTERM');
-  });
-
-  ffmpeg.on('error', (err) => {
-    console.error('[createTranscodedStream] ffmpeg error:', err.message);
-    ytdlp.kill('SIGTERM');
-  });
-
-  return {
-    stream: ffmpeg.stdout,
-    ytdlp,
-    ffmpeg,
-    kill,
-    getError: () => ytdlpError
-  };
-}
-
-/**
  * Parse yt-dlp error output into a user-friendly error
  * @param {string} stderr - Error output from yt-dlp
  * @param {number} code - Exit code
@@ -302,7 +128,7 @@ function parseError(stderr, code) {
   // server's IP is blocked; fix is cookies / a PO token / a proxy. Check this
   // BEFORE the age/sign-in cases so it isn't mislabeled as age-restricted.
   if (lowerErr.includes('not a bot') || lowerErr.includes('confirm you’re not a bot')) {
-    const err = new Error("YouTube is blocking this server's IP (bot check). Add cookies or a PO token.");
+    const err = new Error("YouTube is blocking this server's IP (bot check)");
     err.code = 'BOT_CHECK';
     return err;
   }
@@ -369,12 +195,71 @@ function checkAvailable() {
   });
 }
 
+/**
+ * Run yt-dlp with args and return parsed JSON from stdout.
+ */
+function runYtdlpJson(args, timeoutMs, label) {
+  return new Promise((resolve, reject) => {
+    let proc;
+    try { proc = spawn('yt-dlp', args); } catch (err) { return reject(new Error(`Failed to spawn yt-dlp: ${err.message}`)); }
+    let stdout = '';
+    let stderr = '';
+    const watchdog = setTimeout(() => {
+      proc.kill('SIGKILL');
+      reject(new Error(`${label} timed out after ${Math.round(timeoutMs / 1000)}s`));
+    }, timeoutMs);
+    proc.stdout.on('data', (d) => { stdout += d.toString(); });
+    proc.stderr.on('data', (d) => { stderr += d.toString(); });
+    proc.on('error', (err) => { clearTimeout(watchdog); reject(new Error(`Failed to spawn yt-dlp: ${err.message}`)); });
+    proc.on('close', (code) => {
+      clearTimeout(watchdog);
+      if (code !== 0) return reject(parseError(stderr, code));
+      try { resolve(JSON.parse(stdout)); } catch (err) { reject(new Error(`Failed to parse yt-dlp output: ${err.message}`)); }
+    });
+  });
+}
+
+/**
+ * Search YouTube for free text and return the top hit (no audio, no player
+ * API — just the search results page).
+ * @returns {Promise<{id, url, title, duration, channel}|null>}
+ */
+async function searchYoutube(query) {
+  const data = await runYtdlpJson(['--flat-playlist', '-J', `ytsearch1:${query}`], 30000, 'YouTube search');
+  const e = (data.entries || []).find((x) => x && x.id);
+  if (!e) return null;
+  return {
+    id: e.id,
+    url: `https://www.youtube.com/watch?v=${e.id}`,
+    title: e.title || null,
+    duration: e.duration || 0,
+    channel: e.channel || e.uploader || null,
+  };
+}
+
+/**
+ * Title + channel name for a YouTube video id via the public oEmbed endpoint
+ * (plain HTTPS, not subject to the yt-dlp bot wall).
+ * @returns {Promise<{title, channel}|null>}
+ */
+async function getOembed(videoId, { timeoutMs = 8000 } = {}) {
+  const url = `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent('https://www.youtube.com/watch?v=' + videoId)}`;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return { title: data.title || null, channel: data.author_name || null };
+  } catch {
+    return null;
+  }
+}
+
 module.exports = {
-  getMetadata,
-  createTranscodedStream,
   parseError,
   checkAvailable,
   stripListParam,
   parsePlaylistId,
-  getPlaylistEntries
+  getPlaylistEntries,
+  searchYoutube,
+  getOembed
 };

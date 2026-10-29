@@ -15,12 +15,16 @@ const playback = require('./playback');
 const lobby = require('./lobby');
 const { getQueue, getQueueAsync, deleteQueue } = require('./queue');
 const db = require('./db');
-const downloader = require('./downloader');
+const library = require('./library');
+const songRequests = require('./requests');
+const { createLibraryRouter, sendSongFile } = require('./libraryRoutes');
+const { createResolver } = require('./songResolver');
 const covers = require('./covers');
 const chat = require('./chat');
 const spotify = require('./spotify');
 const auth = require('./auth');
 const youtubePlaylist = require('./youtubePlaylist');
+const resolver = createResolver();
 const QRCode = require('qrcode');
 const pkg = require('../package.json');
 
@@ -228,7 +232,9 @@ const io = new Server(server, {
 // Auth guard - protect all routes except public ones
 app.use((req, res, next) => {
   // Public paths that don't require authentication
-  const publicPaths = ['/health', '/auth/', '/login', '/changelog', '/api/auth/', '/api/version', '/api/changelog', '/youtube-playlist', '/api/youtube-playlist'];
+  // /api/me, /api/library, /api/requests and /api/admin do their own auth
+  // (CLI Bearer tokens / admin cookie), so they must bypass the OAuth guard.
+  const publicPaths = ['/health', '/auth/', '/login', '/changelog', '/api/auth/', '/api/version', '/api/changelog', '/youtube-playlist', '/api/youtube-playlist', '/api/me', '/api/library', '/api/requests', '/api/admin/', '/admin'];
   const isPublic = publicPaths.some(p => req.path === p || req.path.startsWith(p));
   if (isPublic) return next();
 
@@ -245,6 +251,7 @@ app.use((req, res, next) => {
 
 // Health check endpoint
 app.get('/health', async (req, res) => {
+  // yt-dlp is only used for YouTube search / playlist listing now (no audio).
   const ytdlpAvailable = await ytdlp.checkAvailable();
   res.json({
     status: 'ok',
@@ -252,7 +259,7 @@ app.get('/health', async (req, res) => {
     uptime: process.uptime(),
     ytdlp: ytdlpAvailable ? 'available' : 'unavailable',
     database: db.isAvailable() ? 'connected' : 'unavailable',
-    songCache: db.isAvailable() ? 'enabled' : 'disabled'
+    library: db.isAvailable() ? 'enabled' : 'disabled'
   });
 });
 
@@ -377,179 +384,42 @@ app.get('/api/qr/:lobbyId', async (req, res) => {
   }
 });
 
-// Browse cached song library (ready songs only, no dashboard auth)
-app.get('/api/library', async (req, res) => {
+// Music library, song requests, CLI tokens and admin API (see libraryRoutes.js)
+app.use(createLibraryRouter({
+  onSongAdded: (song, fulfilled) => { handleLibrarySongAdded(song, fulfilled).catch(err => console.error('[library] post-upload handling failed:', err)); },
+  onRequestsChanged: () => io.emit('requests:updated'),
+  onSongRemoved: (song) => io.emit('library:updated', { removed: song.id }),
+  loginRateLimit: rateLimit
+}));
+
+// Admin page (tokens, requests, library management). Disabled without ADMIN_PASSWORD.
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(frontendPath, 'admin.html'));
+});
+
+// Play audio for a queue entry. `q` is the queue entry's url: a YouTube URL
+// (looked up by youtube_id), `library:<id>`, or a legacy cache URL. The server
+// never downloads: anything not in the library is a 404 NOT_IN_LIBRARY.
+app.get('/api/stream', async (req, res) => {
+  const { q } = req.query;
+  if (!q) {
+    return res.status(400).json({ error: 'Missing query parameter: q' });
+  }
   if (!db.isAvailable()) {
-    return res.json({ songs: [] });
-  }
-  try {
-    const result = await db.query(
-      `SELECT id, url, title, duration, thumbnail_url, created_at
-       FROM songs WHERE status = 'ready' ORDER BY title ASC`
-    );
-    res.json({ songs: result.rows });
-  } catch (err) {
-    console.error('Library fetch error:', err.message);
-    res.status(500).json({ error: 'Failed to fetch library' });
-  }
-});
-
-// Get video metadata
-app.get('/api/metadata', rateLimit, async (req, res) => {
-  const { q } = req.query;
-  if (!q) {
-    return res.status(400).json({ error: 'Missing query parameter: q' });
-  }
-
-  try {
-    const metadata = await ytdlp.getMetadata(q);
-    res.json(metadata);
-  } catch (err) {
-    console.error('Metadata error:', err.message);
-    res.status(err.code === 'NOT_FOUND' ? 404 : 500).json({
-      error: err.message,
-      code: err.code || 'UNKNOWN'
-    });
-  }
-});
-
-// Build a safe ASCII filename for Content-Disposition. Falls back to a generic
-// name when the title has no usable characters (e.g. all-emoji titles).
-function downloadFilename(title) {
-  const base = String(title || 'audio')
-    .replace(/[\/\\?%*:|"<>]/g, ' ')   // illegal filename chars
-    .replace(/[\x00-\x1f]/g, " ")      // control chars
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120);
-  return (base || 'audio') + '.mp3';
-}
-
-// Stream audio - serves cached files when available, falls back to live transcoding
-app.get('/api/stream', rateLimit, async (req, res) => {
-  const { q } = req.query;
-  if (!q) {
-    return res.status(400).json({ error: 'Missing query parameter: q' });
+    return res.status(503).json({ error: 'Library unavailable (no database)', code: 'NO_DATABASE' });
   }
   // When dl is set, force the browser to save the file instead of playing it
-  // inline. Used by the "Download playlist" feature to pull cached tracks to
-  // the user's device (e.g. for offline playback in VLC).
+  // inline. Used by the "Download playlist" feature.
   const forceDownload = req.query.dl === '1' || req.query.dl === 'true';
-
   try {
-    // Check if we have a cached version
-    const cachedSong = await downloader.getCachedSong(q);
-
-    if (cachedSong && cachedSong.status === 'ready' && downloader.isCachedFileValid(cachedSong.file_path)) {
-      // Serve from cache
-      console.log(`Serving cached song: ${q}`);
-
-      const { stream, size } = downloader.createCachedStream(cachedSong.file_path);
-
-      // Set response headers for cached file
-      res.setHeader('Content-Type', 'audio/mpeg');
-      res.setHeader('Accept-Ranges', 'bytes');
-      res.setHeader('Content-Length', size);
-      res.setHeader('Cache-Control', 'public, max-age=31536000');
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
-      if (forceDownload) {
-        res.setHeader('Content-Disposition', `attachment; filename="${downloadFilename(cachedSong.title)}"`);
-      }
-
-      // Handle Range requests for cached files
-      const range = req.headers.range;
-      if (range) {
-        const parts = range.replace(/bytes=/, '').split('-');
-        const start = parseInt(parts[0], 10);
-        const end = parts[1] ? parseInt(parts[1], 10) : size - 1;
-        const chunkSize = (end - start) + 1;
-
-        res.status(206);
-        res.setHeader('Content-Range', `bytes ${start}-${end}/${size}`);
-        res.setHeader('Content-Length', chunkSize);
-
-        const rangeStream = require('fs').createReadStream(cachedSong.file_path, { start, end });
-        rangeStream.pipe(res);
-
-        req.on('close', () => {
-          rangeStream.destroy();
-        });
-
-        return;
-      }
-
-      stream.pipe(res);
-
-      req.on('close', () => {
-        stream.destroy();
-      });
-
-      return;
+    const song = await library.resolveQueueUrl(String(q));
+    if (!song) {
+      return res.status(404).json({ error: 'This song is not in the library yet', code: 'NOT_IN_LIBRARY' });
     }
-
-    // Fall back to live transcoding
-    // Get metadata first to validate the video exists
-    await ytdlp.getMetadata(q);
-
-    // Start background download for future requests
-    downloader.startDownload(q).catch(err => {
-      console.error('Background download failed:', err.message);
-    });
-
-    // Set response headers for audio streaming
-    // Safari requires specific headers for audio playback
-    res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Accept-Ranges', 'bytes');
-    res.setHeader('Cache-Control', 'no-cache');
-    // Allow cross-origin requests for audio
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
-    if (forceDownload) {
-      res.setHeader('Content-Disposition', `attachment; filename="${downloadFilename(q)}"`);
-    }
-
-    // Handle Range requests (required for Safari)
-    const range = req.headers.range;
-    if (range) {
-      // For live transcoded streams, we can't truly seek, but we need to
-      // respond properly to Range requests for Safari compatibility
-      // Return 200 with full content for range requests on live streams
-      console.log('Range request received:', range);
-    }
-
-    const { stream, kill, getError } = ytdlp.createTranscodedStream(q);
-
-    // Pipe the audio stream to the response
-    stream.pipe(res);
-
-    // Handle client disconnect
-    req.on('close', () => {
-      kill();
-    });
-
-    // Handle stream errors
-    stream.on('error', (err) => {
-      console.error('Stream error:', err.message);
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Stream error' });
-      }
-      kill();
-    });
-
-    stream.on('end', () => {
-      const error = getError();
-      if (error && !res.headersSent) {
-        console.error('yt-dlp error:', error);
-      }
-    });
-
+    sendSongFile(req, res, song, { download: forceDownload });
   } catch (err) {
-    console.error('Stream setup error:', err.message);
-    res.status(err.code === 'NOT_FOUND' ? 404 : 500).json({
-      error: err.message,
-      code: err.code || 'UNKNOWN'
-    });
+    console.error('Stream error:', err.message);
+    res.status(500).json({ error: 'Stream error' });
   }
 });
 
@@ -998,6 +868,77 @@ async function destroyLobby(lobbyId, { reason } = {}) {
 }
 
 // ==========================================
+// Library -> lobby queue glue
+// ==========================================
+
+// Append a library song to a lobby's queue (starting playback if the queue was
+// empty). Caller broadcasts the queue:update.
+async function addLibrarySongToLobby(lobbyId, librarySong, addedBy) {
+  const queue = await getQueueAsync(lobbyId);
+  const entry = library.toQueueEntry(librarySong);
+  const song = queue.addSong({ ...entry, addedBy: addedBy || 'anonymous' });
+  if (entry.thumbnail) {
+    covers.cacheCover(song.id, entry.thumbnail).catch(err => {
+      console.error(`Failed to cache cover for ${song.id}:`, err.message);
+    });
+  }
+  if (queue.getSongs().length === 1) {
+    queue.setCurrentIndex(0);
+    playback.setTrack(lobbyId, song, true, io);
+  }
+  return song;
+}
+
+// Tell a socket/room which queue entries are not playable (not in library).
+async function emitUnavailableSongs(target, songs) {
+  if (!db.isAvailable() || !songs || !songs.length) return;
+  try {
+    const missing = await library.findUnavailableUrls(songs.map(s => s.url));
+    for (const url of missing) {
+      target.emit('download:status', { url, status: 'unavailable', error: 'Not in the library yet' });
+    }
+  } catch (err) {
+    console.error('Availability check failed:', err.message);
+  }
+}
+
+// A song was uploaded (or an upload hit an existing song that fulfils
+// requests): refresh library views, mark matching queue entries playable, and
+// add the song to the queue of every lobby that requested it.
+async function handleLibrarySongAdded(librarySong, fulfilled = []) {
+  const pub = library.toPublic(librarySong);
+  io.emit('library:updated', { song: pub });
+  const urls = new Set([library.queueUrlFor(librarySong)]);
+  if (librarySong.source_url) urls.add(librarySong.source_url);
+  for (const url of urls) io.emit('download:status', { url, status: 'ready', percent: 100 });
+
+  const byLobby = new Map();
+  for (const r of fulfilled) {
+    if (r.lobby_id && !byLobby.has(r.lobby_id)) byLobby.set(r.lobby_id, r);
+  }
+  for (const [lobbyId, request] of byLobby) {
+    try {
+      const lobbyData = await lobby.getLobbyAsync(lobbyId);
+      if (!lobbyData) continue;
+      const queue = await getQueueAsync(lobbyId);
+      const alreadyQueued = queue.getSongs().some(s => urls.has(s.url));
+      if (!alreadyQueued) {
+        await addLibrarySongToLobby(lobbyId, librarySong, request.requested_by);
+        io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
+      }
+      io.to(lobbyId).emit('request:fulfilled', {
+        request,
+        song: pub,
+        addedToQueue: !alreadyQueued,
+        message: `"${pub.title}" is now in the library${alreadyQueued ? '' : ' and was added to the queue'} (requested by ${request.requested_by})`
+      });
+    } catch (err) {
+      console.error(`[library] could not add fulfilled request to lobby ${lobbyId}:`, err.message);
+    }
+  }
+}
+
+// ==========================================
 // Lobby ownership & visibility (creator-only)
 // ==========================================
 
@@ -1337,17 +1278,19 @@ app.get('/api/dashboard/stats', dashboardAuth, async (req, res) => {
   let unregisteredFileCount = 0;
   let unregisteredBytes = 0;
   try {
-    const songsDir = downloader.SONGS_PATH;
+    const songsDir = library.SONGS_PATH;
     if (fs.existsSync(songsDir)) {
       const knownPathsResult = db.isAvailable()
-        ? await db.query('SELECT file_path FROM songs WHERE file_path IS NOT NULL')
+        ? await db.query('SELECT file_path FROM library_songs')
         : { rows: [] };
       const knownPaths = new Set(knownPathsResult.rows.map(r => r.file_path));
 
-      const files = fs.readdirSync(songsDir);
-      for (const file of files) {
+      const files = fs.readdirSync(songsDir).map(f => path.join(songsDir, f));
+      if (fs.existsSync(library.LIBRARY_DIR)) {
+        files.push(...fs.readdirSync(library.LIBRARY_DIR).map(f => path.join(library.LIBRARY_DIR, f)));
+      }
+      for (const fullPath of files) {
         try {
-          const fullPath = path.join(songsDir, file);
           const stat = fs.statSync(fullPath);
           if (stat.isFile()) {
             diskUsageBytes += stat.size;
@@ -1395,206 +1338,8 @@ app.get('/api/dashboard/stats', dashboardAuth, async (req, res) => {
   res.json(stats);
 });
 
-// Cache stats endpoint (dashboard only)
-app.get('/api/dashboard/cache', dashboardAuth, async (req, res) => {
-  if (!db.isAvailable()) {
-    return res.json({
-      enabled: false,
-      message: 'Database not available - caching disabled'
-    });
-  }
-
-  try {
-    const stats = await db.query(`
-      SELECT
-        status,
-        COUNT(*) as count
-      FROM songs
-      GROUP BY status
-    `);
-
-    const statusCounts = {};
-    for (const row of stats.rows) {
-      statusCounts[row.status] = parseInt(row.count);
-    }
-
-    const totalSize = await db.query(`
-      SELECT COUNT(*) as total,
-             SUM(duration) as total_duration
-      FROM songs
-      WHERE status = 'ready'
-    `);
-
-    res.json({
-      enabled: true,
-      songsPath: downloader.SONGS_PATH,
-      stats: {
-        pending: statusCounts.pending || 0,
-        downloading: statusCounts.downloading || 0,
-        ready: statusCounts.ready || 0,
-        error: statusCounts.error || 0,
-        totalCached: parseInt(totalSize.rows[0]?.total) || 0,
-        totalDuration: parseFloat(totalSize.rows[0]?.total_duration) || 0
-      }
-    });
-  } catch (err) {
-    console.error('Cache stats error:', err.message);
-    res.status(500).json({ error: 'Failed to fetch cache stats' });
-  }
-});
-
-// List all cached songs (dashboard only)
-app.get('/api/dashboard/cache/songs', dashboardAuth, async (req, res) => {
-  try {
-    const songs = await downloader.getAllSongs();
-    res.json({ songs });
-  } catch (err) {
-    console.error('List songs error:', err.message);
-    res.status(500).json({ error: 'Failed to fetch cached songs' });
-  }
-});
-
-// Delete a single cached song (dashboard only)
-app.delete('/api/dashboard/cache/songs/:id', dashboardAuth, async (req, res) => {
-  const songId = req.params.id;
-  try {
-    const deleted = await downloader.deleteSong(songId);
-    if (deleted) {
-      res.json({ success: true });
-    } else {
-      res.status(404).json({ error: 'Song not found' });
-    }
-  } catch (err) {
-    console.error('Delete song error:', err.message);
-    res.status(500).json({ error: 'Failed to delete song' });
-  }
-});
-
-// Delete all cached songs (dashboard only)
-app.delete('/api/dashboard/cache/songs', dashboardAuth, async (req, res) => {
-  try {
-    const count = await downloader.deleteAllSongs();
-    res.json({ success: true, deleted: count });
-  } catch (err) {
-    console.error('Delete all songs error:', err.message);
-    res.status(500).json({ error: 'Failed to delete songs' });
-  }
-});
-
-// Delete all error songs (dashboard only)
-app.delete('/api/dashboard/cache/errors', dashboardAuth, async (req, res) => {
-  try {
-    const count = await downloader.deleteErrorSongs();
-    res.json({ success: true, deleted: count });
-  } catch (err) {
-    console.error('Delete error songs error:', err.message);
-    res.status(500).json({ error: 'Failed to delete error songs' });
-  }
-});
-
-// Re-download all songs in queues that are missing or broken
-app.post('/api/dashboard/cache/redownload-missing', dashboardAuth, async (req, res) => {
-  try {
-    // Collect all unique URLs + best available metadata from queues
-    const result = await db.query(`
-      SELECT url, title, duration, thumbnail
-      FROM queue_songs
-      WHERE url NOT IN (
-        SELECT url FROM songs
-        WHERE status = 'ready'
-          AND file_path IS NOT NULL
-          AND file_path != ''
-      )
-    `);
-
-    if (result.rows.length === 0) {
-      return res.json({ success: true, queued: 0, message: 'All songs already cached' });
-    }
-
-    // Fire off downloads in background — don't await them all
-    let queued = 0;
-    for (const row of result.rows) {
-      try {
-        await downloader.startDownload(row.url, {
-          title: row.title,
-          duration: row.duration,
-          thumbnail: row.thumbnail
-        });
-        queued++;
-      } catch (err) {
-        console.error(`[redownload] Failed to queue ${row.url}:`, err.message);
-      }
-    }
-
-    console.log(`[redownload] Queued ${queued} missing songs for download`);
-    res.json({ success: true, queued, total: result.rows.length });
-  } catch (err) {
-    console.error('Redownload missing error:', err.message);
-    res.status(500).json({ error: 'Failed to queue missing downloads' });
-  }
-});
-
-// Delete orphaned cached songs (not in any queue)
-app.delete('/api/dashboard/cache/orphaned', dashboardAuth, async (req, res) => {
-  try {
-    const count = await downloader.deleteOrphanedSongs();
-    res.json({ success: true, deleted: count });
-  } catch (err) {
-    console.error('Delete orphaned songs error:', err.message);
-    res.status(500).json({ error: 'Failed to delete orphaned songs' });
-  }
-});
-
-// yt-dlp cookies management (dashboard only)
-const COOKIES_PATH = path.join(path.dirname(downloader.SONGS_PATH), 'cookies.txt');
-
-app.get('/api/dashboard/cookies', dashboardAuth, (req, res) => {
-  try {
-    if (fs.existsSync(COOKIES_PATH)) {
-      const stat = fs.statSync(COOKIES_PATH);
-      res.json({ present: true, size: stat.size, updatedAt: stat.mtimeMs });
-    } else {
-      res.json({ present: false });
-    }
-  } catch {
-    res.json({ present: false });
-  }
-});
-
-app.post('/api/dashboard/cookies', dashboardAuth, express.text({ type: '*/*', limit: '2mb' }), (req, res) => {
-  try {
-    const content = req.body;
-    if (!content || !content.includes('youtube.com')) {
-      return res.status(400).json({ error: 'Does not look like a YouTube cookies file' });
-    }
-    fs.mkdirSync(path.dirname(COOKIES_PATH), { recursive: true });
-    fs.writeFileSync(COOKIES_PATH, content, 'utf8');
-    console.log(`[cookies] Updated yt-dlp cookies file (${content.length} bytes)`);
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.delete('/api/dashboard/cookies', dashboardAuth, (req, res) => {
-  try {
-    if (fs.existsSync(COOKIES_PATH)) fs.unlinkSync(COOKIES_PATH);
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Delete disk files that have no DB record (e.g. after postgres was reset)
-app.delete('/api/dashboard/cache/unregistered', dashboardAuth, async (req, res) => {
-  try {
-    const result = await downloader.deleteUnregisteredFiles();
-    res.json({ success: true, deleted: result.deleted, bytes: result.bytes });
-  } catch (err) {
-    console.error('Delete unregistered files error:', err.message);
-    res.status(500).json({ error: 'Failed to delete unregistered files' });
-  }
-});
+// Song cache / cookie management was removed with server-side downloading.
+// Library management (delete songs, tokens, requests) lives on /admin.
 
 // List all registered users (dashboard only)
 app.get('/api/dashboard/users', dashboardAuth, async (req, res) => {
@@ -1700,29 +1445,6 @@ playback.setupSocketHandlers(io);
 
 // Set up shared YouTube playlist handlers (separate namespace, no auth)
 youtubePlaylist.setupSocketHandlers(io);
-
-// Set up download progress event handlers
-downloader.downloadEvents.on('status', (data) => {
-  if (data.lobbyId) {
-    io.to(data.lobbyId).emit('download:status', {
-      url: data.url,
-      songId: data.songId,
-      status: data.status,
-      percent: data.percent || 0,
-      error: data.error
-    });
-  }
-});
-
-downloader.downloadEvents.on('progress', (data) => {
-  if (data.lobbyId) {
-    io.to(data.lobbyId).emit('download:progress', {
-      url: data.url,
-      songId: data.songId,
-      percent: data.percent
-    });
-  }
-});
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {
@@ -1899,6 +1621,7 @@ io.on('connection', (socket) => {
     // Send current queue state to new joiner
     const queue = await getQueueAsync(lobbyId);
     socket.emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
+    emitUnavailableSongs(socket, queue.getSongs());
   });
 
   socket.on('lobby:leave', ({ lobbyId }) => {
@@ -2073,8 +1796,10 @@ io.on('connection', (socket) => {
     console.log(`Lobby ${lobbyId} renamed to "${result.lobby.name}"`);
   });
 
-  // Add song to queue
-  socket.on('queue:add', async ({ lobbyId, query, url, title, duration, addedBy, thumbnail }) => {
+  // Add song to queue. Only songs in the library can be queued; anything else
+  // becomes a song request (the server never downloads) that is auto-added to
+  // this lobby's queue once someone uploads it with the CLI.
+  socket.on('queue:add', async ({ lobbyId, query, url, title, addedBy, libraryId, userId } = {}) => {
     if (!checkSocketRateLimit()) {
       socket.emit('queue:error', { message: 'Too many requests, please slow down' });
       return;
@@ -2085,146 +1810,82 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const queue = await getQueueAsync(lobbyId);
-    const inputUrl = url || query;
+    if (!db.isAvailable()) {
+      socket.emit('queue:error', { message: 'The music library is unavailable (no database)' });
+      return;
+    }
 
-    // YouTube playlist import: expand a real playlist URL into individual tracks
-    // and add them all. Per-track resilient — a deleted/blocked entry is skipped,
-    // the rest still import.
-    const playlistId = inputUrl ? ytdlp.parsePlaylistId(inputUrl) : null;
-    if (playlistId) {
+    const input = url || query;
+    if (!libraryId) socket.emit('queue:adding', { status: 'Looking it up…' });
+
+    let result;
+    try {
+      result = await resolver.resolve({ input, libraryId, title });
+    } catch (err) {
+      console.error('queue:add resolve error:', err);
+      socket.emit('queue:error', { message: 'Could not add that song' });
+      return;
+    }
+
+    const requester = { requestedBy: addedBy, requestedById: userId, lobbyId };
+
+    if (result.type === 'error') {
+      socket.emit('queue:error', { message: result.message });
+      return;
+    }
+
+    if (result.type === 'library') {
+      const song = await addLibrarySongToLobby(lobbyId, result.song, addedBy);
+      console.log(`Song added to lobby ${lobbyId}: ${song.title}`);
+      const queue = await getQueueAsync(lobbyId);
+      io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
+      return;
+    }
+
+    if (result.type === 'request') {
       try {
-        socket.emit('queue:adding', { status: 'Reading playlist…' });
-        const entries = await ytdlp.getPlaylistEntries(inputUrl);
-        if (!entries.length) {
-          socket.emit('queue:error', { message: 'No playable videos found in that playlist' });
-          return;
-        }
-        const MAX_PLAYLIST = 100;
-        const items = entries.slice(0, MAX_PLAYLIST);
-        let added = 0;
-        for (let i = 0; i < items.length; i++) {
-          const e = items[i];
-          try {
-            const song = queue.addSong({ url: e.url, title: e.title, duration: e.duration, addedBy, thumbnail: e.thumbnail });
-            downloader.startDownload(e.url, { title: e.title, duration: e.duration, thumbnail: e.thumbnail }, lobbyId)
-              .catch(err => console.error(`[playlist] download failed (${e.url}): ${err.message}`));
-            if (e.thumbnail) covers.cacheCover(song.id, e.thumbnail).catch(() => {});
-            // Start playback on the very first song if the queue was empty
-            if (queue.getSongs().length === 1) {
-              queue.setCurrentIndex(0);
-              playback.setTrack(lobbyId, song, true, io);
-            }
-            added++;
-            // Push the growing queue to the UI every few songs so import is visible
-            if (i % 5 === 4) {
-              io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
-            }
-          } catch (err) {
-            console.error(`[playlist] add failed for ${e.url}: ${err.message}`);
-          }
-        }
-        io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
-        const capped = entries.length > MAX_PLAYLIST ? ` (first ${MAX_PLAYLIST} of ${entries.length})` : '';
-        socket.emit('queue:adding', { status: `Added ${added} song${added !== 1 ? 's' : ''} from playlist${capped}` });
+        const { request, created } = await songRequests.createRequest({ ...result.request, ...requester });
+        const name = request.title || request.youtube_id || 'That song';
+        socket.emit('queue:requested', {
+          request,
+          created,
+          message: created
+            ? `"${name}" isn't in the library yet. It has been requested and will be added to the queue once uploaded.`
+            : `"${name}" isn't in the library yet. It was already requested.`
+        });
+        if (created) io.emit('requests:updated');
       } catch (err) {
-        console.error('Playlist import error:', err);
-        socket.emit('queue:error', { message: err.message || 'Failed to import playlist', code: err.code });
+        console.error('Request create error:', err.message);
+        socket.emit('queue:error', { message: 'Could not record the request' });
       }
       return;
     }
 
-    // Check if this is a Spotify URL
-    const spotifyParsed = inputUrl ? spotify.parseSpotifyUrl(inputUrl) : null;
-    if (spotifyParsed) {
+    // Playlist: queue what the library has, request the rest.
+    let added = 0;
+    let requested = 0;
+    for (const item of result.items) {
       try {
-        // Spotify track: look up metadata then search YouTube
-        socket.emit('queue:adding', { status: 'Looking up Spotify track...' });
-        const trackInfo = await spotify.getTrack(inputUrl);
-
-        socket.emit('queue:adding', { status: 'Finding on YouTube...' });
-        const metadata = await ytdlp.getMetadata(`ytsearch:${trackInfo.searchQuery}`);
-
-        if (!metadata) {
-          socket.emit('queue:error', { message: `Could not find "${trackInfo.title}" on YouTube` });
-          return;
-        }
-
-        url = metadata.url;
-        title = trackInfo.title;
-        duration = metadata.duration;
-        thumbnail = trackInfo.thumbnail || metadata.thumbnail;
-      } catch (err) {
-        console.error('[Spotify] Import failed:', {
-          url: inputUrl,
-          type: spotifyParsed.type,
-          error: err.message,
-          stack: err.stack
-        });
-        // If the YouTube lookup classified the failure (DRM, restricted, etc.),
-        // surface that reason directly; otherwise it's a Spotify-side problem.
-        socket.emit('queue:error', {
-          message: err.code ? err.message : `Failed to process Spotify link: ${err.message}`,
-          code: err.code,
-        });
-        return;
-      }
-    }
-
-    // Regular single video handling
-    // If query is provided, fetch metadata first
-    if (query && !title) {
-      try {
-        socket.emit('queue:adding', { status: 'fetching metadata...' });
-        const metadata = await ytdlp.getMetadata(query);
-        if (metadata) {
-          url = metadata.url || query;
-          title = metadata.title || 'Unknown';
-          duration = metadata.duration;
-          thumbnail = metadata.thumbnail;
+        if (item.type === 'library') {
+          await addLibrarySongToLobby(lobbyId, item.song, addedBy);
+          added++;
         } else {
-          socket.emit('queue:error', { message: 'Could not fetch video metadata' });
-          return;
+          const { created } = await songRequests.createRequest({ ...item.request, ...requester });
+          if (created) requested++;
         }
       } catch (err) {
-        console.error('Metadata fetch error:', err);
-        // Surface the real reason (parseError gives a user-facing message + code)
-        // instead of a generic string, so the user knows why it failed.
-        socket.emit('queue:error', {
-          message: err.message || 'Failed to fetch video info',
-          code: err.code,
-        });
-        return;
+        console.error(`[playlist] item failed: ${err.message}`);
       }
     }
-
-    const song = queue.addSong({ url: url || query, title: title || 'Unknown', duration, addedBy, thumbnail });
-    console.log(`Song added to lobby ${lobbyId}: ${song.title}`);
-
-    // Start background download for the song
-    downloader.startDownload(url || query, {
-      title: title || 'Unknown',
-      duration,
-      thumbnail
-    }, lobbyId).catch(err => {
-      console.error(`Background download failed: ${err.message}`);
-    });
-
-    // Cache thumbnail in background (non-blocking)
-    if (thumbnail) {
-      covers.cacheCover(song.id, thumbnail).catch(err => {
-        console.error(`Failed to cache cover for ${song.id}:`, err.message);
-      });
-    }
-
-    // If this is the first song and nothing is playing, start playback
-    if (queue.getSongs().length === 1) {
-      queue.setCurrentIndex(0);
-      playback.setTrack(lobbyId, song, true, io);
-    }
-
-    // Broadcast updated queue to all in lobby (after potential currentIndex change)
+    const queue = await getQueueAsync(lobbyId);
     io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
+    if (requested) io.emit('requests:updated');
+    const capped = result.total > result.items.length ? ` (first ${result.items.length} of ${result.total})` : '';
+    const notInLibrary = result.items.length - added;
+    socket.emit('queue:adding', {
+      status: `Playlist${capped}: added ${added} song${added !== 1 ? 's' : ''}` +
+        (notInLibrary ? `, ${notInLibrary} not in the library yet (requested)` : '')
+    });
   });
 
   // Remove song from queue
@@ -2631,17 +2292,13 @@ async function start() {
     // Restore lobbies from database into memory so lobby list works after restart
     await lobby.loadLobbiesFromDB();
 
-    // Run initial cache cleanup
-    downloader.cleanupOldSongs().catch(err => {
-      console.error('Initial cache cleanup failed:', err.message);
+    // Register the legacy yt-dlp cache into the library (idempotent). Runs in
+    // the background: hashing a large cache can take a while. Library songs
+    // are permanent — there is no age-based cleanup any more.
+    try { library.ensureDirs(); } catch (err) { console.error('Could not create songs dir:', err.message); }
+    library.migrateLegacyCache().catch(err => {
+      console.error('Legacy cache migration failed:', err.message);
     });
-
-    // Schedule periodic cache cleanup (every 6 hours)
-    setInterval(() => {
-      downloader.cleanupOldSongs().catch(err => {
-        console.error('Periodic cache cleanup failed:', err.message);
-      });
-    }, 6 * 60 * 60 * 1000);
   } else {
     console.log('Running in memory-only mode');
   }
@@ -2655,7 +2312,7 @@ async function start() {
     console.log(`Server running on port ${PORT}`);
     console.log(`Health check: http://localhost:${PORT}/health`);
     if (dbAvailable) {
-      console.log(`Song cache: ${downloader.SONGS_PATH}`);
+      console.log(`Music library: ${library.SONGS_PATH}`);
     }
   });
 }
