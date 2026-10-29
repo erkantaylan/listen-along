@@ -66,6 +66,9 @@ function parseError(stderr, exitCode) {
   if (lower.includes('video unavailable') || lower.includes('removed') || lower.includes('does not exist') || lower.includes('this video is not available')) {
     return mk('VIDEO_UNAVAILABLE', 'Video is unavailable');
   }
+  if (lower.includes('http error 403')) {
+    return mk('FORBIDDEN', 'YouTube refused the download (HTTP 403). This usually means yt-dlp is outdated: update it (`pipx upgrade yt-dlp` / `pip install -U yt-dlp`) and retry');
+  }
   if (lower.includes('unable to download') || lower.includes('http error') || lower.includes('timed out') || lower.includes('connection')) {
     return mk('NETWORK', `Network error while downloading${lastError ? `: ${lastError}` : ''}`);
   }

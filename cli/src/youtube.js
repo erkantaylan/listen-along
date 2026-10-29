@@ -63,7 +63,11 @@ function findVideoId(text) {
   return bracket ? bracket[1] : null;
 }
 
-const BAD_WORDS = ['live', 'cover', 'remix', 'karaoke', 'instrumental', 'reaction', 'sped up', 'slowed', 'nightcore', '8d', 'lyrics', 'lyric video', 'full album', 'hour', 'loop', 'tutorial', 'reverb'];
+const BAD_WORDS = [
+  'live', 'cover', 'remix', 'karaoke', 'instrumental', 'reaction', 'sped up', 'slowed', 'nightcore',
+  '8d', 'lyrics', 'lyric video', 'full album', 'hour', 'loop', 'tutorial', 'reverb',
+  'takes', 'take ', 'demo', 'rehearsal', 'outtake', 'extended', 'acoustic', 'session', 'subtitulado', 'traduction',
+];
 
 /**
  * Score a search result: prefer YouTube Music "Topic" channels and official
