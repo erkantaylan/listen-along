@@ -28,13 +28,20 @@ where lobby persistence broke entirely on deployed instances.
 - Backend: Node.js + Express + Socket.IO (`backend/src/`)
 - Frontend: Vanilla JS, single-page (`frontend/`)
 - `index.js` is the main server (~1700 lines, handles all HTTP routes + socket events)
-- Domain modules: lobby.js, queue.js, playback.js, chat.js, covers.js, downloader.js, db.js
-- Song downloads via yt-dlp + ffmpeg, cached in `songs/` directory. Getting
-  yt-dlp to work from a server IP (PO token sidecar, JS runtime, `tv` client) is
-  documented in `YTDLP-YOUTUBE.md` — read it before touching download code or
-  debugging "can't download" issues
+- Domain modules: lobby.js, queue.js, playback.js, chat.js, covers.js, db.js,
+  library.js (music library + m4a validation + legacy cache migration),
+  requests.js (song requests), tokens.js (CLI tokens), adminAuth.js (/admin),
+  libraryRoutes.js (library/requests/admin HTTP API), songResolver.js
+  (what a user typed -> library song or song request)
+- **The server does not download audio.** Songs are uploaded as m4a by the
+  listen-along CLI (`cli/`) with a Bearer token created on `/admin`
+  (`ADMIN_PASSWORD`). Anything queued that is not in the library becomes a song
+  request; uploads fulfil requests and auto-add the song to the requesting
+  lobby. yt-dlp on the server is metadata-only (flat YouTube search, playlist
+  listing). See `YTDLP-YOUTUBE.md` before touching song sourcing.
 - Spotify track links supported via `spotify-url-info` page scraping (no API
-  credentials needed); title/artist are then searched on YouTube for playback
+  credentials needed); title/artist are matched against the library or
+  turned into a request
 
 ## User Identity
 
