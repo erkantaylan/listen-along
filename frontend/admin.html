@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex">
+  <title>listen-along admin</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+  <div class="adm-page">
+    <header class="adm-header">
+      <h1>listen-along admin</h1>
+      <a href="/" class="adm-link">← Back to app</a>
+      <button id="adm-logout" class="adm-btn adm-btn-ghost" type="button" hidden>Log out</button>
+    </header>
+
+    <p id="adm-disabled" class="adm-notice" hidden>
+      Admin is disabled. Set the <code>ADMIN_PASSWORD</code> environment variable on the server and restart it.
+    </p>
+
+    <form id="adm-login" class="adm-card adm-login" hidden>
+      <h2>Log in</h2>
+      <label for="adm-password">Admin password</label>
+      <input id="adm-password" type="password" autocomplete="current-password" required>
+      <button class="adm-btn adm-btn-primary" type="submit">Log in</button>
+      <p id="adm-login-error" class="adm-error" hidden></p>
+    </form>
+
+    <main id="adm-main" hidden>
+      <section class="adm-card">
+        <h2>CLI tokens</h2>
+        <p class="adm-help">One token per person. The listen-along CLI sends it as
+          <code>Authorization: Bearer &lt;token&gt;</code>; every upload is recorded under the token's name.
+          The token is shown only once — copy it right away.</p>
+        <form id="adm-token-form" class="adm-row">
+          <input id="adm-token-name" type="text" maxlength="100" placeholder="Person's display name" required autocomplete="off">
+          <button class="adm-btn adm-btn-primary" type="submit">Create token</button>
+        </form>
+        <div id="adm-new-token" class="adm-new-token" hidden>
+          <p>New token for <strong id="adm-new-token-name"></strong>:</p>
+          <div class="adm-row">
+            <code id="adm-new-token-value" class="adm-token-value"></code>
+            <button id="adm-copy-token" class="adm-btn" type="button">Copy</button>
+          </div>
+        </div>
+        <ul id="adm-tokens" class="adm-list"></ul>
+      </section>
+
+      <section class="adm-card">
+        <div class="adm-section-head">
+          <h2>Song requests</h2>
+          <select id="adm-request-status" aria-label="Request status">
+            <option value="pending">Waiting</option>
+            <option value="fulfilled">Uploaded</option>
+            <option value="dismissed">Dismissed</option>
+            <option value="all">All</option>
+          </select>
+        </div>
+        <ul id="adm-requests" class="adm-list"></ul>
+      </section>
+
+      <section class="adm-card">
+        <div class="adm-section-head">
+          <h2>Library <span id="adm-library-total" class="adm-muted"></span></h2>
+          <input id="adm-library-search" type="search" placeholder="Search…" autocomplete="off" aria-label="Search library">
+        </div>
+        <ul id="adm-library" class="adm-list"></ul>
+      </section>
+    </main>
+  </div>
+  <script src="/admin.js"></script>
+</body>
+</html>

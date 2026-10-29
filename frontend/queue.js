@@ -18,46 +18,8 @@ export function handleSongAdded(data) {
 export function addSong() {
   const input = elements.songInput.value.trim();
   if (!input) return;
-  socket.emit('queue:add', { lobbyId: state.lobbyId, query: input, addedBy: state.username });
+  socket.emit('queue:add', { lobbyId: state.lobbyId, query: input, addedBy: state.username, userId: state.userId });
   elements.songInput.value = '';
-}
-
-export function showLibraryDialog() {
-  var existing = document.getElementById('library-dialog');
-  if (existing) existing.remove();
-  var dialog = document.createElement('div');
-  dialog.id = 'library-dialog';
-  dialog.className = 'share-overlay';
-  dialog.innerHTML = '<div class="library-dialog"><div class="library-dialog-header"><h3>Browse Library</h3><button class="btn-icon share-close-btn" id="library-close-btn" aria-label="Close"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div><input type="text" class="library-search" id="library-search" placeholder="Search songs..." autocomplete="off"><div class="library-list" id="library-list"><div class="library-loading">Loading...</div></div></div>';
-  document.body.appendChild(dialog);
-  document.getElementById('library-close-btn').addEventListener('click', function() { dialog.remove(); });
-  dialog.addEventListener('click', function(e) { if (e.target === dialog) dialog.remove(); });
-  fetch('/api/library').then(function(res) { return res.json(); }).then(function(data) {
-    var songs = data.songs || [];
-    var listEl = document.getElementById('library-list');
-    var searchEl = document.getElementById('library-search');
-    function renderLibrary() {
-      var q = searchEl.value.toLocaleLowerCase('tr');
-      var filtered = q ? songs.filter(function(s) { return (s.title || '').toLocaleLowerCase('tr').includes(q); }) : songs;
-      if (filtered.length === 0) { listEl.innerHTML = '<div class="library-empty">No songs found</div>'; return; }
-      listEl.innerHTML = filtered.map(function(song) {
-        var dur = formatDuration(song.duration);
-        var thumb = song.thumbnail_url ? '<img class="library-thumb" src="' + escapeHtml(song.thumbnail_url) + '" alt="">' : '<div class="library-thumb-placeholder"></div>';
-        return '<div class="library-item" data-url="' + escapeHtml(song.url) + '" data-title="' + escapeHtml(song.title) + '" data-duration="' + (song.duration || 0) + '" data-thumbnail="' + escapeHtml(song.thumbnail_url || '') + '">' + thumb + '<div class="library-item-info"><div class="library-item-title">' + escapeHtml(song.title) + '</div><div class="library-item-meta">' + dur + '</div></div><button class="btn btn-small btn-primary library-add-btn">Add</button></div>';
-      }).join('');
-    }
-    renderLibrary();
-    searchEl.addEventListener('input', renderLibrary);
-    listEl.addEventListener('click', function(e) {
-      var btn = e.target.closest('.library-add-btn');
-      if (!btn) return;
-      var item = btn.closest('.library-item');
-      if (!item) return;
-      socket.emit('queue:add', { lobbyId: state.lobbyId, url: item.dataset.url, title: item.dataset.title, duration: parseFloat(item.dataset.duration) || 0, thumbnail: item.dataset.thumbnail || undefined, addedBy: state.username });
-      btn.textContent = 'Added'; btn.disabled = true;
-      setTimeout(function() { btn.textContent = 'Add'; btn.disabled = false; }, 2000);
-    });
-  }).catch(function() { document.getElementById('library-list').innerHTML = '<div class="library-empty">Failed to load library</div>'; });
 }
 
 export function removeSong(index) {
@@ -232,6 +194,7 @@ function getDownloadStatusHtml(downloadInfo) {
     case 'pending': icon = '<span class="queue-item-status pending" title="Pending download">⏳</span>'; badge = '<span class="queue-item-badge pending">pending</span>'; break;
     case 'downloading': icon = '<span class="queue-item-status downloading" title="Downloading">📥</span>'; badge = `<span class="queue-item-badge downloading"><span class="queue-item-percent">${percent}%</span></span>`; progressBar = `<div class="queue-item-progress"><div class="queue-item-progress-bar" style="width: ${percent}%"></div></div>`; break;
     case 'ready': icon = '<span class="queue-item-status ready" title="Ready">✓</span>'; break;
+    case 'unavailable': icon = '<span class="queue-item-status unavailable" title="Not in the library yet">⏳</span>'; badge = '<span class="queue-item-badge pending" title="Not in the library yet — it will play once someone uploads it">not in library</span>'; break;
     case 'error': { const errorMsg = downloadInfo.error || 'Download failed'; icon = `<span class="queue-item-status error" title="${escapeHtml(errorMsg)}">❌</span>`; badge = `<span class="queue-item-badge error" title="${escapeHtml(errorMsg)}">${escapeHtml(errorMsg)}</span>`; break; }
   }
   return { icon, badge, progressBar };

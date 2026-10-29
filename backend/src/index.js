@@ -207,7 +207,7 @@ function initSession(pgPool) {
 // Serve static frontend files
 // In Docker: /app/src/index.js -> /app/frontend (../frontend)
 // Local dev: backend/src/index.js -> frontend (../../frontend)
-const frontendPath = process.env.FRONTEND_PATH || path.join(__dirname, '../frontend');
+const frontendPath = path.resolve(process.env.FRONTEND_PATH || path.join(__dirname, '../frontend'));
 
 // Serve login page static assets without auth
 app.get('/login', (req, res) => {
