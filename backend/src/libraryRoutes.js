@@ -121,7 +121,7 @@ function createLibraryRouter(hooks = {}) {
   });
 
   router.post('/api/library/upload', tokens.requireToken, uploadSingle, async (req, res) => {
-    const cleanupTmp = () => { if (req.file) require('fs').rm(req.file.path, { force: true }, () => {}); };
+    const cleanupTmp = () => { if (req.file) { try { require('fs').rmSync(req.file.path, { force: true }); } catch {} } };
     let fields;
     try {
       library.validateUploadFileMeta(req.file);
@@ -143,7 +143,7 @@ function createLibraryRouter(hooks = {}) {
       if (err instanceof library.UploadError) {
         if (err.status === 409 && err.song) {
           // The song already exists — any matching pending request is satisfied by it.
-          const fulfilled = await requests.fulfillRequests(err.song, fields.request_id).catch(() => []);
+          const fulfilled = await requests.fulfillRequests(err.song, fields.request_id, fields.youtube_id).catch(() => []);
           if (fulfilled.length) {
             try { onSongAdded(err.song, fulfilled); } catch {}
             onRequestsChanged();

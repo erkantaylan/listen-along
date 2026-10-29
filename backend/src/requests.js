@@ -111,13 +111,16 @@ async function dismissRequest(id) {
  * have had no youtube_id, e.g. a text-only request).
  * @returns {Promise<object[]>} the requests that were fulfilled now
  */
-async function fulfillRequests(song, requestId = null) {
+async function fulfillRequests(song, requestId = null, extraYoutubeId = null) {
+  // extraYoutubeId: the youtube_id the uploader claimed, which can differ from
+  // the stored song's when an upload is a byte-identical duplicate (409).
+  const ytIds = [...new Set([song.youtube_id, extraYoutubeId].filter(Boolean))];
   const r = await db.query(
     `UPDATE song_requests SET status = 'fulfilled', song_id = $1, updated_at = now()
      WHERE status = 'pending'
-       AND ((youtube_id IS NOT NULL AND youtube_id = $2) OR id = $3)
+       AND (youtube_id = ANY($2::text[]) OR id = $3)
      RETURNING *`,
-    [song.id, song.youtube_id || null, isUuid(requestId) ? requestId : null]
+    [song.id, ytIds, isUuid(requestId) ? requestId : null]
   );
   return r.rows.map(toPublic);
 }
