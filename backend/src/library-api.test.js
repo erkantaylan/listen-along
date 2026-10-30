@@ -180,6 +180,14 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       assert.equal((await part.arrayBuffer()).byteLength, 100);
       assert.match(part.headers.get('content-range'), /^bytes 0-99\//);
 
+      // A range past the end is a 416 with a JSON body, not a 500 labelled audio/mp4.
+      const past = await fetch(`${base}/api/library/${s.id}/file`, { headers: { Range: `bytes=${bytes.length + 10}-` } });
+      assert.equal(past.status, 416);
+      assert.match(past.headers.get('content-type'), /^application\/json/);
+      assert.equal(past.headers.get('content-range'), `bytes */${bytes.length}`);
+      assert.equal(past.headers.get('cache-control'), null, 'errors are not cached as immutable');
+      assert.equal((await past.json()).error, 'Requested range not satisfiable');
+
       const list = await getJson('/api/library?q=artist%20song');
       assert.equal(list.body.total, 1);
       assert.equal(list.body.songs[0].id, s.id);
@@ -387,6 +395,27 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
         'https://www.youtube.com/watch?v=LLLLLLLLLLL', `library:${orphan.id}`, 'https://www.youtube.com/watch?v=NNNNNNNNNNN',
       ]);
       assert.deepEqual(missing, ['https://www.youtube.com/watch?v=NNNNNNNNNNN']);
+    });
+
+    it('reads the tags of legacy Ogg/Opus and WebM files (stream tags, upper-case keys)', async () => {
+      const ogg = path.join(SONGS, 'cccccccc-3333-4333-8333-333333333333.opus');
+      const webm = path.join(SONGS, 'dddddddd-4444-4444-8444-444444444444.webm');
+      // Ogg keeps Vorbis comments on the stream; Matroska writes ARTIST/TITLE.
+      for (const [file, freq, title] of [[ogg, 660, 'Ogg Title'], [webm, 770, 'Webm Title']]) {
+        execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `sine=frequency=${freq}:duration=2`, '-c:a', 'libopus',
+          '-metadata', `title=${title}`, '-metadata', 'artist=Opus Artist', '-metadata', 'album=Opus Album', file]);
+      }
+      const r = await library.migrateLegacyCache();
+      assert.equal(r.registered, 2);
+      const rows = (await db.query('SELECT * FROM library_songs WHERE file_path = ANY($1)', [[ogg, webm]])).rows;
+      const byPath = Object.fromEntries(rows.map((x) => [x.file_path, x]));
+      assert.equal(byPath[ogg].title, 'Ogg Title');
+      assert.equal(byPath[ogg].artist, 'Opus Artist');
+      assert.equal(byPath[ogg].album, 'Opus Album');
+      assert.equal(byPath[ogg].mime_type, 'audio/ogg');
+      assert.equal(byPath[webm].title, 'Webm Title');
+      assert.equal(byPath[webm].artist, 'Opus Artist');
+      assert.equal(byPath[webm].mime_type, 'audio/webm');
     });
   });
 });

@@ -54,9 +54,21 @@ function sendSongFile(req, res, song, { download = false } = {}) {
   };
   if (download) headers['Content-Disposition'] = `attachment; filename="${downloadFilename(song)}"`;
   res.sendFile(path.resolve(song.file_path), { headers, acceptRanges: true, dotfiles: 'allow' }, (err) => {
-    if (err && !res.headersSent) {
-      res.status(err.status === 404 || err.code === 'ENOENT' ? 404 : 500).json({ error: 'Audio file missing on server' });
+    if (!err || res.headersSent) return;
+    // send() may already have applied the audio headers (it does for a 416):
+    // drop them so the JSON error is not labelled audio/* or cached forever.
+    for (const name of ['Content-Type', 'Cache-Control', 'Content-Disposition', 'Accept-Ranges', 'ETag', 'Last-Modified']) {
+      res.removeHeader(name);
     }
+    if (err.status === 416) {
+      // Range not satisfiable; send() leaves "Content-Range: bytes */<size>".
+      return res.status(416).json({ error: 'Requested range not satisfiable' });
+    }
+    if (err.status === 404 || err.code === 'ENOENT') {
+      return res.status(404).json({ error: 'Audio file missing on server' });
+    }
+    console.error('[library] sendFile error:', err.message);
+    res.status(500).json({ error: 'Failed to read audio file' });
   });
 }
 

@@ -143,7 +143,7 @@ function ffprobe(filePath) {
     try {
       proc = spawn('ffprobe', [
         '-v', 'error',
-        '-show_entries', 'format=format_name,duration:format_tags=title,artist,album:stream=codec_type,codec_name:stream_disposition=attached_pic',
+        '-show_entries', 'format=format_name,duration:format_tags:stream=codec_type,codec_name:stream_tags:stream_disposition=attached_pic',
         '-of', 'json',
         filePath,
       ]);
@@ -497,6 +497,25 @@ function mimeForPath(filePath) {
   return MIME_BY_EXT[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
 }
 
+/**
+ * Title/artist/album tags from a probe, keys lower-cased. MP3/MP4 keep them
+ * on the container, but Ogg/Opus keeps them on the audio stream and Matroska
+ * /WebM writes them in upper case (ARTIST), so look in both places.
+ */
+function probeTags(probe) {
+  const tags = {};
+  const add = (src) => {
+    for (const [k, v] of Object.entries(src || {})) {
+      const key = k.toLowerCase();
+      if (!(key in tags) && typeof v === 'string' && v.trim()) tags[key] = v;
+    }
+  };
+  add(probe && probe.format && probe.format.tags);
+  const audio = ((probe && probe.streams) || []).find((st) => st.codec_type === 'audio');
+  add(audio && audio.tags);
+  return tags;
+}
+
 function isAudioProbe(probe) {
   return !!(probe && (probe.streams || []).some((s) => s.codec_type === 'audio'));
 }
@@ -532,7 +551,7 @@ async function migrateLegacyCache({ songsPath = SONGS_PATH } = {}) {
     if (await getBySha256(sha)) { skipped++; knownPaths.add(filePath); return; }
     let youtubeId = meta.youtube_id || null;
     if (youtubeId && await getByYoutubeId(youtubeId)) youtubeId = null; // keep file, drop the clashing id
-    const tags = (probe.format && probe.format.tags) || {};
+    const tags = probeTags(probe);
     const probeDuration = parseFloat(probe.format && probe.format.duration);
     try {
       await insert({
