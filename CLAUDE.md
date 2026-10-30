@@ -72,14 +72,35 @@ where lobby persistence broke entirely on deployed instances.
 
 ## User Identity
 
-- OAuth (Google/GitHub) sets a signed `listen_auth` cookie holding `users.id`;
-  `getAuthUserId(req)` reads it, and each socket reads it from its handshake
-  (`socket.data.userId`). Never trust a user id sent by the client.
-- Not logged in = no playlist access. The legacy localStorage id (`user_` + 9
-  chars) is only used for the old approval check.
-- In-memory dev mode (no Postgres) cannot log in; to try the UI, set
-  `SESSION_SECRET`, forge a `listen_auth` cookie with the same HMAC as
-  `createAuthToken`, and mock `/api/auth/me` (see playlist-permissions.test.js).
+- Users are OAuth accounts (Google / GitHub, `users` + `user_providers`). Login
+  sets an HMAC-signed `listen_auth` cookie holding `users.id` (30 days,
+  `SESSION_SECRET`); `backend/src/userAuth.js` verifies it, and each socket
+  reads it from its handshake (`socket.data.userId`). Never trust a user id or
+  name sent by the client.
+- `users.status` decides access: `approved` = everything; `pending` = chat /
+  people panel and own profile only; `denied` / `rejected` = nothing (sockets
+  refused). The auth guard in `index.js` is deny-by-default (`policyFor()` in
+  userAuth.js). Only an admin changes a status — db.js must never rewrite
+  statuses on boot (a restart once promoted every pending user).
+- The CLI (`la`) authenticates with `Authorization: Bearer la_...` tokens
+  (`tokens.js`). Each token belongs to a user (`api_tokens.user_id`): approved
+  users create / revoke their own on the profile page (`/api/tokens`,
+  `tokenRoutes.js`); `/admin` lists and revokes all. `req.apiUser` =
+  `{ id, name, label, userId, user }`; a token stops working while its owner
+  is not approved. Tokens from before ownership have `user_id` NULL ("legacy")
+  and still work. Uploads record `library_songs.uploaded_by_user_id` (owner)
+  plus the `uploaded_by` display-name snapshot the UI shows.
+- Admin (`/admin`, `/dashboard`) is a separate `la_admin` cookie
+  (`ADMIN_PASSWORD`, `adminAuth.js`), not a user account.
+- Client IP (rate limits): `clientIp.js` trusts only private / loopback proxy
+  hops (Traefik) and believes `CF-Connecting-IP` only from Cloudflare's ranges;
+  use `req.clientIp`, not `req.ip`. Overrides: `TRUST_PROXY`, `CLOUDFLARE_IPS`.
+- Local dev / tests: there is no password login. Start the server with a known
+  `SESSION_SECRET` and Postgres, insert a `users` row, and sign a cookie with
+  the same secret, e.g. `node -e "console.log(require('./src/userAuth')
+  .createUserAuth({secret:'dev',db:null}).createToken('<users.id>'))"` → set it
+  as `listen_auth` (see `testServer.js` `cookieFor`). Without a database any
+  validly signed cookie counts as an approved account.
 
 ## Testing
 

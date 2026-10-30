@@ -23,10 +23,16 @@ stream from disk via `fs.openAsBlob`.
 
 ## Configure
 
+Get a token from the web app: sign in, open your **Profile**, and under
+**CLI tokens** create one with a label (e.g. "Desktop", one per computer). The
+token is shown once, together with the commands below. Only approved accounts
+can create tokens. Uploads are credited to your account; revoke a token from
+the same page when you stop using that machine.
+
 ```sh
 la config set server https://listen.example.com
 la config set token <api-token>
-la whoami                    # GET /api/me: checks URL + token
+la whoami                    # GET /api/me: checks URL + token, shows your name
 ```
 
 Stored in `~/.config/listen-along/config.json` (mode 600; `$XDG_CONFIG_HOME`
@@ -55,7 +61,7 @@ Every command has detailed `--help` with examples (`la <command> --help`).
 | `la requests fulfill (--all \| <id>...)` | download + upload each requested song with `request_id` |
 | `la requests dismiss <id>...` | dismiss requests |
 | `la library [search]` | list/search library songs (`--limit`, `--offset`, `--all`) |
-| `la whoami` | who the token belongs to |
+| `la whoami` | whose token this is (your account name) |
 | `la config set\|get\|unset\|list\|path` | configuration |
 
 ```sh
@@ -144,7 +150,8 @@ partial results are still printed with an `aborted` entry.
 
 All requests send `Authorization: Bearer <token>`.
 
-- `GET /api/me` → `{ name }`
+- `GET /api/me` → `{ name, user: { id, name } | null, token: { label, legacy } }`
+  (`user` is null for an old token created before tokens had owners)
 - `GET /api/library?q=&limit=&offset=` → `{ songs: [...], total }`
 - `POST /api/library/upload` (multipart: `file` m4a, `title`, `artist`,
   `album`, `youtube_id`, `source_url`, `duration_sec`, `request_id`) → `201 {song}`,
