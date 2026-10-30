@@ -30,10 +30,17 @@ class Batch {
   add(result) {
     this.results.push(result);
     const label = result.label || result.input || result.file || result.id;
-    const icon = { uploaded: 'uploaded', skipped: 'skipped', failed: 'FAILED', downloaded: 'saved' }[result.status] || result.status;
+    const icon = { uploaded: 'uploaded', skipped: 'skipped', failed: 'FAILED', downloaded: 'saved', replaced: 'replaced' }[result.status] || result.status;
     let line = `[${icon}] ${label}`;
     if (result.status === 'failed') line += ` — ${result.error}`;
     else if (result.reason) line += ` (${result.reason})`;
+    if (result.duplicate_of) {
+      const d = result.duplicate_of;
+      line += ` — matches "${d.title}"${d.artist ? ` by ${d.artist}` : ''} [${d.id}]`;
+    }
+    if (result.status === 'replaced' && result.previous) {
+      line += ` — was "${result.previous.title}"${result.previous.artist ? ` by ${result.previous.artist}` : ''} [${result.replaced_id}]`;
+    }
     this.out.info(line);
     if (this.onAdd) {
       const p = this.onAdd(result);

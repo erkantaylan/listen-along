@@ -6,6 +6,7 @@ const { uploadFiles } = require('../pipeline');
 const { expandInputs, AUDIO_EXTS } = require('../media');
 const { ID_RE, isHttpUrl } = require('../youtube');
 const { PLAYLIST_OPTIONS, preparePlaylistTarget, attachPlaylist, playlistSummaryLine } = require('../playlists');
+const { DEDUPE_OPTIONS, checkReplace } = require('./download');
 
 module.exports = {
   name: 'upload',
@@ -32,8 +33,17 @@ both and need no flags:
   source_url  --source-url, else a URL in the purl/comment tag (ignored if it is for
               a different video than youtube_id), else
               https://www.youtube.com/watch?v=<youtube_id>
-Files whose youtube_id is already in the library are skipped. Server-side
-duplicates (409) are reported as skipped.
+Files whose youtube_id is already in the library are skipped. Before each
+upload the server is also asked about the file's sha256 (of the bytes that
+would be uploaded, i.e. after conversion) and its normalized artist + title
+with duration ±3s: skip reasons "already in library", "duplicate_hash",
+"duplicate_metadata", each with "duplicate_of" ({id, title, artist}) naming the
+existing song. Metadata matches are probable only: --allow-similar uploads
+anyway. Server-side duplicates (409) are reported as skipped too.
+
+--replace <song-id> (single file): replace the audio and metadata of that
+library song instead of adding a new one; it keeps its id, so every playlist
+holding it plays the new file. See \`la download --help\`.
 
 --playlist <id|name> also adds every uploaded or skipped (already in the library)
 song to that server playlist; see \`la download --help\` for the lookup rules,
@@ -47,13 +57,14 @@ song to that server playlist; see \`la download --help\` for the lookup rules,
     'request-id': { type: 'string', value: 'ID', desc: 'Mark this upload as fulfilling a song request (single file)' },
     bitrate: { type: 'string', value: 'RATE', desc: 'AAC bitrate when converting', default: '192k' },
     'dry-run': { type: 'boolean', desc: 'Read tags and report what would be uploaded; upload nothing' },
+    ...DEDUPE_OPTIONS,
     ...PLAYLIST_OPTIONS,
   },
   output: `Progress on stderr. stdout: a summary (or --json document):
 { "summary": { "total", "uploaded", "skipped", "failed", ["would_upload"] },
   "results": [ { "file", "status": "uploaded|skipped|failed|would_upload", "title", "artist",
                  "youtube_id"?, "source_url"?, "converted": bool, "song"?, "fields"? (dry-run), "reason"?,
-                 "error"?, "code"?, "playlist_status"?, "playlist_error"? } ],
+                 "error"?, "code"?, "duplicate_of"?, "playlist_status"?, "playlist_error"? } ],
   "playlist"?: { "id", "name", "visibility", "created", "added", "already_in_playlist", "failed" } }
 Exit 0 if nothing failed, 1 if any file (or playlist add) failed or the --playlist
 is missing/ambiguous, 2 for bad arguments (e.g. missing path).`,
@@ -66,6 +77,7 @@ is missing/ambiguous, 2 for bad arguments (e.g. missing path).`,
     'la upload live.m4a --source-url https://www.youtube.com/watch?v=dQw4w9WgXcQ',
     'la upload --dry-run --json ~/Music/',
     'la upload ~/Music/Album/ --playlist "Some Album" --create-playlist',
+    'la upload fixed.m4a --replace 3f2b…-song-id --title "Right Title" --artist "Right Artist"',
   ],
   async run(ctx, values, positionals) {
     if (!positionals.length) throw new UsageError('Give at least one file or directory', 'See `la upload --help`');
@@ -82,6 +94,7 @@ is missing/ambiguous, 2 for bad arguments (e.g. missing path).`,
       throw new UsageError(`--source-url must be an http(s) URL, got: ${values['source-url']}`);
     }
     if (values.bitrate !== undefined && !/^\d+k?$/i.test(values.bitrate)) throw new UsageError(`Invalid --bitrate: ${values.bitrate} (e.g. 192k)`);
+    checkReplace(values, files.length, 'file');
     ctx.getApi(); // fail fast if not configured
     const deps = { out: ctx.out, media: ctx.makeMedia(), getApi: ctx.getApi };
     const opts = {
@@ -89,6 +102,8 @@ is missing/ambiguous, 2 for bad arguments (e.g. missing path).`,
       dryRun: !!values['dry-run'],
       requestId: values['request-id'],
       bitrate: values.bitrate || '192k',
+      allowSimilar: !!values['allow-similar'],
+      replace: values.replace,
     };
     const target = await preparePlaylistTarget(ctx, values, { dryRun: opts.dryRun });
     const batch = new Batch(ctx.out);

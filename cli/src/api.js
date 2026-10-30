@@ -37,6 +37,9 @@ class ApiClient {
     this.token = token;
     this.fetch = fetchImpl;
     this.timeoutMs = timeoutMs;
+    // false once the server answered 404 to POST /api/library/check (an older
+    // server without duplicate checks): stop asking.
+    this.checkSupported = true;
   }
 
   url(p, query) {
@@ -126,9 +129,61 @@ class ApiClient {
     return new Set(songs.map((s) => s.youtube_id).filter(Boolean));
   }
 
+  /** youtube_id -> song for the whole library (one paged listing). */
+  async libraryIndex() {
+    const songs = await this.libraryAll();
+    const map = new Map();
+    for (const s of songs) if (s.youtube_id) map.set(s.youtube_id, s);
+    return map;
+  }
+
+  /**
+   * Ask the server whether a song is already in the library (POST
+   * /api/library/check): by youtube_id, sha256 of the file, and normalized
+   * artist + title with duration (probable match).
+   * @param {{youtube_id?, sha256?, title?, artist?, duration_sec?, exclude_id?}} query
+   * @returns {Promise<{duplicate, match, matches}|null>} null when the server
+   *   has no such endpoint (older server) or the check itself failed; auth and
+   *   connection errors still throw (they abort the batch anyway).
+   */
+  async check(query) {
+    if (!this.checkSupported) return null;
+    const json = {};
+    for (const [k, v] of Object.entries(query || {})) if (v !== undefined && v !== null && v !== '') json[k] = v;
+    try {
+      const { status, data } = await this.request('POST', '/api/library/check', { json, okStatuses: [404] });
+      if (status === 404) { this.checkSupported = false; return null; }
+      return data && typeof data === 'object' && Array.isArray(data.matches) ? data : null;
+    } catch (err) {
+      if (err.exitCode === EXIT.AUTH || err.code === 'UNREACHABLE') throw err;
+      this.checkError = err.message;
+      return null;
+    }
+  }
+
+  /**
+   * Replace the audio (and metadata) of library song `id` with `file`; the
+   * song keeps its id, so every playlist holding it plays the new file.
+   * 400/404/409 (e.g. code duplicate_hash: the file is another song's) are
+   * item failures (exit 1).
+   * @returns {Promise<{ song: object, previous: object }>}
+   */
+  async replace(id, file, fields) {
+    const form = new FormData();
+    form.append('file', await fileBlob(file, 'audio/mp4'), path.basename(file));
+    for (const [k, v] of Object.entries(fields)) {
+      if (v !== undefined && v !== null && v !== '') form.append(k, String(v));
+    }
+    const { data } = await this.request('POST', `/api/library/${encodeURIComponent(id)}/replace`, {
+      body: form, timeoutMs: 0, clientErrors: true,
+    });
+    return { song: data?.song || null, previous: data?.previous || null };
+  }
+
   /**
    * Upload one m4a file.
-   * @returns {{ status: 'uploaded'|'duplicate', song: object }}
+   * @returns {{ status: 'uploaded'|'duplicate', song: object, code?: string }}
+   *   code (newer servers): already_in_library | duplicate_hash | duplicate_metadata
    * Throws ApiError for 400/other failures.
    */
   async upload(file, fields) {
@@ -142,7 +197,7 @@ class ApiClient {
     const { status, data } = await this.request('POST', '/api/library/upload', {
       body: form, timeoutMs: 0, okStatuses: [409],
     });
-    if (status === 409) return { status: 'duplicate', song: data?.song || null, message: data?.error };
+    if (status === 409) return { status: 'duplicate', song: data?.song || null, message: data?.error, code: data?.code };
     return { status: 'uploaded', song: data?.song || data };
   }
 

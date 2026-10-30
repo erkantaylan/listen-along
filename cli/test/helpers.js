@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const http = require('http');
+const crypto = require('crypto');
 const { main } = require('../src/cli');
 
 const TOKEN = 'test-token-123456';
@@ -27,6 +28,11 @@ async function startServer(overrides = {}) {
     playlists: [],
     nextPlaylist: 1,
     nextEntry: 1,
+    // POST /api/library/check exists only when true (false = an older server: 404).
+    checkEnabled: false,
+    checks: [], // bodies sent to /api/library/check
+    replaces: [], // { id, fields, fileContent }
+    failReplace: null, // (id, fields) => { status, body } | null
     ...overrides,
   };
   const legacy = () => !state.me.userId;
@@ -61,6 +67,43 @@ async function startServer(overrides = {}) {
       return send(200, { songs: matched.slice(offset, offset + limit), total: matched.length });
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/library/check' && state.checkEnabled) {
+      const q = JSON.parse(body.toString() || '{}');
+      state.checks.push(q);
+      const norm = (x) => String(x || '').toLowerCase().replace(/\(official [^)]*\)/g, '').trim();
+      const matches = [];
+      const add = (reason, exact, song) => { if (song && !matches.some((m) => m.song.id === song.id)) matches.push({ reason, exact, message: reason, song }); };
+      if (q.youtube_id) add('already_in_library', true, state.songs.find((x) => x.youtube_id === q.youtube_id));
+      if (q.sha256) add('duplicate_hash', true, state.songs.find((x) => x.sha256 === q.sha256));
+      if (q.title && q.artist && q.duration_sec) {
+        add('duplicate_metadata', false, state.songs.find((x) => norm(x.title) === norm(q.title) && norm(x.artist) === norm(q.artist)
+          && x.duration_sec && Math.abs(x.duration_sec - q.duration_sec) <= 3));
+      }
+      return send(200, { duplicate: matches.length > 0, match: matches[0] || null, matches });
+    }
+
+    const rm = /^\/api\/library\/([^/]+)\/replace$/.exec(url.pathname);
+    if (req.method === 'POST' && rm) {
+      const form = await new Response(body, { headers: { 'content-type': req.headers['content-type'] } }).formData();
+      const fields = {};
+      for (const [k, v] of form.entries()) if (typeof v === 'string') fields[k] = v;
+      const file = form.get('file');
+      const fileContent = file ? Buffer.from(await file.arrayBuffer()).toString() : null;
+      state.replaces.push({ id: rm[1], fields, fileContent });
+      if (state.failReplace) {
+        const f = state.failReplace(rm[1], fields);
+        if (f) return send(f.status, f.body);
+      }
+      const song = state.songs.find((x) => String(x.id) === rm[1]);
+      if (!song) return send(404, { error: 'Song not found', code: 'not_found' });
+      const previous = { youtube_id: song.youtube_id, title: song.title, artist: song.artist };
+      Object.assign(song, {
+        title: fields.title, artist: fields.artist, album: fields.album || null, youtube_id: fields.youtube_id || null,
+        source_url: fields.source_url || null, sha256: crypto.createHash('sha256').update(fileContent || '').digest('hex'),
+      });
+      return send(200, { song, previous });
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/library/upload') {
       const form = await new Response(body, { headers: { 'content-type': req.headers['content-type'] } }).formData();
       const fields = {};
@@ -80,6 +123,7 @@ async function startServer(overrides = {}) {
         album: fields.album || null, source_url: fields.source_url || null, duration_sec: fields.duration_sec ? Number(fields.duration_sec) : null,
         uploaded_by: state.me.name, created_at: new Date().toISOString(),
       };
+      if (state.checkEnabled) song.sha256 = crypto.createHash('sha256').update(upload.fileContent || '').digest('hex');
       state.songs.push(song);
       if (fields.request_id) {
         const r = state.requests.find((x) => String(x.id) === fields.request_id);

@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -86,16 +87,80 @@ function uploadFields(meta, extra = {}) {
   if (meta.source_url) f.source_url = meta.source_url;
   if (meta.duration_sec) f.duration_sec = meta.duration_sec;
   if (extra.request_id !== undefined && extra.request_id !== null) f.request_id = extra.request_id;
+  if (extra.allow_similar) f.allow_similar = '1';
   return f;
+}
+
+function sha256File(file) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    fs.createReadStream(file).on('error', reject).on('data', (d) => hash.update(d)).on('end', () => resolve(hash.digest('hex')));
+  });
+}
+
+/**
+ * Skip reasons for a song the server already has. `already in library` (by
+ * youtube_id) predates the others and is kept as is for scripts.
+ */
+const DUPLICATE_REASON = {
+  already_in_library: 'already in library',
+  duplicate_hash: 'duplicate_hash',
+  duplicate_metadata: 'duplicate_metadata',
+};
+
+/** The matched existing song, as reported on a skipped result. */
+function duplicateOf(song, code) {
+  if (!song || song.id === undefined || song.id === null) return undefined;
+  const d = { id: song.id, title: song.title ?? null, artist: song.artist ?? null };
+  if (song.youtube_id) d.youtube_id = song.youtube_id;
+  if (code) d.match = code;
+  return d;
+}
+
+function duplicateSkip(base, code, song) {
+  const r = { ...base, status: 'skipped', reason: DUPLICATE_REASON[code] || 'duplicate (server already has it)' };
+  if (song) r.song = song;
+  const of = duplicateOf(song, code);
+  if (of) r.duplicate_of = of;
+  return r;
+}
+
+/**
+ * Ask the server (POST /api/library/check) whether this is already in the
+ * library. Exact matches (youtube_id, file hash) always count; a probable
+ * (metadata) match counts unless allowSimilar. null = go ahead (also when
+ * the server is too old to answer).
+ * @returns {Promise<{reason: string, song: object}|null>}
+ */
+async function preCheck(api, query, { allowSimilar = false } = {}) {
+  if (!api || typeof api.check !== 'function') return null;
+  const res = await api.check(query);
+  if (!res || !res.duplicate) return null;
+  const matches = res.matches || [];
+  return matches.find((m) => m.exact) || (!allowSimilar && matches.find((m) => !m.exact)) || null;
+}
+
+/**
+ * Guess artist/title before downloading from a YouTube result: "Artist -
+ * Title" video titles, else the channel (minus " - Topic") as the artist.
+ */
+function guessArtistTitle(title, channel) {
+  const m = /^(.+?)\s+[-–—]\s+(.+)$/u.exec(String(title || '').trim());
+  if (m) return { artist: m[1], title: m[2] };
+  return { artist: String(channel || '').replace(/\s*-\s*topic$/i, ''), title: String(title || '') };
 }
 
 /** Upload and translate the result into a batch result. */
 async function uploadOne(api, file, fields, base) {
   const res = await api.upload(file, fields);
-  if (res.status === 'duplicate') {
-    return { ...base, status: 'skipped', reason: 'duplicate (server already has it)', song: res.song };
-  }
+  if (res.status === 'duplicate') return duplicateSkip(base, res.code, res.song);
   return { ...base, status: 'uploaded', song: res.song };
+}
+
+/** Replace library song `songId` with `file`; a replaced result. */
+async function replaceOne(api, songId, file, fields, base) {
+  const res = await api.replace(songId, file, fields);
+  return { ...base, status: 'replaced', replaced_id: songId, song: res.song, previous: res.previous };
 }
 
 /**
@@ -122,7 +187,7 @@ async function resolveTargets(ctx, inputs, onFail) {
         out.info(`  ${entries.length} video(s)`);
         if (!entries.length) onFail(failure(base, new Error('Playlist is empty or unavailable')));
         for (const e of entries) {
-          targets.push({ ...base, id: e.id, url: e.url, title: e.title, playlist: c.listId, label: e.title ? `${e.title} [${e.id}]` : e.id });
+          targets.push({ ...base, id: e.id, url: e.url, title: e.title, playlist: c.listId, label: e.title ? `${e.title} [${e.id}]` : e.id, hint: { title: e.title, channel: e.channel, duration: e.duration } });
         }
       } else {
         out.info(`Searching YouTube: ${c.query}`);
@@ -133,7 +198,7 @@ async function resolveTargets(ctx, inputs, onFail) {
           continue;
         }
         out.info(`  → ${best.title} (${best.channel || 'unknown channel'}) [${best.id}]`);
-        targets.push({ ...base, id: best.id, url: best.url, title: best.title, matched: { title: best.title, channel: best.channel } });
+        targets.push({ ...base, id: best.id, url: best.url, title: best.title, matched: { title: best.title, channel: best.channel }, hint: { title: best.title, channel: best.channel, duration: best.duration } });
       }
     } catch (err) {
       onFail(failure(base, err));
@@ -148,7 +213,14 @@ async function resolveTargets(ctx, inputs, onFail) {
  *
  * @param {object} ctx - { out, ytdlp, media, getApi, sleep }
  * @param {object[]} inputs - [{ input, request_id?, label?, noPlaylist? }]
- * @param {object} opts - { dryRun, keep, keepDir, sleepSec, upload, skipLibraryCheck }
+ * Duplicates: besides the youtube_id listing, the server is asked (POST
+ * /api/library/check) before a download when a search / playlist result
+ * gives artist, title and duration, and after it (file hash + tags) before
+ * the upload. A probable (metadata) match is skipped unless allowSimilar.
+ * With opts.replace (a library song id) the single target replaces that
+ * song instead (no duplicate checks; the server refuses another song's file).
+ *
+ * @param {object} opts - { dryRun, keep, keepDir, sleepSec, upload, skipLibraryCheck, allowSimilar, replace }
  * @param {import('./batch').Batch} batch
  */
 async function downloadAndUpload(ctx, inputs, opts, batch) {
@@ -161,12 +233,14 @@ async function downloadAndUpload(ctx, inputs, opts, batch) {
     await media.check();
   }
 
+  const replacing = opts.replace !== undefined && opts.replace !== null;
   // Resume: one library listing, then skip anything we already have.
-  let have = new Set();
-  if (api && !opts.skipLibraryCheck) {
+  let have = new Map();
+  if (api && !opts.skipLibraryCheck && !replacing) {
     out.info('Checking library for songs already uploaded…');
-    have = await api.libraryYoutubeIds();
+    have = await api.libraryIndex();
   }
+  const checks = api && !replacing;
 
   const targets = await resolveTargets(ctx, inputs, (r) => batch.add(r));
   const seen = new Set();
@@ -183,13 +257,27 @@ async function downloadAndUpload(ctx, inputs, opts, batch) {
       continue;
     }
     if (t.id) seen.add(t.id);
-    if (t.id && have.has(t.id) && t.request_id === undefined) {
-      batch.add({ ...base, status: 'skipped', reason: 'already in library' });
+    if (t.id && have.has(t.id) && t.request_id === undefined && !replacing) {
+      const r = { ...base, status: 'skipped', reason: 'already in library' };
+      const of = duplicateOf(have.get(t.id), 'already_in_library');
+      if (of) r.duplicate_of = of;
+      batch.add(r);
       continue;
+    }
+    // Before downloading: a search / playlist result that looks like a song
+    // already in the library (normalized artist + title, duration ±3s).
+    if (checks && t.request_id === undefined && t.hint && t.hint.title && Number(t.hint.duration) > 0) {
+      const guess = guessArtistTitle(t.hint.title, t.hint.channel);
+      const m = await preCheck(api, { youtube_id: t.id, title: guess.title, artist: guess.artist, duration_sec: Number(t.hint.duration) }, opts);
+      if (m) {
+        batch.add(duplicateSkip(base, m.reason, m.song));
+        continue;
+      }
     }
     const kept = findKept(keepDir, t.id);
     if (opts.dryRun) {
-      batch.add({ ...base, status: 'would_download', reason: kept ? `local copy exists: ${kept}` : undefined, local_file: kept || undefined });
+      const status = replacing ? 'would_replace' : 'would_download';
+      batch.add({ ...base, status, reason: kept ? `local copy exists: ${kept}` : undefined, local_file: kept || undefined, ...(replacing ? { replaced_id: opts.replace } : {}) });
       continue;
     }
 
@@ -250,10 +338,21 @@ async function downloadAndUpload(ctx, inputs, opts, batch) {
 
       if (!upload) {
         batch.add({ ...base, status: 'downloaded' });
+      } else if (replacing) {
+        out.info(`Replacing library song ${opts.replace} with ${base.label}…`);
+        batch.add(await replaceOne(api, opts.replace, file, uploadFields(meta), base));
       } else {
+        // After downloading: same file bytes, or tags that match a song already there.
+        const m = t.request_id === undefined
+          ? await preCheck(api, { youtube_id: meta.youtube_id, sha256: await sha256File(file), title: meta.title, artist: meta.artist, duration_sec: meta.duration_sec }, opts)
+          : null;
+        if (m) {
+          batch.add(duplicateSkip(base, m.reason, m.song));
+          continue;
+        }
         out.info(`Uploading ${base.label}…`);
-        const r = await uploadOne(api, file, uploadFields(meta, { request_id: t.request_id }), base);
-        if (meta.youtube_id) have.add(meta.youtube_id);
+        const r = await uploadOne(api, file, uploadFields(meta, { request_id: t.request_id, allow_similar: opts.allowSimilar }), base);
+        if (meta.youtube_id && r.song) have.set(meta.youtube_id, r.song);
         batch.add(r);
       }
     } catch (err) {
@@ -265,14 +364,19 @@ async function downloadAndUpload(ctx, inputs, opts, batch) {
 }
 
 /**
- * Upload local files (converting non-m4a to AAC m4a first).
- * @param {object} opts - { overrides, dryRun, requestId, bitrate }
+ * Upload local files (converting non-m4a to AAC m4a first). Before each
+ * upload the server is asked for duplicates (youtube_id, hash of the bytes
+ * that would be uploaded, normalized artist + title ±3s); a probable
+ * (metadata) match is skipped unless opts.allowSimilar. With opts.replace
+ * (a library song id) the single file replaces that song instead.
+ * @param {object} opts - { overrides, dryRun, requestId, bitrate, allowSimilar, replace }
  */
 async function uploadFiles(ctx, files, opts, batch) {
   const { out, media } = ctx;
   const api = ctx.getApi();
   await media.check();
-  let have = null; // lazily fetched library youtube_ids
+  let have = null; // lazily fetched library youtube_id -> song
+  const replacing = opts.replace !== undefined && opts.replace !== null;
 
   for (const file of files) {
     const base = { file, label: file };
@@ -291,16 +395,30 @@ async function uploadFiles(ctx, files, opts, batch) {
       base.converted = needsConvert;
 
       // Also on --dry-run, so the preview matches what a real run would skip.
-      if (meta.youtube_id && opts.requestId === undefined) {
-        if (!have) have = await api.libraryYoutubeIds();
+      const checks = !replacing && opts.requestId === undefined;
+      if (checks && meta.youtube_id) {
+        if (!have) have = await api.libraryIndex();
         if (have.has(meta.youtube_id)) {
-          batch.add({ ...base, status: 'skipped', reason: 'already in library' });
+          const r = { ...base, status: 'skipped', reason: 'already in library' };
+          const of = duplicateOf(have.get(meta.youtube_id), 'already_in_library');
+          if (of) r.duplicate_of = of;
+          batch.add(r);
           continue;
         }
       }
-      const fields = uploadFields(meta, { request_id: opts.requestId });
+      const query = { youtube_id: meta.youtube_id, title: meta.title, artist: meta.artist, duration_sec: meta.duration_sec };
+      if (checks && !needsConvert) {
+        const m = await preCheck(api, { ...query, sha256: await sha256File(file) }, opts);
+        if (m) { batch.add(duplicateSkip(base, m.reason, m.song)); continue; }
+      } else if (checks && opts.dryRun) {
+        const m = await preCheck(api, query, opts);
+        if (m) { batch.add(duplicateSkip(base, m.reason, m.song)); continue; }
+      }
+      const fields = uploadFields(meta, { request_id: opts.requestId, allow_similar: !replacing && opts.allowSimilar });
       if (opts.dryRun) {
-        batch.add({ ...base, status: 'would_upload', fields, reason: needsConvert ? `would convert ${meta.probe.codec} → aac m4a` : undefined });
+        const r = { ...base, status: replacing ? 'would_replace' : 'would_upload', fields, reason: needsConvert ? `would convert ${meta.probe.codec} → aac m4a` : undefined };
+        if (replacing) r.replaced_id = opts.replace;
+        batch.add(r);
         continue;
       }
       let uploadPath = file;
@@ -310,9 +428,19 @@ async function uploadFiles(ctx, files, opts, batch) {
         out.info(`Converting ${path.basename(file)} (${meta.probe.codec}) → AAC m4a…`);
         await media.toM4a(file, uploadPath, { bitrate: opts.bitrate });
       }
+      if (replacing) {
+        out.info(`Replacing library song ${opts.replace} with ${meta.artist} - ${meta.title}…`);
+        batch.add(await replaceOne(api, opts.replace, uploadPath, fields, base));
+        continue;
+      }
+      if (checks && needsConvert) {
+        // Hash of the converted file, i.e. the bytes that would be uploaded.
+        const m = await preCheck(api, { ...query, sha256: await sha256File(uploadPath) }, opts);
+        if (m) { batch.add(duplicateSkip(base, m.reason, m.song)); continue; }
+      }
       out.info(`Uploading ${meta.artist} - ${meta.title}…`);
       const r = await uploadOne(api, uploadPath, fields, base);
-      if (have && meta.youtube_id) have.add(meta.youtube_id);
+      if (have && meta.youtube_id && r.song) have.set(meta.youtube_id, r.song);
       batch.add(r);
     } catch (err) {
       batch.add(failure(base, err));
@@ -322,4 +450,7 @@ async function uploadFiles(ctx, files, opts, batch) {
   }
 }
 
-module.exports = { downloadAndUpload, uploadFiles, resolveTargets, readMeta, pickSourceUrl, uploadFields, safeName, findKept, isFatal };
+module.exports = {
+  downloadAndUpload, uploadFiles, resolveTargets, readMeta, pickSourceUrl, uploadFields, safeName, findKept, isFatal,
+  guessArtistTitle, duplicateSkip, preCheck, sha256File,
+};

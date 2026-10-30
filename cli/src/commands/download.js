@@ -34,7 +34,25 @@ function pipelineOptions(ctx, values) {
     keepDir: expandHome(values['keep-dir'] || ctx.cfg.values['keep-dir']),
     sleepSec: parseSleep(ctx, values),
     upload: !values['no-upload'],
+    allowSimilar: !!values['allow-similar'],
+    replace: values.replace,
   };
+}
+
+/** Options shared by `la download` and `la upload`. */
+const DEDUPE_OPTIONS = {
+  'allow-similar': { type: 'boolean', desc: 'Upload even when a song with the same artist, title and duration (±3s) is already in the library' },
+  replace: { type: 'string', value: 'SONG_ID', desc: 'Replace the audio and metadata of this library song (keeps its id, so playlists holding it are fixed); one input only' },
+};
+
+/** Usage checks for --replace (shared by download and upload). */
+function checkReplace(values, count, what) {
+  if (values.replace === undefined) return;
+  if (!String(values.replace).trim()) throw new UsageError('--replace needs a library song id (see `la library <search>`)');
+  if (count !== 1) throw new UsageError(`--replace takes exactly one ${what} (got ${count})`);
+  for (const k of ['playlist', 'allow-similar', 'no-upload', 'request-id']) {
+    if (values[k] !== undefined && values[k] !== false) throw new UsageError(`--replace cannot be combined with --${k}`);
+  }
 }
 
 module.exports = {
@@ -73,6 +91,26 @@ Needs yt-dlp and ffmpeg/ffprobe on PATH (exit 6 with an install hint if missing)
 A home/residential IP normally needs no PO token or cookies; pass anything else
 yt-dlp needs through --ytdlp-args (e.g. cookies for age-restricted videos).
 
+Duplicates: besides the youtube_id listing, the server is asked before each
+download (search and playlist results: artist/title guessed from the video
+title or channel, plus duration) and again after it (the file's sha256 and its
+tags) whether the song is already there. Skip reasons: "already in library"
+(same youtube_id), "duplicate_hash" (the very same file), "duplicate_metadata"
+(same normalized artist + title — case, accents, Turkish letters, "(Official
+Video)", "- Remastered 2011", "feat. ..." ignored — and duration within ±3s).
+Each such skip names the existing song in "duplicate_of" ({id, title, artist}).
+Metadata matches are only probable: --allow-similar uploads them anyway. The
+server re-checks every upload, so a race between two uploaders cannot add the
+same song twice. Older servers without the check endpoint just get the upload.
+
+--replace <song-id> fixes a wrongly uploaded song: the single URL/query is
+downloaded and REPLACES the audio, title/artist/album, youtube_id, source link
+and cover of that library song. The song keeps its id, so every playlist that
+holds it plays the new file. Anyone with a token may do this; the server keeps
+an audit trail. Fails (exit 1) when the file or youtube_id already belongs to a
+different song (code duplicate_hash / already_in_library), when it is the same
+file (same_file) or the id is unknown (not_found).
+
 --playlist <id|name> also adds every song that ends up in the library — uploaded
 now, or skipped because it was already there — to that server playlist (id, or
 exact case-insensitive name among the playlists you can see; an ambiguous name
@@ -84,14 +122,21 @@ creates it public (like the web app) or private with --private. Not with
     ...DOWNLOAD_OPTIONS,
     'no-upload': { type: 'boolean', desc: 'Only download into the keep dir; no server needed' },
     'no-playlist': { type: 'boolean', desc: 'For watch URLs with &list=..., take just the video, not the playlist' },
+    ...DEDUPE_OPTIONS,
     ...PLAYLIST_OPTIONS,
   },
   output: `Progress on stderr. stdout: a summary (or --json document):
 { "summary": { "total", "uploaded", "skipped", "failed", ["would_download"|"downloaded"] },
   "results": [ { "input", "status": "uploaded|skipped|failed|would_download|downloaded",
                  "youtube_id", "url", "source_url"?, "title", "artist", "reason"?, "error"?, "code"?,
-                 "song"?: <server song object>, "local_file"?, "matched"?: {title, channel} } ],
+                 "song"?: <server song object>, "local_file"?, "matched"?: {title, channel},
+                 "duplicate_of"?: {id, title, artist, youtube_id?, match} } ],
   "aborted"?: { "code", "message" } }
+Skip reasons: "already in library", "duplicate_hash", "duplicate_metadata",
+"duplicate in this batch", "duplicate (server already has it)" (older servers).
+With --replace: status "replaced" (or "would_replace" with --dry-run), counted in
+summary.replaced, with "replaced_id" and "previous": {youtube_id, source_url,
+title, artist, album, duration_sec, file_version}.
 With --playlist, also "playlist": { "id", "name", "visibility", "created", "added",
 "already_in_playlist", "failed" } and on each uploaded/skipped result
 "playlist_status": "added|already_in_playlist|failed" (+ "playlist_error").
@@ -109,11 +154,16 @@ REGION_BLOCKED, NO_M4A_FORMAT, NOT_FOUND, MISSING_TAGS, HTTP_400, NETWORK, YTDLP
     'la download --ytdlp-args="--cookies-from-browser firefox" https://youtu.be/ID',
     'la download --playlist "Road trip" "Daft Punk - Digital Love"',
     'la download --playlist "Late night" --create-playlist --private "Massive Attack - Teardrop"',
+    'la download --allow-similar "Queen - Bohemian Rhapsody (Live Aid)"',
+    'la download https://youtu.be/RIGHTVIDEO1 --replace 3f2b…-song-id   # fix a wrong upload',
   ],
   DOWNLOAD_OPTIONS,
+  DEDUPE_OPTIONS,
+  checkReplace,
   pipelineOptions,
   async run(ctx, values, positionals) {
     if (!positionals.length) throw new UsageError('Give at least one YouTube URL, playlist URL or search query', 'See `la download --help`');
+    checkReplace(values, positionals.length, 'URL or query');
     const opts = pipelineOptions(ctx, values);
     if (opts.upload) ctx.getApi(); // fail fast (exit 3) if not configured
     if (!opts.upload && values.playlist !== undefined) throw new UsageError('--playlist needs an upload; it cannot be used with --no-upload');
