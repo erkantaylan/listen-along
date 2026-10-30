@@ -190,7 +190,11 @@ function createLibraryRouter(hooks = {}) {
       return res.status(400).json({ error: 'status must be pending, fulfilled, dismissed or all' });
     }
     try {
-      res.json({ requests: await requests.listRequests({ status }) });
+      // Which playlist a request came from is only shown to CLI tokens and
+      // admins: a web user must not learn the id of someone's private playlist.
+      const reveal = !!req.apiUser || adminAuth.isAdmin(req);
+      const list = await requests.listRequests({ status });
+      res.json({ requests: reveal ? list : list.map(({ lobby_id, ...rest }) => rest) });
     } catch (err) {
       console.error('[requests] list error:', err.message);
       res.status(500).json({ error: 'Failed to list requests' });

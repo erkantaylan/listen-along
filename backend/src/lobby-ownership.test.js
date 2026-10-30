@@ -33,9 +33,9 @@ function simulateRestart() {
   delete require.cache[require.resolve('./queue')];
 }
 
-// Lobby ownership + visibility + no-auto-expiry (hq-9gvy). Exercises the data
-// layer (db.js + lobby.js). The HTTP ownership checks (403/404 in index.js) are
-// thin wrappers over hostId === userId and over these functions.
+// Playlist (lobby) ownership + visibility + no-auto-expiry. Exercises the data
+// layer (db.js + lobby.js + playlistAccess.js). The HTTP / socket checks are
+// covered against a running server in playlist-permissions.test.js.
 describe('Lobby ownership, visibility, persistence', { skip: skipReason, timeout: 120_000 }, () => {
   let container;
   let db;
@@ -67,74 +67,73 @@ describe('Lobby ownership, visibility, persistence', { skip: skipReason, timeout
     delete require.cache[require.resolve('./queue')];
   });
 
-  it('lobbies table has an is_public column', async () => {
+  it('lobbies table has visibility + host_id and no is_public / chat table', async () => {
     const cols = await db.query(`
       SELECT column_name FROM information_schema.columns
       WHERE table_name = 'lobbies'
     `);
     const names = cols.rows.map(r => r.column_name);
-    assert.ok(names.includes('is_public'), 'is_public column should exist');
-    assert.ok(names.includes('host_id'), 'host_id column should exist');
+    assert.ok(names.includes('visibility'), 'visibility column should exist');
+    assert.ok(names.includes('host_id'), 'host_id (owner) column should exist');
+    assert.ok(!names.includes('is_public'), 'is_public is replaced by visibility');
+    const chat = await db.query(`SELECT 1 FROM information_schema.tables WHERE table_name = 'chat_messages'`);
+    assert.equal(chat.rows.length, 0, 'chat_messages table is dropped');
   });
 
-  it('createLobbyAsync persists host_id and defaults is_public=true', async () => {
+  it('createLobbyAsync persists the owner and defaults to public', async () => {
     const lobby = require('./lobby');
     const created = await lobby.createLobbyAsync(ALICE, 'own-1', 'Alice room');
-    assert.equal(created.hostId, ALICE);
-    assert.equal(created.isPublic, true);
+    assert.equal(created.ownerId, ALICE);
+    assert.equal(created.visibility, 'public');
 
-    const row = await db.query('SELECT host_id, is_public FROM lobbies WHERE id = $1', ['own-1']);
+    const row = await db.query('SELECT host_id, visibility FROM lobbies WHERE id = $1', ['own-1']);
     assert.equal(row.rows[0].host_id, ALICE);
-    assert.equal(row.rows[0].is_public, true);
+    assert.equal(row.rows[0].visibility, 'public');
   });
 
-  it('anonymous creator persists host_id = null (no owner)', async () => {
+  it('anonymous creator persists host_id = null and is always public', async () => {
     const lobby = require('./lobby');
-    await lobby.createLobbyAsync(null, 'anon-1');
-    const row = await db.query('SELECT host_id FROM lobbies WHERE id = $1', ['anon-1']);
+    await lobby.createLobbyAsync(null, 'anon-1', null, 'private');
+    const row = await db.query('SELECT host_id, visibility FROM lobbies WHERE id = $1', ['anon-1']);
     assert.equal(row.rows[0].host_id, null);
+    assert.equal(row.rows[0].visibility, 'public');
   });
 
   it('setVisibility persists and survives a restart', async () => {
     const lobby = require('./lobby');
     await lobby.createLobbyAsync(ALICE, 'vis-1', 'Toggle me');
 
-    await lobby.setVisibility('vis-1', false);
-    let row = await db.query('SELECT is_public FROM lobbies WHERE id = $1', ['vis-1']);
-    assert.equal(row.rows[0].is_public, false);
+    await lobby.setVisibility('vis-1', 'private');
+    let row = await db.query('SELECT visibility FROM lobbies WHERE id = $1', ['vis-1']);
+    assert.equal(row.rows[0].visibility, 'private');
 
-    // After a restart the private flag is reloaded from the DB.
     simulateRestart();
     const lobbyAfter = require('./lobby');
     const restored = await lobbyAfter.getLobbyAsync('vis-1');
     assert.ok(restored, 'Lobby should be restored');
-    assert.equal(restored.isPublic, false, 'private visibility should persist');
+    assert.equal(restored.visibility, 'private', 'private visibility should persist');
+    assert.equal(restored.ownerId, ALICE, 'owner should persist');
 
-    await lobbyAfter.setVisibility('vis-1', true);
-    row = await db.query('SELECT is_public FROM lobbies WHERE id = $1', ['vis-1']);
-    assert.equal(row.rows[0].is_public, true);
+    await lobbyAfter.setVisibility('vis-1', 'public');
+    row = await db.query('SELECT visibility FROM lobbies WHERE id = $1', ['vis-1']);
+    assert.equal(row.rows[0].visibility, 'public');
   });
 
-  it('getAllLobbies carries hostId + isPublic for visibility filtering', async () => {
+  it('getAllLobbies + playlistAccess: others never see a private playlist', async () => {
     const lobby = require('./lobby');
+    const access = require('./playlistAccess');
     await lobby.createLobbyAsync(BOB, 'list-pub', 'Bob public');
-    const priv = await lobby.createLobbyAsync(BOB, 'list-priv', 'Bob private');
-    await lobby.setVisibility(priv.id, false);
+    await lobby.createLobbyAsync(BOB, 'lst-priv', 'Bob private', 'private');
 
-    const all = lobby.getAllLobbies();
-    const pub = all.find(l => l.id === 'list-pub');
-    const hidden = all.find(l => l.id === 'list-priv');
-    assert.equal(pub.hostId, BOB);
-    assert.equal(pub.isPublic, true);
-    assert.equal(hidden.isPublic, false);
-
-    // The route filter: public OR owner is visible; others' private is hidden.
-    const visibleTo = (uid) => all.filter(l => l.isPublic !== false || (l.hostId && l.hostId === uid));
-    const aliceSees = visibleTo(ALICE).map(l => l.id);
-    assert.ok(aliceSees.includes('list-pub'), 'Alice sees public lobby');
-    assert.ok(!aliceSees.includes('list-priv'), "Alice does NOT see Bob's private lobby");
-    const bobSees = visibleTo(BOB).map(l => l.id);
-    assert.ok(bobSees.includes('list-priv'), 'Bob sees his own private lobby');
+    simulateRestart();
+    const lobbyAfter = require('./lobby');
+    await lobbyAfter.loadLobbiesFromDB();
+    const all = lobbyAfter.getAllLobbies();
+    const visibleTo = (uid) => all.filter(l => access.canView(l, uid)).map(l => l.id);
+    assert.ok(visibleTo(ALICE).includes('list-pub'), 'Alice sees public playlist');
+    assert.ok(!visibleTo(ALICE).includes('lst-priv'), "Alice does NOT see Bob's private playlist");
+    assert.ok(visibleTo(BOB).includes('lst-priv'), 'Bob sees his own private playlist');
+    assert.deepEqual(visibleTo(null), [], 'not logged in sees nothing');
   });
 
   it('idle lobbies are NOT auto-deleted (no time-based expiry)', async () => {

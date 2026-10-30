@@ -5,11 +5,11 @@ const assert = require('node:assert/strict');
 const path = require('path');
 const { pathToFileURL } = require('url');
 
-let parseRoute, libraryPath, basePath, LIBRARY_DEFAULTS;
+let parseRoute, libraryPath, basePath, legacyRedirect, LIBRARY_DEFAULTS;
 
 before(async () => {
   const routerPath = path.join(__dirname, '..', '..', 'frontend', 'router.js');
-  ({ parseRoute, libraryPath, basePath, LIBRARY_DEFAULTS } = await import(pathToFileURL(routerPath).href));
+  ({ parseRoute, libraryPath, basePath, legacyRedirect, LIBRARY_DEFAULTS } = await import(pathToFileURL(routerPath).href));
 });
 
 describe('frontend router: parseRoute', () => {
@@ -17,18 +17,18 @@ describe('frontend router: parseRoute', () => {
     assert.deepEqual(parseRoute('/'), { view: 'landing', lobbyId: null, library: null });
     assert.deepEqual(parseRoute('/profile'), { view: 'profile', lobbyId: null, library: null });
     assert.deepEqual(parseRoute('/dashboard'), { view: 'dashboard', lobbyId: null, library: null });
-    assert.deepEqual(parseRoute('/lobby/abc-123'), { view: 'lobby', lobbyId: 'abc-123', library: null });
+    assert.deepEqual(parseRoute('/playlist/abc-123'), { view: 'lobby', lobbyId: 'abc-123', library: null });
   });
 
   it('falls back to the landing page for unknown paths and bad lobby ids', () => {
     assert.equal(parseRoute('/nope').view, 'landing');
-    assert.equal(parseRoute('/lobby/a%20b').lobbyId, null);
-    assert.equal(parseRoute('/lobby/x/y').lobbyId, null);
+    assert.equal(parseRoute('/playlist/a%20b').lobbyId, null);
+    assert.equal(parseRoute('/playlist/x/y').lobbyId, null);
   });
 
   it('opens the library with defaults, alone or over a lobby', () => {
     assert.deepEqual(parseRoute('/library'), { view: 'landing', lobbyId: null, library: { ...LIBRARY_DEFAULTS } });
-    const r = parseRoute('/lobby/xyz/library');
+    const r = parseRoute('/playlist/xyz/library');
     assert.equal(r.view, 'lobby');
     assert.equal(r.lobbyId, 'xyz');
     assert.deepEqual(r.library, { ...LIBRARY_DEFAULTS });
@@ -45,7 +45,7 @@ describe('frontend router: parseRoute', () => {
 describe('frontend router: building URLs', () => {
   it('leaves defaults out of the library URL', () => {
     assert.equal(libraryPath(null, LIBRARY_DEFAULTS), '/library');
-    assert.equal(libraryPath('xyz', {}), '/lobby/xyz/library');
+    assert.equal(libraryPath('xyz', {}), '/playlist/xyz/library');
     assert.equal(libraryPath(null, { query: 'a&b', sort: 'title', page: 1 }), '/library?q=a%26b&sort=title&page=2');
     assert.equal(libraryPath(null, { tab: 'requests', requestStatus: 'all' }), '/library?tab=requests&status=all');
   });
@@ -60,7 +60,22 @@ describe('frontend router: building URLs', () => {
 
   it('builds base paths', () => {
     assert.equal(basePath({ view: 'landing' }), '/');
-    assert.equal(basePath({ view: 'lobby', lobbyId: 'q' }), '/lobby/q');
+    assert.equal(basePath({ view: 'lobby', lobbyId: 'q' }), '/playlist/q');
     assert.equal(basePath({ view: 'profile' }), '/profile');
+  });
+});
+
+describe('frontend router: old /lobby URLs', () => {
+  it('maps /lobby/<id>[/library] to /playlist/... keeping the query', () => {
+    assert.equal(legacyRedirect('/lobby/abc-123'), '/playlist/abc-123');
+    assert.equal(legacyRedirect('/lobby/abc-123/'), '/playlist/abc-123');
+    assert.equal(legacyRedirect('/lobby/abc/library', '?q=x&page=2'), '/playlist/abc/library?q=x&page=2');
+  });
+
+  it('leaves other paths alone and no longer routes /lobby itself', () => {
+    assert.equal(legacyRedirect('/playlist/abc'), null);
+    assert.equal(legacyRedirect('/library'), null);
+    assert.equal(legacyRedirect('/lobby/a b'), null);
+    assert.equal(parseRoute('/lobby/abc').view, 'landing');
   });
 });

@@ -14,17 +14,43 @@ function generateLobbyId() {
   return uuidv4().substring(0, 8);
 }
 
+// A lobby is shown to users as a "playlist". visibility is 'public' (seen and
+// edited by every logged-in user) or 'private' (owner only); see
+// playlistAccess.js for the rules. ownerId is the users.id of the creator
+// (DB column host_id), null for legacy / anonymous playlists.
+const VISIBILITIES = ['public', 'private'];
+function normalizeVisibility(v) {
+  return v === 'private' ? 'private' : 'public';
+}
+
+function rowToLobby(row) {
+  return {
+    id: row.id,
+    ownerId: row.host_id || null,
+    ownerName: null,
+    name: row.name || null,
+    visibility: normalizeVisibility(row.visibility),
+    pinned: row.pinned || false,
+    createdAt: parseInt(row.created_at),
+    lastActivity: parseInt(row.last_activity)
+  };
+}
+
+const LOBBY_COLUMNS = 'id, host_id, name, visibility, created_at, last_activity, pinned';
+
 // Every lobby is a shared queue that each listener plays at their own pace.
-async function createLobby(hostId = null, customId = null, name = null, isPublic = true) {
+// A private playlist needs an owner; without one it is created public.
+async function createLobby(ownerId = null, customId = null, name = null, visibility = 'public', ownerName = null) {
   const id = customId || generateLobbyId();
   const now = Date.now();
-  const pub = isPublic !== false;
+  const vis = ownerId ? normalizeVisibility(visibility) : 'public';
 
   const lobby = {
     id,
-    hostId: hostId || null,
+    ownerId: ownerId || null,
+    ownerName: ownerName || null,
     name: name || null,
-    isPublic: pub,
+    visibility: vis,
     pinned: false,
     createdAt: now,
     lastActivity: now
@@ -33,8 +59,8 @@ async function createLobby(hostId = null, customId = null, name = null, isPublic
   if (db.isAvailable()) {
     try {
       await db.query(
-        'INSERT INTO lobbies (id, host_id, name, is_public, created_at, last_activity, pinned) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO UPDATE SET last_activity = $6',
-        [id, hostId || null, name || null, pub, now, now, false]
+        'INSERT INTO lobbies (id, host_id, name, visibility, created_at, last_activity, pinned) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO UPDATE SET last_activity = $6',
+        [id, ownerId || null, name || null, vis, now, now, false]
       );
     } catch (err) {
       console.error('Failed to persist lobby:', err.message);
@@ -55,20 +81,11 @@ async function getLobby(id) {
   if (!lobby && db.isAvailable()) {
     try {
       const result = await db.query(
-        'SELECT id, host_id, name, is_public, created_at, last_activity, pinned FROM lobbies WHERE id = $1',
+        `SELECT ${LOBBY_COLUMNS} FROM lobbies WHERE id = $1`,
         [id]
       );
       if (result.rows.length > 0) {
-        const row = result.rows[0];
-        lobby = {
-          id: row.id,
-          hostId: row.host_id,
-          name: row.name || null,
-          isPublic: row.is_public !== false,
-          pinned: row.pinned || false,
-          createdAt: parseInt(row.created_at),
-          lastActivity: parseInt(row.last_activity)
-        };
+        lobby = rowToLobby(result.rows[0]);
         lobbies.set(id, lobby);
         if (!lobbyUsers.has(id)) {
           lobbyUsers.set(id, new Map());
@@ -226,24 +243,27 @@ function clearFollowersOf(lobbyId, socketId) {
   }
 }
 
-function isNameTaken(name, excludeLobbyId = null) {
+// Names are unique among the playlists a user can see. `visibleTo(lobby)`
+// limits the check so a clash never reveals someone else's private playlist.
+function isNameTaken(name, excludeLobbyId = null, visibleTo = null) {
   if (!name) return false;
   const lower = name.toLowerCase().trim();
   for (const [id, l] of lobbies) {
     if (excludeLobbyId && id === excludeLobbyId) continue;
+    if (visibleTo && !visibleTo(l)) continue;
     if (l.name && l.name.toLowerCase().trim() === lower) return true;
   }
   return false;
 }
 
-async function renameLobby(lobbyId, newName) {
+async function renameLobby(lobbyId, newName, visibleTo = null) {
   const lobby = lobbies.get(lobbyId);
   if (!lobby) return null;
 
-  const trimmed = newName ? newName.trim() : '';
+  const trimmed = newName ? String(newName).trim() : '';
   if (!trimmed) return { error: 'Name cannot be empty' };
   if (trimmed.length > 50) return { error: 'Name must be 50 characters or less' };
-  if (isNameTaken(trimmed, lobbyId)) return { error: 'A lobby with that name already exists' };
+  if (isNameTaken(trimmed, lobbyId, visibleTo)) return { error: 'A playlist with that name already exists' };
 
   lobby.name = trimmed;
 
@@ -275,22 +295,22 @@ async function pinLobby(lobbyId, pinned) {
   return { lobby };
 }
 
-// Set a lobby's public/private visibility. Ownership is enforced by the caller
-// (HTTP layer); this only persists the new value to memory + DB.
-async function setVisibility(lobbyId, isPublic) {
-  const pub = isPublic !== false;
+// Set a playlist's visibility ('public' | 'private'). Ownership is enforced
+// by the caller (playlistAccess.canManage); this only persists the value.
+async function setVisibility(lobbyId, visibility) {
+  const vis = normalizeVisibility(visibility);
   const lobby = lobbies.get(lobbyId);
-  if (lobby) lobby.isPublic = pub;
+  if (lobby) lobby.visibility = vis;
 
   if (db.isAvailable()) {
     try {
-      await db.query('UPDATE lobbies SET is_public = $1 WHERE id = $2', [pub, lobbyId]);
+      await db.query('UPDATE lobbies SET visibility = $1 WHERE id = $2', [vis, lobbyId]);
     } catch (err) {
       console.error('Failed to update lobby visibility:', err.message);
     }
   }
 
-  return { lobby: lobby || null, isPublic: pub };
+  return { lobby: lobby || null, visibility: vis };
 }
 
 async function deleteLobby(id) {
@@ -340,16 +360,17 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 // Sync wrapper for backward compatibility with tests
-function createLobbySync(hostId = null, customId = null, name = null, isPublic = true) {
+function createLobbySync(ownerId = null, customId = null, name = null, visibility = 'public', ownerName = null) {
   const id = customId || generateLobbyId();
   const now = Date.now();
 
   const users = new Map();
   const lobby = {
     id,
-    hostId: hostId || null,
+    ownerId: ownerId || null,
+    ownerName: ownerName || null,
     name: name || null,
-    isPublic: isPublic !== false,
+    visibility: ownerId ? normalizeVisibility(visibility) : 'public',
     pinned: false,
     createdAt: now,
     lastActivity: now,
@@ -420,20 +441,12 @@ async function loadLobbiesFromDB() {
 
   try {
     const result = await db.query(
-      'SELECT id, host_id, name, is_public, created_at, last_activity, pinned FROM lobbies ORDER BY last_activity DESC'
+      `SELECT ${LOBBY_COLUMNS} FROM lobbies ORDER BY last_activity DESC`
     );
 
     for (const row of result.rows) {
       if (!lobbies.has(row.id)) {
-        lobbies.set(row.id, {
-          id: row.id,
-          hostId: row.host_id,
-          name: row.name || null,
-          isPublic: row.is_public !== false,
-          pinned: row.pinned || false,
-          createdAt: parseInt(row.created_at),
-          lastActivity: parseInt(row.last_activity)
-        });
+        lobbies.set(row.id, rowToLobby(row));
         if (!lobbyUsers.has(row.id)) {
           lobbyUsers.set(row.id, new Map());
         }
@@ -454,8 +467,9 @@ function getAllLobbies() {
     result.push({
       id,
       name: lobbyData.name || null,
-      hostId: lobbyData.hostId || null,
-      isPublic: lobbyData.isPublic !== false,
+      ownerId: lobbyData.ownerId || null,
+      ownerName: lobbyData.ownerName || null,
+      visibility: normalizeVisibility(lobbyData.visibility),
       pinned: lobbyData.pinned || false,
       userCount,
       createdAt: lobbyData.createdAt,
@@ -484,6 +498,8 @@ module.exports = {
   clearFollowersOf,
   isNameTaken,
   renameLobby,
+  VISIBILITIES,
+  normalizeVisibility,
   setVisibility,
   deleteLobby: deleteLobbySync,
   pinLobby,

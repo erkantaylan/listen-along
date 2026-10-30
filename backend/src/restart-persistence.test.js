@@ -97,7 +97,7 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
   it('restores a lobby (name, visibility) from DB after restart', async () => {
     const lobby = require('./lobby');
 
-    const created = await lobby.createLobbyAsync(null, 'lm-test1', 'Restart me', false);
+    const created = await lobby.createLobbyAsync('owner-1', 'lm-test1', 'Restart me', 'private');
     assert.equal(created.name, 'Restart me');
 
     // Simulate server restart (clears in-memory maps)
@@ -109,7 +109,8 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
     assert.ok(restored, 'Lobby should be restored from DB');
     assert.equal(restored.id, 'lm-test1');
     assert.equal(restored.name, 'Restart me');
-    assert.equal(restored.isPublic, false);
+    assert.equal(restored.visibility, 'private');
+    assert.equal(restored.ownerId, 'owner-1');
   });
 
   it('migrates a pre-existing Jam lobby to a plain lobby on startup', async () => {

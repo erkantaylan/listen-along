@@ -21,7 +21,7 @@ const adminAuth = require('./adminAuth');
 const { apiLimiter } = require('./rateLimits');
 const { createResolver } = require('./songResolver');
 const covers = require('./covers');
-const chat = require('./chat');
+const access = require('./playlistAccess');
 const spotify = require('./spotify');
 const auth = require('./auth');
 const youtubePlaylist = require('./youtubePlaylist');
@@ -115,7 +115,7 @@ const server = http.createServer(app);
 // CORS configuration
 const corsOptions = {
   origin: FRONTEND_URL,
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   credentials: true
 };
 
@@ -351,11 +351,13 @@ app.get('/api/auth/status', async (req, res) => {
   }
 });
 
-// Generate QR code for a lobby invite link
+// Generate QR code for a playlist link. It only encodes the URL (the id comes
+// from the caller), so it reveals nothing about whether the playlist exists.
 app.get('/api/qr/:lobbyId', async (req, res) => {
   const lobbyId = req.params.lobbyId;
+  if (!/^[a-zA-Z0-9-]{1,64}$/.test(lobbyId)) return res.status(400).json({ error: 'Invalid id' });
   const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
-  const url = `${baseUrl}/lobby/${lobbyId}`;
+  const url = `${baseUrl}/playlist/${lobbyId}`;
 
   try {
     const buffer = await QRCode.toBuffer(url, {
@@ -409,57 +411,212 @@ app.get('/api/stream', apiLimiter, async (req, res) => {
   }
 });
 
-// List active lobbies. Private lobbies are hidden from everyone except their
-// creator; public lobbies are visible to all. Each entry carries isOwner so the
-// frontend can show owner-only controls (visibility toggle + delete).
-app.get('/api/lobbies', async (req, res) => {
-  const authUserId = getAuthUserId(req);
-  const allLobbies = lobby.getAllLobbies();
+// ==========================================
+// Playlists (internally "lobbies") — HTTP API
+// ==========================================
+// Mounted at /api/playlists; /api/lobbies stays as an alias for old clients.
+// Every route checks playlistAccess: a playlist the caller cannot see is a
+// 404 (never a 403), so private playlists cannot be probed.
 
-  const visible = allLobbies.filter(l => {
-    const isOwner = !!l.hostId && l.hostId === authUserId;
-    return l.isPublic !== false || isOwner;
-  });
+const PLAYLIST_BASES = ['/api/playlists', '/api/lobbies'];
+const playlistPaths = (suffix = '') => PLAYLIST_BASES.map(b => b + suffix);
 
-  const lobbies = await Promise.all(visible.map(async l => {
-    const queue = await getQueueAsync(l.id);
-    return {
-      id: l.id,
-      name: l.name || null,
-      isPublic: l.isPublic !== false,
-      isOwner: !!l.hostId && l.hostId === authUserId,
-      pinned: l.pinned || false,
-      userCount: l.userCount,
-      songCount: queue.getSongs().length,
-      createdAt: l.createdAt
-    };
-  }));
-
-  res.json({ lobbies });
-});
-
-// Create a new lobby (HTTP fallback; the primary path is the lobby:create
-// socket event). Persists the creator when the request is authenticated.
-app.post('/api/lobbies', (req, res) => {
-  const creatorId = getAuthUserId(req);
-  const newLobby = lobby.createLobby(creatorId);
-  res.json({
-    id: newLobby.id,
-    link: `/lobby/${newLobby.id}`
-  });
-});
-
-// Get lobby info
-app.get('/api/lobbies/:id', (req, res) => {
-  const lobbyData = lobby.getLobby(req.params.id);
-  if (!lobbyData) {
-    return res.status(404).json({ error: 'Lobby not found' });
+// Owner display names (users.display_name / name), cached briefly.
+const ownerNameCache = new Map(); // userId -> { name, at }
+const OWNER_NAME_TTL = 60 * 1000;
+async function ownerNames(ids) {
+  const out = new Map();
+  const missing = [];
+  const now = Date.now();
+  for (const id of new Set(ids.filter(Boolean))) {
+    const hit = ownerNameCache.get(id);
+    if (hit && now - hit.at < OWNER_NAME_TTL) out.set(id, hit.name);
+    else missing.push(id);
   }
-  res.json({
-    id: lobbyData.id,
-    userCount: lobbyData.users.size,
-    users: lobby.getLobbyUsers(req.params.id)
+  if (missing.length && db.isAvailable()) {
+    try {
+      const r = await db.query(
+        'SELECT id::text AS id, COALESCE(display_name, name, username) AS name FROM users WHERE id::text = ANY($1)',
+        [missing]
+      );
+      for (const row of r.rows) {
+        out.set(row.id, row.name || null);
+        ownerNameCache.set(row.id, { name: row.name || null, at: now });
+      }
+    } catch (err) {
+      console.error('Owner name lookup failed:', err.message);
+    }
+  }
+  return out;
+}
+
+// What a user sees about a playlist they are allowed to see.
+async function playlistInfo(l, userId, names = null) {
+  const queue = await getQueueAsync(l.id);
+  const nameMap = names || await ownerNames([l.ownerId]);
+  return {
+    id: l.id,
+    name: l.name || null,
+    visibility: l.visibility,
+    ownerId: l.ownerId || null,
+    ownerName: (l.ownerId && nameMap.get(l.ownerId)) || l.ownerName || null,
+    isOwner: access.isOwner(l, userId),
+    canManage: access.canManage(l, userId),
+    pinned: l.pinned || false,
+    userCount: l.users ? l.users.size : (l.userCount || 0),
+    songCount: queue.getSongs().length,
+    createdAt: l.createdAt
+  };
+}
+
+// Tell everyone looking at a playlist that its name/visibility changed.
+async function broadcastPlaylistUpdated(lobbyId) {
+  const l = await lobby.getLobbyAsync(lobbyId);
+  if (!l) return;
+  const names = await ownerNames([l.ownerId]);
+  io.to(lobbyId).emit('lobby:updated', {
+    lobbyId,
+    name: l.name || null,
+    visibility: l.visibility,
+    ownerId: l.ownerId || null,
+    ownerName: (l.ownerId && names.get(l.ownerId)) || l.ownerName || null
   });
+}
+
+// A playlist went private: every socket in its room that is not the owner's
+// loses it, exactly as if it had been deleted.
+function evictNonOwners(lobbyId, ownerId) {
+  const room = io.sockets.adapter.rooms.get(lobbyId);
+  if (!room) return;
+  for (const socketId of [...room]) {
+    const s = io.sockets.sockets.get(socketId);
+    if (!s || (ownerId && s.data.userId === ownerId)) continue;
+    s.emit('lobby:closed', { lobbyId, message: 'This playlist is no longer available.' });
+    if (s.data.evict) s.data.evict(lobbyId);
+    else s.leave(lobbyId);
+  }
+}
+
+function requireUser(req, res) {
+  const userId = getAuthUserId(req);
+  if (!userId) res.status(401).json({ error: 'Authentication required' });
+  return userId;
+}
+
+// The playlist, or null after answering 404 when it is missing or hidden.
+async function findVisiblePlaylist(req, res, userId) {
+  const l = await lobby.getLobbyAsync(req.params.id);
+  if (!access.canView(l, userId)) {
+    res.status(404).json({ error: 'Playlist not found' });
+    return null;
+  }
+  return l;
+}
+
+// Playlists the caller can see: every public one plus their own private ones.
+app.get(playlistPaths(), async (req, res) => {
+  const userId = requireUser(req, res);
+  if (!userId) return;
+  const visible = lobby.getAllLobbies().filter(l => access.canView(l, userId));
+  const names = await ownerNames(visible.map(l => l.ownerId));
+  const playlists = await Promise.all(visible.map(l => playlistInfo(l, userId, names)));
+  // `lobbies` is the old key, kept for older clients.
+  res.json({ playlists, lobbies: playlists });
+});
+
+// Create a playlist owned by the caller. Body: { name?, visibility? }.
+app.post(playlistPaths(), express.json(), async (req, res) => {
+  const userId = requireUser(req, res);
+  if (!userId) return;
+  const { name, visibility = 'public' } = req.body || {};
+  if (!lobby.VISIBILITIES.includes(visibility)) {
+    return res.status(400).json({ error: "visibility must be 'public' or 'private'" });
+  }
+  const trimmed = typeof name === 'string' ? name.trim() : '';
+  if (trimmed.length > 50) return res.status(400).json({ error: 'Name must be 50 characters or less' });
+  if (trimmed && lobby.isNameTaken(trimmed, null, l => access.canView(l, userId))) {
+    return res.status(409).json({ error: 'A playlist with that name already exists' });
+  }
+  const created = await lobby.createLobbyAsync(userId, null, trimmed || null, visibility);
+  const info = await playlistInfo(created, userId);
+  res.status(201).json({ ...info, link: `/playlist/${created.id}` });
+});
+
+app.get(playlistPaths('/:id'), async (req, res) => {
+  const userId = requireUser(req, res);
+  if (!userId) return;
+  const l = await findVisiblePlaylist(req, res, userId);
+  if (!l) return;
+  res.json({ ...(await playlistInfo(l, userId)), users: lobby.getLobbyUsers(l.id) });
+});
+
+// Rename and/or change visibility. Body: { name?, visibility? }. Renaming is
+// an edit (anyone who can see it); visibility is owner-only.
+async function updatePlaylist(req, res, { name, visibility }) {
+  const userId = requireUser(req, res);
+  if (!userId) return;
+  const l = await findVisiblePlaylist(req, res, userId);
+  if (!l) return;
+  if (visibility !== undefined) {
+    if (!lobby.VISIBILITIES.includes(visibility)) {
+      return res.status(400).json({ error: "visibility must be 'public' or 'private'" });
+    }
+    if (!access.canManage(l, userId)) {
+      return res.status(403).json({ error: 'Only the owner can change visibility' });
+    }
+  }
+  if (name !== undefined) {
+    if (!access.canEdit(l, userId)) return res.status(404).json({ error: 'Playlist not found' });
+    const result = await lobby.renameLobby(l.id, name, other => access.canView(other, userId));
+    if (!result) return res.status(404).json({ error: 'Playlist not found' });
+    if (result.error) return res.status(400).json({ error: result.error });
+  }
+  if (visibility !== undefined && visibility !== l.visibility) {
+    await lobby.setVisibility(l.id, visibility);
+    if (visibility === 'private') evictNonOwners(l.id, l.ownerId);
+  }
+  await broadcastPlaylistUpdated(l.id);
+  if (name !== undefined) {
+    const fresh = await lobby.getLobbyAsync(l.id);
+    io.to(l.id).emit('lobby:renamed', { lobbyId: l.id, name: fresh.name });
+  }
+  const fresh = await lobby.getLobbyAsync(l.id);
+  res.json(await playlistInfo(fresh, userId));
+}
+
+app.patch(playlistPaths('/:id'), express.json(), (req, res) => {
+  const { name, visibility } = req.body || {};
+  updatePlaylist(req, res, { name, visibility }).catch(err => {
+    console.error('Playlist update error:', err.message);
+    if (!res.headersSent) res.status(500).json({ error: 'Failed to update playlist' });
+  });
+});
+
+// Older form: { is_public: boolean } or { visibility }.
+app.patch(playlistPaths('/:id/visibility'), express.json(), (req, res) => {
+  const body = req.body || {};
+  let visibility = body.visibility;
+  if (visibility === undefined && typeof body.is_public === 'boolean') visibility = body.is_public ? 'public' : 'private';
+  if (visibility === undefined) return res.status(400).json({ error: "visibility must be 'public' or 'private'" });
+  updatePlaylist(req, res, { visibility }).catch(err => {
+    console.error('Playlist visibility error:', err.message);
+    if (!res.headersSent) res.status(500).json({ error: 'Failed to update visibility' });
+  });
+});
+
+// Delete as the owner. Ownerless playlists can only be deleted by an admin
+// (DELETE /api/dashboard/lobbies/:id).
+app.delete(playlistPaths('/:id'), async (req, res) => {
+  const userId = requireUser(req, res);
+  if (!userId) return;
+  const l = await findVisiblePlaylist(req, res, userId);
+  if (!l) return;
+  if (!access.canManage(l, userId)) {
+    return res.status(403).json({ error: 'Only the owner can delete this playlist' });
+  }
+  await destroyLobby(l.id, { reason: 'This playlist has been deleted by its owner.' });
+  console.log(`Playlist ${l.id} deleted by owner ${userId}`);
+  res.json({ success: true });
 });
 
 // Get cached cover art for a song
@@ -833,19 +990,23 @@ function getAuthUserId(req) {
 }
 
 // Tear down a lobby everywhere: notify + disconnect members, clear
-// queue and chat state, then delete the row from BOTH memory and the DB.
+// queue state, then delete the row from BOTH memory and the DB.
 // Shared by the admin (dashboard) and creator delete paths. Uses the async
 // delete so the row does not resurrect on restart (there is no longer any
 // time-based cleanup to remove stale rows — hq-9gvy).
 async function destroyLobby(lobbyId, { reason } = {}) {
   io.to(lobbyId).emit('lobby:closed', {
     lobbyId,
-    message: reason || 'This lobby has been closed.'
+    message: reason || 'This playlist has been deleted.'
   });
+  const room = io.sockets.adapter.rooms.get(lobbyId);
+  for (const socketId of room ? [...room] : []) {
+    const s = io.sockets.sockets.get(socketId);
+    if (s && s.data.evict) s.data.evict(lobbyId);
+  }
   io.in(lobbyId).socketsLeave(lobbyId);
 
   deleteQueue(lobbyId);
-  chat.cleanupLobby(lobbyId);
 
   await lobby.deleteLobbyAsync(lobbyId);
 }
@@ -919,56 +1080,6 @@ async function handleLibrarySongAdded(librarySong, fulfilled = []) {
     }
   }
 }
-
-// ==========================================
-// Lobby ownership & visibility (creator-only)
-// ==========================================
-
-// Toggle a lobby's public/private visibility. Creator-only: 401 if not
-// authenticated, 404 if the lobby does not exist, 403 if not the creator.
-app.patch('/api/lobbies/:id/visibility', express.json(), async (req, res) => {
-  const userId = getAuthUserId(req);
-  if (!userId) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
-  const { is_public } = req.body || {};
-  if (typeof is_public !== 'boolean') {
-    return res.status(400).json({ error: 'is_public must be a boolean' });
-  }
-  const lobbyData = await lobby.getLobbyAsync(req.params.id);
-  if (!lobbyData) {
-    return res.status(404).json({ error: 'Lobby not found' });
-  }
-  if (!lobbyData.hostId || lobbyData.hostId !== userId) {
-    return res.status(403).json({ error: 'Not the lobby owner' });
-  }
-  try {
-    const result = await lobby.setVisibility(req.params.id, is_public);
-    res.json({ id: req.params.id, isPublic: result.isPublic });
-  } catch (err) {
-    console.error('Lobby visibility update error:', err.message);
-    res.status(500).json({ error: 'Failed to update visibility' });
-  }
-});
-
-// Delete a lobby as its creator. 401 if not authenticated, 404 if missing,
-// 403 if not the creator. Admins use DELETE /api/dashboard/lobbies/:id instead.
-app.delete('/api/lobbies/:id', async (req, res) => {
-  const userId = getAuthUserId(req);
-  if (!userId) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
-  const lobbyData = await lobby.getLobbyAsync(req.params.id);
-  if (!lobbyData) {
-    return res.status(404).json({ error: 'Lobby not found' });
-  }
-  if (!lobbyData.hostId || lobbyData.hostId !== userId) {
-    return res.status(403).json({ error: 'Not the lobby owner' });
-  }
-  await destroyLobby(req.params.id, { reason: 'This lobby has been deleted by its creator.' });
-  console.log(`Lobby ${req.params.id} deleted by creator ${userId}`);
-  res.json({ success: true });
-});
 
 // ==========================================
 // Shared YouTube Playlist (public, no auth, no yt-dlp)
@@ -1287,8 +1398,11 @@ app.get('/api/dashboard/stats', adminAuth.requireAdmin, async (req, res) => {
     }
   } catch {}
 
+  // Private playlists are visible to their owner only — admins included: the
+  // dashboard counts them but never lists them.
   const stats = {
     totalLobbies: lobby.lobbies.size,
+    privateLobbies: 0,
     totalUsers: 0,
     uptime: process.uptime(),
     memoryUsage: process.memoryUsage(),
@@ -1300,6 +1414,7 @@ app.get('/api/dashboard/stats', adminAuth.requireAdmin, async (req, res) => {
     const users = lobby.getLobbyUsers(lobbyId);
     const userCount = users ? users.length : 0;
     stats.totalUsers += userCount;
+    if (access.isPrivate(lobbyData)) { stats.privateLobbies++; continue; }
 
     const queue = await getQueueAsync(lobbyId);
 
@@ -1375,18 +1490,26 @@ app.delete('/api/dashboard/lobbies/:id', adminAuth.requireAdmin, async (req, res
   const lobbyId = req.params.id;
   const lobbyData = lobby.getLobby(lobbyId);
 
-  if (!lobbyData) {
-    return res.status(404).json({ error: 'Lobby not found' });
+  if (!access.canAdminDelete(lobbyData)) {
+    return res.status(404).json({ error: 'Playlist not found' });
   }
 
-  await destroyLobby(lobbyId, { reason: 'This lobby has been closed by an administrator.' });
+  await destroyLobby(lobbyId, { reason: 'This playlist has been deleted by an administrator.' });
 
   console.log(`Lobby ${lobbyId} deleted via dashboard`);
   res.json({ success: true });
 });
 
+// Old lobby URLs moved to /playlist/... (the client does the same for in-app
+// navigation, see legacyRedirect in frontend/router.js).
+app.get(['/lobby/:id', '/lobby/:id/library'], (req, res) => {
+  const qs = req.originalUrl.indexOf('?');
+  const rest = req.path.endsWith('/library') ? '/library' : '';
+  res.redirect(301, `/playlist/${encodeURIComponent(req.params.id)}${rest}${qs >= 0 ? req.originalUrl.slice(qs) : ''}`);
+});
+
 // SPA views (auth guard applied above; the client routes them, see frontend/router.js)
-app.get(['/lobby/:id', '/lobby/:id/library', '/library', '/profile'], (req, res) => {
+app.get(['/playlist/:id', '/playlist/:id/library', '/library', '/profile'], (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
@@ -1427,25 +1550,61 @@ io.on('connection', (socket) => {
   console.log(`Client connected: ${socket.id}`);
   // A socket is a *member* of at most one lobby (currentLobby: listed as a
   // listener, now-playing, follow) and may additionally *view* one other lobby
-  // (viewingLobby: in its Socket.IO room for queue/chat updates and adding
+  // (viewingLobby: in its Socket.IO room for queue updates and adding
   // songs, but not listed). The web app keeps the member lobby on the one it
   // is playing from while the user browses other lobbies.
   let currentLobby = null;
   let viewingLobby = null;
+
+  // Who this socket is: the users.id from the signed listen_auth cookie sent
+  // with the handshake (never a client-supplied id). null = not logged in,
+  // which can see no playlist at all (see playlistAccess.js).
+  const userId = getAuthUserId({ headers: socket.request.headers || {} });
+  socket.data.userId = userId;
+
+  // The playlist if this socket may see it, else null (callers answer as if
+  // it did not exist, so private playlists cannot be probed).
+  const visibleLobby = async (lobbyId) => {
+    if (!lobbyId || typeof lobbyId !== 'string') return null;
+    const l = await lobby.getLobbyAsync(lobbyId);
+    return access.canView(l, userId) ? l : null;
+  };
+  // Mutations: the socket must be in the playlist's room and allowed to edit.
+  const editableLobby = async (lobbyId) => {
+    if (!verifyLobbyMembership(lobbyId)) return null;
+    const l = await lobby.getLobbyAsync(lobbyId);
+    return access.canEdit(l, userId) ? l : null;
+  };
+  const visibleTo = (l) => access.canView(l, userId);
 
   const stopViewing = () => {
     if (viewingLobby && viewingLobby !== currentLobby) socket.leave(viewingLobby);
     viewingLobby = null;
   };
 
+  // The playlist was deleted or went private under this socket: drop it.
+  socket.data.evict = (lobbyId) => {
+    if (currentLobby === lobbyId) {
+      handleLeave(socket, lobbyId);
+      currentLobby = null;
+    }
+    if (viewingLobby === lobbyId) viewingLobby = null;
+    socket.leave(lobbyId);
+  };
+
   // lobby:joined + the queue for a lobby this socket is already in.
   const sendLobbyState = async (lobbyId, { viewing = false, user = null } = {}) => {
     const lobbyData = await lobby.getLobbyAsync(lobbyId);
+    const names = lobbyData ? await ownerNames([lobbyData.ownerId]) : new Map();
     socket.emit('lobby:joined', {
       lobbyId,
       viewing,
       name: lobbyData ? lobbyData.name : null,
       pinned: lobbyData ? (lobbyData.pinned || false) : false,
+      visibility: lobbyData ? lobbyData.visibility : 'public',
+      ownerId: lobbyData ? lobbyData.ownerId : null,
+      ownerName: lobbyData ? ((lobbyData.ownerId && names.get(lobbyData.ownerId)) || lobbyData.ownerName || null) : null,
+      isOwner: access.isOwner(lobbyData, userId),
       user,
       users: lobby.getLobbyUsers(lobbyId)
     });
@@ -1487,44 +1646,35 @@ io.on('connection', (socket) => {
     }
   };
 
-  // Create a new lobby
-  // asViewer: keep the current member lobby (the one being played from) and
-  // only view the new lobby.
-  socket.on('lobby:create', async ({ username, emoji, name, lobbyId: requestedId, userId, asViewer }) => {
-    // Check user approval
-    if (!(await checkUserApproved(userId))) {
+  // Create a playlist owned by this (logged-in) socket. visibility:
+  // 'public' (default) or 'private'. asViewer: keep the current member lobby
+  // (the one being played from) and only view the new one.
+  socket.on('lobby:create', async ({ username, emoji, name, visibility, userId: legacyUserId, asViewer } = {}) => {
+    if (!userId) {
+      socket.emit('lobby:error', { message: 'Sign in to create a playlist' });
+      return;
+    }
+    if (!(await checkUserApproved(legacyUserId))) {
       socket.emit('lobby:error', { message: 'Your account is pending approval' });
       return;
     }
-
-    // Validate name uniqueness if provided
-    if (name && name.trim()) {
-      const trimmedName = name.trim();
-      if (trimmedName.length > 50) {
-        socket.emit('lobby:error', { message: 'Name must be 50 characters or less' });
-        return;
-      }
-      if (lobby.isNameTaken(trimmedName)) {
-        socket.emit('lobby:error', { message: 'A lobby with that name already exists' });
-        return;
-      }
+    const vis = visibility === undefined ? 'public' : visibility;
+    if (!lobby.VISIBILITIES.includes(vis)) {
+      socket.emit('lobby:error', { message: "Visibility must be 'public' or 'private'" });
+      return;
     }
 
-    // If a specific lobby ID was requested (e.g. from URL-based creation), check it doesn't already exist
-    const customId = requestedId || null;
-    if (customId) {
-      const existing = await lobby.getLobbyAsync(customId);
-      if (existing) {
-        socket.emit('lobby:error', { message: 'A lobby with that ID already exists' });
-        return;
-      }
+    const trimmedName = typeof name === 'string' ? name.trim() : '';
+    if (trimmedName.length > 50) {
+      socket.emit('lobby:error', { message: 'Name must be 50 characters or less' });
+      return;
+    }
+    if (trimmedName && lobby.isNameTaken(trimmedName, null, visibleTo)) {
+      socket.emit('lobby:error', { message: 'A playlist with that name already exists' });
+      return;
     }
 
-    const lobbyName = (name && name.trim()) ? name.trim() : null;
-    // Persist the creator when the socket is from an authenticated user (listen_auth
-    // cookie). Anonymous creators get host_id = null and thus no owner-only controls.
-    const creatorId = getAuthUserId({ headers: socket.request.headers || {} });
-    const newLobby = await lobby.createLobbyAsync(creatorId, customId, lobbyName);
+    const newLobby = await lobby.createLobbyAsync(userId, null, trimmedName || null, vis, username || null);
     const viewOnly = !!asViewer && !!currentLobby;
     let user = null;
     stopViewing();
@@ -1542,25 +1692,28 @@ io.on('connection', (socket) => {
       lobbyId: newLobby.id,
       viewing: viewOnly,
       name: newLobby.name,
-      isPublic: newLobby.isPublic !== false,
+      visibility: newLobby.visibility,
+      ownerId: newLobby.ownerId,
+      ownerName: newLobby.ownerName,
+      isOwner: true,
       pinned: newLobby.pinned || false,
       user,
       users: lobby.getLobbyUsers(newLobby.id)
     });
 
-    console.log(`Lobby ${newLobby.id} created by ${username}${newLobby.name ? ` name="${newLobby.name}"` : ''}`);
+    console.log(`Playlist ${newLobby.id} (${newLobby.visibility}) created by ${username}${newLobby.name ? ` name="${newLobby.name}"` : ''}`);
   });
 
   // Handle joining a lobby room (integrates with lobby system)
-  socket.on('lobby:join', async ({ lobbyId, username, emoji, userId }) => {
+  socket.on('lobby:join', async ({ lobbyId, username, emoji, userId: legacyUserId } = {}) => {
     // Check user approval
-    if (!(await checkUserApproved(userId))) {
+    if (!(await checkUserApproved(legacyUserId))) {
       socket.emit('lobby:error', { message: 'Your account is pending approval' });
       return;
     }
 
-    // Check if lobby exists; if not, ask user to select room type
-    let lobbyData = await lobby.getLobbyAsync(lobbyId);
+    // Missing and hidden (someone else's private) playlists look the same.
+    const lobbyData = await visibleLobby(lobbyId);
     if (!lobbyData) {
       socket.emit('lobby:not-found', { lobbyId });
       return;
@@ -1600,15 +1753,15 @@ io.on('connection', (socket) => {
   });
 
   // Look at a lobby without becoming a member of it: join its room (queue,
-  // chat, listener updates; adding songs works) but stay listed in, and keep
+  // listener updates; adding songs works) but stay listed in, and keep
   // now-playing / follow in, the member lobby. Replaces any previous view.
-  socket.on('lobby:view', async ({ lobbyId, userId } = {}) => {
+  socket.on('lobby:view', async ({ lobbyId, userId: legacyUserId } = {}) => {
     if (!lobbyId) return;
-    if (!(await checkUserApproved(userId))) {
+    if (!(await checkUserApproved(legacyUserId))) {
       socket.emit('lobby:error', { message: 'Your account is pending approval' });
       return;
     }
-    const lobbyData = await lobby.getLobbyAsync(lobbyId);
+    const lobbyData = await visibleLobby(lobbyId);
     if (!lobbyData) {
       socket.emit('lobby:not-found', { lobbyId });
       return;
@@ -1735,13 +1888,13 @@ io.on('connection', (socket) => {
   });
 
   // Pin/unpin lobby (make persistent)
-  socket.on('lobby:pin', async ({ lobbyId, pinned }) => {
+  socket.on('lobby:pin', async ({ lobbyId, pinned } = {}) => {
     if (!lobbyId) lobbyId = currentLobby;
     if (!lobbyId) return;
 
-    const result = await lobby.pinLobby(lobbyId, !!pinned);
+    const result = (await editableLobby(lobbyId)) ? await lobby.pinLobby(lobbyId, !!pinned) : null;
     if (!result) {
-      socket.emit('lobby:error', { message: 'Lobby not found' });
+      socket.emit('lobby:error', { message: 'Playlist not found' });
       return;
     }
 
@@ -1755,13 +1908,13 @@ io.on('connection', (socket) => {
   });
 
   // Rename lobby
-  socket.on('lobby:rename', async ({ lobbyId, name }) => {
+  socket.on('lobby:rename', async ({ lobbyId, name } = {}) => {
     if (!lobbyId) lobbyId = currentLobby;
     if (!lobbyId) return;
 
-    const result = await lobby.renameLobby(lobbyId, name);
+    const result = (await editableLobby(lobbyId)) ? await lobby.renameLobby(lobbyId, name, visibleTo) : null;
     if (!result) {
-      socket.emit('lobby:error', { message: 'Lobby not found' });
+      socket.emit('lobby:error', { message: 'Playlist not found' });
       return;
     }
     if (result.error) {
@@ -1781,14 +1934,14 @@ io.on('connection', (socket) => {
   // Add song to queue. Only songs in the library can be queued; anything else
   // becomes a song request (the server never downloads) that is auto-added to
   // this lobby's queue once someone uploads it with the CLI.
-  socket.on('queue:add', async ({ lobbyId, query, url, title, addedBy, libraryId, userId } = {}) => {
+  socket.on('queue:add', async ({ lobbyId, query, url, title, addedBy, libraryId, userId: legacyUserId } = {}) => {
     if (!checkSocketRateLimit()) {
       socket.emit('queue:error', { message: 'Too many requests, please slow down' });
       return;
     }
 
-    if (!verifyLobbyMembership(lobbyId)) {
-      socket.emit('queue:error', { message: 'Not a member of this lobby' });
+    if (!(await editableLobby(lobbyId))) {
+      socket.emit('queue:error', { message: 'Playlist not found' });
       return;
     }
 
@@ -1809,7 +1962,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const requester = { requestedBy: addedBy, requestedById: userId, lobbyId };
+    const requester = { requestedBy: addedBy, requestedById: userId || legacyUserId, lobbyId };
 
     if (result.type === 'error') {
       socket.emit('queue:error', { message: result.message });
@@ -1877,10 +2030,8 @@ io.on('connection', (socket) => {
   });
 
   // Remove song from queue
-  socket.on('queue:remove', async ({ lobbyId, songId }) => {
-    if (!verifyLobbyMembership(lobbyId)) {
-      return;
-    }
+  socket.on('queue:remove', async ({ lobbyId, songId } = {}) => {
+    if (!(await editableLobby(lobbyId))) return;
 
     const queue = await getQueueAsync(lobbyId);
     const removed = queue.removeSong(songId);
@@ -1891,7 +2042,8 @@ io.on('connection', (socket) => {
   });
 
   // Reorder song in queue
-  socket.on('queue:reorder', async ({ lobbyId, songId, newIndex }) => {
+  socket.on('queue:reorder', async ({ lobbyId, songId, newIndex } = {}) => {
+    if (!(await editableLobby(lobbyId))) return;
     const queue = await getQueueAsync(lobbyId);
     const success = queue.reorderSong(songId, newIndex);
     if (success) {
@@ -1901,8 +2053,8 @@ io.on('connection', (socket) => {
   });
 
   // Clear all songs from queue
-  socket.on('queue:clear', async ({ lobbyId }) => {
-    if (!verifyLobbyMembership(lobbyId)) return;
+  socket.on('queue:clear', async ({ lobbyId } = {}) => {
+    if (!(await editableLobby(lobbyId))) return;
     const queue = await getQueueAsync(lobbyId);
     queue.clear();
     io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
@@ -1910,50 +2062,13 @@ io.on('connection', (socket) => {
 
   // Get current queue state
   socket.on('queue:get', async (lobbyId) => {
+    if (!(await visibleLobby(lobbyId))) return;
     const queue = await getQueueAsync(lobbyId);
     socket.emit('queue:update', { lobbyId, songs: queue.getSongs() });
   });
 
-  // Chat: send message
-  socket.on('chat:send', async ({ lobbyId, userId, username, emoji, content, songMention }) => {
-    if (!lobbyId) lobbyId = currentLobby;
-    if (!lobbyId || !content || !content.trim()) return;
-
-    if (!verifyLobbyMembership(lobbyId)) {
-      socket.emit('chat:error', { message: 'Not a member of this lobby' });
-      return;
-    }
-
-    if (chat.isThrottled(socket.id)) {
-      socket.emit('chat:error', { message: 'Sending too fast, please slow down' });
-      return;
-    }
-
-    const msg = await chat.addMessage(
-      lobbyId,
-      userId || 'anonymous',
-      username || 'Anonymous',
-      emoji || '',
-      content.trim(),
-      songMention || null
-    );
-
-    // Broadcast to all in lobby (including sender)
-    io.to(lobbyId).emit('chat:message', msg);
-  });
-
-  // Chat: get history
-  socket.on('chat:history', async ({ lobbyId }) => {
-    if (!lobbyId) lobbyId = currentLobby;
-    if (!lobbyId) return;
-
-    const messages = await chat.getHistory(lobbyId);
-    socket.emit('chat:history', { lobbyId, messages });
-  });
-
   socket.on('disconnect', (reason) => {
     console.log(`Client disconnected: ${socket.id} (${reason})`);
-    chat.cleanupSocket(socket.id);
     if (currentLobby) {
       handleLeave(socket, currentLobby);
     }

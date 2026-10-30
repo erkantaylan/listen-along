@@ -55,7 +55,7 @@ async function createTables() {
       id VARCHAR(8) PRIMARY KEY,
       host_id VARCHAR(255),
       name VARCHAR(50),
-      is_public BOOLEAN NOT NULL DEFAULT TRUE,
+      visibility VARCHAR(10) NOT NULL DEFAULT 'public',
       created_at BIGINT NOT NULL,
       last_activity BIGINT NOT NULL
     )
@@ -87,18 +87,6 @@ async function createTables() {
       error_message TEXT,
       created_at BIGINT NOT NULL,
       updated_at BIGINT NOT NULL
-    )
-  `;
-
-  const createChatMessagesTable = `
-    CREATE TABLE IF NOT EXISTS chat_messages (
-      id UUID PRIMARY KEY,
-      lobby_id VARCHAR(8) NOT NULL REFERENCES lobbies(id) ON DELETE CASCADE,
-      user_id VARCHAR(255) NOT NULL,
-      username VARCHAR(255) NOT NULL,
-      emoji VARCHAR(10),
-      content TEXT NOT NULL,
-      created_at BIGINT NOT NULL
     )
   `;
 
@@ -139,7 +127,6 @@ async function createTables() {
     CREATE INDEX IF NOT EXISTS idx_lobbies_last_activity ON lobbies(last_activity);
     CREATE INDEX IF NOT EXISTS idx_songs_url ON songs(url);
     CREATE INDEX IF NOT EXISTS idx_songs_status ON songs(status);
-    CREATE INDEX IF NOT EXISTS idx_chat_messages_lobby ON chat_messages(lobby_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_users_provider ON users(provider, provider_id);
     CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
     CREATE INDEX IF NOT EXISTS idx_user_providers_user ON user_providers(user_id);
@@ -154,7 +141,6 @@ async function createTables() {
   await pool.query(createLobbiesTable);
   await pool.query(createQueueSongsTable);
   await pool.query(createSongsTable);
-  await pool.query(createChatMessagesTable);
   await pool.query(createUsersTable);
   await pool.query(createUserProvidersTable);
 
@@ -244,15 +230,27 @@ async function createTables() {
   await pool.query(`ALTER TABLE lobbies DROP COLUMN IF EXISTS current_index`).catch(() => {});
   await pool.query(`DROP TABLE IF EXISTS playback_state`).catch(() => {});
 
-  // Lobby visibility: public by default. Existing rows backfill to TRUE so no
-  // lobby silently disappears on deploy.
+  // Playlists (lobbies) are 'public' or 'private' (owner only). Replaces the
+  // earlier is_public flag: a lobby that was already private AND has an owner
+  // stays private, everything else (including ownerless rows, which can never
+  // be private) becomes public. Idempotent: the backfill only runs while the
+  // old column still exists, and drops it afterwards.
   await pool.query(`
-    ALTER TABLE lobbies ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT TRUE
-  `).catch(() => {}); // Ignore if column already exists
+    ALTER TABLE lobbies ADD COLUMN IF NOT EXISTS visibility VARCHAR(10) NOT NULL DEFAULT 'public'
+  `).catch(() => {});
+  const legacyVisibility = await pool.query(`
+    SELECT 1 FROM information_schema.columns WHERE table_name = 'lobbies' AND column_name = 'is_public'
+  `).catch(() => ({ rows: [] }));
+  if (legacyVisibility.rows.length > 0) {
+    await pool.query(`
+      UPDATE lobbies SET visibility = 'private' WHERE is_public = FALSE AND host_id IS NOT NULL
+    `);
+    await pool.query(`ALTER TABLE lobbies DROP COLUMN IF EXISTS is_public`);
+  }
 
-  await pool.query(`
-    ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS song_mention TEXT
-  `).catch(() => {}); // Ignore if column already exists
+  // Per-playlist chat was removed (a global chat replaces it); drop its table
+  // and history on existing deployments.
+  await pool.query(`DROP TABLE IF EXISTS chat_messages`).catch(() => {});
 
   // Users table migrations (OAuth support)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS user_id VARCHAR(255)`).catch(() => {});

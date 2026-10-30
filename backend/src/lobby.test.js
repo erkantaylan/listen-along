@@ -14,7 +14,7 @@ describe('Lobby System', () => {
       const lobby = createLobby('host-123');
       assert.ok(lobby.id);
       assert.strictEqual(lobby.id.length, 8);
-      assert.strictEqual(lobby.hostId, 'host-123');
+      assert.strictEqual(lobby.ownerId, 'host-123');
       assert.ok(lobby.users instanceof Map);
       assert.strictEqual(lobby.users.size, 0);
     });
@@ -27,38 +27,43 @@ describe('Lobby System', () => {
 
     it('defaults new lobbies to public', () => {
       const lobby = createLobby('host-1');
-      assert.strictEqual(lobby.isPublic, true);
+      assert.strictEqual(lobby.visibility, 'public');
     });
 
     it('honors an explicit private visibility', () => {
-      const lobby = createLobby('host-1', null, null, false);
-      assert.strictEqual(lobby.isPublic, false);
+      const lobby = createLobby('host-1', null, null, 'private');
+      assert.strictEqual(lobby.visibility, 'private');
+    });
+
+    it('creates ownerless playlists public even when private is asked for', () => {
+      const lobby = createLobby(null, null, null, 'private');
+      assert.strictEqual(lobby.visibility, 'public');
     });
 
     it('normalizes a null host to null (anonymous, no owner)', () => {
       const lobby = createLobby(null);
-      assert.strictEqual(lobby.hostId, null);
+      assert.strictEqual(lobby.ownerId, null);
     });
   });
 
   describe('visibility', () => {
-    it('setVisibility flips isPublic on the in-memory lobby', async () => {
+    it('setVisibility switches visibility on the in-memory lobby', async () => {
       const lobby = createLobby('host-1', 'vis-test');
-      assert.strictEqual(lobby.isPublic, true);
+      assert.strictEqual(lobby.visibility, 'public');
 
-      await setVisibility('vis-test', false);
-      assert.strictEqual(lobbies.get('vis-test').isPublic, false);
+      await setVisibility('vis-test', 'private');
+      assert.strictEqual(lobbies.get('vis-test').visibility, 'private');
 
-      await setVisibility('vis-test', true);
-      assert.strictEqual(lobbies.get('vis-test').isPublic, true);
+      await setVisibility('vis-test', 'public');
+      assert.strictEqual(lobbies.get('vis-test').visibility, 'public');
     });
 
-    it('getAllLobbies exposes hostId and isPublic', () => {
-      createLobby('owner-x', 'all-test', 'Mine', false);
+    it('getAllLobbies exposes ownerId and visibility', () => {
+      createLobby('owner-x', 'all-test', 'Mine', 'private');
       const entry = getAllLobbies().find(l => l.id === 'all-test');
       assert.ok(entry);
-      assert.strictEqual(entry.hostId, 'owner-x');
-      assert.strictEqual(entry.isPublic, false);
+      assert.strictEqual(entry.ownerId, 'owner-x');
+      assert.strictEqual(entry.visibility, 'private');
     });
   });
 
@@ -204,6 +209,13 @@ describe('Lobby System', () => {
       assert.strictEqual(isNameTaken('My Lobby', lobby.id), false);
     });
 
+    it("ignores playlists the caller cannot see (no leak of others' private names)", () => {
+      createLobby('owner-a', null, 'Secret Mix', 'private');
+      const access = require('./playlistAccess');
+      assert.strictEqual(isNameTaken('Secret Mix', null, l => access.canView(l, 'owner-b')), false);
+      assert.strictEqual(isNameTaken('Secret Mix', null, l => access.canView(l, 'owner-a')), true);
+    });
+
     it('returns false for null or empty name', () => {
       createLobby('host-1', null, 'My Lobby');
       assert.strictEqual(isNameTaken(null), false);
@@ -247,7 +259,7 @@ describe('Lobby System', () => {
       const lobby2 = createLobby('host-2');
       const result = await renameLobby(lobby2.id, 'Taken Name');
       assert.ok(result.error);
-      assert.strictEqual(result.error, 'A lobby with that name already exists');
+      assert.strictEqual(result.error, 'A playlist with that name already exists');
     });
 
     it('allows renaming to same name (own lobby)', async () => {
