@@ -65,9 +65,18 @@ where lobby persistence broke entirely on deployed instances.
   (presence + now playing): `backend/src/social.js` (socket events, privacy),
   `chat.js` (store: Postgres `global_chat_messages`, in-memory without a DB;
   keyset pagination), `presence.js` (online = >= 1 socket, `users.last_seen`,
-  one now-playing entry per user — what listen-along builds on). Never send a
-  raw presence entry to a client: `viewNowPlaying()` drops a playlist the
-  viewer cannot see. Do not name a table `chat_messages`: db.js drops that
+  one now-playing entry per user, server-timestamped). Never send a raw
+  presence entry to a client: `viewNowPlaying()` drops a playlist the
+  viewer cannot see.
+- **Listen along** = follow a user (not a playlist): `backend/src/listenAlong.js`
+  (graph + socket events `listen:*`, wired in index.js) and
+  `frontend/listen-along.js` (drives `player.js` as its driver). Everyone hears
+  the root of their chain (chains collapse); the follow lives in one socket;
+  followers get only the song + `/api/library/:id/file`, never the playlist.
+  A root going offline (after the presence grace) ends it after the current
+  song. Any own playback action of the follower ends it (`player.js`
+  play/pause/seek take `{ keepDriver }` for the driver). The old per-playlist
+  follow (`follow:*`) is gone. Do not name a table `chat_messages`: db.js drops that
   (old per-playlist chat) on every boot.
 
 ## User Identity

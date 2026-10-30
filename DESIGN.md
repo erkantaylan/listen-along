@@ -180,6 +180,13 @@ overlay, profile, dashboard, every playlist page), Spotify-style. Markup: `#play
 `player-bar.js` (visibility, padding, empty state, "from" line) and `playback.js` (title,
 art, times, buttons).
 
+- Listen-along strip (`#listen-strip`, `role="status"`, hidden when idle): one line in
+  `fs-xs` accent text with a headphones icon above the row. Follower: "Listening along
+  with Ayşe" + a `.btn-text.theme-secondary.btn-xs` "Stop listening along" (after the
+  leader goes offline: "Ayşe went offline · stops after this song"). The person being
+  listened to: "Ayşe and 2 others are listening along", no button. While listening
+  along the second line reads "artist · Listening along with Ayşe" and the open button
+  is disabled — never a playlist name (it may be private).
 - Desktop row: cover + title / "artist · context" (one button that opens the context:
   the playlist page, or `/library`), repeat, shuffle, prev, play (`.btn-solid.theme-primary`
   pill), next, chat (`#social-toggle`, unread badge on its corner; toggles the sidebar on
@@ -223,9 +230,11 @@ never by `[hidden]`: `has-social` (signed in, socket up), `social-collapsed`
   (success = online, grey = offline), name (+ subtle "you" / warning "pending" badges),
   and one muted line: the song playing (accent; muted with a pause icon when paused)
   "Title — Artist · context", or "Last seen 5m ago" when offline. Offline rows are
-  dimmed. Someone playing from a playlist you can see gets a follow icon button
-  (`.active` while following). A private playlist's name is never shown to anyone but
-  its owner: others see only the song.
+  dimmed. Anyone else online who is playing something (from any playlist or the
+  library) gets a headphones icon button "Listen along with <name>" (`.person-listen`,
+  `.active` + `aria-pressed` while you listen along with them or with whomever they
+  listen along with; pressing it again stops). A private playlist's name is never
+  shown to anyone but its owner: others see only the song.
 - **Unread**: messages from others that arrive while the chat is not on screen (panel
   collapsed or hidden, People tab, or the browser tab in the background) count up on
   every `[data-social-unread]` badge (player-bar chat button, Chat tab, pending card) and
