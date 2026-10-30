@@ -437,6 +437,26 @@ describe('upload', () => {
       assert.equal(d.m.calls.toM4a.length, 0);
     } finally { await server.close(); }
   });
+
+  test('--dry-run reports songs already in the library as skipped, like a real run', async () => {
+    const server = await startServer({ songs: [{ id: 's1', youtube_id: 'aaaaaaaaaa1', title: 'Have', artist: 'X' }] });
+    const dir = tmpDir();
+    fs.writeFileSync(path.join(dir, 'X - Have [aaaaaaaaaa1].m4a'), 'HAVE');
+    fs.writeFileSync(path.join(dir, 'X - New [aaaaaaaaaa2].m4a'), 'NEW');
+    const d = deps({ media: { files: {
+      HAVE: { format: 'mov,mp4,m4a,3gp,3g2,mj2', codec: 'aac', duration: 10, tags: { title: 'Have', artist: 'X' } },
+      NEW: { format: 'mov,mp4,m4a,3gp,3g2,mj2', codec: 'aac', duration: 10, tags: { title: 'New', artist: 'X' } },
+    } } });
+    try {
+      const dry = await run(['upload', '--dry-run', dir, '--json'], { server, deps: d.deps });
+      assert.equal(dry.code, 0, dry.stderr);
+      const byTitle = Object.fromEntries(dry.json.results.map((x) => [x.title, x]));
+      assert.equal(byTitle.Have.status, 'skipped');
+      assert.equal(byTitle.Have.reason, 'already in library');
+      assert.equal(byTitle.New.status, 'would_upload');
+      assert.equal(server.state.uploads.length, 0);
+    } finally { await server.close(); }
+  });
 });
 
 describe('requests', () => {

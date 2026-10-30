@@ -290,9 +290,10 @@ async function uploadFiles(ctx, files, opts, batch) {
       const needsConvert = !Media.isAacM4a(meta.probe, file);
       base.converted = needsConvert;
 
+      // Also on --dry-run, so the preview matches what a real run would skip.
       if (meta.youtube_id && opts.requestId === undefined) {
-        if (!have && !opts.dryRun) have = await api.libraryYoutubeIds();
-        if (have && have.has(meta.youtube_id)) {
+        if (!have) have = await api.libraryYoutubeIds();
+        if (have.has(meta.youtube_id)) {
           batch.add({ ...base, status: 'skipped', reason: 'already in library' });
           continue;
         }
