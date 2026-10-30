@@ -125,9 +125,12 @@ export function sanitizeUrl(url) {
 }
 
 export function getCoverUrl(songId, thumbnailUrl) {
+  // The server only caches a cover for songs that have a thumbnail (YouTube
+  // ones); library songs without one (local uploads, migrated cache files)
+  // would just 404 on /api/covers, so callers show their placeholder instead.
+  if (!thumbnailUrl) return '';
   if (!songId) return sanitizeUrl(thumbnailUrl);
-  const fallback = thumbnailUrl ? encodeURIComponent(thumbnailUrl) : '';
-  return `/api/covers/${songId}${fallback ? `?fallback=${fallback}` : ''}`;
+  return `/api/covers/${songId}?fallback=${encodeURIComponent(thumbnailUrl)}`;
 }
 
 export function getInitials(name) {

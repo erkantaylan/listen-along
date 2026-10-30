@@ -38,7 +38,9 @@ export function setupAudioPlayer(advanceLocalQueue) {
   audio.addEventListener('error', (e) => {
     if (!audio.src || audio.src === window.location.href) return;
     console.error('Audio error:', e);
-    showToast('Error playing audio', 'error');
+    const url = state.currentTrack && state.currentTrack.url;
+    const missing = url && state.downloadStatus[url] && state.downloadStatus[url].status === 'unavailable';
+    showToast(missing ? 'This song is not in the library yet' : 'Error playing audio', 'error');
   });
 
   setupAudioUnlock();

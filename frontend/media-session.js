@@ -105,9 +105,9 @@
 
     // Prefer local cover proxy (handles caching + CORS)
     var url = null;
-    if (track.songId) {
-      var fallback = track.thumbnail ? encodeURIComponent(track.thumbnail) : '';
-      url = '/api/covers/' + track.songId + (fallback ? '?fallback=' + fallback : '');
+    // No thumbnail means no cached cover either (it would 404).
+    if (track.songId && track.thumbnail) {
+      url = '/api/covers/' + track.songId + '?fallback=' + encodeURIComponent(track.thumbnail);
     } else if (track.thumbnail) {
       url = track.thumbnail;
     }

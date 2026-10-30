@@ -1,161 +1,116 @@
-# YouTube Downloads via yt-dlp — Setup, Architecture & Troubleshooting
-
-How this app reliably downloads audio from YouTube **from a datacenter/VPS IP**,
-which YouTube actively blocks. If downloads stop working, start here.
+# YouTube, yt-dlp and where songs come from
 
 ## TL;DR
 
-YouTube blocks logged-out requests from server IPs. Getting past it on a VPS
-takes three things working together, all wired into the Docker image and compose:
+**The server no longer downloads audio from YouTube.** The production server's
+IP kept getting blocked ("Sign in to confirm you're not a bot"), so downloading
+moved to the **listen-along CLI** (`cli/`), which runs on a home machine (a
+residential IP YouTube does not block), downloads songs as **m4a (AAC)** and
+uploads them to the server's **music library**.
 
-1. **A PO token** — minted by the `bgutil-provider` sidecar, proves "origin" so
-   YouTube stops returning *"Sign in to confirm you're not a bot"*.
-2. **A JavaScript runtime + solver scripts** — Node 22 + `yt-dlp-ejs`, so yt-dlp
-   can solve YouTube's signature / n-sig challenges (otherwise no playable
-   formats are returned).
-3. **The right player client** — `tv`, which hands out a clean audio-only opus
-   format (251). `web_safari` clears the bot wall but only offers SABR audio
-   (no direct URL); `ios`/`android` are blocked.
+The server is now a library host:
 
-All three are on by default in production. If it breaks, it's almost always a
-**stale yt-dlp** (rebuild with a bumped cache-bust) or YouTube changing again.
+```
+  home machine                          server (docker-compose.prod.yml)
+  ┌──────────────────────┐   HTTPS     ┌────────────────────────────────────┐
+  │ listen-along CLI      │──────────▶ │ app (Node 22)                       │
+  │  yt-dlp + ffmpeg      │  Bearer    │  POST /api/library/upload (m4a)     │
+  │  GET /api/requests    │  token     │  ffprobe validation (AAC in MP4)    │
+  │  POST .../upload      │            │  library_songs + files in SONGS_PATH│
+  └──────────────────────┘            │  postgres                           │
+                                       └────────────────────────────────────┘
+```
 
-## The three walls (and why each fix exists)
+## What the server still does with YouTube (metadata only)
 
-| Symptom (yt-dlp stderr) | Wall | Fix |
+yt-dlp is still installed in the image, but only for **metadata**, never audio:
+
+| Use | How | Bot wall? |
 |---|---|---|
-| `Sign in to confirm you're not a bot` | Datacenter IP is blocked | bgutil **PO token** sidecar |
-| `Signature solving failed` / `n challenge solving failed` | No JS runtime to decrypt format URLs | **Node 22 + yt-dlp-ejs** |
-| `Requested format is not available` (after signatures solve) | `web_safari` audio is **SABR-only** | **`tv` player client** + `bestaudio/best` |
-| `Sign in to confirm your age` | Genuinely age-restricted | **cookies.txt** (verified account) |
+| Resolve typed text to a video id | `yt-dlp --flat-playlist -J ytsearch1:<text>` | Search page only — usually fine |
+| Expand a playlist link | `yt-dlp --flat-playlist -J <url>` | Playlist page only — usually fine |
+| Title for a pasted video link | YouTube oEmbed (`/oembed?url=…`) over plain HTTPS | No |
+| Spotify track link | `spotify-url-info` page scrape → title/artist | No |
 
-> Note: the bot-check message and the age message both contain "sign in".
-> `parseError()` in `backend/src/ytdlp.js` deliberately separates them into the
-> `BOT_CHECK` and `AGE_RESTRICTED` codes — do not re-merge them. A `BOT_CHECK`
-> is an IP problem (PO token), an `AGE_RESTRICTED` is a cookie problem.
+All of these are best effort (`backend/src/ytdlp.js`, `backend/src/songResolver.js`).
+If they fail, queueing still works: typed text falls back to a library text
+search, and anything not found becomes a **song request**.
 
-## Architecture
+## Song lifecycle
 
-```
-                 docker-compose.prod.yml
-  ┌────────────────────────────────────────────────┐
-  │  app (Node 22)                                  │
-  │   ├─ yt-dlp  ← yt-dlp-ejs (signature solver)    │
-  │   │            bgutil plugin (PO token client)  │
-  │   │            Node runtime (--js-runtimes node)│
-  │   └─ ffmpeg (transcode → mp3)                   │
-  │         │ HTTP :4416                            │
-  │         ▼                                       │
-  │  bgutil-provider  (mints PO tokens)             │
-  │                                                 │
-  │  postgres                                       │
-  └────────────────────────────────────────────────┘
-```
+1. A web user queues something. If it is in the library (matched by YouTube id,
+   `library:<id>`, or a legacy cache URL) it is queued and played from
+   `/api/stream` → the library file.
+2. If it is **not** in the library, the server records a **song request**
+   (`song_requests`: youtube_id/url/title/artist, requested_by, lobby, status)
+   and tells the user. Requests are listed for everyone on the Library page.
+3. The CLI polls `GET /api/requests`, downloads, and uploads with
+   `POST /api/library/upload` (optionally `request_id`).
+4. The upload fulfils every pending request with that `youtube_id` (plus the
+   explicit `request_id`), and the song is **automatically added to the queue of
+   each requesting lobby** (socket `request:fulfilled`, `queue:update`).
+5. Requests the CLI cannot find are dismissed (`POST /api/requests/:id/dismiss`,
+   also possible from `/admin`).
 
-Build/runtime pieces:
+## Upload rules
 
-- **`docker/Dockerfile`** — base `node:22-alpine` (yt-dlp's Node runtime needs
-  ≥22), installs `ffmpeg`, `yt-dlp`, `yt-dlp-ejs`, and the
-  `bgutil-ytdlp-pot-provider` plugin. `ARG YTDLP_CACHE_BUST` forces a fresh
-  yt-dlp on rebuild when bumped.
-- **`docker-compose.prod.yml`** — adds the `bgutil-provider` service
-  (`brainicism/bgutil-ytdlp-pot-provider:latest`, reached at
-  `http://bgutil-provider:4416` over the internal network) and sets the env
-  defaults below.
-- **`backend/src/ytdlp.js`** and **`backend/src/downloader.js`** — build the
-  yt-dlp args from the env vars (`getPotArgs`, `getJsRuntimeArgs`,
-  `getCookiesArgs`, `PLAYER_CLIENT`) and download/transcode the audio.
+- `.m4a` only (extension + content type `audio/mp4`/`audio/x-m4a`/`audio/m4a`/
+  `audio/aac`/`application/octet-stream`), **and** ffprobe must report an MP4
+  container with an AAC audio stream and no real video stream (embedded cover
+  art is fine). The server never transcodes.
+- Max 50 MB (413 if larger).
+- Dedupe: same `youtube_id` → 409; identical bytes (sha256) → 409. The 409 body
+  includes the existing `song`.
+- Optional `source_url`: the original link (http(s), max 2048 chars, else 400).
+  If omitted but `youtube_id` is given, it is set to
+  `https://www.youtube.com/watch?v=<id>`. Song objects return it and the web
+  library page shows it as a small source link. The CLI sends it for downloads
+  and detects it (and the `youtube_id`) from earlier `--no-upload` files, which
+  carry the watch URL in their `comment` tag.
 
-## Environment variables
+## Tokens and admin
 
-| Var | Prod default (compose) | Code default | Purpose |
-|---|---|---|---|
-| `YTDLP_PLAYER_CLIENT` | `tv` | `android_vr` | Which YouTube client yt-dlp impersonates. `tv` gives audio-only opus 251. Comma-separate for fallbacks (e.g. `tv,web_safari`). |
-| `YTDLP_POT_BASE_URL` | `http://bgutil-provider:4416` | *(empty = off)* | bgutil PO-token provider URL. Empty disables it (local dev). |
-| `YTDLP_JS_RUNTIME` | `node` | *(empty = yt-dlp default Deno)* | JS runtime for signature/n-sig solving. `node` because Deno has no clean musl/alpine build. |
-| *(cookies file)* | `/data/cookies.txt` | same | Auto-used if present. Needed only for age-restricted content. |
+- Set `ADMIN_PASSWORD` to enable `/admin` (unset = admin disabled).
+- On `/admin`, create a token per person (labelled with their display name).
+  The plaintext is shown once; only its SHA-256 is stored. Revoke any time.
+- The CLI sends `Authorization: Bearer <token>`; uploads record `uploaded_by`
+  = the token's name.
 
-Code defaults are intentionally safe for **local dev** (no sidecar, no POT);
-production behaviour is set entirely through the compose env vars, so you can
-retune the client/runtime/POT URL from Coolify **without a code change** — only a
-restart.
+## Legacy cache migration
 
-## Verifying it works (run inside the app container)
+On every boot the server registers the old yt-dlp cache (`SONGS_PATH/*.mp3`,
+plus rows of the legacy `songs` table) into `library_songs` with
+`uploaded_by = "server"`, title/duration from the old DB row (artist
+"Unknown"), `youtube_id` parsed from the old URL and `source_url` = the old URL
+(or the watch URL of the parsed id if the old URL is not a valid http(s) link)
+so existing queue entries keep playing. A boot-time migration also backfills
+`source_url` from `youtube_id` for any library row that has none. It is idempotent (skips known paths and
+known hashes). Files keep their format (mp3); tags are not rewritten. New
+uploads are stored in `SONGS_PATH/library/<id>.m4a`. Library songs are never
+expired (the old 7-day cache cleanup is gone).
 
-```sh
-# 1. Versions / runtimes present
-yt-dlp --version
-node --version                                   # must be >= 22
-pip3 show bgutil-ytdlp-pot-provider | head -2    # plugin installed
+## Removed from the server
 
-# 2. Provider sidecar reachable
-wget -qO- http://bgutil-provider:4416/ping ; echo    # -> {"server_uptime":...,"version":...}
+- `backend/src/downloader.js` (background yt-dlp → ffmpeg mp3 downloads, the
+  download queue, 7-day cache cleanup, cache dashboard endpoints)
+- Live yt-dlp → ffmpeg transcoded streaming in `/api/stream`
+- `ytdlp.getMetadata` (player-API metadata, blocked on the server IP) and
+  `/api/metadata`
+- The `bgutil-provider` PO-token sidecar, the `bgutil-ytdlp-pot-provider` and
+  `yt-dlp-ejs` pip packages, and the `YTDLP_PLAYER_CLIENT`,
+  `YTDLP_POT_BASE_URL`, `YTDLP_JS_RUNTIME` env vars
+- yt-dlp cookies support (`/data/cookies.txt` and the dashboard Cookies page)
 
-# 3. Full extraction — the real test (uses the app's exact format + client)
-yt-dlp --simulate -f bestaudio/best --js-runtimes node \
-  --extractor-args "youtube:player_client=tv" \
-  --extractor-args "youtubepot-bgutilhttp:base_url=http://bgutil-provider:4416" \
-  "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-```
+## Background: why a server IP fails (useful for the CLI too)
 
-Success = `[info] ... Downloading 1 format(s): 251` (or another id) and **no**
-`Signature solving failed` / `not a bot` / `not available`.
+| Symptom (yt-dlp stderr) | Cause | Fix |
+|---|---|---|
+| `Sign in to confirm you're not a bot` | Datacenter IP is blocked | Run yt-dlp from a home IP (the CLI); PO token as a last resort |
+| `Signature solving failed` / `n challenge solving failed` | No JS runtime for YouTube's challenges | Install a JS runtime (Deno/Node ≥ 22) + `yt-dlp-ejs` |
+| `Requested format is not available` | Client only offers SABR audio | Try another `player_client` (e.g. `tv`) |
+| `Sign in to confirm your age` | Age-restricted | Cookies from a logged-in browser |
 
-To compare clients when picking one:
+Stale yt-dlp is the most common cause of sudden breakage — update it first.
 
-```sh
-for c in tv tv_simply mweb ios android; do
-  echo "=== $c ==="
-  yt-dlp --simulate -f bestaudio/best --js-runtimes node \
-    --extractor-args "youtube:player_client=$c" \
-    --extractor-args "youtubepot-bgutilhttp:base_url=http://bgutil-provider:4416" \
-    "https://www.youtube.com/watch?v=dQw4w9WgXcQ" 2>&1 \
-    | grep -iE "Downloading 1 format|not available|not a bot|sign in"
-done
-```
-
-## Troubleshooting
-
-**`BOT_CHECK` / "not a bot" is back.**
-- Is `bgutil-provider` running and reachable? (`wget .../ping`). If not, the app
-  silently falls back to no-POT and gets blocked.
-- Version skew between the pip plugin and the `:latest` provider image — pin both
-  to the same version tag and rebuild.
-- IP may be hard-blocked even with POT — add a `cookies.txt` (below) or, as a
-  last resort, route yt-dlp through a residential proxy.
-
-**`Signature solving failed` / `n challenge solving failed`.**
-- `node --version` < 22, or `yt-dlp-ejs` not installed → rebuild the image.
-- Confirm `--js-runtimes node` is being passed (`YTDLP_JS_RUNTIME=node`).
-
-**`Requested format is not available`** (signatures solve fine).
-- The client only offers SABR audio. Use `tv` (or `tv_simply`/`mweb`). `ios` and
-  `android` do **not** work for this.
-
-**Everything breaks at once after working for months.**
-- Almost always a stale yt-dlp. Bump `YTDLP_CACHE_BUST` in `docker/Dockerfile`
-  and redeploy to pull the latest yt-dlp. YouTube breaks yt-dlp regularly and
-  fixes usually land within days.
-
-## Age-restricted content (cookies)
-
-Genuinely age-restricted videos (`AGE_RESTRICTED`, not the bot-check imposters)
-need a logged-in session:
-
-1. In a browser **logged into YouTube** (use a **throwaway account** — cookies
-   used from a different IP get invalidated, and you don't want your real account
-   flagged), export cookies with a "Get cookies.txt (Netscape format)" extension.
-2. Mount that file at **`/data/cookies.txt`** — in Coolify, add a **Persistent
-   Storage → File Mount** for the `app` service (don't drop it under
-   `/data/songs`, the cache-cleanup job deletes unregistered files there).
-
-yt-dlp picks it up automatically and it rides alongside the PO token on every
-call.
-
-## Reference
-
-- yt-dlp known issues / FAQ: https://github.com/yt-dlp/yt-dlp/issues/3766
-- PO Token guide: https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide
-- bgutil PO token provider: https://github.com/Brainicism/bgutil-ytdlp-pot-provider
-- JS runtime / EJS solver: https://github.com/yt-dlp/yt-dlp/wiki/EJS
-- SABR streaming: https://github.com/yt-dlp/yt-dlp/issues/12482
+Reference: yt-dlp PO Token guide https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide,
+EJS https://github.com/yt-dlp/yt-dlp/wiki/EJS.

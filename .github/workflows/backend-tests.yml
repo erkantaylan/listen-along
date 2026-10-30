@@ -30,9 +30,32 @@ jobs:
 
       - run: npm ci
 
+      # The library tests probe/generate real audio; they skip without ffmpeg.
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
       # Docker is preinstalled on ubuntu-latest; the testcontainers-based DB
       # tests skip themselves silently without it, so fail loudly instead.
       - name: Check Docker is available
         run: docker info --format '{{.ServerVersion}}'
+
+      - run: npm test
+
+  cli:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # cli/ has no npm dependencies (no lockfile); ffmpeg is for the real-ffmpeg tests.
+      - name: Install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
 
       - run: npm test

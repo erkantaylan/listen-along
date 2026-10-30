@@ -22,6 +22,7 @@ async function getTrack(url) {
   const title = data.title || 'Unknown';
   const artist = data.artist || 'Unknown Artist';
   return {
+    name: title,
     title: `${title} - ${artist}`,
     artist,
     thumbnail: data.image || null,

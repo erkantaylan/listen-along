@@ -1,0 +1,237 @@
+/* Music Library page (full-screen overlay over landing/lobby). Uses the
+   variables from style.css. */
+
+.landing-library-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+body.libpage-open { overflow: hidden; }
+
+.library-page {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  background: var(--bg-dark);
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--safe-area-top);
+  padding-bottom: var(--safe-area-bottom);
+}
+
+.library-page[hidden] { display: none; }
+
+.libpage-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.libpage-heading-wrap { min-width: 0; }
+
+.libpage-header h2 {
+  font-size: 1.125rem;
+  line-height: 1.2;
+}
+
+.libpage-context {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.libpage-context.muted { color: var(--text-muted); }
+
+.libpage-tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.5rem 1rem 0;
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.libpage-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  min-height: 40px;
+}
+
+.libpage-tab.active {
+  color: var(--text-primary);
+  border-bottom-color: var(--primary);
+}
+
+.libpage-tab-count {
+  color: var(--text-muted);
+  font-weight: 400;
+  margin-left: 0.25rem;
+}
+
+.libpage-tab-badge {
+  display: inline-block;
+  min-width: 1.25rem;
+  padding: 0 0.35rem;
+  margin-left: 0.25rem;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #000;
+  font-size: 0.7rem;
+  line-height: 1.25rem;
+  text-align: center;
+}
+
+.libpage-tab-badge[hidden] { display: none; }
+
+.libpage-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.libpage-panel[hidden] { display: none; }
+
+.libpage-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  flex-wrap: wrap;
+}
+
+.libpage-search {
+  flex: 1;
+  min-width: 0;
+  padding: 0.6rem 0.75rem;
+  background: var(--bg-surface);
+  border: 1px solid transparent;
+  border-radius: var(--border-radius);
+  color: var(--text-primary);
+  font-size: 1rem;
+}
+
+.libpage-search:focus,
+.libpage-select:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.libpage-select {
+  padding: 0.6rem 0.5rem;
+  background: var(--bg-surface);
+  border: 1px solid transparent;
+  border-radius: var(--border-radius);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+
+.libpage-hint {
+  flex: 1 1 240px;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+
+.libpage-list {
+  list-style: none;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  padding: 0 1rem 1rem;
+}
+
+.libpage-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.libpage-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--bg-surface);
+}
+
+.libpage-thumb-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.libpage-thumb-placeholder svg { width: 22px; height: 22px; }
+
+.libpage-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.libpage-title,
+.libpage-sub,
+.libpage-meta {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.libpage-title { font-size: 0.9375rem; }
+.libpage-title a { color: inherit; text-decoration: none; }
+.libpage-title a:hover { text-decoration: underline; }
+.libpage-sub { font-size: 0.8125rem; color: var(--text-secondary); }
+.libpage-meta { font-size: 0.75rem; color: var(--text-muted); }
+.libpage-source { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.libpage-source:hover { color: var(--text-primary); }
+
+.libpage-add {
+  flex-shrink: 0;
+  min-width: 64px;
+  min-height: 36px;
+}
+
+.libpage-add:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.libpage-badge {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+}
+
+.libpage-badge.pending { color: #f0b429; }
+.libpage-badge.fulfilled { color: var(--primary); }
+.libpage-badge.dismissed { color: var(--text-muted); }
+
+.libpage-empty {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 3rem 1rem;
+}
+
+.libpage-more { margin: 0 auto 1rem; }
+.libpage-more[hidden],
+.library-page [hidden] { display: none !important; }

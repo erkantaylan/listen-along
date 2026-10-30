@@ -12,6 +12,7 @@
   <link rel="icon" type="image/png" href="/favicon.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/library.css">
 </head>
 <body>
   <!-- Login View -->
@@ -95,6 +96,10 @@
       <button id="create-lobby-btn" class="btn btn-primary btn-large" data-i18n="landing.createLobby">
         Create Lobby
       </button>
+      <button id="landing-library-btn" class="btn btn-secondary landing-library-btn" type="button">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18" aria-hidden="true"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 5h-3v5.5a2.5 2.5 0 1 1-1-2V5h4v2z"/></svg>
+        Music library &amp; requests
+      </button>
       <div class="join-section">
         <p data-i18n="landing.joinHint">Have a link? Just paste it in your browser.</p>
       </div>
@@ -167,18 +172,18 @@
       <!-- Queue Tab -->
       <section id="queue-tab" class="tab-panel active">
         <div class="add-song">
-          <input type="text" id="song-input" placeholder="Paste YouTube URL or search..." data-i18n-placeholder="queue.searchPlaceholder" autocomplete="off">
+          <input type="text" id="song-input" placeholder="Search the library, or paste a YouTube / Spotify link..." autocomplete="off">
           <button id="add-song-btn" class="btn btn-primary" aria-label="Add song" data-i18n-aria-label="queue.addSong">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
           </button>
-          <button id="browse-library-btn" class="btn-icon btn-control" aria-label="Browse library" title="Browse library">
+          <button id="browse-library-btn" class="btn-icon btn-control" aria-label="Open music library" title="Music library">
             <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9h-4v4h-2v-4H9V9h4V5h2v4h4v2z"/></svg>
           </button>
         </div>
         <div class="queue-filter">
           <label class="checkbox-label">
             <input type="checkbox" id="hide-errored-songs" checked>
-            <span data-i18n="queue.hideErrored">Hide errored songs</span>
+            <span>Hide unplayable songs</span>
           </label>
           <select id="queue-sort" class="queue-sort-select" aria-label="Sort queue">
             <option value="default">Queue order</option>
@@ -343,13 +348,9 @@
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
           Users
         </a>
-        <a href="#" class="sidebar-link" data-section="cache">
+        <a href="/admin" class="sidebar-link">
           <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
-          Cache
-        </a>
-        <a href="#" class="sidebar-link" data-section="cookies">
-          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z"/></svg>
-          Cookies
+          Library &amp; tokens (/admin)
         </a>
       </nav>
       <div class="sidebar-footer">
@@ -416,66 +417,6 @@
           </ul>
         </section>
 
-        <section class="dashboard-section" data-section="cache">
-          <div class="cache-header">
-            <h2 class="section-heading" data-i18n="dashboard.songCache">Song Cache</h2>
-            <div class="cache-header-actions">
-              <button id="redownload-missing-btn" class="btn btn-small">Re-download Missing</button>
-              <button id="purge-unregistered-btn" class="btn btn-warning btn-small">Purge Unregistered</button>
-              <button id="clean-orphans-btn" class="btn btn-warning btn-small">Remove Unused</button>
-              <button id="clear-errors-btn" class="btn btn-warning btn-small">Clear Errors</button>
-              <button id="nuke-cache-btn" class="btn btn-danger btn-small" data-i18n="dashboard.clearAll">Clear All</button>
-            </div>
-          </div>
-          <div class="cache-stats-inline">
-            <span class="cache-stat-pill ready"><span id="cache-ready">0</span> ready</span>
-            <span class="cache-stat-pill downloading"><span id="cache-downloading">0</span> downloading</span>
-            <span class="cache-stat-pill pending"><span id="cache-pending">0</span> pending</span>
-            <span class="cache-stat-pill error"><span id="cache-error">0</span> error</span>
-            <span class="cache-stat-pill duration"><span id="cache-duration">0:00</span> total</span>
-            <span class="cache-stat-pill unused"><span id="cache-unused">0</span> unused</span>
-          </div>
-          <div class="cache-controls">
-            <input type="text" id="cache-search" class="cache-search-input" placeholder="Search songs...">
-            <select id="cache-filter" class="cache-sort-select">
-              <option value="all">All songs</option>
-              <option value="unused">Unused only</option>
-              <option value="used">In use</option>
-            </select>
-            <select id="cache-sort" class="cache-sort-select">
-              <option value="date-desc">Newest first</option>
-              <option value="date-asc">Oldest first</option>
-              <option value="name-asc">Name A-Z</option>
-              <option value="name-desc">Name Z-A</option>
-              <option value="duration-desc">Longest first</option>
-              <option value="duration-asc">Shortest first</option>
-              <option value="size-desc">Largest first</option>
-              <option value="size-asc">Smallest first</option>
-            </select>
-          </div>
-          <ul id="cache-song-list" class="cache-song-list">
-            <li class="dashboard-empty" data-i18n="dashboard.noCachedSongs">No cached songs</li>
-          </ul>
-        </section>
-
-        <section class="dashboard-section" data-section="cookies">
-          <h2 class="section-heading">YouTube Cookies</h2>
-          <p class="cookies-status" id="cookies-status">Checking...</p>
-          <details class="cookies-howto">
-            <summary>How to get cookies.txt</summary>
-            <ol>
-              <li>Install the <strong>Get cookies.txt LOCALLY</strong> extension (<a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank">Chrome</a> / <a href="https://addons.mozilla.org/firefox/addon/get-cookies-txt-locally/" target="_blank">Firefox</a>)</li>
-              <li>Open <a href="https://youtube.com" target="_blank">youtube.com</a> in your browser — <strong>no login needed</strong>, just visit the page so YouTube sets session cookies</li>
-              <li>Click the extension icon while on YouTube and export cookies</li>
-              <li>Open the downloaded <code>youtube.com_cookies.txt</code> file in a text editor, select all, and paste below</li>
-            </ol>
-          </details>
-          <textarea id="cookies-input" placeholder="Paste cookies.txt content here..." rows="6" style="width:100%;font-family:monospace;font-size:12px;margin-top:8px"></textarea>
-          <div style="display:flex;gap:8px;margin-top:8px">
-            <button id="cookies-save-btn" class="btn btn-small">Save Cookies</button>
-            <button id="cookies-delete-btn" class="btn btn-warning btn-small">Remove Cookies</button>
-          </div>
-        </section>
       </main>
     </div>
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
@@ -558,6 +499,47 @@
         <button id="room-type-cancel-btn" class="btn btn-secondary" data-i18n="modal.cancel">Cancel</button>
       </div>
     </div>
+  </div>
+
+  <!-- Music Library page (full-screen overlay; works over landing and lobby) -->
+  <div id="library-page" class="library-page" role="dialog" aria-modal="true" aria-labelledby="libpage-heading" hidden>
+    <header class="libpage-header">
+      <button id="libpage-close" class="btn-icon" aria-label="Close library">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+      </button>
+      <div class="libpage-heading-wrap">
+        <h2 id="libpage-heading">Music Library</h2>
+        <span id="libpage-context" class="libpage-context"></span>
+      </div>
+    </header>
+    <nav class="libpage-tabs" aria-label="Library sections">
+      <button class="libpage-tab active" data-libtab="library" type="button">Songs <span id="libpage-count" class="libpage-tab-count"></span></button>
+      <button class="libpage-tab" data-libtab="requests" type="button">Requested <span id="libpage-requests-count" class="libpage-tab-badge" hidden></span></button>
+    </nav>
+    <section id="libpage-songs-panel" class="libpage-panel">
+      <div class="libpage-toolbar">
+        <input type="search" id="libpage-search" class="libpage-search" placeholder="Search title, artist, album…" autocomplete="off" aria-label="Search the library">
+        <select id="libpage-sort" class="libpage-select" aria-label="Sort">
+          <option value="recent">Recently added</option>
+          <option value="title">Title A–Z</option>
+          <option value="artist">Artist A–Z</option>
+        </select>
+      </div>
+      <ul id="libpage-list" class="libpage-list"></ul>
+      <button id="libpage-more" class="btn btn-secondary libpage-more" type="button" hidden>Load more</button>
+    </section>
+    <section id="libpage-requests-panel" class="libpage-panel" hidden>
+      <div class="libpage-toolbar">
+        <p class="libpage-hint">Songs someone queued that are not in the library yet. When one is uploaded it is added to the requester's lobby queue automatically.</p>
+        <select id="libpage-request-status" class="libpage-select" aria-label="Request status">
+          <option value="pending">Waiting</option>
+          <option value="fulfilled">Uploaded</option>
+          <option value="dismissed">Not found</option>
+          <option value="all">All</option>
+        </select>
+      </div>
+      <ul id="libpage-requests" class="libpage-list"></ul>
+    </section>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>

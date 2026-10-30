@@ -3,10 +3,11 @@ import { state, elements, auth, socket, STORAGE_KEYS, viewActivators, setSocket,
 import { showView, showToast, switchTab, setupLanguageSelector, fetchVersion, t } from './ui.js';
 import { setupAudioPlayer, setupMediaSession, playAudioWithUnlock } from './audio.js';
 import { checkAuth, setupLoginView, showPendingCard, setupProfileEditor, setupProfilePage, loadProfilePage } from './auth.js';
-import { checkUrlForDashboard, dashboardJoinLobby, dashboardRemoveLobby, deleteCachedSong, playCachedSong, dashboardApproveUser, dashboardRejectUser } from './dashboard.js';
+import { checkUrlForDashboard, dashboardJoinLobby, dashboardRemoveLobby, dashboardApproveUser, dashboardRejectUser } from './dashboard.js';
+import { setupLibraryPage, openLibraryPage, handleLibraryUpdated, handleRequestsUpdated } from './library.js';
 import { createLobby, joinLobby, leaveLobby, shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyPinned, handleUserJoined, handleUserLeft, handleLobbyClosed, checkUrlForLobby, joinLobbyFromCard, updatePinButton, togglePin, promptRenameLobby, toggleLobbyVisibility, deleteLobbyCard } from './lobby.js';
 import { handlePlaybackState, handlePlaybackSync, handleTrackChanged, handleShuffleState, handleDownloadStatus, handleDownloadProgress, handleModeChanged, handleUsersUpdated, handleFollowSync, toggleUserMode, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, advanceLocalQueue, updateNowPlaying, updatePlayButton, updatePlaybackModeUI, updateListeningModeBadge, updateModeButton, _setQueueFns } from './playback.js';
-import { handleQueueUpdated, handleSongAdded, addSong, removeSong, clearQueue, downloadPlaylist, cancelPlaylistDownload, moveSongUp, moveSongDown, playSongAt, setupQueueDragAndDrop, setupQueueSearch, showLibraryDialog, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './queue.js';
+import { handleQueueUpdated, handleSongAdded, addSong, removeSong, clearQueue, downloadPlaylist, cancelPlaylistDownload, moveSongUp, moveSongDown, playSongAt, setupQueueDragAndDrop, setupQueueSearch, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './queue.js';
 import { toggleSongMention, clearSongMention, sendChatMessage, handleChatMessage, handleChatHistory, requestChatHistory, resetChat } from './chat.js';
 
 // Wire up cross-module dependencies
@@ -43,6 +44,12 @@ function setupSocket() {
     s.on('queue:song-added', handleSongAdded);
     s.on('queue:error', (data) => showToast(data.message, 'error'));
     s.on('queue:adding', (data) => showToast(data.status, 'info'));
+    s.on('queue:requested', (data) => showToast(data.message, 'info'));
+    s.on('request:fulfilled', (data) => showToast(data.message, 'success'));
+
+    // Library Events
+    s.on('library:updated', handleLibraryUpdated);
+    s.on('requests:updated', handleRequestsUpdated);
 
     // Playback Events
     s.on('playback:state', handlePlaybackState);
@@ -120,7 +127,10 @@ function setupEventListeners() {
   elements.addSongBtn.addEventListener('click', addSong);
   elements.songInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') addSong(); });
   var browseLibBtn = document.getElementById('browse-library-btn');
-  if (browseLibBtn) browseLibBtn.addEventListener('click', showLibraryDialog);
+  if (browseLibBtn) browseLibBtn.addEventListener('click', () => openLibraryPage('library'));
+  const landingLibBtn = document.getElementById('landing-library-btn');
+  if (landingLibBtn) landingLibBtn.addEventListener('click', () => openLibraryPage('library'));
+  setupLibraryPage();
 
   // Chat
   if (elements.chatSendBtn) elements.chatSendBtn.addEventListener('click', sendChatMessage);
@@ -206,8 +216,6 @@ window.dashboardJoinLobby = dashboardJoinLobby;
 window.dashboardRemoveLobby = dashboardRemoveLobby;
 window.dashboardApproveUser = dashboardApproveUser;
 window.dashboardRejectUser = dashboardRejectUser;
-window.deleteCachedSong = deleteCachedSong;
-window.playCachedSong = playCachedSong;
 
 // Initialize on DOM ready
 if (document.readyState === 'loading') {

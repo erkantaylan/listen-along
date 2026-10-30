@@ -1,0 +1,22 @@
+{
+  "name": "listen-along-cli",
+  "version": "0.1.0",
+  "description": "la - command-line client for a listen-along music library server (download with yt-dlp, upload, fulfill requests)",
+  "main": "src/cli.js",
+  "bin": {
+    "la": "bin/la.js"
+  },
+  "scripts": {
+    "start": "node bin/la.js",
+    "test": "node --test test/*.test.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "MIT"
+}
