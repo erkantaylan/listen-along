@@ -1,6 +1,6 @@
 # listen-along
 
-A web app where users create music lobbies, share links with friends, and listen to YouTube audio together in sync.
+A web app where users create shared playlists (public, or private to their owner), share links with friends, and listen together.
 
 ## Quick Start
 

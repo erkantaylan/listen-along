@@ -11,9 +11,9 @@ black), muted text, one restrained accent. There is no light mode and no colour-
 | --- | --- | --- |
 | `frontend/vendor/bootstrap-6.0.0-alpha.1/css/bootstrap.min.css` (+ `.map`, `LICENSE`) | every page | Bootstrap itself, vendored (no CDN). |
 | `frontend/theme.css` | every page, after Bootstrap | Palette (token overrides) and shared rules (navbar, icons, thumbs, empty states). |
-| `frontend/app.css` | `index.html` only | Layout of the single-page app (views, lobby, player, library, dashboard). |
+| `frontend/app.css` | `index.html` only | Layout of the single-page app (views, playlist, player, library, dashboard). |
 
-Pages: `index.html` (login, landing, lobby, profile, pending, dashboard views and
+Pages: `index.html` (login, landing, playlist, profile, pending, dashboard views and
 the music-library overlay), `admin.html`, `youtube-playlist.html`,
 `changelog.html`. `admin.html`, `youtube-playlist.html` and `changelog.html` use
 only Bootstrap + `theme.css`; keep it that way.
@@ -102,7 +102,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 - Secondary information: `fs-sm` / `fs-xs` with `fg-3`. Truncate long titles with `text-truncate`
   (parent needs `min-w-0` inside flex rows).
 - Spacing: Bootstrap utilities on the fine scale above. Page content uses `.container`
-  (`.app-narrow` = 40rem for forms/settings; the lobby and library use 56rem).
+  (`.app-narrow` = 40rem for forms/settings; the playlist page and library use 56rem).
   Vertical rhythm between cards: `mb-4`/`mb-5` or `vstack gap-6`.
 - Radii and shadows: Bootstrap defaults (buttons .5rem, cards .75rem). Shadows only on
   floating things (modals, drawer, toasts).
@@ -113,8 +113,8 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | --- | --- |
 | Top bar | `nav.navbar.app-navbar > .container` (brand `.app-brand` or back button + `h1.h6`, actions on the right). |
 | Grouped content | `.card` with `.card-header` (h6) / `.card-body` / `.card-footer`. |
-| Lists of items (songs, lobbies, users, tokens) | `ul.list-group` with `li.list-group-item` (flex row: `.app-thumb`, text block `min-w-0 flex-grow-1`, actions). Clickable rows: `.list-group-item-action` + `tabindex="0"` + Enter/Space handler. Empty state: `li.list-group-item.app-empty`. |
-| Playing / current row | `.is-playing` (shared) or `.queue-item.playing` (lobby): accent tint + 3px accent left edge. |
+| Lists of items (songs, playlists, users, tokens) | `ul.list-group` with `li.list-group-item` (flex row: `.app-thumb`, text block `min-w-0 flex-grow-1`, actions). Clickable rows: `.list-group-item-action` + `tabindex="0"` + Enter/Space handler. Empty state: `li.list-group-item.app-empty`. |
+| Playing / current row | `.is-playing` (shared) or `.queue-item.playing` (playlist): accent tint + 3px accent left edge. |
 | Primary action | `.btn-solid.theme-primary` — one per view. |
 | Secondary action | `.btn` (grey) or `.btn-outline.theme-secondary`. |
 | Icon-only action | `.btn-text.theme-secondary.btn-icon` with `aria-label` + `title`; toggled state = `.active` (accent tint). |
@@ -134,40 +134,50 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 ## Page layouts
 
 - **Login / pending**: navbar + one centred card (`.app-center`, `.login-card` 26rem).
-- **Landing**: navbar (brand, profile), narrow column: "Start listening" card
-  (name input, primary Create button, library button),
-  then "Active lobbies" card with a flush list group, footer (version, language, GitHub).
-- **Lobby**: full-height column — navbar (back, name/rename, listener count,
-  pin/share), optional chat ticker, scrolling body (56rem) with underline tabs
-  (Queue | Social). Playback is the app-wide player bar, like every other page. The back
-  button only navigates; it never leaves the lobby or stops audio. Below 400px the per-song
-  YouTube button is hidden (the player keeps the source link).
-- **Music library**: fixed full-screen layer over landing or lobby: navbar (back, title, "adding
+- **Landing**: navbar (brand, profile), narrow column: "New playlist" card
+  (name input, Visibility `select.form-control` Public/Private with a one-line hint
+  under it, primary "Create playlist" button, library button), then the "Playlists"
+  card: a flush list group of every public playlist plus your own private ones. Each
+  row: name, a subtle "Private" badge with a lock icon on private ones, then a muted
+  line "by you / by <owner> / shared" (shared = ownerless legacy playlist), listener
+  and song counts, age. Your own playlists get icon buttons on the right: lock/globe
+  (make private / make public) and a danger trash (delete). Footer (version, language, GitHub).
+- **Playlist** (`/playlist/<id>`; internally the "lobby" view): full-height column —
+  navbar (back, name/rename, a muted line with the "Private" badge, owner and listener
+  count; owner-only lock/globe visibility button, pin, share), scrolling body (56rem)
+  with underline tabs (Queue | Listeners). Listeners is an interim tab (your name/avatar
+  editor + who has this playlist open, now-playing, follow) until the global people panel
+  replaces it. There is no per-playlist chat. Playback is the app-wide player bar, like
+  every other page. The back button only navigates; it never leaves the playlist or stops
+  audio. Below 400px the per-song YouTube button is hidden (the player keeps the source link).
+  A playlist you cannot see (missing, deleted, someone else's private one) shows a
+  "Playlist not found" toast and returns to the landing page.
+- **Music library**: fixed full-screen layer over landing or a playlist: navbar (back, title, "adding
   to" context), tabs Songs/Requested with count badges, search + sort toolbar, list group of
   songs (play button — plays in the app-wide player, shows pause on the song that is playing —, Add / disabled "Added" button), 20 per page: a compact
   "‹ Page n of m ›" pager above the list and the full numbered pagination + range below it
   (both follow `?page=`, both hidden when there is one page).
 - **Profile**: navbar with back; avatar + display-name card; connected-accounts card; Sign out.
 - **Dashboard**: navbar (hamburger below 1024px), 15rem sidebar list group, main area with
-  stat cards grid, lobbies and users list groups.
+  stat cards grid, public playlists and users list groups (private playlists are only counted, never listed).
 - **/admin, /youtube-playlist, /changelog**: navbar + narrow column of cards; Bootstrap and
   utilities only.
 
 ### Player bar
 
 One persistent bar, fixed to the bottom of every signed-in SPA page (landing, library
-overlay, profile, dashboard, every lobby page), Spotify-style. Markup: `#player-bar` in
+overlay, profile, dashboard, every playlist page), Spotify-style. Markup: `#player-bar` in
 `index.html`; behaviour: `player.js` (the only thing that touches `<audio id="audio-player">`),
 `player-bar.js` (visibility, padding, empty state, "from" line) and `playback.js` (title,
 art, times, buttons).
 
 - Desktop row: cover + title / "artist · context" (one button that opens the context:
-  the lobby page, or `/library`), repeat, shuffle, prev, play (`.btn-solid.theme-primary`
+  the playlist page, or `/library`), repeat, shuffle, prev, play (`.btn-solid.theme-primary`
   pill), next, mute + volume; seek `.form-range` with times below.
 - Below 768px the volume slider hides. Below 576px it is the slim form: cover, title,
   play/pause, next and a thin seek line (`.player-extra` and times hidden).
 - Empty state (`.is-empty`): "Nothing playing", controls disabled (Play stays enabled on
-  a lobby page whose queue has songs).
+  a playlist page whose queue has songs).
 - It sits above the library overlay (`--bs-z-fixed` + 1). Its measured height is
   `--app-player-height` on `body` (`.has-player-bar`), which pads `.view` and the library
   body and lifts toasts and prompts; new fixed bottom elements must use it too.
