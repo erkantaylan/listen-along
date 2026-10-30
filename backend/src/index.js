@@ -839,6 +839,7 @@ function getAuthUserId(req) {
 // time-based cleanup to remove stale rows — hq-9gvy).
 async function destroyLobby(lobbyId, { reason } = {}) {
   io.to(lobbyId).emit('lobby:closed', {
+    lobbyId,
     message: reason || 'This lobby has been closed.'
   });
   io.in(lobbyId).socketsLeave(lobbyId);
@@ -1424,7 +1425,34 @@ youtubePlaylist.setupSocketHandlers(io);
 // Socket.IO connection handling
 io.on('connection', (socket) => {
   console.log(`Client connected: ${socket.id}`);
+  // A socket is a *member* of at most one lobby (currentLobby: listed as a
+  // listener, now-playing, follow) and may additionally *view* one other lobby
+  // (viewingLobby: in its Socket.IO room for queue/chat updates and adding
+  // songs, but not listed). The web app keeps the member lobby on the one it
+  // is playing from while the user browses other lobbies.
   let currentLobby = null;
+  let viewingLobby = null;
+
+  const stopViewing = () => {
+    if (viewingLobby && viewingLobby !== currentLobby) socket.leave(viewingLobby);
+    viewingLobby = null;
+  };
+
+  // lobby:joined + the queue for a lobby this socket is already in.
+  const sendLobbyState = async (lobbyId, { viewing = false, user = null } = {}) => {
+    const lobbyData = await lobby.getLobbyAsync(lobbyId);
+    socket.emit('lobby:joined', {
+      lobbyId,
+      viewing,
+      name: lobbyData ? lobbyData.name : null,
+      pinned: lobbyData ? (lobbyData.pinned || false) : false,
+      user,
+      users: lobby.getLobbyUsers(lobbyId)
+    });
+    const queue = await getQueueAsync(lobbyId);
+    socket.emit('queue:update', { lobbyId, songs: queue.getSongs() });
+    emitUnavailableSongs(socket, queue.getSongs());
+  };
 
   // Per-socket rate limiting for expensive operations
   const socketRateLimit = { count: 0, resetTime: Date.now() + RATE_LIMIT_WINDOW };
@@ -1460,7 +1488,9 @@ io.on('connection', (socket) => {
   };
 
   // Create a new lobby
-  socket.on('lobby:create', async ({ username, emoji, name, lobbyId: requestedId, userId }) => {
+  // asViewer: keep the current member lobby (the one being played from) and
+  // only view the new lobby.
+  socket.on('lobby:create', async ({ username, emoji, name, lobbyId: requestedId, userId, asViewer }) => {
     // Check user approval
     if (!(await checkUserApproved(userId))) {
       socket.emit('lobby:error', { message: 'Your account is pending approval' });
@@ -1495,17 +1525,26 @@ io.on('connection', (socket) => {
     // cookie). Anonymous creators get host_id = null and thus no owner-only controls.
     const creatorId = getAuthUserId({ headers: socket.request.headers || {} });
     const newLobby = await lobby.createLobbyAsync(creatorId, customId, lobbyName);
-    const result = await lobby.joinLobbyAsync(newLobby.id, socket.id, username || 'Anonymous', emoji);
-
-    currentLobby = newLobby.id;
+    const viewOnly = !!asViewer && !!currentLobby;
+    let user = null;
+    stopViewing();
+    if (viewOnly) {
+      viewingLobby = newLobby.id;
+    } else {
+      if (currentLobby) handleLeave(socket, currentLobby);
+      const result = await lobby.joinLobbyAsync(newLobby.id, socket.id, username || 'Anonymous', emoji);
+      user = result.user;
+      currentLobby = newLobby.id;
+    }
     socket.join(newLobby.id);
 
     socket.emit('lobby:created', {
       lobbyId: newLobby.id,
+      viewing: viewOnly,
       name: newLobby.name,
       isPublic: newLobby.isPublic !== false,
       pinned: newLobby.pinned || false,
-      user: result.user,
+      user,
       users: lobby.getLobbyUsers(newLobby.id)
     });
 
@@ -1527,17 +1566,15 @@ io.on('connection', (socket) => {
       return;
     }
 
-    if (currentLobby) {
-      const user = await lobby.leaveLobby(currentLobby, socket.id);
-      if (user) {
-        socket.leave(currentLobby);
-        const remainingUsers = lobby.getLobbyUsers(currentLobby);
-        socket.to(currentLobby).emit('user-left', {
-          user,
-          users: remainingUsers
-        });
-      }
+    // Already a member (e.g. opening the page of the lobby being played
+    // from): just resend its state, without leaving and re-adding.
+    if (currentLobby === lobbyId && lobby.getLobbyUsers(lobbyId).some(u => u.socketId === socket.id)) {
+      await sendLobbyState(lobbyId);
+      return;
     }
+
+    if (currentLobby) handleLeave(socket, currentLobby);
+    if (viewingLobby === lobbyId) viewingLobby = null; // viewer becomes member
 
     const result = await lobby.joinLobbyAsync(lobbyId, socket.id, username || 'Anonymous', emoji);
     if (!result) {
@@ -1549,6 +1586,7 @@ io.on('connection', (socket) => {
     // Notify existing members BEFORE joining the room
     // This ensures the joining user cannot receive their own join notification
     socket.to(lobbyId).emit('lobby:user-joined', {
+      lobbyId,
       user: result.user,
       users: lobby.getLobbyUsers(lobbyId)
     });
@@ -1556,25 +1594,47 @@ io.on('connection', (socket) => {
     // Now join the Socket.IO room
     socket.join(lobbyId);
 
-    // Send joined confirmation to the user
-    const joinedLobbyData = await lobby.getLobbyAsync(lobbyId);
-    socket.emit('lobby:joined', {
-      lobbyId,
-      name: joinedLobbyData ? joinedLobbyData.name : null,
-      pinned: joinedLobbyData ? (joinedLobbyData.pinned || false) : false,
-      user: result.user,
-      users: lobby.getLobbyUsers(lobbyId)
-    });
-
+    // Send joined confirmation + the current queue to the user
     console.log(`User ${username} joined lobby ${lobbyId}`);
-
-    // Send current queue state to new joiner
-    const queue = await getQueueAsync(lobbyId);
-    socket.emit('queue:update', { lobbyId, songs: queue.getSongs() });
-    emitUnavailableSongs(socket, queue.getSongs());
+    await sendLobbyState(lobbyId, { user: result.user });
   });
 
-  socket.on('lobby:leave', ({ lobbyId }) => {
+  // Look at a lobby without becoming a member of it: join its room (queue,
+  // chat, listener updates; adding songs works) but stay listed in, and keep
+  // now-playing / follow in, the member lobby. Replaces any previous view.
+  socket.on('lobby:view', async ({ lobbyId, userId } = {}) => {
+    if (!lobbyId) return;
+    if (!(await checkUserApproved(userId))) {
+      socket.emit('lobby:error', { message: 'Your account is pending approval' });
+      return;
+    }
+    const lobbyData = await lobby.getLobbyAsync(lobbyId);
+    if (!lobbyData) {
+      socket.emit('lobby:not-found', { lobbyId });
+      return;
+    }
+    if (lobbyId === currentLobby) {
+      stopViewing();
+      await sendLobbyState(lobbyId);
+      return;
+    }
+    if (viewingLobby !== lobbyId) {
+      stopViewing();
+      viewingLobby = lobbyId;
+      socket.join(lobbyId);
+    }
+    await sendLobbyState(lobbyId, { viewing: true });
+  });
+
+  socket.on('lobby:unview', () => {
+    stopViewing();
+  });
+
+  socket.on('lobby:leave', ({ lobbyId } = {}) => {
+    if (lobbyId && lobbyId === viewingLobby) {
+      stopViewing();
+      return;
+    }
     if (lobbyId) {
       handleLeave(socket, lobbyId);
     }
@@ -1590,6 +1650,7 @@ io.on('connection', (socket) => {
     if (user) {
       // Broadcast updated user list to all in lobby
       io.to(lobbyId).emit('users:updated', {
+        lobbyId,
         users: lobby.getLobbyUsers(lobbyId)
       });
     }
@@ -1603,6 +1664,7 @@ io.on('connection', (socket) => {
     const user = lobby.setUserCurrentTrack(lobbyId, socket.id, track);
     if (user) {
       io.to(lobbyId).emit('users:updated', {
+        lobbyId,
         users: lobby.getLobbyUsers(lobbyId)
       });
 
@@ -1640,7 +1702,7 @@ io.on('connection', (socket) => {
     const users = lobby.getLobbyUsers(lobbyId);
     const target = users.find(u => u.socketId === targetSocketId);
 
-    io.to(lobbyId).emit('users:updated', { users });
+    io.to(lobbyId).emit('users:updated', { lobbyId, users });
 
     if (target && target.currentTrack) {
       // Find the full song object in queue
@@ -1666,6 +1728,7 @@ io.on('connection', (socket) => {
     const user = lobby.setUserFollowing(lobbyId, socket.id, null);
     if (user) {
       io.to(lobbyId).emit('users:updated', {
+        lobbyId,
         users: lobby.getLobbyUsers(lobbyId)
       });
     }
@@ -1902,13 +1965,16 @@ function handleLeave(socket, lobbyId) {
   // and notify anyone following this user that they've been unfollowed
   lobby.clearFollowersOf(lobbyId, socket.id);
 
-  const user = lobby.leaveLobby(lobbyId, socket.id);
+  const user = lobby.getLobbyUsers(lobbyId).find(u => u.socketId === socket.id);
+  // leaveLobby is async but removes the user synchronously; the rest is the
+  // last-activity write.
+  Promise.resolve(lobby.leaveLobby(lobbyId, socket.id)).catch(() => {});
+  socket.leave(lobbyId);
   if (user) {
-    socket.leave(lobbyId);
-    const remainingUsers = lobby.getLobbyUsers(lobbyId);
-    socket.to(lobbyId).emit('user-left', {
+    socket.to(lobbyId).emit('lobby:user-left', {
+      lobbyId,
       user,
-      users: remainingUsers
+      users: lobby.getLobbyUsers(lobbyId)
     });
     console.log(`User ${user.username} left lobby ${lobbyId}`);
   }
