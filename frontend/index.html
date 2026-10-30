@@ -86,36 +86,36 @@
       </div>
     </nav>
     <main class="app-main container app-narrow">
-      <div class="card mb-5">
-        <div class="card-body">
-          <h1 class="h4 mb-1" data-i18n="landing.newPlaylist">New playlist</h1>
-          <p class="fg-3 mb-5 tagline" data-i18n="app.tagline">Listen to music with friends, in sync.</p>
-          <label for="lobby-name-input" class="form-label fs-sm fw-medium" data-i18n="landing.playlistName">Playlist name</label>
-          <input type="text" id="lobby-name-input" class="form-control mb-4" placeholder="Playlist name (optional)" data-i18n-placeholder="landing.playlistNamePlaceholder" maxlength="50" autocomplete="off">
-          <label for="playlist-visibility-select" class="form-label fs-sm fw-medium" data-i18n="landing.visibility">Visibility</label>
-          <select id="playlist-visibility-select" class="form-control mb-2" aria-describedby="playlist-visibility-hint">
-            <option value="public" data-i18n="landing.public">Public</option>
-            <option value="private" data-i18n="landing.private">Private</option>
-          </select>
-          <p id="playlist-visibility-hint" class="fs-sm fg-3 mb-5" data-i18n="landing.publicHint">Public: every signed-in user can see and edit it.</p>
-          <div class="vstack gap-3">
-            <button id="create-lobby-btn" class="btn-solid theme-primary btn-lg w-100" type="button" data-i18n="landing.createPlaylist">Create playlist</button>
-            <button id="landing-library-btn" class="btn-outline theme-secondary w-100 landing-library-btn" type="button">
-              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 5h-3v5.5a2.5 2.5 0 1 1-1-2V5h4v2z"/></svg>
-              Music library &amp; requests
-            </button>
-          </div>
-          <p class="fs-sm fg-3 text-center mt-4 mb-0 join-section" data-i18n="landing.joinHint">Have a link? Just paste it in your browser.</p>
+      <div class="d-flex align-items-center gap-3 mb-5 landing-header">
+        <div class="min-w-0 me-auto">
+          <h1 class="h4 mb-1" data-i18n="landing.playlists">Playlists</h1>
+          <p class="fs-sm fg-3 mb-0 tagline" data-i18n="app.tagline">Listen to music with friends, in sync.</p>
         </div>
+        <button id="new-playlist-btn" class="btn-solid theme-primary flex-shrink-0 new-playlist-btn" type="button" aria-haspopup="dialog">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+          <span data-i18n="landing.newPlaylist">New playlist</span>
+        </button>
       </div>
 
-      <!-- Playlists: every public one plus your own private ones -->
-      <section id="lobbies-section" class="card lobbies-section" hidden>
-        <div class="card-header"><h2 class="h6 mb-0" data-i18n="landing.playlists">Playlists</h2></div>
-        <ul id="lobbies-list" class="list-group list-group-flush lobbies-list">
-          <li class="list-group-item app-empty lobbies-empty" data-i18n="landing.noPlaylists">No playlists yet</li>
+      <!-- Your playlists (public + private), then other people's public ones -->
+      <section id="my-playlists-section" class="card mb-5 my-playlists-section" aria-labelledby="my-playlists-title">
+        <div class="card-header"><h2 id="my-playlists-title" class="h6 mb-0" data-i18n="landing.yourPlaylists">Your playlists</h2></div>
+        <ul id="my-playlists-list" class="list-group list-group-flush lobbies-list" aria-busy="true">
+          <li class="list-group-item app-empty fg-3" data-i18n="landing.loading">Loading…</li>
         </ul>
       </section>
+      <section id="lobbies-section" class="card mb-5 lobbies-section" aria-labelledby="public-playlists-title" hidden>
+        <div class="card-header"><h2 id="public-playlists-title" class="h6 mb-0" data-i18n="landing.publicPlaylists">Public playlists</h2></div>
+        <ul id="lobbies-list" class="list-group list-group-flush lobbies-list"></ul>
+      </section>
+
+      <div class="d-flex flex-column align-items-center gap-3 landing-secondary">
+        <button id="landing-library-btn" class="btn-outline theme-secondary landing-library-btn" type="button">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 5h-3v5.5a2.5 2.5 0 1 1-1-2V5h4v2z"/></svg>
+          <span data-i18n="landing.library">Music library &amp; requests</span>
+        </button>
+        <p class="fs-sm fg-3 text-center mb-0 join-section" data-i18n="landing.joinHint">Have a link? Just paste it in your browser.</p>
+      </div>
     </main>
     <footer class="app-footer">
       <a id="version-display" class="version-text" href="/changelog"></a>

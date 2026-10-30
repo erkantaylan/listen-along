@@ -94,6 +94,8 @@ export const auth = {
 // App State
 export const state = {
   lobbyId: null,
+  // Quick play from the landing page: play this playlist once its queue arrives.
+  autoplayLobbyId: null,
   ownerId: null,
   isPlaying: false,
   isShuffleEnabled: getStoredShuffleEnabled(),
@@ -133,13 +135,12 @@ export const elements = {
   pendingTitle: document.getElementById('pending-title'),
   pendingMessage: document.getElementById('pending-message'),
   pendingRetryBtn: document.getElementById('pending-retry-btn'),
-  createLobbyBtn: document.getElementById('create-lobby-btn'),
+  newPlaylistBtn: document.getElementById('new-playlist-btn'),
   backBtn: document.getElementById('back-btn'),
   shareBtn: document.getElementById('share-btn'),
   lobbyName: document.getElementById('lobby-name'),
   renameBtn: document.getElementById('rename-btn'),
   pinBtn: document.getElementById('pin-btn'),
-  lobbyNameInput: document.getElementById('lobby-name-input'),
   userCount: document.getElementById('user-count'),
   albumArt: document.getElementById('album-art'),
   trackTitle: document.getElementById('track-title'),
@@ -179,6 +180,7 @@ export const elements = {
   statDisk: document.getElementById('stat-disk'),
   dashboardLobbyList: document.getElementById('dashboard-lobby-list'),
   lobbiesSection: document.getElementById('lobbies-section'),
+  myPlaylistsList: document.getElementById('my-playlists-list'),
   lobbiesList: document.getElementById('lobbies-list'),
   dashboardUserList: document.getElementById('dashboard-user-list'),
   usersApproved: document.getElementById('users-approved'),
@@ -186,8 +188,6 @@ export const elements = {
   usersRejected: document.getElementById('users-rejected'),
   usersSearch: document.getElementById('users-search'),
   usersFilter: document.getElementById('users-filter'),
-  visibilitySelect: document.getElementById('playlist-visibility-select'),
-  visibilityHint: document.getElementById('playlist-visibility-hint'),
   visibilityBadge: document.getElementById('playlist-visibility-badge'),
   visibilityBtn: document.getElementById('playlist-visibility-btn'),
   playlistOwner: document.getElementById('playlist-owner')

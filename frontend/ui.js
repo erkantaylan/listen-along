@@ -202,6 +202,18 @@ export function copyToClipboard(text) {
   });
 }
 
+// Keep Tab / Shift+Tab inside a modal. Call from the dialog's keydown handler.
+export function trapFocus(container, e) {
+  if (e.key !== 'Tab') return;
+  const focusable = [...container.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+    .filter((el) => !el.disabled && el.offsetParent !== null && !(el.type === 'radio' && !el.checked && container.querySelector(`input[type="radio"][name="${el.name}"]:checked`)));
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (e.shiftKey && (document.activeElement === first || !container.contains(document.activeElement))) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && (document.activeElement === last || !container.contains(document.activeElement))) { e.preventDefault(); first.focus(); }
+}
+
 export function switchTab(tabName) {
   elements.navItems.forEach(item => {
     item.classList.toggle('active', item.dataset.tab === tabName);

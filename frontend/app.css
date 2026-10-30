@@ -63,6 +63,18 @@
 
   /* -------------------------------------------------------------- Landing */
   .lobby-card { cursor: pointer; }
+  /* Quick play: shown on hover / keyboard focus; always there on touch. */
+  .lobby-quick-play { opacity: 0; }
+  .lobby-card:hover .lobby-quick-play,
+  .lobby-card:focus-within .lobby-quick-play,
+  .lobby-quick-play:focus-visible { opacity: 1; }
+  @media (hover: none) { .lobby-quick-play { opacity: 1; } }
+  .lobbies-empty { padding-block: 2rem; text-align: center; }
+
+  /* New playlist dialog (new-playlist.js) */
+  .new-playlist-field-error { color: var(--app-danger); }
+  .new-playlist-field-error:empty { display: none; }
+  .new-playlist-choice { cursor: pointer; }
   .lobby-card-stat {
     display: inline-flex;
     align-items: center;

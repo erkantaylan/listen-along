@@ -7,7 +7,7 @@
   "landing": {
     "newPlaylist": "New playlist",
     "playlistName": "Playlist name",
-    "playlistNamePlaceholder": "Playlist name (optional)",
+    "playlistNamePlaceholder": "e.g. Road trip",
     "visibility": "Visibility",
     "public": "Public",
     "private": "Private",
@@ -19,7 +19,17 @@
     "noPlaylists": "No playlists yet",
     "byOwner": "by {name}",
     "byYou": "by you",
-    "noOwner": "shared"
+    "noOwner": "shared",
+    "yourPlaylists": "Your playlists",
+    "publicPlaylists": "Public playlists",
+    "loading": "Loading…",
+    "library": "Music library & requests",
+    "emptyHint": "Make one, add songs, and share the link to listen together.",
+    "nameRequired": "Give the playlist a name.",
+    "creating": "Creating…",
+    "cancel": "Cancel",
+    "play": "Play {name}",
+    "emptyPlaylist": "This playlist has no songs yet"
   },
   "lobby": {
     "playlist": "Playlist",

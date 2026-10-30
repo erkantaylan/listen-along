@@ -19,6 +19,12 @@ export function handleQueueUpdated(data) {
   if (data.lobbyId && data.lobbyId !== state.lobbyId) return;
   state.queue = songs;
   updateQueue();
+  // Quick play from the landing page: start this playlist from the top.
+  if (state.autoplayLobbyId && state.autoplayLobbyId === (data.lobbyId || state.lobbyId)) {
+    state.autoplayLobbyId = null;
+    if (songs.length) player.playFrom(viewedContext(), songs, 0);
+    else showToast(t('landing.emptyPlaylist', 'This playlist has no songs yet'), 'info');
+  }
 }
 
 export function handleSongAdded(data) {

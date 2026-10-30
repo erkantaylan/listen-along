@@ -7,6 +7,7 @@ import { parseRoute, playlistPath } from './router.js';
 import { player } from './player.js';
 import { desiredMembership, membershipActions } from './player-queue.js';
 import { isEditMode, setEditMode } from './queue-edit.js';
+import { isNewPlaylistPending, newPlaylistCreated, newPlaylistFailed } from './new-playlist.js';
 
 // Register landing view activator
 viewActivators.landing = () => {
@@ -25,28 +26,6 @@ function ownerText({ isOwner, ownerId, ownerName }) {
   if (isOwner) return t('landing.byYou', 'by you');
   if (!ownerId) return t('landing.noOwner', 'shared');
   return ownerName ? t('landing.byOwner', `by ${ownerName}`, { name: ownerName }) : '';
-}
-
-// asViewer: keep the membership of the playlist being played from.
-export function createLobby() {
-  elements.createLobbyBtn.disabled = true;
-  elements.createLobbyBtn.textContent = 'Creating...';
-  const name = elements.lobbyNameInput ? elements.lobbyNameInput.value.trim() : '';
-  const visibility = elements.visibilitySelect && elements.visibilitySelect.value === 'private' ? 'private' : 'public';
-  socket.emit('lobby:create', { username: state.username, emoji: state.emoji, name: name || undefined, visibility, userId: state.userId, asViewer: !!player.context });
-}
-
-function resetCreateButton() {
-  elements.createLobbyBtn.disabled = false;
-  elements.createLobbyBtn.textContent = t('landing.createPlaylist', 'Create playlist');
-}
-
-// The hint under the visibility select follows the choice.
-export function updateVisibilityHint() {
-  if (!elements.visibilityHint || !elements.visibilitySelect) return;
-  elements.visibilityHint.textContent = elements.visibilitySelect.value === 'private'
-    ? t('landing.privateHint', 'Private: only you can see it.')
-    : t('landing.publicHint', 'Public: every signed-in user can see and edit it.');
 }
 
 // Header of the playlist page: name, visibility badge, owner, owner-only toggle.
@@ -189,8 +168,7 @@ export function handleLobbyCreated(data, updatePinButton) {
   applyPlaylistMeta({ ...data, isOwner: true, canEdit: true });
   state.pinned = data.pinned || false;
   storageSet(STORAGE_KEYS.LAST_LOBBY, data.lobbyId);
-  resetCreateButton();
-  if (elements.lobbyNameInput) elements.lobbyNameInput.value = '';
+  newPlaylistCreated();
   pushLobbyUrl(data.lobbyId);
   renderPlaylistHeader();
   updatePinButton();
@@ -235,13 +213,14 @@ export function handleLobbyNotFound({ lobbyId }) {
   if (membership.member === lobbyId) { membership.member = null; socket.emit('lobby:leave', {}); }
   if (membership.viewing === lobbyId) membership.viewing = null;
   if (storageGet_internal(STORAGE_KEYS.LAST_LOBBY) === lobbyId) storageRemove(STORAGE_KEYS.LAST_LOBBY);
+  if (state.autoplayLobbyId === lobbyId) state.autoplayLobbyId = null;
   if (lobbyId !== state.lobbyId) return;
   showToast(t('lobby.notFound', 'Playlist not found'), 'error');
   navigateTo('/');
 }
 
 export function handleLobbyError(data) {
-  resetCreateButton();
+  if (isNewPlaylistPending()) { newPlaylistFailed(data.message); return; }
   if (data.message && data.message.toLowerCase().includes('not found')) {
     storageRemove(STORAGE_KEYS.LAST_LOBBY);
     hideRejoinPrompt();
@@ -415,43 +394,71 @@ export function fetchLobbies() {
 // inline onclick args, so user-controlled names never enter HTML attributes.
 const lobbyCache = new Map();
 
-// Public playlists first by activity as the server lists them; your own
-// private ones are marked with a lock badge. Owner controls (visibility,
-// delete) only on your own playlists.
+const PLAY_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+const PLUS_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>';
+
+// The landing page: "Your playlists" (everything you own, public and
+// private) first, then other people's public playlists (and ownerless
+// shared ones). The server only sends what you may see. Pinned first, then
+// newest. Owner controls (visibility, delete) only on your own playlists.
 function renderLobbies(lobbies) {
-  if (!elements.lobbiesSection || !elements.lobbiesList) return;
+  if (!elements.lobbiesSection || !elements.lobbiesList || !elements.myPlaylistsList) return;
   lobbyCache.clear();
   for (const l of lobbies) lobbyCache.set(l.id, l);
-  elements.lobbiesSection.hidden = false;
-  if (lobbies.length === 0) {
-    elements.lobbiesList.innerHTML = `<li class="list-group-item app-empty lobbies-empty">${escapeHtml(t('landing.noPlaylists', 'No playlists yet'))}</li>`;
+  const sorted = [...lobbies].sort((a, b) => (b.pinned - a.pinned) || (b.createdAt - a.createdAt));
+  const mine = sorted.filter(l => l.isOwner);
+  const others = sorted.filter(l => !l.isOwner);
+  elements.myPlaylistsList.removeAttribute('aria-busy');
+  elements.myPlaylistsList.innerHTML = mine.length ? mine.map(lobbyRowHtml).join('') : myPlaylistsEmptyHtml();
+  elements.lobbiesSection.hidden = others.length === 0;
+  elements.lobbiesList.innerHTML = others.map(lobbyRowHtml).join('');
+}
+
+function myPlaylistsEmptyHtml() {
+  return `<li class="list-group-item app-empty lobbies-empty"><p class="fw-medium fg-1 mb-1">${escapeHtml(t('landing.noPlaylists', 'No playlists yet'))}</p>`
+    + `<p class="fs-sm fg-3 mb-4">${escapeHtml(t('landing.emptyHint', 'Make one, add songs, and share the link to listen together.'))}</p>`
+    + `<button type="button" class="btn lobbies-empty-new" aria-haspopup="dialog" onclick="window.app.newPlaylist(this)">${PLUS_ICON}${escapeHtml(t('landing.newPlaylist', 'New playlist'))}</button></li>`;
+}
+
+function lobbyRowHtml(l) {
+  const age = formatAge(l.createdAt);
+  const title = playlistTitle(l.name, l.id);
+  const displayName = escapeHtml(title);
+  // JS string inside an HTML attribute: JSON-encode, then HTML-escape.
+  const idArg = escapeHtml(JSON.stringify(l.id));
+  const priv = l.visibility === 'private';
+  const pinIcon = l.pinned ? '<svg class="pin-indicator" viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>' : '';
+  const privateBadge = priv
+    ? `<span class="badge badge-subtle theme-secondary lobby-visibility-badge private"><svg class="icon-sm" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>${escapeHtml(visibilityLabel('private'))}</span>` : '';
+  const owner = ownerText(l);
+  const toggleLabel = priv ? t('lobby.makePublic', 'Make public') : t('lobby.makePrivate', 'Make private');
+  const deleteLabel = t('lobby.deletePlaylist', 'Delete playlist');
+  const playLabel = t('landing.play', `Play ${title}`, { name: title });
+  const playBtn = l.songCount > 0
+    ? `<button type="button" class="btn-text theme-secondary btn-icon btn-sm lobby-quick-play" title="${escapeHtml(playLabel)}" aria-label="${escapeHtml(playLabel)}" onclick="event.stopPropagation();window.app.quickPlayLobby(${idArg})">${PLAY_ICON}</button>` : '';
+  const ownerControls = l.canManage
+    ? `<button type="button" class="btn-text theme-secondary btn-icon btn-sm lobby-visibility-toggle" title="${escapeHtml(toggleLabel)}" aria-label="${escapeHtml(toggleLabel)}" onclick="event.stopPropagation();window.app.toggleLobbyVisibility(${idArg}, ${priv ? 'true' : 'false'})">${priv ? GLOBE_ICON : LOCK_ICON}</button>`
+      + `<button type="button" class="btn-text theme-danger btn-icon btn-sm lobby-delete-btn" title="${escapeHtml(deleteLabel)}" aria-label="${escapeHtml(deleteLabel)}" onclick="event.stopPropagation();window.app.deleteLobbyCard(${idArg})"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>` : '';
+  const controls = playBtn || ownerControls ? `<div class="d-flex gap-1 ms-auto flex-shrink-0 lobby-owner-controls">${playBtn}${ownerControls}</div>` : '';
+  return `<li class="list-group-item list-group-item-action lobby-card${priv ? ' is-private' : ''}" data-playlist-id="${escapeHtml(l.id)}" tabindex="0" role="link" onclick="window.app.joinLobbyFromCard(${idArg})" onkeydown="if((event.key==='Enter'||event.key===' ')&&event.target===this){event.preventDefault();window.app.joinLobbyFromCard(${idArg})}">`
+    + `<div class="d-flex align-items-center gap-2 lobby-card-header"><span class="d-flex align-items-center gap-2 min-w-0 fw-medium lobby-card-id"><span class="text-truncate">${pinIcon}${displayName}</span>${privateBadge}</span>${controls}</div>`
+    + `<div class="d-flex flex-wrap align-items-center column-gap-3 fs-sm fg-3 mt-1 lobby-card-stats">`
+    + (owner ? `<span class="text-truncate lobby-card-owner">${escapeHtml(owner)}</span>` : '')
+    + `<span class="lobby-card-stat" title="Songs"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>${l.songCount}<span class="visually-hidden"> songs</span></span>`
+    + `<span class="lobby-card-stat" title="Listeners"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>${l.userCount}<span class="visually-hidden"> listening</span></span>`
+    + `<span class="lobby-card-age">${age}</span></div></li>`;
+}
+
+// Quick play (landing row): the playlist already playing just resumes;
+// otherwise open it and start from its first song once the queue arrives
+// (handleQueueUpdated in queue.js).
+export function quickPlayLobby(lobbyId) {
+  if (player.context && player.context.lobbyId === lobbyId && player.track) {
+    if (!player.isPlaying) player.play();
     return;
   }
-  const sorted = [...lobbies].sort((a, b) => (b.pinned - a.pinned) || (b.createdAt - a.createdAt));
-  elements.lobbiesList.innerHTML = sorted.map(l => {
-    const age = formatAge(l.createdAt);
-    const displayName = escapeHtml(playlistTitle(l.name, l.id));
-    // JS string inside an HTML attribute: JSON-encode, then HTML-escape.
-    const idArg = escapeHtml(JSON.stringify(l.id));
-    const priv = l.visibility === 'private';
-    const pinIcon = l.pinned ? '<svg class="pin-indicator" viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>' : '';
-    const privateBadge = priv
-      ? `<span class="badge badge-subtle theme-secondary lobby-visibility-badge private"><svg class="icon-sm" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>${escapeHtml(visibilityLabel('private'))}</span>` : '';
-    const owner = ownerText(l);
-    const toggleLabel = priv ? t('lobby.makePublic', 'Make public') : t('lobby.makePrivate', 'Make private');
-    const deleteLabel = t('lobby.deletePlaylist', 'Delete playlist');
-    const ownerControls = l.canManage ? `<div class="d-flex gap-1 ms-auto lobby-owner-controls">`
-      + `<button type="button" class="btn-text theme-secondary btn-icon btn-sm lobby-visibility-toggle" title="${escapeHtml(toggleLabel)}" aria-label="${escapeHtml(toggleLabel)}" onclick="event.stopPropagation();window.app.toggleLobbyVisibility(${idArg}, ${priv ? 'true' : 'false'})">${priv ? GLOBE_ICON : LOCK_ICON}</button>`
-      + `<button type="button" class="btn-text theme-danger btn-icon btn-sm lobby-delete-btn" title="${escapeHtml(deleteLabel)}" aria-label="${escapeHtml(deleteLabel)}" onclick="event.stopPropagation();window.app.deleteLobbyCard(${idArg})"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>`
-      + `</div>` : '';
-    return `<li class="list-group-item list-group-item-action lobby-card${priv ? ' is-private' : ''}" data-playlist-id="${escapeHtml(l.id)}" tabindex="0" role="button" onclick="window.app.joinLobbyFromCard(${idArg})" onkeydown="if((event.key==='Enter'||event.key===' ')&&event.target===this){event.preventDefault();window.app.joinLobbyFromCard(${idArg})}">`
-      + `<div class="d-flex align-items-center gap-2 lobby-card-header"><span class="d-flex align-items-center gap-2 min-w-0 fw-medium lobby-card-id"><span class="text-truncate">${pinIcon}${displayName}</span>${privateBadge}</span>${ownerControls}</div>`
-      + `<div class="d-flex flex-wrap align-items-center column-gap-3 fs-sm fg-3 mt-1 lobby-card-stats">`
-      + (owner ? `<span class="text-truncate lobby-card-owner">${escapeHtml(owner)}</span>` : '')
-      + `<span class="lobby-card-stat" title="Listeners"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>${l.userCount}</span>`
-      + `<span class="lobby-card-stat" title="Songs"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>${l.songCount}</span>`
-      + `<span class="lobby-card-age">${age}</span></div></li>`;
-  }).join('');
+  state.autoplayLobbyId = lobbyId;
+  navigateTo(playlistPath(lobbyId));
 }
 
 // PATCH the visibility; resolves with the updated playlist info (or null).

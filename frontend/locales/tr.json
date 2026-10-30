@@ -7,7 +7,7 @@
   "landing": {
     "newPlaylist": "Yeni çalma listesi",
     "playlistName": "Çalma listesi adı",
-    "playlistNamePlaceholder": "Çalma listesi adı (isteğe bağlı)",
+    "playlistNamePlaceholder": "ör. Yolculuk",
     "visibility": "Görünürlük",
     "public": "Herkese açık",
     "private": "Gizli",
@@ -19,7 +19,17 @@
     "noPlaylists": "Henüz çalma listesi yok",
     "byOwner": "{name} tarafından",
     "byYou": "senin",
-    "noOwner": "ortak"
+    "noOwner": "ortak",
+    "yourPlaylists": "Çalma listelerin",
+    "publicPlaylists": "Herkese açık çalma listeleri",
+    "loading": "Yükleniyor…",
+    "library": "Müzik kitaplığı ve istekler",
+    "emptyHint": "Bir tane oluştur, şarkı ekle ve birlikte dinlemek için linki paylaş.",
+    "nameRequired": "Çalma listesine bir ad ver.",
+    "creating": "Oluşturuluyor…",
+    "cancel": "Vazgeç",
+    "play": "{name} çal",
+    "emptyPlaylist": "Bu çalma listesinde henüz şarkı yok"
   },
   "lobby": {
     "playlist": "Çalma listesi",

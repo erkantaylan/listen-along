@@ -147,7 +147,7 @@ tertiary.
 
 | Tier | Markup | Looks like | Use for |
 | --- | --- | --- | --- |
-| **Primary** | `.btn-solid.theme-primary` | accent fill, dark semibold text; lightens on hover | The main action of a view or dialog: Create playlist, Save (display name), Download, Replace, Mark as broken (in its dialog), Done (playlist edit mode), the chat send button, the player's **Play/Pause** pill (a size up, 2.75rem, 1.5rem icon). |
+| **Primary** | `.btn-solid.theme-primary` | accent fill, dark semibold text; lightens on hover | The main action of a view or dialog: New playlist (landing), Create playlist (its dialog), Save (display name), Download, Replace, Mark as broken (in its dialog), Done (playlist edit mode), the chat send button, the player's **Play/Pause** pill (a size up, 2.75rem, 1.5rem icon). |
 | **Secondary, tonal** | `.btn` | grey fill `--app-btn-tonal` + strong border | Neutral actions next to a primary or on their own: Cancel, Edit, Create token, Disconnect, Refresh, Play (admin), Retry/Cancel on jobs, preset reasons. |
 | **Secondary, outline** | `.btn-outline.theme-secondary` | border only, transparent | Navigation-ish or less important neutral actions: Music library & requests, login providers, Dismiss all, library pager, round library play buttons. |
 | **Tertiary / ghost** | `.btn-text.theme-secondary` (+ `.btn-icon`) | no fill, no border; `--app-text-secondary` icon; grey fill + bright icon on hover | Icon buttons: player controls (repeat, shuffle, prev, next, mute, chat), navbar back / pin / share / lock, ⋮ song menus, drag handles, collapse chevrons, small text links like "Dismiss". Toggled on = `.active`: accent tint + accent icon + accent border. |
@@ -206,16 +206,29 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 ## Page layouts
 
 - **Login / pending**: navbar + one centred card (`.app-center`, `.login-card` 26rem).
-- **Landing**: navbar (brand, profile), narrow column: "New playlist" card
-  (name input, Visibility `select.form-control` Public/Private with a one-line hint
-  under it, primary "Create playlist" button, library button), then the "Playlists"
-  card: a flush list group of every public playlist plus your own private ones. Each
-  row: name, a subtle "Private" badge with a lock icon on private ones, then a muted
-  line "by you / by <owner> / shared" (shared = ownerless legacy playlist), listener
-  and song counts, age. Your own playlists get icon buttons on the right: lock/globe
-  (make private / make public) and a danger trash (delete). Footer (version, language, GitHub). On load, a "Back to your last playlist?"
-  prompt names the last playlist you opened (looked up first; not shown if it is gone or no
-  longer visible to you).
+- **Landing** (`/`, the view after login): navbar (brand, profile), narrow column. A
+  header row: `h1.h4` "Playlists" + muted tagline on the left, the view's one primary
+  button **"New playlist"** (plus icon) on the right. Then the "Your playlists" card (every
+  playlist you own, public and private) and the "Public playlists" card (other people's
+  public ones and ownerless shared ones; hidden when there are none). Both are flush list
+  groups, pinned first, then newest. Each row (click / Enter / Space opens `/playlist/<id>`):
+  name, a subtle "Private" badge with a lock icon on private ones, then a muted line
+  "by you / by <owner> / shared", song and listener counts, age. On the right: a ghost
+  **quick play** icon button when the playlist has songs (shown on row hover / focus, always
+  on touch; opens the playlist and starts it from the first song in the app-wide player, or
+  resumes it if it is already the one playing), and on your own playlists lock/globe (make
+  private / public) and a danger trash (delete). No playlists of your own: the "Your
+  playlists" card shows an empty state ("No playlists yet", a muted hint, a grey "New
+  playlist" button). Below the cards, secondary: the outline "Music library & requests"
+  button and the "Have a link?" hint. Footer (version, language, GitHub). On load, a "Back
+  to your last playlist?" prompt names the last playlist you opened (looked up first; not
+  shown if it is gone or no longer visible to you).
+  **New playlist dialog** (`new-playlist.js`, an `.app-modal`, see "Modal dialogs"): Playlist
+  name (required, 50 chars, live `n/50` counter), Visibility as two `.radio` choices with a
+  one-line hint each (Public default), a danger alert for other errors, footer grey Cancel +
+  primary "Create playlist" ("Creating…" while busy). Empty name or a server refusal about
+  the name ("A playlist with that name already exists") shows in red under the field. On
+  success it closes and the new playlist opens.
 - **Playlist** (`/playlist/<id>`; internally the "lobby" view): full-height column —
   navbar (back, name/rename, a muted line with the "Private" badge, owner and listener
   count; owner-only lock/globe visibility button, pin, share), scrolling body (56rem)
@@ -280,6 +293,33 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   offline badge, Refresh button — the only place machine details appear) and **Download
   jobs** (status filter select, counts in the header, rows with requester, playlist,
   worker, error code, status badge and Cancel / Retry); both refresh every 10s.
+
+### Modal dialogs
+
+Every dialog (share, replace audio, mark as broken, new playlist) is the same plain markup —
+no `<dialog>`, no Bootstrap JS:
+
+```html
+<div id="…-dialog" class="app-modal" role="dialog" aria-modal="true" aria-labelledby="…-title">
+  <form class="card app-modal-card" novalidate>
+    <div class="card-header d-flex flex-row align-items-center justify-content-between gap-2">
+      <h2 id="…-title" class="h6 mb-0">Title</h2> <!-- + ghost × close button (aria-label) -->
+    </div>
+    <div class="card-body vstack gap-5">fields, .alert.theme-danger[hidden] for errors</div>
+    <div class="card-footer d-flex justify-content-end gap-2">
+      <button class="btn" type="button">Cancel</button>
+      <button class="btn-solid theme-primary" type="submit">Do it</button>
+    </div>
+  </form>
+</div>
+```
+
+Behaviour: built and appended to `body` when opened, removed when closed. Focus goes to the
+first field (or the primary button); Tab / Shift+Tab stay inside (`trapFocus(dialog, event)`
+from `ui.js` in the keydown handler); Escape, ×, Cancel and a backdrop click close it, and
+focus returns to the button that opened it. Enter submits (it is a `<form>`). Field errors go
+in red (`--app-danger`) under the field with `aria-invalid`; other errors in the alert. While
+busy the primary button is disabled and says "…ing…".
 
 ### Song rows: normal and edit mode
 
