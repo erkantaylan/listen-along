@@ -83,6 +83,19 @@ describe('Queue class', () => {
     assert.strictEqual(songs[2].title, 'Song 3');
   });
 
+  test('insertSong puts a removed song back at its index', () => {
+    const a = queue.addSong({ url: 'a', title: 'A' });
+    const b = queue.addSong({ url: 'b', title: 'B' });
+    queue.addSong({ url: 'c', title: 'C' });
+    const removed = queue.removeSong(b.id);
+    assert.strictEqual(queue.insertSong(removed, 1), removed);
+    assert.deepStrictEqual(queue.getSongs().map(s => s.title), ['A', 'B', 'C']);
+    assert.strictEqual(queue.insertSong(removed, 0), null, 'already queued');
+    queue.removeSong(a.id);
+    queue.insertSong(a, 99);
+    assert.deepStrictEqual(queue.getSongs().map(s => s.title), ['B', 'C', 'A']);
+  });
+
   test('reorderSong returns false for invalid index', () => {
     const song = queue.addSong({ url: 'url1', title: 'Song 1' });
 

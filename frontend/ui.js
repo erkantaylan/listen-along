@@ -54,7 +54,9 @@ export function navigateTo(path) {
 
 // Bootstrap toast in #toast-container. type: info | success | error.
 const TOAST_THEMES = { success: 'theme-success', error: 'theme-danger', info: 'theme-secondary' };
-export function showToast(message, type = 'info') {
+// options.action = { label, onClick }: a text button in the toast (e.g. Undo);
+// options.duration in ms (default 3000).
+export function showToast(message, type = 'info', { action = null, duration = 3000 } = {}) {
   const toast = document.createElement('div');
   toast.className = `toast show ${TOAST_THEMES[type] || TOAST_THEMES.info} app-toast app-toast-${type}`;
   toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
@@ -62,11 +64,28 @@ export function showToast(message, type = 'info') {
   body.className = 'toast-body';
   body.textContent = message;
   toast.appendChild(body);
-  elements.toastContainer.appendChild(toast);
-  setTimeout(() => {
+  let timer = null;
+  const dismiss = () => {
+    clearTimeout(timer);
     toast.classList.remove('show');
     setTimeout(() => toast.remove(), 300);
-  }, 3000);
+  };
+  if (action) {
+    body.classList.add('d-flex', 'align-items-center', 'gap-3');
+    const text = document.createElement('span');
+    text.className = 'flex-grow-1 min-w-0';
+    text.textContent = message;
+    body.textContent = '';
+    body.appendChild(text);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn-text theme-primary btn-sm flex-shrink-0 app-toast-action';
+    btn.textContent = action.label;
+    btn.addEventListener('click', () => { dismiss(); action.onClick(); });
+    body.appendChild(btn);
+  }
+  elements.toastContainer.appendChild(toast);
+  timer = setTimeout(dismiss, duration);
 }
 
 // Bootstrap 6 range inputs paint their filled track from --bs-range-fill (0..1).

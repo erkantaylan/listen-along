@@ -69,7 +69,11 @@
     "ready": "Ready",
     "error": "Error",
     "clearQueue": "Clear queue",
-    "downloadPlaylist": "Download all songs to your device"
+    "downloadPlaylist": "Download all songs to your device",
+    "edit": "Edit",
+    "done": "Done",
+    "removed": "Removed \"{title}\"",
+    "undo": "Undo"
   },
   "dashboard": {
     "title": "Dashboard",

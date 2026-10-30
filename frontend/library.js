@@ -97,6 +97,13 @@ function playSong(songId) {
   player.playFrom({ type: 'library' }, lib.songs.map(libraryTrack), index);
 }
 
+// A click on the row plays it (Spotify-like); the song already playing is
+// resumed if paused, never restarted or paused (the ▶ button toggles).
+function playRow(songId) {
+  if (isCurrentSong(songId)) { if (!player.isPlaying) player.play(); return; }
+  playSong(songId);
+}
+
 function relativeDate(value) {
   const ts = typeof value === 'number' ? value : Date.parse(value);
   if (!Number.isFinite(ts)) return '';
@@ -223,7 +230,7 @@ function renderSongs() {
         relativeDate(song.created_at),
         sourceLinkHtml(song),
       ].filter(Boolean).join(' · ');
-      return `<li class="list-group-item libpage-item${isCurrentSong(song.id) ? ' is-playing' : ''}" data-id="${escapeHtml(song.id)}">
+      return `<li class="list-group-item list-group-item-action libpage-item${isCurrentSong(song.id) ? ' is-playing' : ''}" data-id="${escapeHtml(song.id)}" tabindex="0">
         ${thumbHtml(song.youtube_id)}
         <div class="libpage-info min-w-0">
           <div class="d-flex align-items-center gap-1 min-w-0 libpage-title-row"><div class="fw-medium text-truncate libpage-title" title="${escapeHtml(song.title)}">${escapeHtml(song.title)}</div>${reportIconHtml(reports)}</div>
@@ -685,6 +692,15 @@ export function setupLibraryPage() {
     const replace = e.target.closest('.libpage-replace');
     if (replace) { openReplaceDialog(replace.dataset.id); return; }
     const btn = e.target.closest('.libpage-add');
-    if (btn) addToQueue(btn.dataset.id, btn);
+    if (btn) { addToQueue(btn.dataset.id, btn); return; }
+    if (e.target.closest('button, a[href], input, select, textarea')) return;
+    const row = e.target.closest('.libpage-item[data-id]');
+    if (row) playRow(row.dataset.id);
+  });
+  $('libpage-list').addEventListener('keydown', (e) => {
+    const row = e.target.closest('.libpage-item[data-id]');
+    if (!row || e.target !== row || (e.key !== 'Enter' && e.key !== ' ')) return;
+    e.preventDefault();
+    playRow(row.dataset.id);
   });
 }

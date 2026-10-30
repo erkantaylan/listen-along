@@ -69,7 +69,11 @@
     "ready": "Hazır",
     "error": "Hata",
     "clearQueue": "Sırayı temizle",
-    "downloadPlaylist": "Tüm şarkıları cihazına indir"
+    "downloadPlaylist": "Tüm şarkıları cihazına indir",
+    "edit": "Düzenle",
+    "done": "Bitti",
+    "removed": "\"{title}\" kaldırıldı",
+    "undo": "Geri al"
   },
   "dashboard": {
     "title": "Kontrol Paneli",

@@ -6,6 +6,7 @@ import { showView, showToast, escapeHtml, formatAge, copyToClipboard, t, navigat
 import { parseRoute, playlistPath } from './router.js';
 import { player } from './player.js';
 import { desiredMembership, membershipActions } from './player-queue.js';
+import { isEditMode, setEditMode } from './queue-edit.js';
 
 // Register landing view activator
 viewActivators.landing = () => {
@@ -69,6 +70,10 @@ function renderPlaylistHeader() {
     elements.visibilityBtn.setAttribute('aria-label', label);
     elements.visibilityBtn.title = label;
   }
+  if (elements.editQueueBtn) elements.editQueueBtn.hidden = !state.canEdit;
+  const addSong = document.querySelector('#queue-tab .add-song');
+  if (addSong) addSong.hidden = !state.canEdit;
+  if (!state.canEdit && isEditMode()) setEditMode(false);
 }
 
 function applyPlaylistMeta(data) {
@@ -77,10 +82,12 @@ function applyPlaylistMeta(data) {
   if ('ownerId' in data) state.ownerId = data.ownerId || null;
   if ('ownerName' in data) state.ownerName = data.ownerName || null;
   if ('isOwner' in data) state.isOwner = !!data.isOwner;
+  if ('canEdit' in data) state.canEdit = !!data.canEdit;
 }
 
 function clearPlaylistState() {
   state.isOwner = false;
+  state.canEdit = false;
   state.ownerId = null;
   state.ownerName = null;
   state.visibility = 'public';
@@ -179,7 +186,7 @@ export function handleLobbyCreated(data, updatePinButton) {
   state.lobbyId = data.lobbyId;
   clearPlaylistState();
   state.listeners = data.users || [];
-  applyPlaylistMeta({ ...data, isOwner: true });
+  applyPlaylistMeta({ ...data, isOwner: true, canEdit: true });
   state.pinned = data.pinned || false;
   storageSet(STORAGE_KEYS.LAST_LOBBY, data.lobbyId);
   resetCreateButton();
@@ -254,7 +261,7 @@ export function handleLobbyRenamed(data) {
 export function handleLobbyUpdated(data) {
   if (data.name !== undefined) player.renameContext(data.lobbyId, data.name);
   if (data.lobbyId !== state.lobbyId) return;
-  applyPlaylistMeta({ ...data, isOwner: state.isOwner });
+  applyPlaylistMeta({ ...data, isOwner: state.isOwner, canEdit: state.canEdit });
   renderPlaylistHeader();
 }
 
@@ -343,10 +350,25 @@ function pushLobbyUrl(lobbyId) {
   window.history.pushState({ lobbyId }, '', playlistPath(lobbyId));
 }
 
+// "Back to your last playlist?" names the playlist, so look it up first. A
+// playlist that is gone (or private to someone else: the API answers 404 for
+// both) is forgotten and no prompt is shown.
 export function checkForLastLobby() {
   const lastLobby = storageGet_internal(STORAGE_KEYS.LAST_LOBBY);
   if (!lastLobby) return;
-  showRejoinPrompt(lastLobby);
+  fetch(`/api/playlists/${encodeURIComponent(lastLobby)}`, { credentials: 'same-origin' })
+    .then((res) => {
+      if (res.status === 404 || res.status === 403) { storageRemove(STORAGE_KEYS.LAST_LOBBY); return null; }
+      return res.ok ? res.json() : null;
+    })
+    .then((info) => {
+      if (!info || info.id !== lastLobby) return;
+      // The user may have moved on while this was loading.
+      if (state.lobbyId || storageGet_internal(STORAGE_KEYS.LAST_LOBBY) !== lastLobby) return;
+      if (!elements.landingView || !elements.landingView.classList.contains('active')) return;
+      showRejoinPrompt(lastLobby, playlistTitle(info.name, info.id));
+    })
+    .catch(() => {});
 }
 
 // Internal import to avoid circular dependency
@@ -354,13 +376,13 @@ function storageGet_internal(key) {
   try { return localStorage.getItem(key); } catch { return null; }
 }
 
-function showRejoinPrompt(lobbyId) {
+function showRejoinPrompt(lobbyId, name) {
   if (document.getElementById('rejoin-prompt')) return;
   const prompt = document.createElement('div');
   prompt.id = 'rejoin-prompt';
   prompt.className = 'toast show rejoin-prompt';
   prompt.setAttribute('role', 'status');
-  prompt.innerHTML = `<div class="toast-body"><p class="mb-1 fw-medium">Back to your last playlist?</p><div class="fs-sm fg-3 text-truncate mb-3 rejoin-lobby-id">${escapeHtml(lobbyId)}</div><div class="d-flex justify-content-end gap-2 rejoin-actions"><button class="btn btn-sm rejoin-btn" id="rejoin-no" type="button">No thanks</button><button class="btn-solid theme-primary btn-sm rejoin-btn" id="rejoin-yes" type="button">Open</button></div></div>`;
+  prompt.innerHTML = `<div class="toast-body"><p class="mb-1 fw-medium">Back to your last playlist?</p><div class="fs-sm fg-3 text-truncate mb-3 rejoin-lobby-name">${escapeHtml(name)}</div><div class="d-flex justify-content-end gap-2 rejoin-actions"><button class="btn btn-sm rejoin-btn" id="rejoin-no" type="button">No thanks</button><button class="btn-solid theme-primary btn-sm rejoin-btn" id="rejoin-yes" type="button">Open</button></div></div>`;
   if (elements.landingView) elements.landingView.appendChild(prompt);
   document.getElementById('rejoin-yes').addEventListener('click', () => {
     hideRejoinPrompt();

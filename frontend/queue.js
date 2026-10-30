@@ -6,6 +6,7 @@ import { refreshLibraryAddButtons } from './library.js';
 import { player } from './player.js';
 import { refreshPlayerBar } from './player-bar.js';
 import { bindSongMenu, songMenuButtonHtml, reportIconHtml, reportsFor, onReportsChange } from './song-reports.js';
+import { isEditMode, setEditMode, onEditModeChange, isDragging, bindDragReorder } from './queue-edit.js';
 
 // A song marked broken anywhere: the queue's badges follow.
 onReportsChange(() => { if (state.lobbyId) updateQueue(); });
@@ -34,10 +35,25 @@ export function addSong() {
   elements.songInput.value = '';
 }
 
+// Remove a song (edit mode). Shown gone at once; the toast offers Undo, which
+// asks the server to put it back where it was (queue:restore, within a minute).
 export function removeSong(index) {
   const song = state.queue[index];
   if (!song) return;
-  socket.emit('queue:remove', { lobbyId: state.lobbyId, songId: song.id });
+  const lobbyId = state.lobbyId;
+  socket.emit('queue:remove', { lobbyId, songId: song.id });
+  const next = rowAfter(index);
+  state.queue = state.queue.filter((s) => s.id !== song.id);
+  updateQueue();
+  if (next) focusRow(next.id, '.queue-item-remove');
+  showToast(t('queue.removed', `Removed "${song.title}"`, { title: song.title }), 'info', {
+    duration: 6000,
+    action: { label: t('queue.undo', 'Undo'), onClick: () => socket.emit('queue:restore', { lobbyId, songId: song.id }) },
+  });
+}
+
+function rowAfter(index) {
+  return state.queue[index + 1] || state.queue[index - 1] || null;
 }
 
 export function clearQueue() {
@@ -154,55 +170,128 @@ export async function downloadPlaylist() {
   else showToast(`Downloaded ${ok} song${ok !== 1 ? 's' : ''} to your device`, 'success');
 }
 
-export function moveSongUp(index) {
-  if (index <= 0) return;
-  const song = state.queue[index];
-  if (!song) return;
-  socket.emit('queue:reorder', { lobbyId: state.lobbyId, songId: song.id, newIndex: index - 1 });
+// Move a song (edit mode): applied locally at once, the server's queue:update
+// confirms it and tells everyone else.
+export function moveSong(fromIndex, toIndex) {
+  const song = state.queue[fromIndex];
+  if (!song || toIndex < 0 || toIndex >= state.queue.length || toIndex === fromIndex) return;
+  socket.emit('queue:reorder', { lobbyId: state.lobbyId, songId: song.id, newIndex: toIndex });
+  const songs = [...state.queue];
+  songs.splice(fromIndex, 1);
+  songs.splice(toIndex, 0, song);
+  state.queue = songs;
+  updateQueue();
 }
 
-export function moveSongDown(index) {
-  if (index >= state.queue.length - 1) return;
-  const song = state.queue[index];
-  if (!song) return;
-  socket.emit('queue:reorder', { lobbyId: state.lobbyId, songId: song.id, newIndex: index + 1 });
-}
+export function moveSongUp(index) { moveSong(index, index - 1); }
+export function moveSongDown(index) { moveSong(index, index + 1); }
 
 // Playing a song makes this lobby the playback context (if it was not).
+// The song already playing from here is resumed if paused, never restarted.
 export function playSongAt(index) {
-  if (!state.queue[index]) return;
+  const song = state.queue[index];
+  if (!song) return;
+  const ctx = player.context;
+  if (ctx && ctx.lobbyId === state.lobbyId && player.track && player.track.id === song.id) {
+    if (!player.isPlaying) player.play();
+    return;
+  }
   player.playFrom(viewedContext(), state.queue, index);
 }
 
-export function setupQueueDragAndDrop() {
+function focusRow(songId, selector) {
+  const row = elements.queueList.querySelector(`.queue-item[data-song-id="${CSS.escape(songId)}"]`);
+  if (!row) return;
+  const target = (selector && row.querySelector(selector)) || row;
+  target.focus({ preventScroll: false });
+}
+
+// Edit mode on/off: header button, toolbar, rows.
+function applyEditMode(on) {
+  const btn = elements.editQueueBtn;
+  if (btn) {
+    btn.textContent = on ? t('queue.done', 'Done') : t('queue.edit', 'Edit');
+    btn.classList.toggle('btn-solid', on);
+    btn.classList.toggle('theme-primary', on);
+    btn.classList.toggle('btn', !on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+  elements.queueList.classList.toggle('is-editing', on);
+  if (elements.clearQueueBtn) elements.clearQueueBtn.hidden = !on;
+  if (elements.queueSortSelect) elements.queueSortSelect.disabled = on;
+  updateQueue();
+}
+
+export function toggleEditMode() {
+  setEditMode(!isEditMode() && state.canEdit);
+}
+
+export function exitEditMode() {
+  setEditMode(false);
+}
+
+// Row interactions. Normal mode: click / tap / Enter / Space plays from that
+// song. Edit mode: drag the handle (mouse, touch, pen), or focus the handle
+// and press ↑/↓ (Alt+↑/↓ anywhere on the row) to move; Delete removes.
+export function setupQueueInteractions() {
   const list = elements.queueList;
   // Right-click / long-press / ⋮ on a queue row: the song menu (song-reports.js).
   bindSongMenu(list, '.queue-item[data-index]', (row) => {
     const song = state.queue[parseInt(row.dataset.index, 10)];
     return song ? { url: song.url, title: song.title } : null;
   });
-  let draggedIndex = -1;
-  list.addEventListener('dblclick', (e) => { const item = e.target.closest('.queue-item'); if (!item) return; const index = parseInt(item.dataset.index, 10); if (!isNaN(index)) playSongAt(index); });
-  list.addEventListener('dragstart', (e) => { const item = e.target.closest('.queue-item'); if (!item) { e.preventDefault(); return; } draggedIndex = parseInt(item.dataset.index, 10); item.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(draggedIndex)); requestAnimationFrame(() => item.classList.add('dragging')); });
-  list.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; const item = e.target.closest('.queue-item'); if (!item || parseInt(item.dataset.index, 10) === draggedIndex) return; list.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(el => el.classList.remove('drag-over-top', 'drag-over-bottom')); const rect = item.getBoundingClientRect(); if (e.clientY < rect.top + rect.height / 2) item.classList.add('drag-over-top'); else item.classList.add('drag-over-bottom'); });
-  list.addEventListener('dragleave', (e) => { const item = e.target.closest('.queue-item'); if (item) item.classList.remove('drag-over-top', 'drag-over-bottom'); });
-  list.addEventListener('drop', (e) => {
-    e.preventDefault();
-    list.querySelectorAll('.drag-over-top, .drag-over-bottom, .dragging').forEach(el => el.classList.remove('drag-over-top', 'drag-over-bottom', 'dragging'));
-    const targetItem = e.target.closest('.queue-item');
-    if (!targetItem) return;
-    const targetIndex = parseInt(targetItem.dataset.index, 10);
-    if (targetIndex === draggedIndex) return;
-    const rect = targetItem.getBoundingClientRect();
-    let insertionPoint = e.clientY < rect.top + rect.height / 2 ? targetIndex : targetIndex + 1;
-    let newIndex = draggedIndex < insertionPoint ? insertionPoint - 1 : insertionPoint;
-    if (newIndex !== draggedIndex && newIndex >= 0) {
-      const song = state.queue[draggedIndex];
-      if (song) socket.emit('queue:reorder', { lobbyId: state.lobbyId, songId: song.id, newIndex });
-    }
-    draggedIndex = -1;
+  onEditModeChange(applyEditMode);
+  if (elements.editQueueBtn) {
+    elements.editQueueBtn.textContent = t('queue.edit', 'Edit');
+    elements.editQueueBtn.addEventListener('click', toggleEditMode);
+  }
+  if (elements.clearQueueBtn) elements.clearQueueBtn.hidden = true;
+
+  const rowIndex = (row) => parseInt(row.dataset.index, 10);
+
+  list.addEventListener('click', (e) => {
+    const row = e.target.closest('.queue-item[data-index]');
+    if (!row) return;
+    const remove = e.target.closest('.queue-item-remove');
+    if (remove) { removeSong(rowIndex(row)); return; }
+    // Buttons (⋮, broken report, handle) and links do their own thing.
+    if (e.target.closest('button, a[href], input, select, textarea')) return;
+    if (isEditMode()) return;
+    playSongAt(rowIndex(row));
   });
-  list.addEventListener('dragend', () => { list.querySelectorAll('.drag-over-top, .drag-over-bottom, .dragging').forEach(el => el.classList.remove('drag-over-top', 'drag-over-bottom', 'dragging')); draggedIndex = -1; });
+
+  list.addEventListener('keydown', (e) => {
+    const row = e.target.closest('.queue-item[data-index]');
+    if (!row) return;
+    const index = rowIndex(row);
+    const onRow = e.target === row;
+    const onHandle = !!e.target.closest('.queue-item-handle');
+    if (!isEditMode()) {
+      if (onRow && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); playSongAt(index); }
+      return;
+    }
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && (onHandle || e.altKey)) {
+      e.preventDefault();
+      const to = index + (e.key === 'ArrowUp' ? -1 : 1);
+      const song = state.queue[index];
+      if (!song || to < 0 || to >= state.queue.length) return;
+      moveSong(index, to);
+      focusRow(song.id, onHandle ? '.queue-item-handle' : null);
+      return;
+    }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && (onRow || onHandle)) {
+      e.preventDefault();
+      removeSong(index);
+    }
+  });
+
+  bindDragReorder(list, {
+    rowSelector: '.queue-item[data-index]',
+    handleSelector: '.queue-item-handle',
+    scroller: list.closest('.lobby-body'),
+    onDrop: (fromRow, toRow) => moveSong(rowIndex(fromRow), rowIndex(toRow)),
+    onEnd: () => { if (renderPending) updateQueue(); },
+  });
 }
 
 function getDownloadStatusHtml(downloadInfo) {
@@ -235,38 +324,68 @@ function getQueueListenersHtml(songTitle) {
   return `<div class="queue-item-listeners">${avatars}${overflowBadge}</div>`;
 }
 
+const DRAG_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 15h18v-2H3v2zm0 4h18v-2H3v2zm0-8h18V9H3v2zm0-6v2h18V5H3z"/></svg>';
+const REMOVE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 11v2h10v-2H7zm5-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>';
+const NOTE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>';
+
+// A queue:update during a drag waits until the drop.
+let renderPending = false;
+
 export function updateQueue() {
+  if (isDragging()) { renderPending = true; return; }
+  renderPending = false;
   refreshLibraryAddButtons();
   refreshPlayerBar();
   if (state.queue.length === 0) {
     elements.queueList.innerHTML = `<li class="list-group-item app-empty queue-empty"><p class="mb-1">${t('queue.empty', 'Queue is empty')}</p><p class="fs-sm mb-0 hint">${t('queue.emptyHint', 'Add a song to get started')}</p></li>`;
     return;
   }
+  const editing = isEditMode();
   const isContextOnScreen = !!player.context && player.context.lobbyId === state.lobbyId;
   const songsWithIndices = state.queue.map((song, index) => ({ song, index }));
   let visibleSongs = state.hideErroredSongs ? songsWithIndices.filter(({ song }) => { const di = state.downloadStatus[song.url]; return !di || di.status !== 'error'; }) : [...songsWithIndices];
-  if (state.queueSort === 'newest') visibleSongs.sort((a, b) => (b.song.addedAt || 0) - (a.song.addedAt || 0));
-  else if (state.queueSort === 'oldest') visibleSongs.sort((a, b) => (a.song.addedAt || 0) - (b.song.addedAt || 0));
+  // Edit mode always shows the real order (that is what gets reordered).
+  if (!editing && state.queueSort === 'newest') visibleSongs.sort((a, b) => (b.song.addedAt || 0) - (a.song.addedAt || 0));
+  else if (!editing && state.queueSort === 'oldest') visibleSongs.sort((a, b) => (a.song.addedAt || 0) - (b.song.addedAt || 0));
   if (visibleSongs.length === 0) { elements.queueList.innerHTML = '<li class="list-group-item app-empty queue-empty"><p class="mb-1">All songs have errors</p><p class="fs-sm mb-0 hint">Uncheck "Hide unplayable songs" to see them</p></li>'; return; }
+  // Keep keyboard focus on the same row (and the same handle / button) across re-renders.
+  const active = document.activeElement;
+  const focusedRow = active && elements.queueList.contains(active) ? active.closest('.queue-item') : null;
+  const focusedId = focusedRow ? focusedRow.dataset.songId : null;
+  const focusedPart = !focusedRow || active === focusedRow ? null
+    : ['.queue-item-handle', '.queue-item-remove', '.song-menu-btn'].find((sel) => active.matches(sel)) || null;
   elements.queueList.innerHTML = visibleSongs.map(({ song, index }) => {
     const thumbUrl = song.id ? getCoverUrl(song.id, song.thumbnail) : sanitizeUrl(song.thumbnail);
     const downloadHtml = getDownloadStatusHtml(state.downloadStatus[song.url]);
     const isPlaying = isContextOnScreen && !!player.track && player.track.id === song.id;
-    const canMoveUp = index > 0, canMoveDown = index < state.queue.length - 1;
-    const listenersHtml = getQueueListenersHtml(song.title);
-    return `<li class="list-group-item queue-item ${isPlaying ? 'playing' : ''}" data-index="${index}" data-url="${escapeHtml(song.url)}" data-title="${toLower(escapeHtml(song.title))}" draggable="true"><div class="queue-item-drag-handle" title="Drag to reorder" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg></div><div class="app-thumb queue-item-thumb">${thumbUrl ? `<img src="${escapeHtml(thumbUrl)}" alt="">` : '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>'}${downloadHtml.icon}</div><div class="queue-item-info"><div class="d-flex align-items-center gap-1 min-w-0"><div class="queue-item-title">${escapeHtml(song.title)}</div>${reportIconHtml(reportsFor({ url: song.url }))}</div><div class="queue-item-meta"><span class="queue-item-duration">${song.duration ? formatDuration(song.duration) : ''}</span>${song.addedBy ? `<span class="queue-item-added-by">${escapeHtml(song.addedBy)}</span>` : ''}${downloadHtml.badge}</div>${downloadHtml.progressBar}</div>${listenersHtml}<div class="queue-item-actions"><div class="queue-item-reorder"><button class="btn-text theme-secondary btn-icon btn-xs queue-item-up" aria-label="Move up" title="Move up" onclick="window.app.moveSongUp(${index})" ${!canMoveUp ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg></button><button class="btn-text theme-secondary btn-icon btn-xs queue-item-down" aria-label="Move down" title="Move down" onclick="window.app.moveSongDown(${index})" ${!canMoveDown ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg></button></div>${song.url && song.url.startsWith('http') ? `<button class="btn-text theme-secondary btn-icon btn-sm queue-item-youtube" aria-label="Open on YouTube" title="Open on YouTube" onclick="window.app.openSource(${index})"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47.13-1.33.22-2.65.28-1.3.07-2.49.1-3.59.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33-.22 2.65-.28 1.3-.07 2.49-.1 3.59-.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z"/></svg></button>` : ''}<button class="btn-text theme-secondary btn-icon btn-sm queue-item-play" aria-label="Play" title="Play" onclick="window.app.playSongAt(${index})"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button><button class="btn-text theme-secondary btn-icon btn-sm queue-item-remove" aria-label="Remove from queue" title="Remove from queue" onclick="window.app.removeSong(${index})"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>${songMenuButtonHtml(song.title)}</div></li>`;
+    const title = escapeHtml(song.title);
+    const listenersHtml = editing ? '' : getQueueListenersHtml(song.title);
+    const handle = editing ? `<button class="btn-text theme-secondary btn-icon btn-sm queue-item-handle" type="button" aria-label="Move ${title} (drag, or press up / down)" title="Drag to reorder (or focus and press ↑ / ↓)">${DRAG_ICON}</button>` : '';
+    const remove = editing ? `<button class="btn-text theme-danger btn-icon btn-sm queue-item-remove" type="button" aria-label="Remove ${title}" title="Remove from playlist">${REMOVE_ICON}</button>` : '';
+    return `<li class="list-group-item ${editing ? '' : 'list-group-item-action '}queue-item${isPlaying ? ' playing' : ''}" data-index="${index}" data-song-id="${escapeHtml(song.id)}" data-url="${escapeHtml(song.url)}" data-title="${toLower(title)}" tabindex="0"${isPlaying ? ' aria-current="true"' : ''}>`
+      + handle
+      + `<div class="app-thumb queue-item-thumb">${thumbUrl ? `<img src="${escapeHtml(thumbUrl)}" alt="">` : NOTE_ICON}${downloadHtml.icon}</div>`
+      + `<div class="queue-item-info"><div class="d-flex align-items-center gap-1 min-w-0"><div class="queue-item-title">${title}</div>${reportIconHtml(reportsFor({ url: song.url }))}</div><div class="queue-item-meta"><span class="queue-item-duration">${song.duration ? formatDuration(song.duration) : ''}</span>${song.addedBy ? `<span class="queue-item-added-by">${escapeHtml(song.addedBy)}</span>` : ''}${downloadHtml.badge}</div>${downloadHtml.progressBar}</div>`
+      + listenersHtml
+      + `<div class="queue-item-actions">${remove}${editing ? '' : songMenuButtonHtml(song.title)}</div></li>`;
   }).join('');
+  applyQueueFilter();
+  if (focusedId && !elements.queueList.contains(document.activeElement)) focusRow(focusedId, focusedPart);
+}
+
+// The "Filter songs" box (kept across re-renders).
+function applyQueueFilter() {
+  const input = document.getElementById('queue-search-input');
+  const query = input ? toLower(input.value) : '';
+  elements.queueList.querySelectorAll('.queue-item').forEach(el => {
+    el.style.display = !query || (el.dataset.title || '').includes(query) ? '' : 'none';
+  });
 }
 
 export function setupQueueSearch() {
   const searchInput = document.getElementById('queue-search-input');
   if (!searchInput) return;
-  searchInput.addEventListener('input', () => {
-    const query = toLower(searchInput.value);
-    elements.queueList.querySelectorAll('.queue-item').forEach(el => {
-      el.style.display = (el.dataset.title || '').includes(query) ? '' : 'none';
-    });
-  });
+  searchInput.addEventListener('input', applyQueueFilter);
 }
 
 // The playlist header's listener count. Who is listening and what they play
@@ -279,6 +398,7 @@ export function updateListeners() {
 // Clear the lobby page's lists (switching or leaving a lobby page). The full
 // player follows player.js and is left alone.
 export function resetLobbyUI() {
+  setEditMode(false);
   updateQueue();
   updateListeners();
 }

@@ -73,6 +73,24 @@ class Queue {
     await db.query('DELETE FROM queue_songs WHERE id = $1', [songId]);
   }
 
+  /**
+   * Put a previously removed entry back (undo of a remove), keeping its id,
+   * addedBy and addedAt. The index is clamped to the list.
+   * @returns {object|null} the entry, or null if its id is already queued
+   */
+  insertSong(song, index) {
+    if (!song || !song.id || this.songs.some(s => s.id === song.id)) return null;
+    const at = Math.max(0, Math.min(Number.isInteger(index) ? index : this.songs.length, this.songs.length));
+    this.songs.splice(at, 0, song);
+    if (db.isAvailable()) {
+      this._write('Failed to restore song', async () => {
+        await this._persistSong(song, at);
+        await this._updateSortOrders();
+      });
+    }
+    return song;
+  }
+
   reorderSong(songId, newIndex) {
     const currentIdx = this.songs.findIndex(s => s.id === songId);
     if (currentIdx === -1) return false;

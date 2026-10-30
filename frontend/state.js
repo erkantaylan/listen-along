@@ -110,6 +110,7 @@ export const state = {
   pinned: false,
   visibility: 'public',
   isOwner: false,
+  canEdit: false,  // may add / remove / reorder songs (server: playlistAccess.canEdit)
   ownerName: null,
   volume: storageGet(STORAGE_KEYS.VOLUME) !== null ? parseFloat(storageGet(STORAGE_KEYS.VOLUME)) : 1,
   isMuted: false,
@@ -159,6 +160,7 @@ export const elements = {
   hideErroredCheckbox: document.getElementById('hide-errored-songs'),
   queueSortSelect: document.getElementById('queue-sort'),
   clearQueueBtn: document.getElementById('clear-queue-btn'),
+  editQueueBtn: document.getElementById('edit-queue-btn'),
   downloadQueueBtn: document.getElementById('download-queue-btn'),
   playlistDownloadProgress: document.getElementById('playlist-download-progress'),
   pdlLabel: document.getElementById('pdl-label'),

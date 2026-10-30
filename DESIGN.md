@@ -114,6 +114,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Top bar | `nav.navbar.app-navbar > .container` (brand `.app-brand` or back button + `h1.h6`, actions on the right). |
 | Grouped content | `.card` with `.card-header` (h6) / `.card-body` / `.card-footer`. |
 | Lists of items (songs, playlists, users, tokens) | `ul.list-group` with `li.list-group-item` (flex row: `.app-thumb`, text block `min-w-0 flex-grow-1`, actions). Clickable rows: `.list-group-item-action` + `tabindex="0"` + Enter/Space handler. Empty state: `li.list-group-item.app-empty`. |
+| Song lists (playlist queue, library) | Normal vs edit mode, see "Song rows: normal and edit mode" below. |
 | Playing / current row | `.is-playing` (shared) or `.queue-item.playing` (playlist): accent tint + 3px accent left edge. |
 | Primary action | `.btn-solid.theme-primary` — one per view. |
 | Secondary action | `.btn` (grey) or `.btn-outline.theme-secondary`. |
@@ -143,7 +144,9 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   row: name, a subtle "Private" badge with a lock icon on private ones, then a muted
   line "by you / by <owner> / shared" (shared = ownerless legacy playlist), listener
   and song counts, age. Your own playlists get icon buttons on the right: lock/globe
-  (make private / make public) and a danger trash (delete). Footer (version, language, GitHub).
+  (make private / make public) and a danger trash (delete). Footer (version, language, GitHub). On load, a "Back to your last playlist?"
+  prompt names the last playlist you opened (looked up first; not shown if it is gone or no
+  longer visible to you).
 - **Playlist** (`/playlist/<id>`; internally the "lobby" view): full-height column —
   navbar (back, name/rename, a muted line with the "Private" badge, owner and listener
   count; owner-only lock/globe visibility button, pin, share), scrolling body (56rem)
@@ -151,12 +154,17 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   panel, your name/avatar is on the profile page). There is no per-playlist chat; there
   is one global chat (see "Chat and people panel"). Playback is the app-wide player bar, like
   every other page. The back button only navigates; it never leaves the playlist or stops
-  audio. Below 400px the per-song YouTube button is hidden (the player keeps the source link).
+  audio. Users who may edit the playlist (public: every signed-in user; private: its owner —
+  the server sends `canEdit` with `lobby:joined`) get a grey "Edit" text button in the navbar
+  (solid primary "Done" while editing) and the add-song bar; the others see neither. Queue rows
+  follow "Song rows: normal and edit mode" below; there is no per-song YouTube button (the
+  player keeps the source link). The "Clear queue" button shows only in edit mode.
   A playlist you cannot see (missing, deleted, someone else's private one) shows a
   "Playlist not found" toast and returns to the landing page.
 - **Music library**: fixed full-screen layer over landing or a playlist: navbar (back, title, "adding
   to" context), tabs Songs/Requested/Download/Broken with count badges, search + sort toolbar, list group of
-  songs (play button — plays in the app-wide player, shows pause on the song that is playing —, a grey
+  songs (clicking / tapping the row, or Enter / Space on it, plays it — the song already playing is
+  resumed, never restarted —; play button — plays in the app-wide player, shows pause on the song that is playing —, a grey
   icon button "Replace audio…" (swap arrows), Add / disabled "Added" button, ⋮ song menu), 20 per page: a compact
   "‹ Page n of m ›" pager above the list and the full numbered pagination + range below it
   (both follow `?page=`, both hidden when there is one page).
@@ -203,6 +211,35 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   offline badge, Refresh button — the only place machine details appear) and **Download
   jobs** (status filter select, counts in the header, rows with requester, playlist,
   worker, error code, status badge and Cancel / Retry); both refresh every 10s.
+
+### Song rows: normal and edit mode
+
+Song lists behave like Spotify's. **Normal mode** (always the default):
+
+- The whole row is the play target: click / tap anywhere on it (or Enter / Space on the focused
+  row, `tabindex="0"`, `.list-group-item-action`) plays the list from that song in the app-wide
+  player. The row that is playing has `.playing` / `.is-playing` (+ `aria-current`); clicking it
+  again resumes it if paused and never restarts it.
+- Rows stay clean: thumb, title (+ broken-report icon), one muted meta line, and only the ⋮ song
+  menu button on the right (the library keeps its play / replace / Add buttons). No drag handles,
+  arrows, remove or play buttons. Buttons and links inside a row never trigger the row.
+- Right-click / long-press / ⋮ open the song menu as always (see "Context menu").
+
+**Edit mode** (playlist queue only; "Edit" → "Done" in the navbar, only for users who may edit;
+leaving the page always ends it; `queue-edit.js`):
+
+- Each row gets a drag handle on the left (`.queue-item-handle`, `.btn-text.theme-secondary.btn-icon.btn-sm`,
+  `touch-action: none`) and a remove button on the right (`.queue-item-remove`, `.btn-text.theme-danger.btn-icon.btn-sm`,
+  minus-circle). Handles and remove grow to 2.5rem on coarse pointers. The list always shows the real
+  queue order (the sort select is disabled).
+- Clicking a row does nothing. Drag the handle (pointer events: mouse, touch and pen alike) — the row
+  lifts (`--bs-bg-2` + shadow) and the others slide out of its way; the list auto-scrolls near the
+  edges; Escape cancels. Keyboard: focus the handle and press ↑ / ↓ (Alt+↑ / ↓ anywhere on the row);
+  Delete removes the focused row. Focus stays on the moved row.
+- Moves and removals apply at once locally and go through `queue:reorder` / `queue:remove`, so every
+  viewer updates live. A removal shows a toast with an **Undo** action (6s; `showToast(msg, type,
+  { action, duration })` in `ui.js`) that sends `queue:restore` — the server puts the song back where
+  it was, within a minute. Prefer undo over confirm dialogs for reversible removals.
 
 ### Context menu
 

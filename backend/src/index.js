@@ -46,6 +46,16 @@ const rateLimitMap = new Map(); // key: IP, value: { count, resetTime }
 const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
 const RATE_LIMIT_MAX_REQUESTS = 20; // 20 requests per minute
 
+// Songs removed from a queue in the last minute, so the remover can undo
+// (queue:restore). key: `${lobbyId}:${songId}` -> { song, index, at }.
+const removedSongs = new Map();
+const REMOVED_SONG_TTL = 60 * 1000;
+function stashRemovedSong(lobbyId, song, index) {
+  const now = Date.now();
+  for (const [k, v] of removedSongs) if (now - v.at > REMOVED_SONG_TTL) removedSongs.delete(k);
+  removedSongs.set(`${lobbyId}:${song.id}`, { song, index, at: now });
+}
+
 function rateLimit(req, res, next) {
   const ip = req.clientIp || req.ip || req.socket.remoteAddress;
   const now = Date.now();
@@ -495,6 +505,7 @@ async function playlistInfo(l, userId, names = null) {
     ownerName: (l.ownerId && nameMap.get(l.ownerId)) || l.ownerName || null,
     isOwner: access.isOwner(l, userId),
     canManage: access.canManage(l, userId),
+    canEdit: access.canEdit(l, userId),
     pinned: l.pinned || false,
     userCount: l.users ? l.users.size : (l.userCount || 0),
     songCount: queue.getSongs().length,
@@ -2006,6 +2017,7 @@ io.on('connection', (socket) => {
       ownerId: lobbyData ? lobbyData.ownerId : null,
       ownerName: lobbyData ? ((lobbyData.ownerId && names.get(lobbyData.ownerId)) || lobbyData.ownerName || null) : null,
       isOwner: access.isOwner(lobbyData, userId),
+      canEdit: access.canEdit(lobbyData, userId),
       user,
       users: lobby.getLobbyUsers(lobbyId)
     });
@@ -2400,9 +2412,24 @@ io.on('connection', (socket) => {
     if (!(await editableLobby(lobbyId))) return;
 
     const queue = await getQueueAsync(lobbyId);
+    const index = queue.getSongs().findIndex(s => s.id === songId);
     const removed = queue.removeSong(songId);
     if (removed) {
+      stashRemovedSong(lobbyId, removed, index);
       console.log(`Song removed from lobby ${lobbyId}: ${removed.title}`);
+      io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+    }
+  });
+
+  // Undo a remove: put a song removed in the last minute back where it was.
+  socket.on('queue:restore', async ({ lobbyId, songId } = {}) => {
+    if (!(await editableLobby(lobbyId))) return;
+    const key = `${lobbyId}:${songId}`;
+    const stashed = removedSongs.get(key);
+    if (!stashed || Date.now() - stashed.at > REMOVED_SONG_TTL) return;
+    removedSongs.delete(key);
+    const queue = await getQueueAsync(lobbyId);
+    if (queue.insertSong(stashed.song, stashed.index)) {
       io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
     }
   });
