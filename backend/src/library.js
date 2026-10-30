@@ -97,6 +97,22 @@ function queueUrlFor(song) {
   return song.youtube_id ? youtubeUrl(song.youtube_id) : `library:${song.id}`;
 }
 
+/**
+ * Whether a lobby queue (array of entries) already holds this library song:
+ * by its queue url (`library:<uuid>` or YouTube watch URL), any other YouTube
+ * URL for the same id, or its legacy source_url.
+ */
+function isQueued(songs, song) {
+  if (!song || !Array.isArray(songs)) return false;
+  const queueUrl = queueUrlFor(song);
+  return songs.some((s) => {
+    if (!s || !s.url) return false;
+    if (s.url === queueUrl || s.url === `library:${song.id}`) return true;
+    if (song.source_url && s.url === song.source_url) return true;
+    return !!song.youtube_id && parseYoutubeId(s.url) === song.youtube_id;
+  });
+}
+
 /** Shape a DB row for the public API. */
 function toPublic(row) {
   if (!row) return null;
@@ -622,6 +638,7 @@ module.exports = {
   MAX_SOURCE_URL_LENGTH,
   youtubeThumbnail,
   queueUrlFor,
+  isQueued,
   toPublic,
   toQueueEntry,
   sha256File,

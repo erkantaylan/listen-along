@@ -2,6 +2,7 @@
 import { state, elements, socket, STORAGE_KEYS, storageSet } from './state.js';
 import { showToast, escapeHtml, sanitizeUrl, getCoverUrl, getInitials, formatDuration, t, toLower } from './ui.js';
 import { stopFollowing, playLocalTrack, updatePlayButton, updatePlaybackModeUI, updateModeButton } from './playback.js';
+import { refreshLibraryAddButtons } from './library.js';
 
 export function handleQueueUpdated(data) {
   state.queue = data.songs || data.queue || [];
@@ -225,6 +226,7 @@ function getQueueListenersHtml(songTitle) {
 }
 
 export function updateQueue() {
+  refreshLibraryAddButtons();
   if (state.queue.length === 0) {
     elements.queueList.innerHTML = `<li class="queue-empty"><p>${t('queue.empty', 'Queue is empty')}</p><p class="hint">${t('queue.emptyHint', 'Add a song to get started')}</p></li>`;
     return;

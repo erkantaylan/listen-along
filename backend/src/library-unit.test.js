@@ -146,6 +146,38 @@ describe('library queue url helpers', () => {
   });
 });
 
+// queue:add with a libraryId refuses a song the lobby already has queued
+// (index.js addLibrarySongToLobby with skipIfQueued), based on this check.
+describe('library.isQueued', () => {
+  const { Queue } = require('./queue');
+  const ytSong = { id: '11111111-1111-4111-8111-111111111111', youtube_id: 'dQw4w9WgXcQ', title: 'Y', artist: 'A' };
+  const plainSong = { id: '22222222-2222-4222-8222-222222222222', youtube_id: null, title: 'P', artist: 'A' };
+
+  it('is false for an empty queue or a different song', () => {
+    const q = new Queue('lobby');
+    assert.equal(library.isQueued(q.getSongs(), ytSong), false);
+    q.addSong({ ...library.toQueueEntry(plainSong), addedBy: 'x' });
+    assert.equal(library.isQueued(q.getSongs(), ytSong), false);
+    assert.equal(library.isQueued(q.getSongs(), plainSong), true);
+  });
+
+  it('matches a queued library song by its queue url, and stops once it is removed', () => {
+    const q = new Queue('lobby');
+    const entry = q.addSong({ ...library.toQueueEntry(ytSong), addedBy: 'x' });
+    assert.equal(library.isQueued(q.getSongs(), ytSong), true);
+    q.removeSong(entry.id);
+    assert.equal(library.isQueued(q.getSongs(), ytSong), false);
+  });
+
+  it('matches other URL shapes for the same YouTube id, library: urls and the legacy source_url', () => {
+    assert.equal(library.isQueued([{ url: 'https://youtu.be/dQw4w9WgXcQ?t=3' }], ytSong), true);
+    assert.equal(library.isQueued([{ url: `library:${ytSong.id}` }], ytSong), true);
+    const legacy = { ...plainSong, source_url: 'https://example.com/cache/p.m4a' };
+    assert.equal(library.isQueued([{ url: 'https://example.com/cache/p.m4a' }], legacy), true);
+    assert.equal(library.isQueued([{ url: 'https://example.com/other.m4a' }, {}, null], legacy), false);
+  });
+});
+
 describe('tokens helpers', () => {
   it('generates distinct prefixed tokens and hashes deterministically', () => {
     const a = tokens.generateToken();

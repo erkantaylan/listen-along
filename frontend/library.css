@@ -212,6 +212,13 @@ body.libpage-open { overflow: hidden; }
 }
 
 .libpage-add:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Already in the lobby's queue: outlined instead of filled. */
+.libpage-add.added:disabled {
+  background: transparent;
+  color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+  opacity: 0.75;
+}
 
 .libpage-preview { flex-shrink: 0; }
 .libpage-preview svg { width: 20px; height: 20px; }

@@ -833,8 +833,12 @@ async function destroyLobby(lobbyId, { reason } = {}) {
 
 // Append a library song to a lobby's queue (starting playback if the queue was
 // empty). Caller broadcasts the queue:update.
-async function addLibrarySongToLobby(lobbyId, librarySong, addedBy) {
+// skipIfQueued: add nothing (returns null) when the song is already in the
+// queue. Checked here, with no await before addSong, so two quick adds of the
+// same song cannot both get through.
+async function addLibrarySongToLobby(lobbyId, librarySong, addedBy, { skipIfQueued = false } = {}) {
   const queue = await getQueueAsync(lobbyId);
+  if (skipIfQueued && library.isQueued(queue.getSongs(), librarySong)) return null;
   const entry = library.toQueueEntry(librarySong);
   const song = queue.addSong({ ...entry, addedBy: addedBy || 'anonymous' });
   if (entry.thumbnail) {
@@ -1796,7 +1800,13 @@ io.on('connection', (socket) => {
     }
 
     if (result.type === 'library') {
-      const song = await addLibrarySongToLobby(lobbyId, result.song, addedBy);
+      // Adding by library id (library page) is refused for a song the lobby
+      // already has queued; search / links may still queue a song twice.
+      const song = await addLibrarySongToLobby(lobbyId, result.song, addedBy, { skipIfQueued: !!libraryId });
+      if (!song) {
+        socket.emit('queue:error', { message: 'Already in the queue', libraryId });
+        return;
+      }
       console.log(`Song added to lobby ${lobbyId}: ${song.title}`);
       const queue = await getQueueAsync(lobbyId);
       io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });

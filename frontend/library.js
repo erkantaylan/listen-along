@@ -132,6 +132,54 @@ function updateContext() {
 
 // --- Songs ----------------------------------------------------------------
 
+// Queue entries point at library songs by url: `library:<uuid>`, or the
+// YouTube watch URL for songs with a YouTube id (backend library.queueUrlFor).
+// Older entries may carry the song's source_url instead.
+function youtubeIdFromUrl(url) {
+  const m = /(?:[?&]v=|youtu\.be\/|\/shorts\/|\/embed\/)([A-Za-z0-9_-]{11})/.exec(url);
+  return m ? m[1] : null;
+}
+
+function queuedKeys() {
+  const keys = new Set();
+  for (const item of state.queue || []) {
+    if (!item || !item.url) continue;
+    keys.add(item.url);
+    const yt = youtubeIdFromUrl(item.url);
+    if (yt) keys.add(`yt:${yt}`);
+  }
+  return keys;
+}
+
+function isQueued(song, keys) {
+  return keys.has(`library:${song.id}`)
+    || (!!song.youtube_id && keys.has(`yt:${song.youtube_id}`))
+    || (!!song.source_url && keys.has(song.source_url));
+}
+
+// Add button state: no lobby, already in this lobby's queue, or addable.
+function setAddButton(btn, song, keys) {
+  const queued = !!state.lobbyId && isQueued(song, keys);
+  btn.disabled = !state.lobbyId || queued;
+  btn.classList.toggle('added', queued);
+  btn.textContent = queued ? 'Added' : 'Add';
+  if (!state.lobbyId) btn.title = 'Join a lobby first';
+  else if (queued) btn.title = 'Already in the queue';
+  else btn.removeAttribute('title');
+}
+
+// Called whenever the queue (or the lobby) changes, so the buttons follow
+// songs being added elsewhere or removed from the queue.
+export function refreshLibraryAddButtons() {
+  if (!lib.open) return;
+  updateContext();
+  const keys = queuedKeys();
+  document.querySelectorAll('#libpage-list .libpage-add').forEach((btn) => {
+    const song = lib.songs.find((s) => s.id === btn.dataset.id);
+    if (song) setAddButton(btn, song, keys);
+  });
+}
+
 function renderSongs() {
   const list = $('libpage-list');
   if (!list) return;
@@ -140,7 +188,6 @@ function renderSongs() {
   if (!lib.songs.length) {
     list.innerHTML = `<li class="libpage-empty">${lib.loading ? 'Loading…' : (lib.query ? 'No songs match your search' : 'The library is empty. Songs appear here once they are uploaded.')}</li>`;
   } else {
-    const canAdd = !!state.lobbyId;
     list.innerHTML = lib.songs.map((song) => {
       const sub = [song.artist, song.album].filter(Boolean).map(escapeHtml).join(' · ');
       const meta = [
@@ -157,9 +204,11 @@ function renderSongs() {
           <div class="libpage-meta">${meta}</div>
         </div>
         ${previewButtonHtml(song.id)}
-        <button class="btn btn-small btn-primary libpage-add" data-id="${escapeHtml(song.id)}" ${canAdd ? '' : 'disabled title="Join a lobby first"'}>Add</button>
+        <button class="btn btn-small btn-primary libpage-add" data-id="${escapeHtml(song.id)}">Add</button>
       </li>`;
     }).join('');
+    const keys = queuedKeys();
+    list.querySelectorAll('.libpage-add').forEach((btn, i) => setAddButton(btn, lib.songs[i], keys));
   }
   renderPager();
 }
@@ -247,10 +296,13 @@ async function loadSongs({ page = 0, refresh = false } = {}) {
 function addToQueue(songId, btn) {
   if (!state.lobbyId) { showToast('Join a lobby first', 'error'); return; }
   socket.emit('queue:add', { lobbyId: state.lobbyId, libraryId: songId, addedBy: state.username, userId: state.userId });
+  // Stays "Added": the queue:update that follows keeps it that way, and a
+  // rejected duplicate means it was already queued anyway.
   if (btn) {
     btn.textContent = 'Added';
     btn.disabled = true;
-    setTimeout(() => { btn.textContent = 'Add'; btn.disabled = !state.lobbyId; }, 2000);
+    btn.classList.add('added');
+    btn.title = 'Already in the queue';
   }
 }
 
