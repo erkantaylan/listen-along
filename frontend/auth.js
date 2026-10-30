@@ -3,17 +3,12 @@ import { state, elements, socket, auth, STORAGE_KEYS, AVATAR_EMOJIS, storageSet 
 import { showView, showToast, escapeHtml, navigateTo } from './ui.js';
 import { announceProfile } from './social.js';
 
+// The logged-in account's status (approved / pending / denied / rejected),
+// as the server sees it.
 export async function registerUser() {
-  try {
-    const res = await fetch('/api/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: state.userId, username: state.username, emoji: state.emoji })
-    });
-    if (!res.ok) return 'approved';
-    const data = await res.json();
-    return data.status || 'approved';
-  } catch { return 'approved'; }
+  const data = await checkAuth();
+  if (!data.authenticated) return 'unregistered';
+  return (data.user && data.user.status) || 'approved';
 }
 
 export function setupPendingRetry() {
@@ -22,8 +17,8 @@ export function setupPendingRetry() {
       elements.pendingRetryBtn.disabled = true;
       elements.pendingRetryBtn.textContent = 'Checking...';
       const status = await registerUser();
-      if (status === 'approved') { window.location.reload(); }
-      else if (status === 'rejected') { showRejectedView(); }
+      if (status === 'approved' || status === 'unregistered') { window.location.reload(); }
+      else if (status === 'rejected' || status === 'denied') { showRejectedView(); }
       else {
         showToast('Still waiting for approval', 'info');
         elements.pendingRetryBtn.disabled = false;
@@ -49,9 +44,15 @@ export async function checkAuth() {
 }
 
 // After signing in, come back to the page that was asked for (/library?q=…).
+// The server sends a logged-out visitor to /login?next=<that page>; the SPA
+// shown in place (no redirect) uses its own address. The server re-checks it.
 function loginNextQuery() {
-  const next = window.location.pathname + window.location.search;
-  return next === '/' || window.location.pathname === '/login' ? '' : `?next=${encodeURIComponent(next)}`;
+  let next = window.location.pathname + window.location.search;
+  if (window.location.pathname === '/login') {
+    next = new URLSearchParams(window.location.search).get('next') || '';
+    if (!next.startsWith('/') || next.startsWith('//') || next.startsWith('/\\')) next = '';
+  }
+  return !next || next === '/' || next.startsWith('/login') ? '' : `?next=${encodeURIComponent(next)}`;
 }
 
 export async function setupLoginView() {

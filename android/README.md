@@ -22,8 +22,9 @@ the cloud, download what you want, and an On device tab.
   `audio/mpeg`, content URI). Long-press to delete it. Pull down to forget
   songs whose files were deleted in another app. The app also does this every
   time it comes to the foreground.
-- **Settings**: the server address, an optional API token (sent as
-  `Authorization: Bearer …` and stored encrypted), a **Save and test** button
+- **Settings**: the server address, an API token (sent as
+  `Authorization: Bearer …` and stored encrypted; the server refuses library
+  requests without one, create it on `/admin`), a **Save and test** button
   that checks `/api/library` and `/api/me`, and the Night/Paper theme.
 
 ### Where the files go
