@@ -166,8 +166,12 @@ describe('tokens helpers', () => {
 
 describe('adminAuth', () => {
   let saved;
-  beforeEach(() => { saved = process.env.ADMIN_PASSWORD; });
-  afterEach(() => { if (saved === undefined) delete process.env.ADMIN_PASSWORD; else process.env.ADMIN_PASSWORD = saved; });
+  let savedUser;
+  beforeEach(() => { saved = process.env.ADMIN_PASSWORD; savedUser = process.env.ADMIN_USER; });
+  afterEach(() => {
+    if (saved === undefined) delete process.env.ADMIN_PASSWORD; else process.env.ADMIN_PASSWORD = saved;
+    if (savedUser === undefined) delete process.env.ADMIN_USER; else process.env.ADMIN_USER = savedUser;
+  });
 
   it('is disabled without ADMIN_PASSWORD', () => {
     delete process.env.ADMIN_PASSWORD;
@@ -188,6 +192,21 @@ describe('adminAuth', () => {
     assert.equal(adminAuth.verifySessionValue(`${Number(exp) + 1}.${sig}`, now), false, 'tampered');
     process.env.ADMIN_PASSWORD = 'changed';
     assert.equal(adminAuth.verifySessionValue(v, now), false, 'password change logs out');
+  });
+
+  it('checks the username, defaulting to admin', () => {
+    delete process.env.ADMIN_USER;
+    process.env.ADMIN_PASSWORD = 'hunter2';
+    assert.equal(adminAuth.checkCredentials('admin', 'hunter2'), true);
+    assert.equal(adminAuth.checkCredentials('root', 'hunter2'), false);
+    assert.equal(adminAuth.checkCredentials(undefined, 'hunter2'), false);
+    const now = Date.now();
+    const v = adminAuth.createSessionValue(now);
+    process.env.ADMIN_USER = 'erkan';
+    assert.equal(adminAuth.checkCredentials('erkan', 'hunter2'), true);
+    assert.equal(adminAuth.checkCredentials('admin', 'hunter2'), false);
+    assert.equal(adminAuth.checkCredentials('erkan', 'hunter3'), false);
+    assert.equal(adminAuth.verifySessionValue(v, now), false, 'username change logs out');
   });
 });
 

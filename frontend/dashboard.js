@@ -53,7 +53,12 @@ export function checkUrlForDashboard() {
 
 export function fetchDashboardStats() {
   fetch('/api/dashboard/stats', { credentials: 'include' })
-    .then(res => { if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); })
+    .then(res => {
+      // Admin session expired or logged out: log in again on /admin.
+      if (res.status === 401) { window.location.href = '/admin?next=/dashboard'; throw new Error('Admin login required'); }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    })
     .then(data => {
       if (elements.statLobbies) elements.statLobbies.textContent = data.totalLobbies;
       if (elements.statUsers) elements.statUsers.textContent = data.totalUsers;

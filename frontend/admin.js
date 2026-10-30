@@ -1,5 +1,6 @@
 // Admin page: CLI tokens, song requests, library management.
-// Auth is the ADMIN_PASSWORD cookie set by POST /api/admin/login.
+// Auth is the ADMIN_USER / ADMIN_PASSWORD cookie set by POST /api/admin/login,
+// which also unlocks /dashboard.
 (function () {
   'use strict';
 
@@ -32,11 +33,21 @@
   function showLogin() {
     $('adm-main').hidden = true;
     $('adm-logout').hidden = true;
+    $('adm-dashboard-link').hidden = true;
     $('adm-login').hidden = false;
-    $('adm-password').focus();
+    $('adm-username').focus();
+  }
+
+  // /dashboard sends logged-out visitors here with ?next=/dashboard.
+  function goToNext() {
+    if (new URLSearchParams(location.search).get('next') !== '/dashboard') return false;
+    location.replace('/dashboard');
+    return true;
   }
 
   function showMain() {
+    if (goToNext()) return;
+    $('adm-dashboard-link').hidden = false;
     $('adm-login').hidden = true;
     $('adm-main').hidden = false;
     $('adm-logout').hidden = false;
@@ -172,7 +183,7 @@
     const err = $('adm-login-error');
     err.hidden = true;
     try {
-      await api('POST', '/api/admin/login', { password: $('adm-password').value });
+      await api('POST', '/api/admin/login', { username: $('adm-username').value, password: $('adm-password').value });
       $('adm-password').value = '';
       showMain();
     } catch (ex) {

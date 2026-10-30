@@ -13,6 +13,7 @@
     <header class="adm-header">
       <h1>listen-along admin</h1>
       <a href="/" class="adm-link">← Back to app</a>
+      <a href="/dashboard" class="adm-link" id="adm-dashboard-link" hidden>Dashboard</a>
       <button id="adm-logout" class="adm-btn adm-btn-ghost" type="button" hidden>Log out</button>
     </header>
 
@@ -22,7 +23,9 @@
 
     <form id="adm-login" class="adm-card adm-login" hidden>
       <h2>Log in</h2>
-      <label for="adm-password">Admin password</label>
+      <label for="adm-username">Username</label>
+      <input id="adm-username" type="text" autocomplete="username" required>
+      <label for="adm-password">Password</label>
       <input id="adm-password" type="password" autocomplete="current-password" required>
       <button class="adm-btn adm-btn-primary" type="submit">Log in</button>
       <p id="adm-login-error" class="adm-error" hidden></p>

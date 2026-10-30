@@ -1,8 +1,9 @@
 /**
- * Admin page auth: a single ADMIN_PASSWORD env var. Logging in sets an
- * HMAC-signed, expiring cookie. The signing key is derived from the password,
- * so changing ADMIN_PASSWORD logs every admin session out. If ADMIN_PASSWORD is
- * unset, admin is disabled entirely.
+ * Admin auth for /admin and /dashboard: ADMIN_USER (default "admin") and
+ * ADMIN_PASSWORD env vars. Logging in sets an HMAC-signed, expiring cookie.
+ * The signing key is derived from the credentials, so changing either one logs
+ * every admin session out. If ADMIN_PASSWORD is unset, admin is disabled
+ * entirely.
  */
 
 const crypto = require('crypto');
@@ -14,12 +15,16 @@ function password() {
   return process.env.ADMIN_PASSWORD || '';
 }
 
+function username() {
+  return process.env.ADMIN_USER || 'admin';
+}
+
 function isEnabled() {
   return password().length > 0;
 }
 
 function signingKey() {
-  return crypto.createHmac('sha256', password()).update('listen-along-admin-cookie-v1').digest();
+  return crypto.createHmac('sha256', password()).update(`listen-along-admin-cookie-v1:${username()}`).digest();
 }
 
 function sign(payload) {
@@ -46,6 +51,13 @@ function checkPassword(candidate) {
   const current = password();
   if (pwCache.password !== current) pwCache = { password: current, key: passwordKey(current) };
   return crypto.timingSafeEqual(passwordKey(candidate), pwCache.key);
+}
+
+function checkCredentials(user, candidate) {
+  // Evaluate both so a wrong username takes as long as a wrong password.
+  const userOk = typeof user === 'string' && safeEqual(user, username());
+  const passOk = checkPassword(candidate);
+  return userOk && passOk;
 }
 
 function createSessionValue(now = Date.now()) {
@@ -103,6 +115,7 @@ module.exports = {
   COOKIE_NAME,
   isEnabled,
   checkPassword,
+  checkCredentials,
   createSessionValue,
   verifySessionValue,
   isAdmin,

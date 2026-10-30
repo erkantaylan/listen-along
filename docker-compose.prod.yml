@@ -10,8 +10,6 @@ services:
       - DATABASE_URL=postgres://listen:listen@postgres:5432/listen
       - SONGS_PATH=/data/songs
       - COVERS_DIR=/data/covers
-      - DASHBOARD_USER=${DASHBOARD_USER:-}
-      - DASHBOARD_PASS=${DASHBOARD_PASS:-}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
@@ -19,7 +17,9 @@ services:
       - SESSION_SECRET=${SESSION_SECRET:-}
       - FRONTEND_URL=${FRONTEND_URL:-}
       - BASE_URL=${BASE_URL:-}
-      # /admin page password (CLI tokens, requests, library). Unset = disabled.
+      # Login for /admin (CLI tokens, requests, library) and /dashboard.
+      # ADMIN_USER defaults to "admin". Unset ADMIN_PASSWORD = both disabled.
+      - ADMIN_USER=${ADMIN_USER:-}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
     depends_on:
       postgres:

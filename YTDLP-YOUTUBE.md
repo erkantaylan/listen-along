@@ -70,7 +70,8 @@ search, and anything not found becomes a **song request**.
 
 ## Tokens and admin
 
-- Set `ADMIN_PASSWORD` to enable `/admin` (unset = admin disabled).
+- Set `ADMIN_PASSWORD` (and optionally `ADMIN_USER`, default `admin`) to enable
+  `/admin` and `/dashboard` (unset = both disabled).
 - On `/admin`, create a token per person (labelled with their display name).
   The plaintext is shown once; only its SHA-256 is stored. Revoke any time.
 - The CLI sends `Authorization: Bearer <token>`; uploads record `uploaded_by`

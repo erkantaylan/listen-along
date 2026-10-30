@@ -217,8 +217,9 @@ function createLibraryRouter(hooks = {}) {
 
   router.post('/api/admin/login', loginRateLimit, (req, res) => {
     if (!adminAuth.isEnabled()) return res.status(404).json({ error: 'Admin is disabled (ADMIN_PASSWORD not set)' });
-    if (!adminAuth.checkPassword(req.body && req.body.password)) {
-      return res.status(401).json({ error: 'Wrong password' });
+    const body = req.body || {};
+    if (!adminAuth.checkCredentials(body.username, body.password)) {
+      return res.status(401).json({ error: 'Wrong username or password' });
     }
     adminAuth.setSessionCookie(res);
     res.json({ ok: true });

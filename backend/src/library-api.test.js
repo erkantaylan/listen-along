@@ -319,8 +319,10 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
         method: 'POST', headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: JSON.stringify(body || {}),
       });
       assert.equal((await getJson('/api/admin/tokens')).status, 401);
-      assert.equal((await post('/api/admin/login', { password: 'nope' })).status, 401);
-      const login = await post('/api/admin/login', { password: 'pw-test' });
+      assert.equal((await post('/api/admin/login', { username: 'admin', password: 'nope' })).status, 401);
+      assert.equal((await post('/api/admin/login', { username: 'nope', password: 'pw-test' })).status, 401);
+      assert.equal((await post('/api/admin/login', { password: 'pw-test' })).status, 401, 'username required');
+      const login = await post('/api/admin/login', { username: 'admin', password: 'pw-test' });
       assert.equal(login.status, 200);
       const cookie = login.headers.get('set-cookie').split(';')[0];
 

@@ -18,6 +18,7 @@ const db = require('./db');
 const library = require('./library');
 const songRequests = require('./requests');
 const { createLibraryRouter, sendSongFile } = require('./libraryRoutes');
+const adminAuth = require('./adminAuth');
 const { apiLimiter } = require('./rateLimits');
 const { createResolver } = require('./songResolver');
 const covers = require('./covers');
@@ -55,21 +56,6 @@ function rateLimit(req, res, next) {
   next();
 }
 
-// Dashboard authentication
-let DASHBOARD_USER = process.env.DASHBOARD_USER;
-let DASHBOARD_PASS = process.env.DASHBOARD_PASS;
-
-// Generate random credentials if not set
-if (!DASHBOARD_USER || !DASHBOARD_PASS) {
-  DASHBOARD_USER = DASHBOARD_USER || 'admin';
-  DASHBOARD_PASS = DASHBOARD_PASS || crypto.randomBytes(16).toString('hex');
-  console.log('='.repeat(60));
-  console.log('Dashboard credentials (auto-generated):');
-  console.log(`  Username: ${DASHBOARD_USER}`);
-  console.log(`  Password: ${DASHBOARD_PASS}`);
-  console.log('Set DASHBOARD_USER and DASHBOARD_PASS env vars to customize.');
-  console.log('='.repeat(60));
-}
 
 // OAuth configuration
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -512,33 +498,6 @@ app.get('/api/covers/:id', (req, res) => {
   res.status(404).json({ error: 'Cover not found' });
 });
 
-// Dashboard basic authentication middleware
-const dashboardAuth = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader || !authHeader.startsWith('Basic ')) {
-    res.setHeader('WWW-Authenticate', 'Basic realm="Dashboard"');
-    return res.status(401).send('Authentication required');
-  }
-
-  const credentials = Buffer.from(authHeader.slice(6), 'base64').toString();
-  const idx = credentials.indexOf(':');
-  const user = credentials.slice(0, idx);
-  const pass = credentials.slice(idx + 1);
-
-  // Use constant-time comparison to prevent timing attacks
-  const userMatch = user.length === DASHBOARD_USER.length &&
-    crypto.timingSafeEqual(Buffer.from(user), Buffer.from(DASHBOARD_USER));
-  const passMatch = pass.length === DASHBOARD_PASS.length &&
-    crypto.timingSafeEqual(Buffer.from(pass), Buffer.from(DASHBOARD_PASS));
-
-  if (userMatch && passMatch) {
-    next();
-  } else {
-    res.setHeader('WWW-Authenticate', 'Basic realm="Dashboard"');
-    res.status(401).send('Invalid credentials');
-  }
-};
 
 // ==========================================
 // OAuth Authentication
@@ -810,7 +769,7 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 // Admin: list pending users (dashboard auth)
-app.get('/api/auth/users', dashboardAuth, async (req, res) => {
+app.get('/api/auth/users', adminAuth.requireAdmin, async (req, res) => {
   if (!db.isAvailable()) return res.json({ users: [] });
   try {
     const result = await db.query('SELECT id, provider, email, name, avatar_url, status, created_at FROM users ORDER BY created_at DESC');
@@ -822,7 +781,7 @@ app.get('/api/auth/users', dashboardAuth, async (req, res) => {
 });
 
 // Admin: approve/deny user (dashboard auth)
-app.post('/api/auth/users/:userId/status', dashboardAuth, express.json(), async (req, res) => {
+app.post('/api/auth/users/:userId/status', adminAuth.requireAdmin, express.json(), async (req, res) => {
   const { status } = req.body;
   if (!['approved', 'denied'].includes(status)) {
     return res.status(400).json({ error: 'Status must be approved or denied' });
@@ -1272,7 +1231,7 @@ async function linkProviderToUser(userId, provider, profile) {
 }
 
 // Dashboard stats endpoint
-app.get('/api/dashboard/stats', dashboardAuth, async (req, res) => {
+app.get('/api/dashboard/stats', adminAuth.requireAdmin, async (req, res) => {
   // Calculate disk usage from songs directory
   let diskUsageBytes = 0;
   let diskFileCount = 0;
@@ -1343,7 +1302,7 @@ app.get('/api/dashboard/stats', dashboardAuth, async (req, res) => {
 // Library management (delete songs, tokens, requests) lives on /admin.
 
 // List all registered users (dashboard only)
-app.get('/api/dashboard/users', dashboardAuth, async (req, res) => {
+app.get('/api/dashboard/users', adminAuth.requireAdmin, async (req, res) => {
   if (!db.isAvailable()) {
     return res.json({ users: [] });
   }
@@ -1360,7 +1319,7 @@ app.get('/api/dashboard/users', dashboardAuth, async (req, res) => {
 });
 
 // Approve a user (dashboard only)
-app.put('/api/dashboard/users/:id/approve', dashboardAuth, async (req, res) => {
+app.put('/api/dashboard/users/:id/approve', adminAuth.requireAdmin, async (req, res) => {
   try {
     const result = await db.query(
       'UPDATE users SET status = $1, updated_at = $2 WHERE id = $3 RETURNING user_id, username, status',
@@ -1377,7 +1336,7 @@ app.put('/api/dashboard/users/:id/approve', dashboardAuth, async (req, res) => {
 });
 
 // Reject a user (dashboard only)
-app.put('/api/dashboard/users/:id/reject', dashboardAuth, async (req, res) => {
+app.put('/api/dashboard/users/:id/reject', adminAuth.requireAdmin, async (req, res) => {
   try {
     const result = await db.query(
       'UPDATE users SET status = $1, updated_at = $2 WHERE id = $3 RETURNING user_id, username, status',
@@ -1394,7 +1353,7 @@ app.put('/api/dashboard/users/:id/reject', dashboardAuth, async (req, res) => {
 });
 
 // Delete a lobby (dashboard only)
-app.delete('/api/dashboard/lobbies/:id', dashboardAuth, async (req, res) => {
+app.delete('/api/dashboard/lobbies/:id', adminAuth.requireAdmin, async (req, res) => {
   const lobbyId = req.params.id;
   const lobbyData = lobby.getLobby(lobbyId);
 
@@ -1419,7 +1378,8 @@ app.get('/youtube-playlist', (req, res) => {
 });
 
 // Serve dashboard page
-app.get('/dashboard', dashboardAuth, (req, res) => {
+app.get('/dashboard', (req, res) => {
+  if (!adminAuth.isAdmin(req)) return res.redirect('/admin?next=/dashboard');
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
