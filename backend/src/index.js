@@ -25,6 +25,9 @@ const access = require('./playlistAccess');
 const spotify = require('./spotify');
 const auth = require('./auth');
 const youtubePlaylist = require('./youtubePlaylist');
+const chat = require('./chat');
+const { createPresence } = require('./presence');
+const { createSocial } = require('./social');
 const resolver = createResolver();
 const QRCode = require('qrcode');
 const pkg = require('../package.json');
@@ -576,6 +579,7 @@ async function updatePlaylist(req, res, { name, visibility }) {
     if (visibility === 'private') evictNonOwners(l.id, l.ownerId);
   }
   await broadcastPlaylistUpdated(l.id);
+  if (social) social.lobbyChanged(l.id);
   if (name !== undefined) {
     const fresh = await lobby.getLobbyAsync(l.id);
     io.to(l.id).emit('lobby:renamed', { lobbyId: l.id, name: fresh.name });
@@ -968,6 +972,7 @@ app.post('/api/auth/users/:userId/status', adminAuth.requireAdmin, express.json(
   }
   try {
     await db.query('UPDATE users SET status = $1, updated_at = $2 WHERE id = $3', [status, Date.now(), req.params.userId]);
+    if (social) social.profileChanged(String(req.params.userId));
     res.json({ success: true });
   } catch (err) {
     console.error('Update user status error:', err.message);
@@ -1009,6 +1014,7 @@ async function destroyLobby(lobbyId, { reason } = {}) {
   deleteQueue(lobbyId);
 
   await lobby.deleteLobbyAsync(lobbyId);
+  if (social) social.lobbyChanged(lobbyId);
 }
 
 // ==========================================
@@ -1173,6 +1179,7 @@ app.put('/api/profile', express.json(), async (req, res) => {
       'UPDATE users SET display_name = $1, emoji = $2, updated_at = $3 WHERE id = $4',
       [displayName.trim(), emoji || null, Date.now(), userId]
     );
+    if (social) social.profileChanged(String(userId));
     res.json({ success: true });
   } catch (err) {
     console.error('Profile update error:', err.message);
@@ -1461,6 +1468,7 @@ app.put('/api/dashboard/users/:id/approve', adminAuth.requireAdmin, async (req, 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
+    if (social) social.profileChanged(String(req.params.id));
     res.json({ success: true, user: result.rows[0] });
   } catch (err) {
     console.error('Approve user error:', err.message);
@@ -1478,6 +1486,7 @@ app.put('/api/dashboard/users/:id/reject', adminAuth.requireAdmin, async (req, r
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
+    if (social) social.profileChanged(String(req.params.id));
     res.json({ success: true, user: result.rows[0] });
   } catch (err) {
     console.error('Reject user error:', err.message);
@@ -1500,6 +1509,15 @@ app.delete('/api/dashboard/lobbies/:id', adminAuth.requireAdmin, async (req, res
   res.json({ success: true });
 });
 
+// Admin moderation: delete a global chat message (also possible inline over
+// the socket, chat:delete). Everyone sees it disappear (chat:deleted).
+app.delete('/api/chat/messages/:id', adminAuth.requireAdmin, async (req, res) => {
+  if (!social) return res.status(503).json({ error: 'Chat is not ready' });
+  const removed = await social.deleteMessage(req.params.id);
+  if (!removed) return res.status(404).json({ error: 'Message not found' });
+  res.json({ success: true });
+});
+
 // Old lobby URLs moved to /playlist/... (the client does the same for in-app
 // navigation, see legacyRedirect in frontend/router.js).
 app.get(['/lobby/:id', '/lobby/:id/library'], (req, res) => {
@@ -1509,7 +1527,7 @@ app.get(['/lobby/:id', '/lobby/:id/library'], (req, res) => {
 });
 
 // SPA views (auth guard applied above; the client routes them, see frontend/router.js)
-app.get(['/playlist/:id', '/playlist/:id/library', '/library', '/profile'], (req, res) => {
+app.get(['/playlist/:id', '/playlist/:id/library', '/library', '/profile', '/social'], (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
@@ -1561,6 +1579,9 @@ io.on('connection', (socket) => {
   // which can see no playlist at all (see playlistAccess.js).
   const userId = getAuthUserId({ headers: socket.request.headers || {} });
   socket.data.userId = userId;
+
+  // Global chat + people panel (presence, now playing): see social.js.
+  if (social) social.attach(socket);
 
   // The playlist if this socket may see it, else null (callers answer as if
   // it did not exist, so private playlists cannot be probed).
@@ -1927,6 +1948,7 @@ io.on('connection', (socket) => {
       lobbyId,
       name: result.lobby.name
     });
+    if (social) social.lobbyChanged(lobbyId);
 
     console.log(`Lobby ${lobbyId} renamed to "${result.lobby.name}"`);
   });
@@ -2095,10 +2117,25 @@ function handleLeave(socket, lobbyId) {
   }
 }
 
+// Global chat + presence. Created in start() once we know whether there is a
+// database (chat history in Postgres, else in memory like the other modules).
+const graceEnv = Number.parseInt(process.env.PRESENCE_GRACE_MS, 10);
+const presence = createPresence({ graceMs: Number.isFinite(graceEnv) ? graceEnv : 5000 });
+let social = null;
+
 // Initialize database and start server
 async function start() {
   // Initialize database if DATABASE_URL is set
   const dbAvailable = await db.init();
+
+  social = createSocial({
+    io,
+    db,
+    presence,
+    store: dbAvailable ? chat.createPgStore(db) : chat.createMemoryStore(),
+    getLobby: (id) => lobby.getLobby(id),
+    isAdmin: (headers) => adminAuth.isAdmin({ headers }),
+  });
 
   // Initialize session middleware (with or without DB store)
   const pgPool = dbAvailable ? db.getPool() : null;
@@ -2144,8 +2181,12 @@ start().catch(err => {
 const shutdown = (signal) => {
   console.log(`\n${signal} received. Shutting down gracefully...`);
 
-  server.close(() => {
+  const lastSeenDone = social ? social.flushLastSeen().catch(() => {}) : Promise.resolve();
+  presence.close();
+
+  server.close(async () => {
     console.log('HTTP server closed');
+    await lastSeenDone;
 
     io.close(async () => {
       console.log('Socket.IO server closed');

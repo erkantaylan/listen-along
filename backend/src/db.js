@@ -104,6 +104,7 @@ async function createTables() {
       status VARCHAR(20) DEFAULT 'approved',
       created_at BIGINT NOT NULL,
       updated_at BIGINT,
+      last_seen BIGINT,
       UNIQUE NULLS NOT DISTINCT(provider, provider_id)
     )
   `;
@@ -278,6 +279,24 @@ async function createTables() {
 
   // Profile feature: add display_name column for user-chosen name
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(255)`).catch(() => {});
+
+  // People panel: when the user was last online (ms). Set when they connect
+  // and when their last socket goes away (social.js / presence.js).
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen BIGINT`).catch(() => {});
+
+  // The one global chat (social.js / chat.js). Kept forever; read newest
+  // first with keyset pagination on id. Deliberately NOT named chat_messages:
+  // that was the old per-playlist chat table, which is dropped above on every
+  // boot. author_name is a snapshot used when the user row is gone.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS global_chat_messages (
+      id BIGSERIAL PRIMARY KEY,
+      user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+      author_name VARCHAR(255),
+      body TEXT NOT NULL,
+      created_at BIGINT NOT NULL
+    )
+  `);
 
   // Migrate existing users' provider data into user_providers junction table
   await pool.query(`
