@@ -14,8 +14,51 @@ APP_ID=com.erkantaylan.listenalong.debug
 STUB_PORT=8091
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-17-openjdk-amd64}"
-export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
+# A JDK >= 17 for Gradle/AGP: JAVA_HOME if it is one, else the first of
+# 17, 21 (and any newer) found under /usr/lib/jvm or on PATH.
+java_major() {  # prints the major version of "$1/bin/java", or nothing
+  [ -x "$1/bin/java" ] || return 0
+  "$1/bin/java" -version 2>&1 | awk -F'"' '/version/ {split($2, v, "."); print (v[1] == "1" ? v[2] : v[1]); exit}'
+}
+pick_jdk() {
+  local major
+  if [ -n "${JAVA_HOME:-}" ]; then
+    major="$(java_major "$JAVA_HOME")"
+    if [ -n "$major" ] && [ "$major" -ge 17 ]; then echo "$JAVA_HOME"; return; fi
+    echo "JAVA_HOME=$JAVA_HOME is not a JDK >= 17; looking for one" >&2
+  fi
+  local candidates=()
+  for want in 17 21; do
+    for dir in /usr/lib/jvm/*"$want"*; do [ -d "$dir" ] && candidates+=("$dir"); done
+  done
+  for dir in /usr/lib/jvm/*; do [ -d "$dir" ] && candidates+=("$dir"); done
+  if command -v javac >/dev/null 2>&1; then
+    candidates+=("$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")")
+  fi
+  for dir in "${candidates[@]}"; do
+    [ -x "$dir/bin/javac" ] || continue
+    major="$(java_major "$dir")"
+    if [ -n "$major" ] && [ "$major" -ge 17 ]; then echo "$dir"; return; fi
+  done
+}
+JAVA_HOME="$(pick_jdk)"
+if [ -z "$JAVA_HOME" ]; then
+  echo "No JDK 17 or newer found. Install openjdk-17-jdk (or 21) or set JAVA_HOME." >&2
+  exit 1
+fi
+export JAVA_HOME
+
+if [ -z "${ANDROID_HOME:-}" ]; then
+  for dir in "${ANDROID_SDK_ROOT:-}" "$HOME/Android/Sdk" "$HOME/Library/Android/sdk"; do
+    if [ -n "$dir" ] && [ -d "$dir/platform-tools" ]; then ANDROID_HOME="$dir"; break; fi
+  done
+fi
+if [ -z "${ANDROID_HOME:-}" ]; then
+  echo "No Android SDK found. Set ANDROID_HOME (expected ~/Android/Sdk)." >&2
+  exit 1
+fi
+export ANDROID_HOME
+echo "==> JDK: $JAVA_HOME ($(java_major "$JAVA_HOME")) · SDK: $ANDROID_HOME"
 export PATH="$ANDROID_HOME/platform-tools:$PATH"
 
 STUB=0
