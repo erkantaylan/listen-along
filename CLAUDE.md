@@ -30,6 +30,7 @@ where lobby persistence broke entirely on deployed instances.
 - UI is stock Bootstrap 6 (vendored in `frontend/vendor/`) with light theming; read `DESIGN.md` before changing any page or CSS
 - `index.js` is the main server (~1700 lines, handles all HTTP routes + socket events)
 - Domain modules: lobby.js, playlistAccess.js, queue.js, playback.js, covers.js, db.js,
+  workerHub.js / downloadJobs.js / jobRoutes.js (downloaders + jobs, see below),
   library.js (music library + m4a validation + legacy cache migration +
   duplicate checks + replace), songMatch.js (normalized "artist|title" key for
   probable duplicates; bump META_KEY_VERSION when changing it — boot recomputes),
@@ -54,6 +55,30 @@ where lobby persistence broke entirely on deployed instances.
   `library:updated { replaced }` (players reload the new file). Audio
   responses are `no-cache` unless the url has `?v=<file_version>`: never mark
   song urls immutable again, a song's file can change under the same url.
+- **Downloaders ("workers") and download jobs.** `la worker` (cli/src/worker.js,
+  commands/worker.js) runs on users' machines and connects OUT over a
+  WebSocket to `/api/workers/connect` (raw `ws` server on the HTTP server's
+  upgrade event, not Socket.IO; token in the first `hello` message; protocol
+  documented at the top of `backend/src/workerHub.js`). `workerHub.js`
+  routes queued jobs (`planAssignments`: requester's own idle worker first,
+  else any idle worker longest-idle first, else wait; one job per worker),
+  requeues a job whose worker disconnects after `WORKER_REQUEUE_GRACE_MS`
+  (default 20s; a reconnecting worker reclaims it via `current_job_id`),
+  requeues all `assigned` jobs at boot. `downloadJobs.js` is the store
+  (Postgres `download_jobs`, `download_workers`) and the views:
+  `publicWorkerView` = name + owner only; `adminWorkerView` adds hostname /
+  OS / IP / versions — never send those to non-admins. Jobs come from every
+  new song request (index.js `queueRequestJob`) and the web Download box
+  (`POST /api/jobs`, `jobRoutes.js`, which also serves `/api/workers`,
+  `/api/profile/activity` (caller's own only) and `/api/admin/workers|jobs`).
+  Uploads carry `job_id` + `worker_id` (`downloadJobs.uploadContext`):
+  library_songs records `uploaded_by_worker_id` / `uploaded_by_worker`
+  (name snapshot), `upload_job_id`, `requested_by_user_id` / `requested_by`.
+  A request job's song reaches its playlist through the request flow; a web
+  job with `playlist_id` is added server-side as the requester
+  (`addJobSongsToPlaylist`) — workers never learn playlist ids. Live status:
+  socket `jobs:update` to the requester's `userRoom`, `workers:update` to
+  `APP_ROOM`.
 - Spotify track links supported via `spotify-url-info` page scraping (no API
   credentials needed); title/artist are matched against the library or
   turned into a request

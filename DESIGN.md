@@ -164,19 +164,44 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   "Source link" (a YouTube URL also sets the YouTube id), a danger alert for errors
   (e.g. "this file is already in the library as …"), footer Cancel + primary Replace
   ("Uploading…" while busy). Escape / backdrop / × close it without closing the library.
+  Third tab **Download** (`jobs.js`, `?tab=downloads`; badge = your waiting + running jobs):
+  a card with the Download box — text input (YouTube video / playlist link, Spotify track
+  link or a search) with a one-line muted hint, "Add it to" `select.form-control` (the
+  library only, or a playlist you can see; defaults to the playlist the library was opened
+  from), primary "Download" button and next to it a status line with a small dot (success =
+  a downloader is online, grey = none: "No downloader online — jobs wait until someone runs
+  `la worker`"), a danger alert for errors — then "Your downloads": a list group of your
+  jobs (Download-box jobs and the jobs of songs you requested in a playlist), newest first.
+  Row: thumb, title, one `fg-2` status line ("Waiting for a downloader", "Downloading on
+  living-room-pc (Ayşe) · Uploading …", "In the library: … · added to Road trip",
+  "Failed: … (AGE_RESTRICTED)"), a muted origin line, a subtle status badge (warning
+  waiting, primary downloading, success done, danger failed, secondary cancelled) and a
+  grey Cancel (waiting) / Retry (failed, cancelled) button. Live over the socket
+  (`jobs:update`, `workers:update`); a finished or failed Download-box job also toasts when
+  the tab is not on screen. Song rows elsewhere in the library read "uploaded by
+  <worker> (<owner>)" when a downloader uploaded them, plus "asked by <name>".
 - **Profile**: navbar with back; avatar + display-name card (the only place to edit your
   name/avatar; the chat and people panel show them); connected-accounts card; Sign out.
   Approved accounts also get a "CLI tokens" card: label input + grey "Create token"
   button (the display-name Save stays the one primary), a success alert that shows a new
   token once (read-only input + Copy, a `pre` "how to use" snippet that scrolls sideways,
   Done), and a list group of active tokens (label, prefix, created, last used, danger
-  Revoke).
+  Revoke). Then **Your activity** (`profile-activity.js`, approved accounts, only ever
+  your own; "Only you can see this" in the header): a one-line `fg-2` summary of counts,
+  underline tabs with count badges — Uploaded (also by your downloaders), Asked for (song
+  requests + Download-box jobs, with status badge and "uploaded by <worker> (<owner>)"),
+  My downloaders fulfilled (with "asked by"), My downloaders (name, jobs done, online /
+  busy / offline badge; never host, OS or IP) — and one list group below them.
 - **Social** (`/social`): on phones the chat-and-people panel as a full-screen view; on
   desktop the URL just opens the sidebar over the landing page. See below.
 - **Dashboard**: navbar (hamburger below 1024px), 15rem sidebar list group, main area with
   stat cards grid, public playlists and users list groups (private playlists are only counted, never listed).
 - **/admin, /youtube-playlist, /changelog**: navbar + narrow column of cards; Bootstrap and
-  utilities only.
+  utilities only. `/admin` starts with **Downloaders** (every `la worker` ever connected:
+  name · owner, host / platform / OS, IP and versions in muted lines, online / busy /
+  offline badge, Refresh button — the only place machine details appear) and **Download
+  jobs** (status filter select, counts in the header, rows with requester, playlist,
+  worker, error code, status badge and Cancel / Retry); both refresh every 10s.
 
 ### Player bar
 

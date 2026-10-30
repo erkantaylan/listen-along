@@ -3,12 +3,14 @@
 YouTube blocks the production server's IP, so the server can't download songs
 itself. `la` runs on a home Linux machine (residential IP): it downloads songs
 with yt-dlp, tags them, and uploads them to the server's music library. It can
-also upload local files, fulfill listeners' song requests, and pull library
-songs down to any computer (`la pull`, Linux / macOS / Windows).
+also upload local files, fulfill listeners' song requests, pull library
+songs down to any computer (`la pull`), and run as a **downloader**
+(`la worker`, Linux / macOS / Windows) that takes download jobs from the
+server: song requests and the web app's Download box.
 
 ## Install
 
-Requirements: Node >= 20 (22+ recommended), plus `yt-dlp` and `ffmpeg`/`ffprobe`
+Requirements: Node >= 20 (22+ for `la worker`), plus `yt-dlp` and `ffmpeg`/`ffprobe`
 on `PATH` for downloads and conversions.
 
 ```sh
@@ -74,6 +76,7 @@ Every command has detailed `--help` with examples (`la <command> --help`).
 | `la playlist remove <playlist> <song>...` | remove by position, entry id, library id or `yt:<id>` |
 | `la playlist move <playlist> <song> <position>` | reorder |
 | `la pull <library-id\|yt:ID>...` | download library songs to this computer (`--search`, `--playlist`, `--all --yes`); see [Pulling songs](#pulling-songs-to-this-computer-la-pull) |
+| `la worker [--name NAME]` | run as a downloader: take download jobs from the server, upload the songs; see [Downloader](#downloader-la-worker) |
 | `la whoami` | whose token this is (your account name) |
 | `la config set\|get\|unset\|list\|path` | configuration |
 
@@ -98,6 +101,73 @@ la pull --playlist "Road trip"                  # -> ~/Music/listen-along/Road t
 la pull --search "daft punk" --dir ~/Music/la
 la pull --all --yes --json
 ```
+
+### Downloader (`la worker`)
+
+`la worker` turns a computer at home into a **downloader** for everyone. It
+connects out to the server (a WebSocket to `<server>/api/workers/connect`;
+nothing listens on your machine, no port forwarding) with your token and waits
+for download jobs:
+
+- every new **song request** (someone queued a song the library does not
+  have) — the song is then added to the playlist it was requested from;
+- the web app's **Download box** (Library → Download): a YouTube video or
+  playlist link, a Spotify track link, or a search, optionally into a playlist.
+
+Each job runs the `la download` pipeline (m4a without re-encoding, tags,
+cover, duplicate checks) and uploads with the job id, so the server records
+which worker did it, whose worker it is and who asked. Progress and the
+result are shown live to whoever asked ("downloading on living-room-pc
+(Ayşe)"); failures carry the CLI's error code (e.g. `AGE_RESTRICTED`).
+
+Routing is the server's: a job goes to the requester's own idle worker if one
+is online, else to any idle worker; with none online it waits ("waiting for a
+downloader") and starts when one connects. One job at a time per worker,
+`--sleep` seconds between YouTube downloads. Anyone with a token can run one.
+
+```sh
+la worker                          # name = this computer's hostname
+la worker --name "living-room-pc"  # one name per machine
+la worker --install-ytdlp          # fetch / update the official yt-dlp first
+la worker --json > events.ndjson   # one JSON event per line on stdout
+```
+
+- **Visibility.** Everyone sees the worker as `<name> (<your name>)` (songs
+  read "uploaded by living-room-pc (Ayşe)"). Hostname, OS, IP and versions
+  are shown to admins only (`/admin` → Downloaders).
+- **Connection.** Reconnects by itself (1s, 2s, 4s … 60s, jittered) after a
+  network drop or server restart; a running job keeps going and is reported
+  after the reconnect (the hello names it). If a worker vanishes mid-job the
+  server hands the job to another worker after ~20s. Starting a second
+  `la worker` with the same name replaces the first (it exits 1).
+- **Stopping.** Ctrl+C (SIGTERM; Ctrl+Break on Windows) finishes the current
+  job, reports it and exits 0. A second Ctrl+C kills the download and gives
+  the job back to the server (exit 130). yt-dlp/ffmpeg run in their own
+  process group (POSIX) / console (Windows), so the first Ctrl+C does not
+  reach them.
+- **Tools.** If yt-dlp is missing or more than 60 days old, the worker offers
+  to download the official standalone binary for your OS from the yt-dlp
+  GitHub releases, checked against `SHA2-256SUMS`, into a per-user tools dir
+  (`--install-ytdlp` does it without asking; non-interactive runs only warn).
+  That copy is then also used by `la download`. `LA_YTDLP_BIN` pins a yt-dlp
+  and turns this off. ffmpeg is never installed for you: a missing one exits 6
+  with the install command for your OS. Needs **Node.js 22+** (built-in
+  WebSocket).
+
+| OS | tools dir | ffmpeg | run it |
+|---|---|---|---|
+| Linux | `~/.local/share/listen-along/bin` (`$XDG_DATA_HOME`) | `sudo apt install ffmpeg` / `dnf` / `pacman` | `la worker`; keep it running with a systemd user unit or `tmux` |
+| macOS | `~/Library/Application Support/listen-along/bin` | `brew install ffmpeg` | `la worker` in Terminal (or a launchd agent) |
+| Windows | `%LOCALAPPDATA%\listen-along\bin` | `winget install --id Gyan.FFmpeg`, then open a new terminal | `node cli\bin\la.js worker` in PowerShell / Windows Terminal |
+
+Setup on any OS: install Node.js 22+ (nodejs.org, `brew install node`,
+`winget install OpenJS.NodeJS.LTS`), get the repo's `cli/` folder, create a
+token on your profile page, then `la config set server …`, `la config set
+token …`, `la worker`. `LA_TOOLS_DIR` overrides the tools dir.
+
+For a local try-out without YouTube, `test/fixtures/fake-yt-dlp.js` stands in
+for yt-dlp (`LA_YTDLP_BIN=…/fake-yt-dlp.js`, needs the real ffmpeg): it makes
+2-second tones tagged from the search text.
 
 ### Pulling songs to this computer (`la pull`)
 
@@ -299,7 +369,8 @@ link for a single file. Check first with `la upload --dry-run --json <dir>`.
 | 3 | not configured (server/token missing) |
 | 4 | authentication failed (401/403) |
 | 5 | server error or unreachable |
-| 6 | missing dependency (yt-dlp / ffmpeg / ffprobe) |
+| 6 | missing dependency (yt-dlp / ffmpeg / ffprobe; `la worker`: Node < 22) |
+| 130 | `la worker` stopped by a second Ctrl+C (job given back) |
 
 Auth errors, an unreachable server or a missing tool abort a batch; the
 partial results are still printed with an `aborted` entry.
@@ -324,8 +395,20 @@ All requests send `Authorization: Bearer <token>`.
 - `GET /api/library/:id/replacements` → `{ replacements: [audit rows] }`
 - Song objects also carry `file_version` (changes when the audio is replaced;
   `/api/library/:id/file?v=<file_version>` is cacheable forever) and `replaced_at`.
+- Upload records (`la worker`): the upload also sends `job_id` and
+  `worker_id`; the server keeps them (if the worker is the token's own) with
+  the requester, and songs carry `uploaded_by_worker` and `requested_by`.
 - `GET /api/requests?status=pending|fulfilled|all` → `{ requests: [...] }`
 - `POST /api/requests/:id/dismiss`
+- Worker WebSocket `GET /api/workers/connect` (upgrade). JSON messages:
+  worker → `hello {token, name, hostname, platform, arch, os_release,
+  cli_version, node_version, ytdlp_version, current_job_id?}`, `pong`,
+  `job:progress {job_id, stage, message}`, `job:done {job_id, result:
+  {summary, results}}`, `job:release {job_id, reason}`, `drain`; server →
+  `welcome {worker, owner, heartbeat_ms}`, `ping`, `job {job: {id, kind,
+  input, title, request_id, requested_by, no_playlist}}`. Close codes 4001
+  bad token, 4003 replaced, 4005 no database. Full spec:
+  `backend/src/workerHub.js`.
 - Playlists (also at `/api/lobbies/...`; errors are `{error, code}` with code
   `NOT_FOUND`, `FORBIDDEN`, `CONFLICT`, `BAD_REQUEST`, `SONG_NOT_FOUND`):
   - `GET /api/playlists` → `{ playlists: [{id, name, visibility, ownerId, ownerName, isOwner, canManage, songCount, ...}] }`
@@ -345,10 +428,12 @@ cd cli && npm test
 ```
 
 Tests use Node's built-in runner against a stub HTTP server implementing the
-API above; the yt-dlp and ffmpeg layers are replaced by fakes (no network).
+API above (plus a tiny WebSocket stub of the worker hub, `test/wsStub.js`); the yt-dlp and ffmpeg layers are replaced by fakes (no network).
 `test/media-ffmpeg.test.js` runs the real ffmpeg commands on a generated tone
 and is skipped when ffmpeg is not installed.
 
 Layout: `bin/la.js` (entry), `src/cli.js` (dispatch, help, global options),
 `src/commands/*` (one file per command), `src/pipeline.js` (download/upload
-batch logic), `src/pull.js` (`la pull` file naming, skip/resume, .m3u8), `src/playlists.js` (playlist lookup, `--playlist` hook), `src/api.js`, `src/ytdlp.js`, `src/media.js`, `src/config.js`.
+batch logic), `src/pull.js` (`la pull` file naming, skip/resume, .m3u8), `src/playlists.js` (playlist lookup, `--playlist` hook), `src/api.js`, `src/ytdlp.js`, `src/media.js`, `src/config.js`, `src/worker.js`
+(worker connection / reconnect / job hand-off), `src/tools.js` (tools dir,
+standalone yt-dlp install, version age).
