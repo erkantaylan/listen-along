@@ -93,4 +93,20 @@ class FileNamesTest {
         assertEquals("audio/mp4", AudioFormat.M4A.mimeType)
         assertEquals("audio/mpeg", AudioFormat.MP3.mimeType)
     }
+
+    @Test
+    fun `legacy webm and ogg songs keep their container`() {
+        // The real server serves migrated .webm / .ogg / .opus cache files as
+        // audio/webm and audio/ogg. Saving them as .m4a breaks players.
+        assertEquals(AudioFormat.WEBM, AudioFormat.fromContentType("audio/webm"))
+        assertEquals(AudioFormat.OGG, AudioFormat.fromContentType("audio/ogg"))
+        assertEquals(AudioFormat.OGG, AudioFormat.fromContentType("audio/ogg; codecs=opus"))
+        assertEquals("Dean Martin - Let It Snow.mka",
+                     FileNames.displayName("Dean Martin", "Let It Snow", AudioFormat.WEBM))
+        assertEquals("Dean Martin - Let It Snow.ogg",
+                     FileNames.displayName("Dean Martin", "Let It Snow", AudioFormat.OGG))
+        // MediaStore rejects audio/webm; WebM is Matroska.
+        assertEquals("audio/x-matroska", AudioFormat.WEBM.mimeType)
+        assertEquals("audio/ogg", AudioFormat.OGG.mimeType)
+    }
 }

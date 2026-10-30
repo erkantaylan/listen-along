@@ -31,7 +31,9 @@ the cloud, download what you want, and an On device tab.
 `Music/ListenAlong/<Artist> - <Title>.m4a` is saved through MediaStore, so
 the files are public and every app sees them. The server's bytes are stored
 **unchanged**, so its tags and cover art come along. The extension comes
-from the response `Content-Type`: legacy songs can be `.mp3`. Names are
+from the response `Content-Type`: legacy songs migrated from the old cache
+can be `.mp3` (`audio/mpeg`), `.ogg` (`audio/ogg`) or WebM (`audio/webm`),
+which is saved as `.mka` because MediaStore refuses `audio/webm`. Names are
 sanitised for FAT/exFAT (`\ / : * ? " < > |`, control characters, and
 leading/trailing dots are removed) and capped at 200 UTF-8 bytes. The
 server's placeholder artist `Unknown` is dropped.

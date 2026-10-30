@@ -145,6 +145,20 @@ class DownloadsTest {
     }
 
     @Test
+    fun `legacy webm and ogg songs are saved with their own extension`() = runBlocking {
+        // What the real server sends for migrated .webm / .opus cache files.
+        route { id -> audio(bytesFor(id), if (id == "w") "audio/webm" else "audio/ogg") }
+        val d = downloads()
+        d.enqueue(listOf(song("w", "Old Webm"), song("o", "Old Opus")))
+        d.drain()
+
+        assertEquals("Artist - Old Webm.mka", index["w"]!!.displayName)
+        assertEquals("audio/x-matroska", index["w"]!!.mimeType)
+        assertEquals("Artist - Old Opus.ogg", index["o"]!!.displayName)
+        assertEquals("audio/ogg", index["o"]!!.mimeType)
+    }
+
+    @Test
     fun `never more than the configured number at once`() = runBlocking {
         route { id -> audio(bytesFor(id, 64 * 1024), throttle = true) }
         val d = downloads(concurrency = 2)

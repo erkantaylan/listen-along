@@ -3,17 +3,29 @@ package com.erkantaylan.listenalong.storage
 /**
  * The container a downloaded song is saved as. Chosen from the response's
  * Content-Type, never from what we expect: new uploads are m4a, but legacy
- * songs migrated from the old cache can be mp3.
+ * songs migrated from the old cache keep their format. The server registers
+ * `.mp3`, `.webm` and `.ogg`/`.opus` files there and serves them as
+ * `audio/mpeg`, `audio/webm` and `audio/ogg` (see MIME_BY_EXT in the
+ * backend's library.js).
+ *
+ * [mimeType] is what MediaStore is told, so it must be a type MediaStore
+ * accepts for the Audio collection. It rejects `audio/webm` outright
+ * ("Unsupported MIME type"), so WebM, which is a subset of Matroska, is saved
+ * as `.mka` / `audio/x-matroska`; the bytes are unchanged.
  */
 enum class AudioFormat(val extension: String, val mimeType: String) {
     M4A("m4a", "audio/mp4"),
-    MP3("mp3", "audio/mpeg");
+    MP3("mp3", "audio/mpeg"),
+    WEBM("mka", "audio/x-matroska"),
+    OGG("ogg", "audio/ogg");
 
     companion object {
         fun fromContentType(contentType: String?): AudioFormat {
             val mime = contentType?.substringBefore(';')?.trim()?.lowercase().orEmpty()
             return when (mime) {
                 "audio/mpeg", "audio/mp3", "audio/mpeg3", "audio/x-mpeg", "audio/x-mp3" -> MP3
+                "audio/webm", "video/webm" -> WEBM
+                "audio/ogg", "audio/opus", "audio/x-opus", "audio/vorbis", "application/ogg" -> OGG
                 // audio/mp4, audio/m4a, audio/x-m4a, audio/aac and anything
                 // unexpected (application/octet-stream): the server stores m4a.
                 else -> M4A
