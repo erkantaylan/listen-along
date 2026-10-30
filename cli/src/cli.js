@@ -28,13 +28,15 @@ const COMMANDS = [
   require('./commands/requests'),
   require('./commands/library'),
   require('./commands/playlist'),
+  require('./commands/pull'),
 ];
 
 const EXIT_CODES_TEXT = `Exit codes:
   0  success (batch: every item uploaded/skipped/dismissed)
   1  failure (batch: at least one item failed; see summary; also a request the
      server refused: playlist not found / ambiguous name / not allowed / name taken)
-  2  usage error (unknown command/option, bad argument)
+  2  usage error (unknown command/option, bad argument; pull: more than 20
+     matches or --all without --yes)
   3  not configured (server or token missing)
   4  authentication failed (server returned 401/403)
   5  server error or server unreachable
@@ -47,7 +49,7 @@ function rootHelp() {
 Downloads songs from YouTube with yt-dlp on this machine (as AAC m4a, no
 re-encoding, with title/artist/cover tags) and uploads them to the server's
 library; uploads local audio files; fulfills listeners' song requests;
-manages server playlists.
+manages server playlists; pulls library songs down to this computer.
 
 Usage:
   la <command> [options] [arguments]
@@ -62,7 +64,8 @@ ${formatOptions(GLOBAL_OPTIONS)}
 
 Configuration (precedence: flag > environment > config file):
   LA_SERVER, LA_TOKEN   server URL and API token
-  LA_KEEP_DIR           local copy directory for --keep (default ~/Music/listen-along)
+  LA_KEEP_DIR           local copy directory for --keep, and la pull's default --dir
+                        (default ~/Music/listen-along)
   LA_SLEEP              seconds between YouTube downloads (default 3)
   LA_YTDLP_ARGS         extra yt-dlp arguments
   LA_CONFIG             config file path (default ~/.config/listen-along/config.json)
@@ -85,6 +88,7 @@ Examples:
   la playlist create "Road trip" --private
   la download --playlist "Road trip" "Justice - D.A.N.C.E."
   la playlist show "Road trip"
+  la pull --playlist "Road trip"
 `;
 }
 

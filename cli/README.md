@@ -3,7 +3,8 @@
 YouTube blocks the production server's IP, so the server can't download songs
 itself. `la` runs on a home Linux machine (residential IP): it downloads songs
 with yt-dlp, tags them, and uploads them to the server's music library. It can
-also upload local files and fulfill listeners' song requests.
+also upload local files, fulfill listeners' song requests, and pull library
+songs down to any computer (`la pull`, Linux / macOS / Windows).
 
 ## Install
 
@@ -43,7 +44,7 @@ is respected, `LA_CONFIG` overrides the path). Precedence:
 |--------------|-----------------|-------------------------|
 | `server`     | `LA_SERVER`     | —                       |
 | `token`      | `LA_TOKEN`      | —                       |
-| `keep-dir`   | `LA_KEEP_DIR`   | `~/Music/listen-along`  |
+| `keep-dir`   | `LA_KEEP_DIR`   | `~/Music/listen-along` (also `la pull`'s default `--dir`) |
 | `sleep`      | `LA_SLEEP`      | `3` (seconds)           |
 | `ytdlp-args` | `LA_YTDLP_ARGS` | (none)                  |
 
@@ -72,6 +73,7 @@ Every command has detailed `--help` with examples (`la <command> --help`).
 | `la playlist add <playlist> <library-id\|yt:ID\|url\|search...>` | add library songs (`--first`, `--allow-duplicates`) |
 | `la playlist remove <playlist> <song>...` | remove by position, entry id, library id or `yt:<id>` |
 | `la playlist move <playlist> <song> <position>` | reorder |
+| `la pull <library-id\|yt:ID>...` | download library songs to this computer (`--search`, `--playlist`, `--all --yes`); see [Pulling songs](#pulling-songs-to-this-computer-la-pull) |
 | `la whoami` | whose token this is (your account name) |
 | `la config set\|get\|unset\|list\|path` | configuration |
 
@@ -92,7 +94,60 @@ la playlist show "Road trip" --json
 la download --allow-similar "Queen - Bohemian Rhapsody (Live Aid)"
 la download https://youtu.be/RIGHTVIDEO1 --replace 0b6f3b7e-6b0e-4a59-9a43-6bd1ef3c1f00
 la upload fixed.m4a --replace 0b6f3b7e-... --title "Right Title" --artist "Right Artist"
+la pull --playlist "Road trip"                  # -> ~/Music/listen-along/Road trip/ + Road trip.m3u8
+la pull --search "daft punk" --dir ~/Music/la
+la pull --all --yes --json
 ```
+
+### Pulling songs to this computer (`la pull`)
+
+Copies library songs to a local folder. Any token works (no special
+permission); no yt-dlp or ffmpeg needed, so it runs the same on Linux, macOS
+and Windows.
+
+| form | pulls |
+|---|---|
+| `la pull <library-id\|yt:ID>...` | those songs (ids from `la library <search>`) |
+| `la pull --search "<query>"` | every library match (repeatable); more than 20 → asks on a terminal, otherwise needs `--yes` (exit 2) |
+| `la pull --playlist <id-or-name>` | the playlist's songs into `<dir>/<playlist name>/`, plus `<playlist name>.m3u8` in playlist order (repeatable; `--flat`: straight into `--dir`) |
+| `la pull --all --yes` | the whole library (paged listing; `--yes` is required) |
+
+Forms combine; a song is fetched once per folder. Options: `--dir DIR`
+(default: the `keep-dir` config, `~/Music/listen-along`), `--concurrency N`
+(1-8, default 2), `--dry-run`, `--json`, `-y/--yes`.
+
+- **Names** match `la download --keep`: `<Artist> - <Title> [<youtube_id>].m4a`,
+  or `[<library id>]` when the song has no YouTube id; the extension follows the
+  server's Content-Type (`.mp3`, `.webm`, `.ogg` for the odd non-m4a file).
+  Names are made valid on every OS: `< > " / \ | ? *` and control characters are
+  replaced or dropped (`a: b` → `a - b`, `AC/DC` → `AC-DC`), no trailing dots or
+  spaces, no leading dot, reserved Windows names (`CON`, `NUL`, `COM1`, …) get a
+  `_` prefix, NFC, at most 180 bytes before the ` [id]` suffix.
+- **Idempotent**: a file that is already there is checked against the song's
+  `file_version` (the first 16 hex of the server file's sha256) and skipped
+  (`reason: "already downloaded"`) when it matches — also a file with another
+  title but the same `[<id>]`, such as a `--keep` copy. A song whose audio was
+  replaced on the server no longer matches and is downloaded again over the old
+  copy (`updated: true`). Servers without `file_version` are compared by size
+  (`HEAD`).
+- **Resumable**: a download is written to `<name>.<file_version>.part` and
+  renamed only when complete and its hash verified. An interrupted run leaves
+  the `.part`; the next run asks for the rest with `Range: bytes=<size>-`
+  (`/api/library/:id/file` answers 206) and `resumed: true`. A `.part` that
+  turns out wrong is discarded and fetched whole once more.
+- **Playlists**: entries that are only YouTube links (not in the library) are
+  `skipped` with `reason: "not in library"` and appear as `# missing: …` comments
+  in the `.m3u8`. `.m3u8` paths are relative with `/`, UTF-8; it is rewritten
+  on every run.
+- `--json`: `{dir, summary: {total, pulled, skipped, failed, would_pull?},
+  results: [{input, id, status: pulled|skipped|failed|would_pull, title, artist,
+  youtube_id, file, bytes, resumed?, updated?, reason?, error?, code?, playlist?}],
+  playlists?: [{id, name, dir, m3u8, songs, listed, missing}], aborted?}`.
+  Failure codes include `NOT_FOUND`, `INTERRUPTED`, `HASH_MISMATCH`.
+- Exit codes: 0 nothing failed, 1 a song failed / playlist not found / cancelled
+  at the prompt, 2 usage or more than 20 matches / `--all` without `--yes`
+  (`CONFIRM_REQUIRED`), 3/4/5 as below. A rejected token, an unreachable server
+  or a full disk aborts the run (partial results printed, `aborted`).
 
 ### Duplicates
 
@@ -240,7 +295,7 @@ link for a single file. Check first with `la upload --dry-run --json <dir>`.
 |---|---|
 | 0 | success (batch: nothing failed) |
 | 1 | failure (batch: at least one item failed; playlist: not found / ambiguous name / not allowed (`FORBIDDEN`) / name taken (`CONFLICT`) / bad value) |
-| 2 | usage error |
+| 2 | usage error (also `la pull` without `--yes` for > 20 matches / `--all`) |
 | 3 | not configured (server/token missing) |
 | 4 | authentication failed (401/403) |
 | 5 | server error or unreachable |
@@ -255,7 +310,9 @@ All requests send `Authorization: Bearer <token>`.
 
 - `GET /api/me` → `{ name, user: { id, name } | null, token: { label, legacy } }`
   (`user` is null for an old token created before tokens had owners)
-- `GET /api/library?q=&limit=&offset=` → `{ songs: [...], total }`
+- `GET /api/library?q=&limit=&offset=&youtube_id=` → `{ songs: [...], total }`
+- `GET /api/library/:id` → `{ song }` (`la pull`)
+- `GET|HEAD /api/library/:id/file` → the audio; `Range: bytes=N-` → `206` (`la pull` resume)
 - `POST /api/library/check {youtube_id?, sha256?, title?, artist?, duration_sec?, exclude_id?}`
   → `{ duplicate, match, matches: [{reason: already_in_library|duplicate_hash|duplicate_metadata, exact, message, song}] }`
 - `POST /api/library/upload` (multipart: `file` m4a, `title`, `artist`,
@@ -294,4 +351,4 @@ and is skipped when ffmpeg is not installed.
 
 Layout: `bin/la.js` (entry), `src/cli.js` (dispatch, help, global options),
 `src/commands/*` (one file per command), `src/pipeline.js` (download/upload
-batch logic), `src/playlists.js` (playlist lookup, `--playlist` hook), `src/api.js`, `src/ytdlp.js`, `src/media.js`, `src/config.js`.
+batch logic), `src/pull.js` (`la pull` file naming, skip/resume, .m3u8), `src/playlists.js` (playlist lookup, `--playlist` hook), `src/api.js`, `src/ytdlp.js`, `src/media.js`, `src/config.js`.

@@ -243,6 +243,52 @@ class ApiClient {
     return (await this.request('POST', `/api/playlists/${encodeURIComponent(id)}/songs/${encodeURIComponent(entryId)}/move`, { json: { position }, clientErrors: true })).data;
   }
 
+  /** One library song (GET /api/library/:id); 404 -> ApiError exit 1, code HTTP_404. */
+  async song(id) {
+    const { data } = await this.request('GET', `/api/library/${encodeURIComponent(id)}`, { clientErrors: true });
+    return data?.song || null;
+  }
+
+  /** The library song with this youtube_id, or null. */
+  async songByYoutubeId(youtubeId) {
+    const { data } = await this.request('GET', '/api/library', { query: { youtube_id: youtubeId, limit: 1 }, clientErrors: true });
+    return (data?.songs || []).find((s) => s.youtube_id === youtubeId) || null;
+  }
+
+  /**
+   * Open a library song's audio (GET /api/library/:id/file) and return the
+   * fetch Response with its body unread (200, 206 for a Range request, or
+   * 416). Other statuses throw like request() does (404 -> exit 1).
+   * @param {object} [opts]
+   * @param {string} [opts.method] - 'GET' or 'HEAD'
+   * @param {number} [opts.from] - resume: ask for bytes from this offset on
+   * @param {AbortSignal} [opts.signal]
+   */
+  async openSongFile(id, { method = 'GET', from = 0, signal } = {}) {
+    const p = `/api/library/${encodeURIComponent(id)}/file`;
+    const headers = { Authorization: `Bearer ${this.token}` };
+    if (from > 0) headers.Range = `bytes=${from}-`;
+    let res;
+    try {
+      res = await this.fetch(this.url(p), { method, headers, signal });
+    } catch (err) {
+      const reason = err.cause?.code || err.cause?.message || err.message;
+      throw new ApiError(`Cannot reach server ${this.server}: ${reason}`, { code: 'UNREACHABLE' });
+    }
+    if (res.ok || res.status === 416) return res;
+    const text = await res.text().catch(() => '');
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+    const serverMsg = (data && (data.error || data.message)) || res.statusText || 'request failed';
+    if (res.status === 401 || res.status === 403) {
+      throw new ApiError(`Authentication failed (${res.status}): ${serverMsg}`, { status: res.status, body: data, exitCode: EXIT.AUTH, code: 'AUTH' });
+    }
+    if (res.status === 404) {
+      throw new ApiError(serverMsg, { status: 404, body: data, exitCode: EXIT.FAILURE, code: 'NOT_FOUND' });
+    }
+    throw new ApiError(`${method} ${p} failed (${res.status}): ${serverMsg}`, { status: res.status, body: data, exitCode: EXIT.SERVER, code: `HTTP_${res.status}` });
+  }
+
   async requests({ status } = {}) {
     const { data } = await this.request('GET', '/api/requests', { query: { status } });
     return data?.requests || [];

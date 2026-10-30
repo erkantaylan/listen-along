@@ -33,13 +33,20 @@ async function startServer(overrides = {}) {
     checks: [], // bodies sent to /api/library/check
     replaces: [], // { id, fields, fileContent }
     failReplace: null, // (id, fields) => { status, body } | null
+    fileRequests: [], // GET/HEAD /api/library/:id/file: { id, method, range }
     ...overrides,
   };
   const legacy = () => !state.me.userId;
   const canSee = (p) => p.visibility === 'public' || (!legacy() && p.ownerId === state.me.userId);
   const isOwner = (p) => !legacy() && !!p.ownerId && p.ownerId === state.me.userId;
   const info = (p) => ({ id: p.id, name: p.name, visibility: p.visibility, ownerId: p.ownerId || null, ownerName: p.ownerName || null, isOwner: isOwner(p), canManage: isOwner(p), songCount: p.songs.length, createdAt: 1 });
-  const songView = (p) => p.songs.map((x, i) => ({ position: i + 1, entry_id: x.entry_id, library_id: x.library_id, youtube_id: x.youtube_id, title: x.title, duration_sec: 200, added_by: 'owner', available: true }));
+  const songView = (p) => p.songs.map((x, i) => ({ position: i + 1, entry_id: x.entry_id, library_id: x.library_id, youtube_id: x.youtube_id, title: x.title, artist: x.artist || null, url: x.url || null, duration_sec: 200, added_by: 'owner', available: !!x.library_id }));
+  // Public song shape: file_version = sha256(content) prefix (as the server does).
+  const pub = (s) => {
+    const { content, mime_type: mime, ...rest } = s;
+    if (content !== undefined && !('file_version' in s)) rest.file_version = crypto.createHash('sha256').update(content).digest('hex').slice(0, 16);
+    return rest;
+  };
   const findSong = (ref) => {
     const yt = /^yt:(.+)$/.exec(ref);
     return state.songs.find((s) => (yt ? s.youtube_id === yt[1] : String(s.id) === String(ref)));
@@ -63,8 +70,50 @@ async function startServer(overrides = {}) {
       const q = (url.searchParams.get('q') || '').toLowerCase();
       const limit = Number(url.searchParams.get('limit') || 50);
       const offset = Number(url.searchParams.get('offset') || 0);
-      const matched = state.songs.filter((s) => !q || `${s.title} ${s.artist} ${s.album || ''}`.toLowerCase().includes(q));
-      return send(200, { songs: matched.slice(offset, offset + limit), total: matched.length });
+      const yt = url.searchParams.get('youtube_id');
+      const matched = state.songs.filter((s) => (!q || `${s.title} ${s.artist} ${s.album || ''}`.toLowerCase().includes(q)) && (!yt || s.youtube_id === yt));
+      return send(200, { songs: matched.slice(offset, offset + limit).map(pub), total: matched.length });
+    }
+
+    // Song audio for `la pull`: a song's `content` (string) is its file. Range
+    // requests get 206 unless state.rangeEnabled is false; state.cutFile(id)
+    // returning N sends only N bytes of the body and then drops the connection.
+    const fm = /^\/api\/library\/([^/]+)\/file$/.exec(url.pathname);
+    if ((req.method === 'GET' || req.method === 'HEAD') && fm) {
+      const song = state.songs.find((x) => String(x.id) === fm[1]);
+      if (!song) return send(404, { error: 'Song not found' });
+      const data = Buffer.from(song.content || '');
+      state.fileRequests.push({ id: song.id, method: req.method, range: req.headers.range || null });
+      let start = 0;
+      let status = 200;
+      const headers = { 'content-type': song.mime_type || 'audio/mp4', 'accept-ranges': 'bytes' };
+      const m = /^bytes=(\d+)-$/.exec(req.headers.range || '');
+      if (m && state.rangeEnabled !== false) {
+        start = Number(m[1]);
+        if (start >= data.length) {
+          res.writeHead(416, { 'content-range': `bytes */${data.length}`, 'content-type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'Requested range not satisfiable' }));
+        }
+        status = 206;
+        headers['content-range'] = `bytes ${start}-${data.length - 1}/${data.length}`;
+      }
+      const chunk = data.subarray(start);
+      headers['content-length'] = String(chunk.length);
+      res.writeHead(status, headers);
+      if (req.method === 'HEAD') return res.end();
+      const cut = state.cutFile && state.cutFile(song.id);
+      if (cut !== undefined && cut !== null) {
+        res.write(chunk.subarray(0, cut));
+        return setTimeout(() => res.socket.destroy(), 20);
+      }
+      return res.end(chunk);
+    }
+
+    const sm = /^\/api\/library\/([^/]+)$/.exec(url.pathname);
+    if (req.method === 'GET' && sm && sm[1] !== 'check' && sm[1] !== 'upload') {
+      const song = state.songs.find((x) => String(x.id) === sm[1]);
+      if (!song) return send(404, { error: 'Song not found' });
+      return send(200, { song: pub(song) });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/library/check' && state.checkEnabled) {
