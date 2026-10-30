@@ -509,6 +509,14 @@
     margin-top: 1rem;
   }
   .libpage-pages .page-link { min-width: 2rem; }
+  .libpage-pager-top {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    justify-content: flex-end;
+    margin-bottom: 0.5rem;
+  }
+  .libpage-pager-label { min-width: 7.5rem; text-align: center; font-variant-numeric: tabular-nums; }
   @media (width < 576px) {
     .libpage-item { gap: 0.5rem; padding-inline: 0.625rem; }
     .libpage-thumb { width: 2.5rem; height: 2.5rem; }

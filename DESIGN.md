@@ -144,7 +144,9 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   the source link).
 - **Music library**: fixed full-screen layer over landing or lobby: navbar (back, title, "adding
   to" context), tabs Songs/Requested with count badges, search + sort toolbar, list group of
-  songs (preview play button, Add / disabled "Added" button), pagination + range.
+  songs (preview play button, Add / disabled "Added" button), 20 per page: a compact
+  "‹ Page n of m ›" pager above the list and the full numbered pagination + range below it
+  (both follow `?page=`, both hidden when there is one page).
 - **Profile**: navbar with back; avatar + display-name card; connected-accounts card; Sign out.
 - **Dashboard**: navbar (hamburger below 1024px), 15rem sidebar list group, main area with
   stat cards grid, lobbies and users list groups.

@@ -10,7 +10,7 @@ function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 20;
 
 const lib = {
   open: false,
@@ -234,13 +234,27 @@ function pageItems(current, count) {
   return items;
 }
 
+// Two pagers share one state: a compact "‹ Page 5 of 30 ›" above the list
+// and the full numbered one below it. Both hide when there is one page.
 function renderPager() {
   const pager = $('libpage-pager');
-  if (!pager) return;
+  const top = $('libpage-pager-top');
+  if (!pager || !top) return;
   const count = pageCount();
-  if (lib.total <= PAGE_SIZE) { pager.hidden = true; pager.innerHTML = ''; return; }
+  if (lib.total <= PAGE_SIZE) {
+    pager.hidden = true; pager.innerHTML = '';
+    top.hidden = true; top.innerHTML = '';
+    return;
+  }
   pager.hidden = false;
+  top.hidden = false;
   const p = lib.page;
+  const step = (page, label, aria, disabled) =>
+    `<button class="btn-outline theme-secondary btn-icon btn-sm libpage-page" type="button" data-page="${page}" aria-label="${aria}" title="${aria}"${disabled ? ' disabled' : ''}>${label}</button>`;
+  top.innerHTML = `
+    ${step(p - 1, '‹', 'Previous page', p === 0)}
+    <span class="fs-sm fg-2 libpage-pager-label" aria-live="polite">Page ${(p + 1).toLocaleString()} of ${count.toLocaleString()}</span>
+    ${step(p + 1, '›', 'Next page', p >= count - 1)}`;
   const from = p * PAGE_SIZE + 1;
   const to = Math.min(lib.total, (p + 1) * PAGE_SIZE);
   const item = (page, label, { current = false, disabled = false, aria = '' } = {}) =>
@@ -486,10 +500,12 @@ export function setupLibraryPage() {
     lib.searchTimer = setTimeout(() => { lib.query = e.target.value.trim(); loadSongs(); syncUrl('replace'); }, 250);
   });
   $('libpage-sort').addEventListener('change', (e) => { lib.sort = e.target.value; loadSongs(); syncUrl('replace'); });
-  $('libpage-pager').addEventListener('click', (e) => {
+  const onPagerClick = (e) => {
     const btn = e.target.closest('.libpage-page');
     if (btn && !btn.disabled) goToPage(Number(btn.dataset.page));
-  });
+  };
+  $('libpage-pager').addEventListener('click', onPagerClick);
+  $('libpage-pager-top').addEventListener('click', onPagerClick);
   $('libpage-request-status').addEventListener('change', (e) => { lib.requestStatus = e.target.value; loadRequests(); syncUrl('replace'); });
   $('libpage-list').addEventListener('click', (e) => {
     const play = e.target.closest('.libpage-preview');
