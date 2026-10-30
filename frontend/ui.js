@@ -36,6 +36,20 @@ export function showView(viewName) {
   // Call view-specific activator if registered
   const activator = viewActivators[viewName];
   if (activator) activator();
+  notifyViewChange();
+}
+
+// Tells listeners (the player bar) that the visible page changed: a view
+// switch, or the library overlay opening/closing.
+export function notifyViewChange() {
+  document.dispatchEvent(new CustomEvent('app:viewchange'));
+}
+
+// In-app navigation: add a history entry and let the router (app.js, which
+// listens to popstate) make the UI match it, as Back/Forward do.
+export function navigateTo(path) {
+  if (window.location.pathname + window.location.search !== path) window.history.pushState({}, '', path);
+  window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }));
 }
 
 // Bootstrap toast in #toast-container. type: info | success | error.

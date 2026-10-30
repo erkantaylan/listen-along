@@ -2,7 +2,9 @@
 import { state, elements, STORAGE_KEYS, storageSet } from './state.js';
 import { showToast, formatTime, syncRangeFill } from './ui.js';
 
-export function setupAudioPlayer(advanceLocalQueue) {
+// Full (lobby page) player readouts and audio housekeeping. Track changes,
+// ended -> next and the Media Session live in player.js.
+export function setupAudioPlayer() {
   const audio = elements.audioPlayer;
 
   audio.addEventListener('timeupdate', () => {
@@ -17,8 +19,6 @@ export function setupAudioPlayer(advanceLocalQueue) {
   audio.addEventListener('loadedmetadata', () => {
     elements.duration.textContent = formatTime(audio.duration);
   });
-
-  audio.addEventListener('ended', () => advanceLocalQueue());
 
   audio.addEventListener('play', () => {
     state.isPlaying = true;
@@ -41,30 +41,6 @@ export function setupAudioPlayer(advanceLocalQueue) {
   setupAudioUnlock();
   audio.volume = state.volume;
   setupVolumeControls();
-}
-
-export function setupMediaSession(togglePlayback, playNext, playPrevious) {
-  if (!window.MediaSessionManager) return;
-
-  MediaSessionManager.init({
-    onPlay: function () { togglePlayback(); },
-    onPause: function () { togglePlayback(); },
-    onNext: function () { playNext(); },
-    onPrevious: function () { playPrevious(); },
-    onSeekTo: function (time) {
-      const audio = elements.audioPlayer;
-      if (audio && audio.duration) audio.currentTime = time;
-    }
-  });
-
-  const audio = elements.audioPlayer;
-  audio.addEventListener('timeupdate', function () {
-    if (audio.duration) {
-      MediaSessionManager.updatePositionState({ duration: audio.duration, position: audio.currentTime });
-    }
-  });
-  audio.addEventListener('play', function () { MediaSessionManager.updatePlaybackState('playing'); });
-  audio.addEventListener('pause', function () { MediaSessionManager.updatePlaybackState('paused'); });
 }
 
 function setupAudioUnlock() {
@@ -149,7 +125,6 @@ function updateVolumeIcon() {
 }
 
 export function playAudioWithUnlock(src, position, shouldPlay) {
-  if (!state.lobbyId) return;
   const audio = elements.audioPlayer;
   if (src && audio.src !== src) audio.src = src;
   if (position !== undefined && isFinite(position)) audio.currentTime = position;

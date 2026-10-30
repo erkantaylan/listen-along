@@ -1,6 +1,6 @@
 // Authentication, registration, and profile management
 import { state, elements, socket, auth, STORAGE_KEYS, AVATAR_EMOJIS, storageSet } from './state.js';
-import { showView, showToast, escapeHtml } from './ui.js';
+import { showView, showToast, escapeHtml, navigateTo } from './ui.js';
 
 export async function registerUser() {
   try {
@@ -156,8 +156,9 @@ export function saveProfile() {
   state.username = newName;
   storageSet(STORAGE_KEYS.USERNAME, newName);
   storageSet(STORAGE_KEYS.EMOJI, state.emoji);
-  if (state.lobbyId && socket) {
-    socket.emit('user:update', { lobbyId: state.lobbyId, username: state.username, emoji: state.emoji });
+  if (socket) {
+    // No lobbyId: the server updates the lobby this socket is listed in.
+    socket.emit('user:update', { username: state.username, emoji: state.emoji });
   }
   if (auth.authenticated) {
     fetch('/api/profile', {
@@ -175,8 +176,8 @@ export function setupProfilePage() {
   const profileBtn = document.getElementById('landing-profile-btn');
   const logoutBtn = document.getElementById('profile-logout-btn');
 
-  if (profileBtn) profileBtn.addEventListener('click', () => { window.history.pushState({}, '', '/profile'); showView('profile'); });
-  if (backBtn) backBtn.addEventListener('click', () => { window.history.pushState({}, '', '/'); showView('landing'); });
+  if (profileBtn) profileBtn.addEventListener('click', () => navigateTo('/profile'));
+  if (backBtn) backBtn.addEventListener('click', () => navigateTo('/'));
   if (logoutBtn) {
     logoutBtn.addEventListener('click', async () => {
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
@@ -232,8 +233,9 @@ async function saveProfilePage() {
       body: JSON.stringify({ displayName: newName, emoji: state.emoji })
     });
   } catch { /* ignore */ }
-  if (state.lobbyId && socket) {
-    socket.emit('user:update', { lobbyId: state.lobbyId, username: state.username, emoji: state.emoji });
+  if (socket) {
+    // No lobbyId: the server updates the lobby this socket is listed in.
+    socket.emit('user:update', { username: state.username, emoji: state.emoji });
   }
   showToast('Profile saved', 'success');
 }

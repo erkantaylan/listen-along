@@ -1,9 +1,11 @@
-// Local playback controls and the follow system. Every listener plays the
-// shared queue at their own pace in the browser; the server only learns what
-// each listener is playing (listener:now-playing) so others can see and follow it.
+// Full-player controls and the follow system. Playback itself is player.js;
+// every listener plays at their own pace, and the server only learns what each
+// listener is playing (listener:now-playing) so others can see and follow it.
 import { state, elements, socket, STORAGE_KEYS, storageSet } from './state.js';
-import { showToast, escapeHtml, getCoverUrl, sanitizeUrl, t } from './ui.js';
-import { playAudioWithUnlock } from './audio.js';
+import { showToast, escapeHtml, getCoverUrl, sanitizeUrl, t, syncRangeFill } from './ui.js';
+import { player } from './player.js';
+import { getMemberLobby } from './lobby.js';
+import { refreshPlayerBar } from './player-bar.js';
 
 // These are imported lazily to avoid circular deps with queue.js
 let _updateQueue, _updateListeners;
@@ -23,42 +25,65 @@ export function handleDownloadProgress(data) {
   updateQueueProgress(data.url, data.percent);
 }
 
+// users:updated for the lobby on screen refreshes its listener list; for the
+// member lobby (the one being played from) it also checks the follow leader.
 export function handleUsersUpdated(data) {
-  state.listeners = data.users || [];
-  if (state.followingSocketId) {
-    const leaderStillHere = state.listeners.some(u => u.socketId === state.followingSocketId);
-    if (!leaderStillHere) {
-      state.followingSocketId = null;
-      state.followingUsername = null;
+  const lobbyId = data.lobbyId || state.lobbyId;
+  const users = data.users || [];
+  if (state.followingSocketId && lobbyId === getMemberLobby()) {
+    if (!users.some(u => u.socketId === state.followingSocketId)) {
+      clearFollowing();
       showToast(t('follow.leaderLeft', 'The user you were following has left'), 'info');
     }
   }
+  if (lobbyId !== state.lobbyId) return;
+  state.listeners = users;
   if (_updateListeners) _updateListeners();
   if (_updateQueue) _updateQueue();
 }
 
-export function handleFollowSync(data) {
-  if (!data.track) return;
-  const song = state.queue.find(s => s.title === data.track.title);
-  if (song) playLocalTrack(song);
-  else if (data.track.url) playLocalTrack(data.track);
+// The lobby page's queue as a player context.
+export function viewedContext() {
+  return { lobbyId: state.lobbyId, name: state.lobbyName };
 }
 
+// The leader played something: play the same song from the member lobby's queue.
+export function handleFollowSync(data) {
+  if (!data.track) return;
+  const lobbyId = getMemberLobby();
+  if (lobbyId && (!player.context || player.context.lobbyId !== lobbyId) && state.lobbyId === lobbyId) {
+    player.setContext(viewedContext(), state.queue, { keepDriver: true });
+  }
+  const song = player.queue.find(s => s.title === data.track.title);
+  if (song) player.playTrack(song);
+  else if (data.track.url) player.playTrack(data.track);
+}
+
+function clearFollowing() {
+  state.followingSocketId = null;
+  state.followingUsername = null;
+  if (player.driver && player.driver.name === 'follow') player.setDriver(null);
+  if (_updateListeners) _updateListeners();
+}
+
+// Following is done inside the member lobby, so only from its page.
 export function startFollowing(targetSocketId) {
+  if (state.lobbyId !== getMemberLobby()) return;
   const target = state.listeners.find(u => u.socketId === targetSocketId);
   if (!target) return;
   state.followingSocketId = targetSocketId;
   state.followingUsername = target.username;
+  // A manual skip / pick / context change ends following.
+  player.setDriver({ name: 'follow', onTakeover: () => stopFollowing() });
   socket.emit('follow:start', { lobbyId: state.lobbyId, targetSocketId });
   if (_updateListeners) _updateListeners();
   showToast(t('follow.started', 'Following {name}', { name: target.username }), 'info');
 }
 
 export function stopFollowing() {
-  state.followingSocketId = null;
-  state.followingUsername = null;
-  socket.emit('follow:stop', { lobbyId: state.lobbyId });
-  if (_updateListeners) _updateListeners();
+  if (!state.followingSocketId) return;
+  clearFollowing();
+  socket.emit('follow:stop', { lobbyId: getMemberLobby() });
   showToast(t('follow.stopped', 'Stopped following'), 'info');
 }
 
@@ -90,75 +115,25 @@ export function toggleShuffle() {
   updatePlaybackModeUI();
 }
 
+// Full-player buttons. With nothing loaded, Play starts the lobby on screen.
 export function togglePlayback() {
-  const audio = elements.audioPlayer;
-  if (audio.paused) {
-    if (!audio.src || audio.src === window.location.origin + '/') {
-      if (state.queue.length > 0) playLocalTrack(state.queue[0]);
-    } else { playAudioWithUnlock(audio.src, audio.currentTime, true); }
-  } else { audio.pause(); }
+  if (player.track) { player.toggle(); return; }
+  if (state.lobbyId && state.queue.length) player.playFrom(viewedContext(), state.queue, 0);
 }
 
-export function playPrevious() {
-  if (state.followingSocketId) stopFollowing();
-  const audio = elements.audioPlayer;
-  if (audio.currentTime > 3) {
-    audio.currentTime = 0;
-    if (audio.paused) playAudioWithUnlock(audio.src, 0, true);
-    return;
-  }
-  if (state.queue.length === 0) return;
-  const currentIndex = state.currentTrack ? state.queue.findIndex(s => s.id === state.currentTrack.id) : -1;
-  let prevIndex = currentIndex - 1;
-  if (prevIndex < 0) {
-    if (state.repeatMode === 'all') prevIndex = state.queue.length - 1;
-    else { if (audio.src) { audio.currentTime = 0; if (audio.paused) playAudioWithUnlock(audio.src, 0, true); } return; }
-  }
-  playLocalTrack(state.queue[prevIndex]);
-}
+export function playPrevious() { player.previous(); }
 
-export function playNext() {
-  if (state.followingSocketId) stopFollowing();
-  advanceLocalQueue();
-}
+export function playNext() { player.next(); }
 
 export function seekTo() {
-  const percent = elements.progressBar.value;
-  const duration = elements.audioPlayer.duration;
-  if (duration) elements.audioPlayer.currentTime = (percent / 100) * duration;
+  const percent = Number(elements.progressBar.value);
+  if (player.duration) player.seek((percent / 100) * player.duration);
 }
 
-export function playLocalTrack(track) {
-  if (!track) return;
-  state.currentTrack = track;
-  updateNowPlaying(track);
-  if (_updateListeners) _updateListeners();
-  const streamUrl = `/api/stream?q=${encodeURIComponent(track.url)}`;
-  playAudioWithUnlock(streamUrl, 0, true);
-  if (state.lobbyId) {
-    socket.emit('listener:now-playing', { lobbyId: state.lobbyId, track: { title: track.title, thumbnail: track.thumbnail } });
-  }
-}
-
-export function advanceLocalQueue() {
-  if (state.queue.length === 0) return;
-  const currentIndex = state.currentTrack ? state.queue.findIndex(s => s.id === state.currentTrack.id) : -1;
-  if (state.repeatMode === 'one' && currentIndex >= 0) { playLocalTrack(state.queue[currentIndex]); return; }
-  if (state.isShuffleEnabled && state.queue.length > 1) {
-    let randomIndex;
-    do { randomIndex = Math.floor(Math.random() * state.queue.length); } while (randomIndex === currentIndex && state.queue.length > 1);
-    playLocalTrack(state.queue[randomIndex]);
-    return;
-  }
-  let nextIndex = currentIndex + 1;
-  if (nextIndex >= state.queue.length) {
-    if (state.repeatMode === 'all') nextIndex = 0;
-    else { elements.audioPlayer.pause(); state.isPlaying = false; updatePlayButton(); return; }
-  }
-  playLocalTrack(state.queue[nextIndex]);
-}
-
+// Player bar readout for the loaded track (or the empty state); the
+// "artist · from" line and the enabled controls are player-bar.js.
 export function updateNowPlaying(track) {
+  if (!track) { resetNowPlaying(); refreshPlayerBar(); return; }
   elements.trackTitle.textContent = track.title || 'Unknown Track';
   elements.trackArtist.textContent = track.artist || '';
   const sourceLink = document.getElementById('track-source-link');
@@ -167,16 +142,27 @@ export function updateNowPlaying(track) {
     else { sourceLink.hidden = true; }
   }
   const thumbUrl = track.id ? getCoverUrl(track.id, track.thumbnail) : sanitizeUrl(track.thumbnail);
-  if (thumbUrl) { elements.albumArt.innerHTML = `<img src="${escapeHtml(thumbUrl)}" alt="Album art">`; }
-  else { elements.albumArt.innerHTML = '<div class="placeholder-art"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div>'; }
-  if (window.MediaSessionManager) {
-    MediaSessionManager.updateTrack({ title: track.title, artist: track.artist, thumbnail: track.thumbnail, songId: track.id });
-  }
+  if (thumbUrl) { elements.albumArt.innerHTML = `<img src="${escapeHtml(thumbUrl)}" alt="">`; }
+  else { elements.albumArt.innerHTML = NOTE_ART; }
+  refreshPlayerBar();
 }
+
+const NOTE_ART = '<span class="placeholder-art"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></span>';
+
+function resetNowPlaying() {
+  const sourceLink = document.getElementById('track-source-link');
+  if (sourceLink) sourceLink.hidden = true;
+  elements.progressBar.value = 0;
+  syncRangeFill(elements.progressBar);
+  elements.currentTime.textContent = '0:00';
+  elements.duration.textContent = '0:00';
+  elements.albumArt.innerHTML = NOTE_ART;
+}
+
 
 export function updatePlayButton() {
   const icon = elements.playBtn.querySelector('svg');
-  if (state.isPlaying) {
+  if (player.isPlaying) {
     icon.innerHTML = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
     elements.playBtn.setAttribute('aria-label', 'Pause');
   } else {

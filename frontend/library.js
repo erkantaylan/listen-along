@@ -2,8 +2,9 @@
 // plus the list of song requests waiting for an upload. Songs are added to the
 // current lobby's queue from here.
 import { state, socket } from './state.js';
-import { showToast, formatDuration } from './ui.js';
+import { showToast, formatDuration, notifyViewChange } from './ui.js';
 import { libraryPath, basePath } from './router.js';
+import { player } from './player.js';
 
 // Escapes for both text and attribute contexts (ui.js escapeHtml leaves quotes).
 function escapeHtml(value) {
@@ -28,64 +29,67 @@ const lib = {
 
 const $ = (id) => document.getElementById(id);
 
-// --- Preview ----------------------------------------------------------------
-// One shared <audio> for listening to a library song without a lobby; starting
-// another preview replaces the current one.
+// --- Playing ----------------------------------------------------------------
+// The ▶ button plays the song in the app-wide player (player.js), like any
+// other song: the bar shows it, it keeps playing across pages and lock-screen
+// controls work. The context is the library page as shown (current search and
+// sort), starting at the clicked song, so Next continues down the page and
+// stops at its end (pages are fetched from the server one at a time). Playing
+// from here replaces the current context (e.g. a lobby queue). Each row's
+// button follows the player: the song that is playing shows pause.
 
-const PLAY_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
-const PAUSE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
+const PLAY_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+const PAUSE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
 
-const preview = { audio: null, songId: null };
-
-function previewPlaying(songId) {
-  return preview.songId === songId && preview.audio && !preview.audio.paused;
+// Library songs as player tracks. Queue entries refer to library songs as
+// `library:<id>`, so the same song playing from a lobby also counts.
+function libraryTrack(song) {
+  return {
+    libraryId: song.id,
+    url: `library:${song.id}`,
+    src: `/api/library/${encodeURIComponent(song.id)}/file`,
+    title: song.title,
+    artist: song.artist || '',
+    thumbnail: song.youtube_id ? `https://i.ytimg.com/vi/${encodeURIComponent(song.youtube_id)}/hqdefault.jpg` : null,
+    duration: song.duration_sec || 0,
+  };
 }
 
-function previewButtonHtml(songId) {
-  const playing = previewPlaying(songId);
-  return `<button class="btn-outline theme-secondary btn-icon btn-sm rounded-pill libpage-preview${playing ? ' playing' : ''}" data-id="${escapeHtml(songId)}" type="button" aria-label="${playing ? 'Pause preview' : 'Play preview'}" title="${playing ? 'Pause' : 'Preview'}">${playing ? PAUSE_ICON : PLAY_ICON}</button>`;
+function isCurrentSong(songId) {
+  const t = player.track;
+  return !!t && (t.libraryId === songId || t.url === `library:${songId}`);
 }
 
-function updatePreviewButtons() {
-  document.querySelectorAll('.libpage-preview').forEach((btn) => {
-    const playing = previewPlaying(btn.dataset.id);
+function songPlaying(songId) {
+  return isCurrentSong(songId) && player.isPlaying;
+}
+
+function playButtonHtml(songId) {
+  const playing = songPlaying(songId);
+  return `<button class="btn-outline theme-secondary btn-icon btn-sm rounded-pill libpage-play${playing ? ' playing' : ''}" data-id="${escapeHtml(songId)}" type="button" aria-label="${playing ? 'Pause' : 'Play'}" title="${playing ? 'Pause' : 'Play'}">${playing ? PAUSE_ICON : PLAY_ICON}</button>`;
+}
+
+function updatePlayButtons() {
+  document.querySelectorAll('.libpage-play').forEach((btn) => {
+    const playing = songPlaying(btn.dataset.id);
     btn.classList.toggle('playing', playing);
     btn.innerHTML = playing ? PAUSE_ICON : PLAY_ICON;
-    btn.setAttribute('aria-label', playing ? 'Pause preview' : 'Play preview');
-    btn.title = playing ? 'Pause' : 'Preview';
+    btn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+    btn.title = playing ? 'Pause' : 'Play';
+  });
+  document.querySelectorAll('#libpage-list .libpage-item').forEach((li) => {
+    li.classList.toggle('is-playing', isCurrentSong(li.dataset.id));
   });
 }
 
-function togglePreview(songId) {
-  if (!preview.audio) {
-    preview.audio = new Audio();
-    preview.audio.preload = 'none';
-    ['play', 'pause', 'ended'].forEach((ev) => preview.audio.addEventListener(ev, updatePreviewButtons));
-    preview.audio.addEventListener('error', () => {
-      if (!preview.songId) return;
-      showToast('Could not play this song', 'error');
-      preview.songId = null;
-      updatePreviewButtons();
-    });
-  }
-  if (preview.songId === songId) {
-    if (preview.audio.paused) preview.audio.play().catch(() => {});
-    else preview.audio.pause();
-    return;
-  }
-  preview.songId = songId;
-  preview.audio.src = `/api/library/${encodeURIComponent(songId)}/file`;
-  preview.audio.play().catch(() => {});
-  updatePreviewButtons();
-}
+player.on('state', updatePlayButtons);
+player.on('track', updatePlayButtons);
 
-function stopPreview() {
-  if (!preview.audio) return;
-  preview.songId = null;
-  preview.audio.pause();
-  preview.audio.removeAttribute('src');
-  preview.audio.load();
-  updatePreviewButtons();
+function playSong(songId) {
+  if (isCurrentSong(songId)) { player.toggle(); return; }
+  const index = lib.songs.findIndex((s) => s.id === songId);
+  if (index < 0) return;
+  player.playFrom({ type: 'library' }, lib.songs.map(libraryTrack), index);
 }
 
 function relativeDate(value) {
@@ -197,14 +201,14 @@ function renderSongs() {
         relativeDate(song.created_at),
         sourceLinkHtml(song),
       ].filter(Boolean).join(' · ');
-      return `<li class="list-group-item libpage-item" data-id="${escapeHtml(song.id)}">
+      return `<li class="list-group-item libpage-item${isCurrentSong(song.id) ? ' is-playing' : ''}" data-id="${escapeHtml(song.id)}">
         ${thumbHtml(song.youtube_id)}
         <div class="libpage-info min-w-0">
           <div class="fw-medium text-truncate libpage-title" title="${escapeHtml(song.title)}">${escapeHtml(song.title)}</div>
           <div class="fs-sm fg-2 text-truncate libpage-sub">${sub}</div>
           <div class="fs-xs fg-3 libpage-meta">${meta}</div>
         </div>
-        ${previewButtonHtml(song.id)}
+        ${playButtonHtml(song.id)}
         <button class="btn-solid theme-primary btn-sm libpage-add" type="button" data-id="${escapeHtml(song.id)}">Add</button>
       </li>`;
     }).join('');
@@ -425,6 +429,7 @@ export function showLibraryRoute(route) {
     page.hidden = false;
     document.body.classList.add('libpage-open');
     refreshRequestCount();
+    notifyViewChange();
   }
   updateContext();
   if (!wasOpen || route.tab !== lib.tab || (route.tab === 'requests' && requestsChanged)) switchTab(route.tab);
@@ -456,6 +461,7 @@ export function openLibraryPage(tab = 'library') {
   lib.open = true;
   page.hidden = false;
   document.body.classList.add('libpage-open');
+  notifyViewChange();
   updateContext();
   switchTab(tab);
   loadSongs();
@@ -470,9 +476,9 @@ export function closeLibraryPage() {
   const page = $('library-page');
   if (!page) return;
   lib.open = false;
-  stopPreview();
   page.hidden = true;
   document.body.classList.remove('libpage-open');
+  notifyViewChange();
 }
 
 export function handleLibraryUpdated() {
@@ -508,8 +514,8 @@ export function setupLibraryPage() {
   $('libpage-pager-top').addEventListener('click', onPagerClick);
   $('libpage-request-status').addEventListener('change', (e) => { lib.requestStatus = e.target.value; loadRequests(); syncUrl('replace'); });
   $('libpage-list').addEventListener('click', (e) => {
-    const play = e.target.closest('.libpage-preview');
-    if (play) { togglePreview(play.dataset.id); return; }
+    const play = e.target.closest('.libpage-play');
+    if (play) { playSong(play.dataset.id); return; }
     const btn = e.target.closest('.libpage-add');
     if (btn) addToQueue(btn.dataset.id, btn);
   });

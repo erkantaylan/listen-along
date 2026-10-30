@@ -28,7 +28,13 @@
     "pause": "Pause",
     "next": "Next",
     "mute": "Mute",
-    "unmute": "Unmute"
+    "unmute": "Unmute",
+    "nothingPlaying": "Nothing playing",
+    "pickSong": "Pick a song in a lobby or the library",
+    "openContext": "Open {name}",
+    "fromLibrary": "Music Library",
+    "playingElsewhere": "Playing in another tab",
+    "contextClosed": "The lobby you were playing from was closed"
   },
   "playbackMode": {
     "replayAll": "Replay list",

@@ -28,7 +28,13 @@
     "pause": "Duraklat",
     "next": "Sonraki",
     "mute": "Sesi kapat",
-    "unmute": "Sesi aç"
+    "unmute": "Sesi aç",
+    "nothingPlaying": "Hiçbir şey çalmıyor",
+    "pickSong": "Bir lobiden ya da kütüphaneden şarkı seç",
+    "openContext": "{name} aç",
+    "fromLibrary": "Müzik Kütüphanesi",
+    "playingElsewhere": "Başka bir sekmede çalıyor",
+    "contextClosed": "Çaldığın lobi kapatıldı"
   },
   "playbackMode": {
     "replayAll": "Listeyi tekrarla",

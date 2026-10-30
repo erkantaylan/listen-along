@@ -1,15 +1,24 @@
 // Queue management, drag-drop reordering, and queue display
 import { state, elements, socket, STORAGE_KEYS, storageSet } from './state.js';
 import { showToast, escapeHtml, sanitizeUrl, getCoverUrl, getInitials, formatDuration, t, toLower, syncRangeFill } from './ui.js';
-import { stopFollowing, startFollowing, playLocalTrack, updatePlayButton, updatePlaybackModeUI } from './playback.js';
+import { stopFollowing, startFollowing, viewedContext } from './playback.js';
 import { refreshLibraryAddButtons } from './library.js';
+import { player } from './player.js';
+import { getMemberLobby } from './lobby.js';
+import { refreshPlayerBar } from './player-bar.js';
 
+// queue:update arrives for the lobby on screen and for the lobby being played
+// from (the socket stays in that one); they may be the same lobby.
 export function handleQueueUpdated(data) {
-  state.queue = data.songs || data.queue || [];
+  const songs = data.songs || data.queue || [];
+  player.updateQueue(data.lobbyId, songs);
+  if (data.lobbyId && data.lobbyId !== state.lobbyId) return;
+  state.queue = songs;
   updateQueue();
 }
 
 export function handleSongAdded(data) {
+  if (data.lobbyId && data.lobbyId !== state.lobbyId) return;
   state.queue.push(data.song);
   updateQueue();
   showToast(`Added: ${data.song.title}`, 'success');
@@ -156,11 +165,10 @@ export function moveSongDown(index) {
   socket.emit('queue:reorder', { lobbyId: state.lobbyId, songId: song.id, newIndex: index + 1 });
 }
 
+// Playing a song makes this lobby the playback context (if it was not).
 export function playSongAt(index) {
-  const song = state.queue[index];
-  if (!song) return;
-  if (state.followingSocketId) stopFollowing();
-  playLocalTrack(song);
+  if (!state.queue[index]) return;
+  player.playFrom(viewedContext(), state.queue, index);
 }
 
 export function setupQueueDragAndDrop() {
@@ -221,10 +229,12 @@ function getQueueListenersHtml(songTitle) {
 
 export function updateQueue() {
   refreshLibraryAddButtons();
+  refreshPlayerBar();
   if (state.queue.length === 0) {
     elements.queueList.innerHTML = `<li class="list-group-item app-empty queue-empty"><p class="mb-1">${t('queue.empty', 'Queue is empty')}</p><p class="fs-sm mb-0 hint">${t('queue.emptyHint', 'Add a song to get started')}</p></li>`;
     return;
   }
+  const isContextOnScreen = !!player.context && player.context.lobbyId === state.lobbyId;
   const songsWithIndices = state.queue.map((song, index) => ({ song, index }));
   let visibleSongs = state.hideErroredSongs ? songsWithIndices.filter(({ song }) => { const di = state.downloadStatus[song.url]; return !di || di.status !== 'error'; }) : [...songsWithIndices];
   if (state.queueSort === 'newest') visibleSongs.sort((a, b) => (b.song.addedAt || 0) - (a.song.addedAt || 0));
@@ -233,7 +243,7 @@ export function updateQueue() {
   elements.queueList.innerHTML = visibleSongs.map(({ song, index }) => {
     const thumbUrl = song.id ? getCoverUrl(song.id, song.thumbnail) : sanitizeUrl(song.thumbnail);
     const downloadHtml = getDownloadStatusHtml(state.downloadStatus[song.url]);
-    const isPlaying = state.currentTrack && state.currentTrack.id === song.id;
+    const isPlaying = isContextOnScreen && !!player.track && player.track.id === song.id;
     const canMoveUp = index > 0, canMoveDown = index < state.queue.length - 1;
     const listenersHtml = getQueueListenersHtml(song.title);
     return `<li class="list-group-item queue-item ${isPlaying ? 'playing' : ''}" data-index="${index}" data-url="${escapeHtml(song.url)}" data-title="${toLower(escapeHtml(song.title))}" draggable="true"><div class="queue-item-drag-handle" title="Drag to reorder" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg></div><div class="app-thumb queue-item-thumb">${thumbUrl ? `<img src="${escapeHtml(thumbUrl)}" alt="">` : '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>'}${downloadHtml.icon}</div><div class="queue-item-info"><div class="queue-item-title">${escapeHtml(song.title)}</div><div class="queue-item-meta"><span class="queue-item-duration">${song.duration ? formatDuration(song.duration) : ''}</span>${song.addedBy ? `<span class="queue-item-added-by">${escapeHtml(song.addedBy)}</span>` : ''}${downloadHtml.badge}</div>${downloadHtml.progressBar}</div>${listenersHtml}<div class="queue-item-actions"><div class="queue-item-reorder"><button class="btn-text theme-secondary btn-icon btn-xs queue-item-up" aria-label="Move up" title="Move up" onclick="window.app.moveSongUp(${index})" ${!canMoveUp ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg></button><button class="btn-text theme-secondary btn-icon btn-xs queue-item-down" aria-label="Move down" title="Move down" onclick="window.app.moveSongDown(${index})" ${!canMoveDown ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg></button></div>${song.url && song.url.startsWith('http') ? `<button class="btn-text theme-secondary btn-icon btn-sm queue-item-youtube" aria-label="Open on YouTube" title="Open on YouTube" onclick="window.app.openSource(${index})"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 15l5.19-3L10 9v6m11.56-7.83c.13.47.22 1.1.28 1.9.07.8.1 1.49.1 2.09L22 12c0 2.19-.16 3.8-.44 4.83-.25.9-.83 1.48-1.73 1.73-.47.13-1.33.22-2.65.28-1.3.07-2.49.1-3.59.1L12 19c-4.19 0-6.8-.16-7.83-.44-.9-.25-1.48-.83-1.73-1.73-.13-.47-.22-1.1-.28-1.9-.07-.8-.1-1.49-.1-2.09L2 12c0-2.19.16-3.8.44-4.83.25-.9.83-1.48 1.73-1.73.47-.13 1.33-.22 2.65-.28 1.3-.07 2.49-.1 3.59-.1L12 5c4.19 0 6.8.16 7.83.44.9.25 1.48.83 1.73 1.73z"/></svg></button>` : ''}<button class="btn-text theme-secondary btn-icon btn-sm queue-item-play" aria-label="Play" title="Play" onclick="window.app.playSongAt(${index})"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></button><button class="btn-text theme-secondary btn-icon btn-sm queue-item-remove" aria-label="Remove from queue" title="Remove from queue" onclick="window.app.removeSong(${index})"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div></li>`;
@@ -263,7 +273,8 @@ export function updateListeners() {
     const track = user.currentTrack;
     const nowListening = track && track.title ? `<span class="listener-track">${escapeHtml(track.title)}</span>` : '';
     let followBtn = '';
-    if (user.socketId !== socket.id) {
+    // Following happens in the lobby being played from (the member lobby).
+    if (user.socketId !== socket.id && state.lobbyId === getMemberLobby()) {
       const isFollowing = state.followingSocketId === user.socketId;
       followBtn = isFollowing
         ? `<button class="btn-text theme-secondary btn-icon btn-sm active follow-btn following" type="button" aria-label="${t('follow.stopFollowing', 'Stop following')}" data-socket-id="${user.socketId}" title="${t('follow.stopFollowing', 'Stop following')}"><svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg></button>`
@@ -282,23 +293,9 @@ export function updateListeners() {
   });
 }
 
+// Clear the lobby page's lists (switching or leaving a lobby page). The full
+// player follows player.js and is left alone.
 export function resetLobbyUI() {
-  elements.trackTitle.textContent = t('player.noTrackPlaying', 'No track playing');
-  elements.trackArtist.textContent = t('player.addSongHint', 'Add a song to get started');
-  const sourceLink = document.getElementById('track-source-link');
-  if (sourceLink) sourceLink.hidden = true;
-  elements.progressBar.value = 0;
-  syncRangeFill(elements.progressBar);
-  elements.currentTime.textContent = '0:00';
-  elements.duration.textContent = '0:00';
-  elements.albumArt.innerHTML = '<div class="placeholder-art"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div>';
-  state.isPlaying = false;
-  state.isShuffleEnabled = false;
-  state.repeatMode = 'off';
-  state.followingSocketId = null;
-  state.followingUsername = null;
-  updatePlayButton();
-  updatePlaybackModeUI();
   updateQueue();
   updateListeners();
 }

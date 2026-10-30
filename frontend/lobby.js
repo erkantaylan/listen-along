@@ -1,7 +1,9 @@
 // Lobby creation, joining, leaving, sharing, and related handlers
 import { state, elements, socket, STORAGE_KEYS, viewActivators, storageSet, storageRemove, setSuppressJoinToasts, setLobbiesInterval } from './state.js';
-import { showView, showToast, escapeHtml, formatAge, copyToClipboard, t } from './ui.js';
+import { showView, showToast, escapeHtml, formatAge, copyToClipboard, t, navigateTo } from './ui.js';
 import { parseRoute } from './router.js';
+import { player } from './player.js';
+import { desiredMembership, membershipActions } from './player-queue.js';
 
 // Register landing view activator
 viewActivators.landing = () => {
@@ -9,36 +11,78 @@ viewActivators.landing = () => {
   setLobbiesInterval(setInterval(fetchLobbies, 10000));
 };
 
+// asViewer: keep the membership of the lobby being played from.
 export function createLobby() {
   elements.createLobbyBtn.disabled = true;
   elements.createLobbyBtn.textContent = 'Creating...';
   const name = elements.lobbyNameInput ? elements.lobbyNameInput.value.trim() : '';
-  socket.emit('lobby:create', { username: state.username, emoji: state.emoji, name: name || undefined, userId: state.userId });
+  socket.emit('lobby:create', { username: state.username, emoji: state.emoji, name: name || undefined, userId: state.userId, asViewer: !!player.context });
 }
 
-export function joinLobby(lobbyId) {
-  socket.emit('lobby:join', { lobbyId, username: state.username, emoji: state.emoji, userId: state.userId });
+// --- Server-side lobby membership -------------------------------------------
+// The socket is a member of the playback-context lobby (or, with nothing
+// playing, of the lobby on screen) and only views any other lobby on screen;
+// see desiredMembership in player-queue.js. `membership` is what has been
+// asked of the server.
+const membership = { member: null, viewing: null };
+
+export function getMemberLobby() {
+  return membership.member;
 }
 
-// updateUrl: false when the address bar already moved (Back/Forward).
-export function leaveLobby(resetLobbyUI, resetChat, { updateUrl = true } = {}) {
-  socket.emit('lobby:leave', { lobbyId: state.lobbyId });
-  storageRemove(STORAGE_KEYS.LAST_LOBBY);
+function emitMembership({ type, lobbyId }) {
+  if (type === 'join') socket.emit('lobby:join', { lobbyId, username: state.username, emoji: state.emoji, userId: state.userId });
+  else if (type === 'view') socket.emit('lobby:view', { lobbyId, userId: state.userId });
+  else if (type === 'unview') socket.emit('lobby:unview', { lobbyId });
+  else if (type === 'leave') socket.emit('lobby:leave', { lobbyId });
+}
+
+// Bring the server in line with the page on screen and the playback context.
+// refresh: the lobby page needs its state (lobby:joined + queue) even when
+// the socket is already in that lobby.
+export function syncMembership({ refresh = false } = {}) {
+  const desired = desiredMembership({ viewedLobbyId: state.lobbyId, contextLobbyId: player.context && player.context.lobbyId });
+  const actions = membershipActions(membership, desired);
+  actions.forEach(emitMembership);
+  membership.member = desired.member;
+  membership.viewing = desired.viewing;
+  if (refresh && state.lobbyId && !actions.some(a => a.lobbyId === state.lobbyId && (a.type === 'join' || a.type === 'view'))) {
+    emitMembership({ type: state.lobbyId === membership.member ? 'join' : 'view', lobbyId: state.lobbyId });
+  }
+}
+
+// After a reconnect the server knows nothing about this socket.
+export function resyncMembership() {
+  membership.member = null;
+  membership.viewing = null;
+  syncMembership({ refresh: true });
+}
+
+// Show a lobby page (the view itself appears once lobby:joined arrives).
+export function openLobbyPage(lobbyId, resetLobbyPage) {
   hideRejoinPrompt();
+  state.lobbyId = lobbyId;
+  state.isHost = false;
+  state.lobbyName = null;
+  state.pinned = false;
+  state.queue = [];
+  state.listeners = [];
+  if (resetLobbyPage) resetLobbyPage();
+  syncMembership({ refresh: true });
+}
+
+// Leave the lobby page. Playback is not touched; the socket stays in the
+// lobby being played from so its queue stays live.
+export function closeLobbyPage(resetLobbyPage) {
+  if (!state.lobbyId) return;
   state.lobbyId = null;
   state.isHost = false;
   state.lobbyName = null;
   state.pinned = false;
   state.queue = [];
   state.listeners = [];
-  state.currentTrack = null;
-  state.downloadStatus = {};
-  elements.audioPlayer.pause();
-  elements.audioPlayer.src = '';
-  if (updateUrl) window.history.pushState({}, '', '/');
-  showView('landing');
-  resetLobbyUI();
-  resetChat();
+  if (resetLobbyPage) resetLobbyPage();
+  syncMembership();
 }
 
 export function shareLobby() {
@@ -66,7 +110,11 @@ export function shareLobby() {
 }
 
 export function handleLobbyCreated(data, requestChatHistory, updatePinButton) {
+  if (data.viewing) membership.viewing = data.lobbyId;
+  else { membership.member = data.lobbyId; membership.viewing = null; }
   state.lobbyId = data.lobbyId;
+  state.queue = [];
+  state.listeners = data.users || [];
   state.isHost = true;
   state.lobbyName = data.name || null;
   state.pinned = data.pinned || false;
@@ -78,16 +126,21 @@ export function handleLobbyCreated(data, requestChatHistory, updatePinButton) {
   elements.lobbyName.textContent = data.name || `Lobby ${data.lobbyId}`;
   updatePinButton();
   showView('lobby');
+  syncMembership();
   requestChatHistory();
   showToast('Lobby created! Share the link to invite friends.', 'success');
 }
 
 export function handleLobbyJoined(data, requestChatHistory, updatePinButton, updateListeners, updateQueue) {
-  state.lobbyId = data.lobbyId;
+  if (player.context && player.context.lobbyId === data.lobbyId) {
+    player.renameContext(data.lobbyId, data.name);
+    // A now-playing sent before the join completed was dropped by the server.
+    if (!data.viewing) reportNowPlaying();
+  }
+  if (data.lobbyId !== state.lobbyId) return;
   state.isHost = data.isHost || false;
   state.lobbyName = data.name || null;
   state.pinned = data.pinned || false;
-  state.queue = data.queue || [];
   state.listeners = data.listeners || data.users || [];
   setSuppressJoinToasts(true);
   setTimeout(function() { setSuppressJoinToasts(false); }, 2000);
@@ -101,7 +154,19 @@ export function handleLobbyJoined(data, requestChatHistory, updatePinButton, upd
   requestChatHistory();
 }
 
+// Tell the member lobby what this browser is playing.
+export function reportNowPlaying() {
+  const t = player.track;
+  if (!player.context || !t) return;
+  socket.emit('listener:now-playing', { lobbyId: player.context.lobbyId, track: { title: t.title, thumbnail: t.thumbnail } });
+}
+
 export function handleLobbyNotFound({ lobbyId }) {
+  // The join/view did not happen. A failed join leaves the server in the
+  // previous member lobby (only possible with nothing playing): leave it.
+  if (membership.member === lobbyId) { membership.member = null; socket.emit('lobby:leave', {}); }
+  if (membership.viewing === lobbyId) membership.viewing = null;
+  if (lobbyId !== state.lobbyId) return;
   state.pendingLobbyId = lobbyId;
   if (elements.roomTypeLobbyName) elements.roomTypeLobbyName.textContent = lobbyId;
   if (elements.roomTypeModal) elements.roomTypeModal.hidden = false;
@@ -120,12 +185,15 @@ export function handleLobbyError(data) {
 }
 
 export function handleLobbyRenamed(data) {
+  player.renameContext(data.lobbyId, data.name);
+  if (data.lobbyId !== state.lobbyId) return;
   state.lobbyName = data.name || null;
   elements.lobbyName.textContent = data.name || `Lobby ${data.lobbyId}`;
   showToast(`Lobby renamed to "${data.name}"`, 'success');
 }
 
 export function handleLobbyPinned(data, updatePinButton) {
+  if (data.lobbyId && data.lobbyId !== state.lobbyId) return;
   state.pinned = data.pinned;
   updatePinButton();
   showToast(data.pinned ? 'Lobby pinned — it won\'t be removed' : 'Lobby unpinned', 'success');
@@ -153,6 +221,7 @@ export function promptRenameLobby() {
 }
 
 export function handleUserJoined(data, updateListeners) {
+  if (data.lobbyId && data.lobbyId !== state.lobbyId) return;
   if (data.users) { state.listeners = data.users; }
   else { state.listeners.push(data.user); }
   updateListeners();
@@ -167,23 +236,27 @@ export function handleUserJoined(data, updateListeners) {
 }
 
 export function handleUserLeft(data, updateListeners) {
-  state.listeners = state.listeners.filter(u => u.id !== data.userId);
+  if (data.lobbyId && data.lobbyId !== state.lobbyId) return;
+  if (data.users) state.listeners = data.users;
+  else if (data.user) state.listeners = state.listeners.filter(u => u.socketId !== data.user.socketId);
   updateListeners();
 }
 
-export function handleLobbyClosed(data, resetLobbyUI) {
-  showToast(data.message || 'This lobby has been closed.', 'error');
-  storageRemove(STORAGE_KEYS.LAST_LOBBY);
-  state.lobbyId = null;
-  state.isHost = false;
-  state.queue = [];
-  state.listeners = [];
-  state.currentTrack = null;
-  elements.audioPlayer.pause();
-  elements.audioPlayer.src = '';
-  window.history.pushState({}, '', '/');
-  showView('landing');
-  resetLobbyUI();
+export function handleLobbyClosed(data, resetLobbyPage) {
+  const lobbyId = data.lobbyId || state.lobbyId;
+  const wasContext = !!player.context && player.context.lobbyId === lobbyId;
+  if (membership.member === lobbyId) membership.member = null;
+  if (membership.viewing === lobbyId) membership.viewing = null;
+  if (wasContext) player.stop();
+  if (lobbyId === state.lobbyId) {
+    showToast(data.message || 'This lobby has been closed.', 'error');
+    storageRemove(STORAGE_KEYS.LAST_LOBBY);
+    closeLobbyPage(resetLobbyPage);
+    navigateTo('/');
+  } else {
+    if (wasContext) showToast(t('player.contextClosed', 'The lobby you were playing from was closed'), 'error');
+    syncMembership();
+  }
 }
 
 // Adds a history entry for the lobby unless the address bar is already on it
@@ -214,9 +287,7 @@ function showRejoinPrompt(lobbyId) {
   if (elements.landingView) elements.landingView.appendChild(prompt);
   document.getElementById('rejoin-yes').addEventListener('click', () => {
     hideRejoinPrompt();
-    pushLobbyUrl(lobbyId);
-    state.lobbyId = lobbyId;
-    joinLobby(lobbyId);
+    navigateTo(`/lobby/${lobbyId}`);
   });
   document.getElementById('rejoin-no').addEventListener('click', () => {
     hideRejoinPrompt();
@@ -230,9 +301,7 @@ export function hideRejoinPrompt() {
 }
 
 export function joinLobbyFromCard(lobbyId) {
-  pushLobbyUrl(lobbyId);
-  state.lobbyId = lobbyId;
-  joinLobby(lobbyId);
+  navigateTo(`/lobby/${lobbyId}`);
 }
 
 export function fetchLobbies() {

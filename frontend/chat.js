@@ -34,13 +34,16 @@ export function sendChatMessage() {
   clearSongMention();
 }
 
+// The socket can be in two lobbies (the one on screen and the one being
+// played from); only the lobby on screen's chat is shown.
 export function handleChatMessage(msg) {
+  if (msg.lobbyId && msg.lobbyId !== state.lobbyId) return;
   appendChatMessage(msg);
   updateTicker(msg);
 }
 
 export function handleChatHistory(data) {
-  if (!elements.chatMessages) return;
+  if (!elements.chatMessages || (data.lobbyId && data.lobbyId !== state.lobbyId)) return;
   if (!data.messages || data.messages.length === 0) {
     elements.chatMessages.innerHTML = '<div class="app-empty chat-empty"><p class="mb-1">No messages yet</p><p class="fs-sm mb-0 hint">Be the first to say something!</p></div>';
     return;
