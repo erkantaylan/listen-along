@@ -169,6 +169,49 @@ For a local try-out without YouTube, `test/fixtures/fake-yt-dlp.js` stands in
 for yt-dlp (`LA_YTDLP_BIN=…/fake-yt-dlp.js`, needs the real ffmpeg): it makes
 2-second tones tagged from the search text.
 
+#### Run the worker as a service
+
+On Linux, a systemd **user** unit keeps the worker running, restarts it on
+failure and starts it on boot. Save as
+`~/.config/systemd/user/listen-along-worker.service` (adjust the node and
+`la.js` paths and `--name`):
+
+```ini
+[Unit]
+Description=Listen-Along download worker (la worker)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h
+Environment=LA_YTDLP_BIN=%h/.local/bin/yt-dlp
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/node %h/path/to/listen/cli/bin/la.js worker --name my-pc
+# SIGTERM to the worker only: it finishes the current job, then exits 0
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=15min
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target
+```
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now listen-along-worker
+loginctl enable-linger "$USER"     # start at boot without logging in (may need sudo)
+systemctl --user restart listen-along-worker   # or stop / status
+journalctl --user -u listen-along-worker -f    # logs
+```
+
+Use an absolute node path (`command -v node`; nvm paths work). Setting
+`LA_YTDLP_BIN` keeps the worker from prompting to install yt-dlp; otherwise it
+only warns when not on a terminal. On macOS use a launchd agent
+(`~/Library/LaunchAgents`), on Windows Task Scheduler or NSSM.
+
 ### Pulling songs to this computer (`la pull`)
 
 Copies library songs to a local folder. Any token works (no special
