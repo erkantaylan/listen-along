@@ -11,12 +11,6 @@
     "activeLobbies": "Active Lobbies",
     "noActiveLobbies": "No active lobbies"
   },
-  "listeningMode": {
-    "synchronized": "Jam",
-    "synchronizedDesc": "Listen together in sync",
-    "independent": "Independent",
-    "independentDesc": "Shared queue, own playback"
-  },
   "lobby": {
     "lobby": "Lobby",
     "listeners": "listeners",
@@ -24,9 +18,7 @@
     "leaveLobby": "Leave lobby",
     "renameLobby": "Rename lobby",
     "pinLobby": "Pin lobby to prevent cleanup",
-    "shareLobby": "Share lobby",
-    "listeningMode": "Listening - click to enter lobby mode",
-    "lobbyMode": "Lobby mode - click to return to listening"
+    "shareLobby": "Share lobby"
   },
   "player": {
     "noTrackPlaying": "No track playing",
@@ -93,7 +85,7 @@
   },
   "modal": {
     "createLobby": "Create Lobby",
-    "chooseModePrompt": "Choose a listening mode for this lobby:",
+    "createPrompt": "This lobby doesn't exist yet. Create it?",
     "create": "Create Lobby",
     "cancel": "Cancel"
   },

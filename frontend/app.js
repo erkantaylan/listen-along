@@ -7,7 +7,7 @@ import { checkUrlForDashboard, dashboardJoinLobby, dashboardRemoveLobby, dashboa
 import { setupLibraryPage, openLibraryPage, closeLibraryPage, isLibraryOpen, showLibraryRoute, handleLibraryUpdated, handleRequestsUpdated } from './library.js';
 import { parseRoute } from './router.js';
 import { createLobby, joinLobby, leaveLobby, shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyPinned, handleUserJoined, handleUserLeft, handleLobbyClosed, checkForLastLobby, joinLobbyFromCard, updatePinButton, togglePin, promptRenameLobby, toggleLobbyVisibility, deleteLobbyCard } from './lobby.js';
-import { handlePlaybackState, handlePlaybackSync, handleTrackChanged, handleShuffleState, handleDownloadStatus, handleDownloadProgress, handleModeChanged, handleUsersUpdated, handleFollowSync, toggleUserMode, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, advanceLocalQueue, updateNowPlaying, updatePlayButton, updatePlaybackModeUI, updateListeningModeBadge, updateModeButton, _setQueueFns } from './playback.js';
+import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, handleFollowSync, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, advanceLocalQueue, updatePlayButton, updatePlaybackModeUI, _setQueueFns } from './playback.js';
 import { handleQueueUpdated, handleSongAdded, addSong, removeSong, clearQueue, downloadPlaylist, cancelPlaylistDownload, moveSongUp, moveSongDown, playSongAt, setupQueueDragAndDrop, setupQueueSearch, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './queue.js';
 import { toggleSongMention, clearSongMention, sendChatMessage, handleChatMessage, handleChatHistory, requestChatHistory, resetChat } from './chat.js';
 
@@ -30,8 +30,8 @@ function setupSocket() {
     s.on('reconnect', () => { console.log('Reconnected to server'); showToast(t('toast.reconnected', 'Reconnected!'), 'success'); if (state.lobbyId) joinLobby(state.lobbyId); });
 
     // Lobby Events
-    s.on('lobby:created', (data) => handleLobbyCreated(data, requestChatHistory, updateListeningModeBadge, updatePinButton));
-    s.on('lobby:joined', (data) => handleLobbyJoined(data, requestChatHistory, updateListeningModeBadge, updatePinButton, updateListeners, updateQueue, updateNowPlaying, handlePlaybackSync));
+    s.on('lobby:created', (data) => handleLobbyCreated(data, requestChatHistory, updatePinButton));
+    s.on('lobby:joined', (data) => handleLobbyJoined(data, requestChatHistory, updatePinButton, updateListeners, updateQueue));
     s.on('lobby:not-found', handleLobbyNotFound);
     s.on('lobby:error', handleLobbyError);
     s.on('lobby:user-joined', (data) => handleUserJoined(data, updateListeners));
@@ -52,18 +52,11 @@ function setupSocket() {
     s.on('library:updated', handleLibraryUpdated);
     s.on('requests:updated', handleRequestsUpdated);
 
-    // Playback Events
-    s.on('playback:state', handlePlaybackState);
-    s.on('playback:sync', handlePlaybackSync);
-    s.on('playback:track-changed', handleTrackChanged);
-    s.on('playback:shuffle', handleShuffleState);
-
     // Download Events
     s.on('download:status', handleDownloadStatus);
     s.on('download:progress', handleDownloadProgress);
 
     // Mode Events
-    s.on('mode:changed', handleModeChanged);
     s.on('users:updated', handleUsersUpdated);
 
     // Chat Events
@@ -81,22 +74,12 @@ function setupSocket() {
 function setupEventListeners() {
   elements.createLobbyBtn.addEventListener('click', createLobby);
 
-  document.querySelectorAll('.lobby-type-selector').forEach(selector => {
-    selector.querySelectorAll('.lobby-type-option').forEach(option => {
-      option.addEventListener('click', () => {
-        selector.querySelectorAll('.lobby-type-option').forEach(o => o.classList.remove('selected'));
-        option.classList.add('selected');
-      });
-    });
-  });
-
   if (elements.roomTypeCreateBtn) {
     elements.roomTypeCreateBtn.addEventListener('click', () => {
-      const selectedMode = document.querySelector('#room-type-modal input[name="roomTypeMode"]:checked');
-      const listeningMode = selectedMode ? selectedMode.value : 'synchronized';
       if (elements.roomTypeModal) elements.roomTypeModal.hidden = true;
+      const lobbyId = state.pendingLobbyId; // cleared below, before the import resolves
       import('./state.js').then(mod => {
-        mod.socket.emit('lobby:create', { username: state.username, emoji: state.emoji, listeningMode, lobbyId: state.pendingLobbyId, userId: state.userId });
+        mod.socket.emit('lobby:create', { username: state.username, emoji: state.emoji, lobbyId, userId: state.userId });
       });
       state.pendingLobbyId = null;
     });
@@ -116,7 +99,6 @@ function setupEventListeners() {
   elements.shareBtn.addEventListener('click', shareLobby);
   if (elements.renameBtn) elements.renameBtn.addEventListener('click', promptRenameLobby);
   if (elements.pinBtn) elements.pinBtn.addEventListener('click', togglePin);
-  if (elements.modeBtn) elements.modeBtn.addEventListener('click', toggleUserMode);
 
   // Playback Controls
   elements.playBtn.addEventListener('click', togglePlayback);
@@ -222,6 +204,9 @@ function initAuthenticatedApp() {
   if (!route.lobbyId) checkForLastLobby();
   setupRangeFill();
   setupAudioPlayer(advanceLocalQueue);
+  // Playback is local, so the play/pause button follows the <audio> element.
+  elements.audioPlayer.addEventListener('play', updatePlayButton);
+  elements.audioPlayer.addEventListener('pause', updatePlayButton);
   setupMediaSession(togglePlayback, playNext, playPrevious);
   fetchVersion();
 

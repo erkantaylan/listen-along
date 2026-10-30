@@ -11,12 +11,6 @@
     "activeLobbies": "Aktif Lobiler",
     "noActiveLobbies": "Aktif lobi yok"
   },
-  "listeningMode": {
-    "synchronized": "Jam",
-    "synchronizedDesc": "Birlikte senkron dinle",
-    "independent": "Bağımsız",
-    "independentDesc": "Ortak sıra, kendi oynatma"
-  },
   "lobby": {
     "lobby": "Lobi",
     "listeners": "dinleyici",
@@ -24,9 +18,7 @@
     "leaveLobby": "Lobiden ayrıl",
     "renameLobby": "Lobiyi yeniden adlandır",
     "pinLobby": "Lobiyi sabitle",
-    "shareLobby": "Lobiyi paylaş",
-    "listeningMode": "Dinleme - lobi moduna geçmek için tıkla",
-    "lobbyMode": "Lobi modu - dinlemeye dönmek için tıkla"
+    "shareLobby": "Lobiyi paylaş"
   },
   "player": {
     "noTrackPlaying": "Şarkı çalmıyor",
@@ -93,7 +85,7 @@
   },
   "modal": {
     "createLobby": "Lobi Oluştur",
-    "chooseModePrompt": "Bu lobi için bir dinleme modu seç:",
+    "createPrompt": "Bu lobi henüz yok. Oluşturulsun mu?",
     "create": "Lobi Oluştur",
     "cancel": "İptal"
   },

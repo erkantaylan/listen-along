@@ -1,5 +1,5 @@
 // Audio player, volume controls, and Safari unlock handling
-import { state, elements, socket, STORAGE_KEYS, storageSet } from './state.js';
+import { state, elements, STORAGE_KEYS, storageSet } from './state.js';
 import { showToast, formatTime, syncRangeFill } from './ui.js';
 
 export function setupAudioPlayer(advanceLocalQueue) {
@@ -18,13 +18,7 @@ export function setupAudioPlayer(advanceLocalQueue) {
     elements.duration.textContent = formatTime(audio.duration);
   });
 
-  audio.addEventListener('ended', () => {
-    if (state.listeningMode === 'independent') {
-      advanceLocalQueue();
-      return;
-    }
-    socket.emit('playback:ended', { lobbyId: state.lobbyId });
-  });
+  audio.addEventListener('ended', () => advanceLocalQueue());
 
   audio.addEventListener('play', () => {
     state.isPlaying = true;

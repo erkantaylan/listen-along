@@ -1,6 +1,8 @@
-// Playback controls, state handlers, mode management, and follow system
+// Local playback controls and the follow system. Every listener plays the
+// shared queue at their own pace in the browser; the server only learns what
+// each listener is playing (listener:now-playing) so others can see and follow it.
 import { state, elements, socket, STORAGE_KEYS, storageSet } from './state.js';
-import { showToast, escapeHtml, getCoverUrl, sanitizeUrl, getInitials, t } from './ui.js';
+import { showToast, escapeHtml, getCoverUrl, sanitizeUrl, t } from './ui.js';
 import { playAudioWithUnlock } from './audio.js';
 
 // These are imported lazily to avoid circular deps with queue.js
@@ -8,64 +10,6 @@ let _updateQueue, _updateListeners;
 export function _setQueueFns(updateQueue, updateListeners) {
   _updateQueue = updateQueue;
   _updateListeners = updateListeners;
-}
-
-export function handlePlaybackState(data) {
-  state.isPlaying = data.isPlaying;
-  state.currentTrack = data.track;
-  if (state.currentTrack) updateNowPlaying(state.currentTrack);
-  if (data.isPlaying && data.audioUrl) {
-    playAudioWithUnlock(data.audioUrl, data.position || 0, true);
-  } else { elements.audioPlayer.pause(); }
-  updatePlayButton();
-  if (_updateListeners) _updateListeners();
-}
-
-export function handlePlaybackSync(data) {
-  if (state.listeningMode === 'independent') return;
-  const audio = elements.audioPlayer;
-  const serverPosition = data.position || 0;
-  state.isPlaying = data.isPlaying;
-  updatePlayButton();
-  if (data.repeatMode !== undefined && data.repeatMode !== state.repeatMode) {
-    state.repeatMode = data.repeatMode;
-    storageSet(STORAGE_KEYS.REPEAT_MODE, data.repeatMode);
-    updatePlaybackModeUI();
-  }
-  const shouldPlayAudio = state.userMode === 'listening';
-  if (data.track && data.track.url) {
-    const streamUrl = `/api/stream?q=${encodeURIComponent(data.track.url)}`;
-    if (!audio.src || !audio.src.includes(encodeURIComponent(data.track.url))) {
-      state.currentTrack = data.track;
-      updateNowPlaying(data.track);
-      if (_updateQueue) _updateQueue();
-      if (_updateListeners) _updateListeners();
-      if (data.isPlaying && shouldPlayAudio) { playAudioWithUnlock(streamUrl, serverPosition, true); }
-      else { audio.src = streamUrl; audio.currentTime = serverPosition; }
-      return;
-    }
-  }
-  const drift = Math.abs(audio.currentTime - serverPosition);
-  if (drift > 1) audio.currentTime = serverPosition;
-  if (shouldPlayAudio) {
-    if (data.isPlaying && audio.paused) playAudioWithUnlock(audio.src, audio.currentTime, true);
-    else if (!data.isPlaying && !audio.paused) audio.pause();
-  } else { if (!audio.paused) audio.pause(); }
-}
-
-export function handleTrackChanged(data) {
-  state.currentTrack = data.track;
-  state.queue = data.queue || state.queue;
-  updateNowPlaying(data.track);
-  if (_updateQueue) _updateQueue();
-  if (_updateListeners) _updateListeners();
-  if (data.audioUrl) playAudioWithUnlock(data.audioUrl, 0, true);
-}
-
-export function handleShuffleState(data) {
-  state.isShuffleEnabled = data.shuffleEnabled;
-  storageSet(STORAGE_KEYS.SHUFFLE_ENABLED, String(data.shuffleEnabled));
-  updatePlaybackModeUI();
 }
 
 export function handleDownloadStatus(data) {
@@ -79,19 +23,6 @@ export function handleDownloadProgress(data) {
   updateQueueProgress(data.url, data.percent);
 }
 
-export function handleModeChanged(data) {
-  state.userMode = data.mode;
-  updateModeButton();
-  if (data.mode === 'lobby') {
-    elements.audioPlayer.pause();
-    showToast('Lobby mode: Audio paused', 'info');
-  } else if (data.mode === 'listening' && state.isPlaying) {
-    const audio = elements.audioPlayer;
-    if (audio.src) playAudioWithUnlock(audio.src, audio.currentTime, true);
-    showToast('Listening mode: Audio resumed', 'info');
-  }
-}
-
 export function handleUsersUpdated(data) {
   state.listeners = data.users || [];
   if (state.followingSocketId) {
@@ -103,7 +34,7 @@ export function handleUsersUpdated(data) {
     }
   }
   if (_updateListeners) _updateListeners();
-  if (state.listeningMode === 'independent' && _updateQueue) _updateQueue();
+  if (_updateQueue) _updateQueue();
 }
 
 export function handleFollowSync(data) {
@@ -131,11 +62,6 @@ export function stopFollowing() {
   showToast(t('follow.stopped', 'Stopped following'), 'info');
 }
 
-export function toggleUserMode() {
-  const newMode = state.userMode === 'listening' ? 'lobby' : 'listening';
-  socket.emit('mode:set', { lobbyId: state.lobbyId, mode: newMode });
-}
-
 export function updateQueueProgress(url, percent) {
   const queueItems = elements.queueList.querySelectorAll('.queue-item');
   for (const item of queueItems) {
@@ -152,82 +78,54 @@ export function updateQueueProgress(url, percent) {
 export function cycleRepeatMode() {
   const cycle = { 'off': 'all', 'all': 'one', 'one': 'off' };
   const newRepeat = cycle[state.repeatMode] || 'off';
-  if (state.listeningMode === 'independent') {
-    state.repeatMode = newRepeat;
-    storageSet(STORAGE_KEYS.REPEAT_MODE, newRepeat);
-    updatePlaybackModeUI();
-    return;
-  }
-  socket.emit('playback:setRepeat', { lobbyId: state.lobbyId, mode: newRepeat });
   state.repeatMode = newRepeat;
   storageSet(STORAGE_KEYS.REPEAT_MODE, newRepeat);
   updatePlaybackModeUI();
 }
 
 export function toggleShuffle() {
-  if (state.listeningMode === 'independent') {
-    const newShuffle = !state.isShuffleEnabled;
-    state.isShuffleEnabled = newShuffle;
-    storageSet(STORAGE_KEYS.SHUFFLE_ENABLED, String(newShuffle));
-    updatePlaybackModeUI();
-    return;
-  }
-  socket.emit('queue:shuffle', { lobbyId: state.lobbyId });
-  showToast('Upcoming songs shuffled', 'info');
+  const newShuffle = !state.isShuffleEnabled;
+  state.isShuffleEnabled = newShuffle;
+  storageSet(STORAGE_KEYS.SHUFFLE_ENABLED, String(newShuffle));
+  updatePlaybackModeUI();
 }
 
 export function togglePlayback() {
-  if (state.listeningMode === 'independent') {
-    const audio = elements.audioPlayer;
-    if (audio.paused) {
-      if (!audio.src || audio.src === window.location.origin + '/') {
-        if (state.queue.length > 0) playLocalTrack(state.queue[0]);
-      } else { playAudioWithUnlock(audio.src, audio.currentTime, true); }
-    } else { audio.pause(); }
-    return;
-  }
-  socket.emit('playback:toggle', { lobbyId: state.lobbyId });
+  const audio = elements.audioPlayer;
+  if (audio.paused) {
+    if (!audio.src || audio.src === window.location.origin + '/') {
+      if (state.queue.length > 0) playLocalTrack(state.queue[0]);
+    } else { playAudioWithUnlock(audio.src, audio.currentTime, true); }
+  } else { audio.pause(); }
 }
 
 export function playPrevious() {
-  if (state.listeningMode === 'independent') {
-    if (state.followingSocketId) stopFollowing();
-    const audio = elements.audioPlayer;
-    if (audio.currentTime > 3) {
-      audio.currentTime = 0;
-      if (audio.paused) playAudioWithUnlock(audio.src, 0, true);
-      return;
-    }
-    if (state.queue.length === 0) return;
-    const currentIndex = state.currentTrack ? state.queue.findIndex(s => s.id === state.currentTrack.id) : -1;
-    let prevIndex = currentIndex - 1;
-    if (prevIndex < 0) {
-      if (state.repeatMode === 'all') prevIndex = state.queue.length - 1;
-      else { if (audio.src) { audio.currentTime = 0; if (audio.paused) playAudioWithUnlock(audio.src, 0, true); } return; }
-    }
-    playLocalTrack(state.queue[prevIndex]);
+  if (state.followingSocketId) stopFollowing();
+  const audio = elements.audioPlayer;
+  if (audio.currentTime > 3) {
+    audio.currentTime = 0;
+    if (audio.paused) playAudioWithUnlock(audio.src, 0, true);
     return;
   }
-  socket.emit('playback:previous', { lobbyId: state.lobbyId });
+  if (state.queue.length === 0) return;
+  const currentIndex = state.currentTrack ? state.queue.findIndex(s => s.id === state.currentTrack.id) : -1;
+  let prevIndex = currentIndex - 1;
+  if (prevIndex < 0) {
+    if (state.repeatMode === 'all') prevIndex = state.queue.length - 1;
+    else { if (audio.src) { audio.currentTime = 0; if (audio.paused) playAudioWithUnlock(audio.src, 0, true); } return; }
+  }
+  playLocalTrack(state.queue[prevIndex]);
 }
 
 export function playNext() {
-  if (state.listeningMode === 'independent') {
-    if (state.followingSocketId) stopFollowing();
-    advanceLocalQueue();
-    return;
-  }
-  socket.emit('playback:next', { lobbyId: state.lobbyId });
+  if (state.followingSocketId) stopFollowing();
+  advanceLocalQueue();
 }
 
 export function seekTo() {
   const percent = elements.progressBar.value;
   const duration = elements.audioPlayer.duration;
-  if (duration) {
-    const position = (percent / 100) * duration;
-    if (state.listeningMode === 'independent') { elements.audioPlayer.currentTime = position; return; }
-    socket.emit('playback:seek', { lobbyId: state.lobbyId, position });
-  }
+  if (duration) elements.audioPlayer.currentTime = (percent / 100) * duration;
 }
 
 export function playLocalTrack(track) {
@@ -237,7 +135,7 @@ export function playLocalTrack(track) {
   if (_updateListeners) _updateListeners();
   const streamUrl = `/api/stream?q=${encodeURIComponent(track.url)}`;
   playAudioWithUnlock(streamUrl, 0, true);
-  if (state.listeningMode === 'independent' && state.lobbyId) {
+  if (state.lobbyId) {
     socket.emit('listener:now-playing', { lobbyId: state.lobbyId, track: { title: track.title, thumbnail: track.thumbnail } });
   }
 }
@@ -301,38 +199,7 @@ export function updatePlaybackModeUI() {
     repeatBtn.setAttribute('aria-label', 'Repeat off'); repeatBtn.setAttribute('title', 'Repeat off');
   }
   const shuffleBtn = elements.shuffleBtn;
-  if (state.listeningMode === 'synchronized') {
-    shuffleBtn.classList.remove('active');
-    shuffleBtn.setAttribute('aria-label', 'Shuffle upcoming'); shuffleBtn.setAttribute('title', 'Shuffle upcoming');
-  } else {
-    shuffleBtn.classList.toggle('active', state.isShuffleEnabled);
-    shuffleBtn.setAttribute('aria-label', state.isShuffleEnabled ? 'Shuffle on' : 'Shuffle off');
-    shuffleBtn.setAttribute('title', state.isShuffleEnabled ? 'Shuffle on' : 'Shuffle off');
-  }
-}
-
-export function updateListeningModeBadge() {
-  const badge = elements.listeningModeBadge;
-  if (!badge) return;
-  if (state.listeningMode === 'independent') {
-    badge.textContent = 'Independent'; badge.className = 'badge badge-subtle theme-secondary listening-mode-badge independent';
-  } else {
-    badge.textContent = 'JAM'; badge.className = 'badge badge-subtle theme-primary listening-mode-badge synchronized';
-  }
-  badge.hidden = false;
-}
-
-export function updateModeButton() {
-  if (!elements.modeBtn) return;
-  const isListening = state.userMode === 'listening';
-  elements.modeBtn.classList.toggle('active', isListening);
-  elements.modeBtn.setAttribute('aria-pressed', isListening.toString());
-  elements.modeBtn.setAttribute('aria-label', isListening ? 'Switch to lobby mode' : 'Switch to listening mode');
-  elements.modeBtn.title = isListening ? 'Listening - click to enter lobby mode' : 'Lobby mode - click to start listening';
-  const icon = elements.modeBtn.querySelector('svg');
-  if (icon) {
-    icon.innerHTML = isListening
-      ? '<path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/>'
-      : '<path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/>';
-  }
+  shuffleBtn.classList.toggle('active', state.isShuffleEnabled);
+  shuffleBtn.setAttribute('aria-label', state.isShuffleEnabled ? 'Shuffle on' : 'Shuffle off');
+  shuffleBtn.setAttribute('title', state.isShuffleEnabled ? 'Shuffle on' : 'Shuffle off');
 }

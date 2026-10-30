@@ -12,10 +12,8 @@ viewActivators.landing = () => {
 export function createLobby() {
   elements.createLobbyBtn.disabled = true;
   elements.createLobbyBtn.textContent = 'Creating...';
-  const selectedMode = document.querySelector('input[name="listeningMode"]:checked');
-  const listeningMode = selectedMode ? selectedMode.value : 'synchronized';
   const name = elements.lobbyNameInput ? elements.lobbyNameInput.value.trim() : '';
-  socket.emit('lobby:create', { username: state.username, emoji: state.emoji, listeningMode, name: name || undefined, userId: state.userId });
+  socket.emit('lobby:create', { username: state.username, emoji: state.emoji, name: name || undefined, userId: state.userId });
 }
 
 export function joinLobby(lobbyId) {
@@ -30,13 +28,11 @@ export function leaveLobby(resetLobbyUI, resetChat, { updateUrl = true } = {}) {
   state.lobbyId = null;
   state.isHost = false;
   state.lobbyName = null;
-  state.listeningMode = 'synchronized';
   state.pinned = false;
   state.queue = [];
   state.listeners = [];
   state.currentTrack = null;
   state.downloadStatus = {};
-  state.queueCurrentIndex = -1;
   elements.audioPlayer.pause();
   elements.audioPlayer.src = '';
   if (updateUrl) window.history.pushState({}, '', '/');
@@ -69,10 +65,9 @@ export function shareLobby() {
   document.getElementById('share-copy-btn').focus();
 }
 
-export function handleLobbyCreated(data, requestChatHistory, updateListeningModeBadge, updatePinButton) {
+export function handleLobbyCreated(data, requestChatHistory, updatePinButton) {
   state.lobbyId = data.lobbyId;
   state.isHost = true;
-  state.listeningMode = data.listeningMode || 'synchronized';
   state.lobbyName = data.name || null;
   state.pinned = data.pinned || false;
   storageSet(STORAGE_KEYS.LAST_LOBBY, data.lobbyId);
@@ -81,49 +76,34 @@ export function handleLobbyCreated(data, requestChatHistory, updateListeningMode
   if (elements.lobbyNameInput) elements.lobbyNameInput.value = '';
   pushLobbyUrl(data.lobbyId);
   elements.lobbyName.textContent = data.name || `Lobby ${data.lobbyId}`;
-  updateListeningModeBadge();
   updatePinButton();
   showView('lobby');
   requestChatHistory();
   showToast('Lobby created! Share the link to invite friends.', 'success');
 }
 
-export function handleLobbyJoined(data, requestChatHistory, updateListeningModeBadge, updatePinButton, updateListeners, updateQueue, updateNowPlaying, handlePlaybackSync) {
+export function handleLobbyJoined(data, requestChatHistory, updatePinButton, updateListeners, updateQueue) {
   state.lobbyId = data.lobbyId;
   state.isHost = data.isHost || false;
-  state.listeningMode = data.listeningMode || 'synchronized';
   state.lobbyName = data.name || null;
   state.pinned = data.pinned || false;
   state.queue = data.queue || [];
   state.listeners = data.listeners || data.users || [];
-  state.currentTrack = data.currentTrack || null;
   setSuppressJoinToasts(true);
   setTimeout(function() { setSuppressJoinToasts(false); }, 2000);
   storageSet(STORAGE_KEYS.LAST_LOBBY, data.lobbyId);
   hideRejoinPrompt();
   elements.lobbyName.textContent = data.name || `Lobby ${data.lobbyId}`;
-  updateListeningModeBadge();
   updatePinButton();
   showView('lobby');
   updateListeners();
   updateQueue();
   requestChatHistory();
-  if (state.currentTrack) {
-    updateNowPlaying(state.currentTrack);
-    if (data.playbackState) handlePlaybackSync(data.playbackState);
-  }
 }
 
 export function handleLobbyNotFound({ lobbyId }) {
   state.pendingLobbyId = lobbyId;
   if (elements.roomTypeLobbyName) elements.roomTypeLobbyName.textContent = lobbyId;
-  const modalOptions = document.querySelectorAll('#room-type-modal .lobby-type-option');
-  modalOptions.forEach(opt => {
-    const isSync = opt.dataset.mode === 'synchronized';
-    opt.classList.toggle('selected', isSync);
-    const radio = opt.querySelector('input[type="radio"]');
-    if (radio) radio.checked = isSync;
-  });
   if (elements.roomTypeModal) elements.roomTypeModal.hidden = false;
 }
 
@@ -271,8 +251,6 @@ function renderLobbies(lobbies) {
   if (lobbies.length === 0) { elements.lobbiesSection.hidden = true; return; }
   elements.lobbiesSection.hidden = false;
   elements.lobbiesList.innerHTML = lobbies.map(l => {
-    const modeLabel = l.listeningMode === 'independent' ? 'Independent' : 'Jam';
-    const modeClass = l.listeningMode === 'independent' ? 'independent' : 'synchronized';
     const age = formatAge(l.createdAt);
     const displayName = l.name ? escapeHtml(l.name) : escapeHtml(l.id);
     // JS string inside an HTML attribute: JSON-encode, then HTML-escape.
@@ -286,7 +264,7 @@ function renderLobbies(lobbies) {
       + `<button type="button" class="btn btn-xs lobby-visibility-toggle" title="${l.isPublic ? 'Make private' : 'Make public'}" onclick="event.stopPropagation();window.app.toggleLobbyVisibility(${idArg}, ${l.isPublic ? 'false' : 'true'})">${l.isPublic ? 'Public' : 'Private'}</button>`
       + `<button type="button" class="btn-text theme-danger btn-icon btn-xs lobby-delete-btn" title="Delete lobby" aria-label="Delete lobby" onclick="event.stopPropagation();window.app.deleteLobbyCard(${idArg})">✕</button>`
       + `</div>` : '';
-    return `<li class="list-group-item list-group-item-action lobby-card" tabindex="0" role="button" onclick="window.app.joinLobbyFromCard(${idArg})" onkeydown="if((event.key==='Enter'||event.key===' ')&&event.target===this){event.preventDefault();window.app.joinLobbyFromCard(${idArg})}"><div class="d-flex align-items-center justify-content-between gap-2 lobby-card-header"><span class="d-flex align-items-center gap-2 min-w-0 fw-medium lobby-card-id"><span class="text-truncate">${pinIcon}${displayName}</span>${privateBadge}</span><span class="badge badge-subtle ${modeClass === 'independent' ? 'theme-secondary' : 'theme-primary'} listening-mode-badge ${modeClass}">${modeLabel}</span></div><div class="d-flex align-items-center gap-3 fs-sm fg-3 mt-1 lobby-card-stats"><span class="lobby-card-stat"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>${l.userCount}</span><span class="lobby-card-stat"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>${l.songCount}</span><span class="lobby-card-age">${age}</span>${ownerControls}</div></li>`;
+    return `<li class="list-group-item list-group-item-action lobby-card" tabindex="0" role="button" onclick="window.app.joinLobbyFromCard(${idArg})" onkeydown="if((event.key==='Enter'||event.key===' ')&&event.target===this){event.preventDefault();window.app.joinLobbyFromCard(${idArg})}"><div class="d-flex align-items-center justify-content-between gap-2 lobby-card-header"><span class="d-flex align-items-center gap-2 min-w-0 fw-medium lobby-card-id"><span class="text-truncate">${pinIcon}${displayName}</span>${privateBadge}</span></div><div class="d-flex align-items-center gap-3 fs-sm fg-3 mt-1 lobby-card-stats"><span class="lobby-card-stat"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>${l.userCount}</span><span class="lobby-card-stat"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>${l.songCount}</span><span class="lobby-card-age">${age}</span>${ownerControls}</div></li>`;
   }).join('');
 }
 

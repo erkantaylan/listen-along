@@ -88,7 +88,6 @@ function updateDashboardLobbies(lobbies) {
       <div class="d-flex flex-wrap column-gap-4 fs-sm fg-3 dashboard-lobby-info">
         <span class="dashboard-lobby-users">${lobby.userCount} user${lobby.userCount !== 1 ? 's' : ''}</span>
         <span class="dashboard-lobby-queue">${lobby.queueLength} in queue</span>
-        ${lobby.currentTrack ? `<span class="dashboard-lobby-track ${lobby.isPlaying ? 'playing' : ''}">${escapeHtml(lobby.currentTrack)}</span>` : ''}
       </div>
       <div class="d-flex gap-2 dashboard-lobby-actions">
         <button class="btn btn-sm" type="button" onclick="window.dashboardJoinLobby(${escapeHtml(JSON.stringify(lobby.id))})">Join</button>

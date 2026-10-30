@@ -114,7 +114,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Top bar | `nav.navbar.app-navbar > .container` (brand `.app-brand` or back button + `h1.h6`, actions on the right). |
 | Grouped content | `.card` with `.card-header` (h6) / `.card-body` / `.card-footer`. |
 | Lists of items (songs, lobbies, users, tokens) | `ul.list-group` with `li.list-group-item` (flex row: `.app-thumb`, text block `min-w-0 flex-grow-1`, actions). Clickable rows: `.list-group-item-action` + `tabindex="0"` + Enter/Space handler. Empty state: `li.list-group-item.app-empty`. |
-| Playing / current row | `.is-playing` (shared) or `.queue-item.playing/.now-playing` (lobby): accent tint + 3px accent left edge. |
+| Playing / current row | `.is-playing` (shared) or `.queue-item.playing` (lobby): accent tint + 3px accent left edge. |
 | Primary action | `.btn-solid.theme-primary` — one per view. |
 | Secondary action | `.btn` (grey) or `.btn-outline.theme-secondary`. |
 | Icon-only action | `.btn-text.theme-secondary.btn-icon` with `aria-label` + `title`; toggled state = `.active` (accent tint). |
@@ -134,10 +134,10 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 
 - **Login / pending**: navbar + one centred card (`.app-center`, `.login-card` 26rem).
 - **Landing**: navbar (brand, profile), narrow column: "Start listening" card
-  (mode tiles `.lobby-type-selector`, name input, primary Create button, library button),
+  (name input, primary Create button, library button),
   then "Active lobbies" card with a flush list group, footer (version, language, GitHub).
-- **Lobby**: full-height column — navbar (back, name/rename, mode badge, listener count,
-  pin/mode/share/theme), optional chat ticker, scrolling body (56rem) with underline tabs
+- **Lobby**: full-height column — navbar (back, name/rename, listener count,
+  pin/share), optional chat ticker, scrolling body (56rem) with underline tabs
   (Queue | Social), and a fixed player bar at the bottom (cover, title, controls, volume,
   seek bar, times). Below 768px the controls wrap to their own row; below 400px the volume
   slider is hidden (mute stays) and the per-song YouTube button is hidden (the player keeps
