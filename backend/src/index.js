@@ -8,6 +8,7 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { monitorEventLoopDelay } = require('perf_hooks');
 const ytdlp = require('./ytdlp');
 const lobby = require('./lobby');
 const { getQueue, getQueueAsync, deleteQueue, hasQueue } = require('./queue');
@@ -230,17 +231,43 @@ app.use((req, res, next) => {
 });
 
 
-// Health check endpoint
+// Event-loop delay (main thread busy) for /health, over the last minute.
+// (The histogram includes its own sampling interval; /health subtracts it.)
+const LOOP_DELAY_RESOLUTION_MS = 20;
+const loopDelay = monitorEventLoopDelay({ resolution: LOOP_DELAY_RESOLUTION_MS });
+loopDelay.enable();
+setInterval(() => loopDelay.reset(), 60 * 1000).unref();
+
+// How long one fs.stat waits: it runs on the libuv threadpool (shared with
+// file reads/writes, dns.lookup, crypto, zlib), so a slow answer means that
+// pool or the disk is saturated, not the main thread. Capped so /health
+// itself never hangs on it.
+function fsProbeMs(cap = 2000) {
+  const t = process.hrtime.bigint();
+  return Promise.race([
+    fs.promises.stat(frontendPath).catch(() => null),
+    new Promise((resolve) => setTimeout(resolve, cap).unref()),
+  ]).then(() => Math.round(Number(process.hrtime.bigint() - t) / 1e5) / 10);
+}
+
+// Health check endpoint (Docker healthcheck every 30s). Must stay cheap: no
+// child processes, no database round trip.
 app.get('/health', async (req, res) => {
   // yt-dlp is only used for YouTube search / playlist listing now (no audio).
-  const ytdlpAvailable = await ytdlp.checkAvailable();
+  // Cached: spawning it per request made this probe slow under load.
+  const ytdlpAvailable = await ytdlp.availableCached();
+  const ms = (ns) => Math.max(0, Math.round(ns / 1e5 - LOOP_DELAY_RESOLUTION_MS * 10) / 10);
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     ytdlp: ytdlpAvailable ? 'available' : 'unavailable',
     database: db.isAvailable() ? 'connected' : 'unavailable',
-    library: db.isAvailable() ? 'enabled' : 'disabled'
+    library: db.isAvailable() ? 'enabled' : 'disabled',
+    diag: {
+      eventLoopDelayMs: { p50: ms(loopDelay.percentile(50)), p99: ms(loopDelay.percentile(99)), max: ms(loopDelay.max) },
+      fsProbeMs: await fsProbeMs(),
+    },
   });
 });
 
@@ -2543,6 +2570,7 @@ async function start() {
   server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Health check: http://localhost:${PORT}/health`);
+    ytdlp.availableCached().catch(() => {}); // warm the /health cache
     if (dbAvailable) {
       console.log(`Music library: ${library.SONGS_PATH}`);
     }

@@ -196,6 +196,39 @@ function checkAvailable() {
 }
 
 /**
+ * checkAvailable(), remembered for `maxAgeMs` (default 10 min). GET /health
+ * (Docker healthcheck every 30s, uptime monitors) used to spawn a yt-dlp
+ * process per request; under load that made a liveness probe take seconds.
+ * The first call (and any call after the cache expires) still waits for one
+ * check; concurrent callers share it.
+ * @returns {Promise<boolean>}
+ */
+function createAvailabilityCache({ check = checkAvailable, maxAgeMs = 10 * 60 * 1000, now = Date.now } = {}) {
+  let value = null;
+  let at = 0;
+  let pending = null;
+  function refresh() {
+    if (!pending) {
+      pending = Promise.resolve().then(check).catch(() => false).then((ok) => {
+        value = !!ok;
+        at = now();
+        pending = null;
+        return value;
+      });
+    }
+    return pending;
+  }
+  return function cachedAvailable() {
+    if (value !== null && now() - at < maxAgeMs) return Promise.resolve(value);
+    // Stale: answer with the last known value and refresh in the background.
+    if (value !== null) { refresh(); return Promise.resolve(value); }
+    return refresh();
+  };
+}
+
+const availableCached = createAvailabilityCache();
+
+/**
  * Run yt-dlp with args and return parsed JSON from stdout.
  */
 function runYtdlpJson(args, timeoutMs, label) {
@@ -257,6 +290,8 @@ async function getOembed(videoId, { timeoutMs = 8000 } = {}) {
 module.exports = {
   parseError,
   checkAvailable,
+  availableCached,
+  createAvailabilityCache,
   stripListParam,
   parsePlaylistId,
   getPlaylistEntries,

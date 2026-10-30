@@ -105,3 +105,47 @@ describe('ytdlp', () => {
     });
   });
 });
+
+describe('ytdlp availability cache (/health)', () => {
+  const { createAvailabilityCache } = require('./ytdlp');
+
+  it('spawns one check for many /health calls within maxAge', async () => {
+    let calls = 0;
+    let t = 0;
+    const cached = createAvailabilityCache({ check: async () => { calls++; return true; }, maxAgeMs: 1000, now: () => t });
+    assert.strictEqual(await cached(), true);
+    for (let i = 0; i < 50; i++) { t += 10; assert.strictEqual(await cached(), true); }
+    assert.strictEqual(calls, 1);
+  });
+
+  it('shares one in-flight check between concurrent callers', async () => {
+    let calls = 0;
+    const cached = createAvailabilityCache({ check: () => { calls++; return new Promise((r) => setTimeout(() => r(true), 20)); } });
+    const all = await Promise.all([cached(), cached(), cached()]);
+    assert.deepStrictEqual(all, [true, true, true]);
+    assert.strictEqual(calls, 1);
+  });
+
+  it('answers a stale value at once and refreshes in the background', async () => {
+    let calls = 0;
+    let t = 0;
+    let result = true;
+    let release;
+    const cached = createAvailabilityCache({
+      check: () => { calls++; return calls === 1 ? result : new Promise((r) => { release = () => r(false); }); },
+      maxAgeMs: 100, now: () => t,
+    });
+    assert.strictEqual(await cached(), true);
+    t = 500;
+    assert.strictEqual(await cached(), true, 'stale value, no waiting on the refresh');
+    assert.strictEqual(calls, 2);
+    release();
+    await new Promise((r) => setImmediate(r));
+    assert.strictEqual(await cached(), false, 'refreshed value');
+  });
+
+  it('a throwing check counts as unavailable', async () => {
+    const cached = createAvailabilityCache({ check: () => { throw new Error('boom'); } });
+    assert.strictEqual(await cached(), false);
+  });
+});

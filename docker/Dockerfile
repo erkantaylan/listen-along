@@ -36,6 +36,12 @@ COPY frontend/ ./frontend/
 COPY CHANGELOG.md ./CHANGELOG.md
 COPY --from=buildinfo /build-info.json ./build-info.json
 
+# libuv's threadpool (fs reads/writes, dns.lookup, crypto) defaults to 4
+# threads: a few slow file reads or lookups (audio streams, uploads, hashing,
+# a reconnecting pg pool) then queue every fs.stat behind them, which is what
+# static pages like /login wait on. /health reports the wait as diag.fsProbeMs.
+ENV UV_THREADPOOL_SIZE=16
+
 EXPOSE 3000
 
 CMD ["node", "src/index.js"]
