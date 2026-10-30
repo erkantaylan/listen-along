@@ -3,8 +3,10 @@
  * page. Mounted by index.js; also mounted standalone in tests.
  *
  * CLI endpoints authenticate with `Authorization: Bearer <token>`. Read-only
- * endpoints the web UI needs (library list/file, requests list) also work
- * without a token, but a token that IS sent must be valid.
+ * endpoints (library list/song/file, requests list) take a Bearer token (CLI,
+ * Android app), the admin cookie (admin page) or a logged-in approved web user
+ * (hooks.requireWebUser); a token that IS sent must be valid. Without a
+ * requireWebUser hook (standalone mounts in tests) web users get 401.
  */
 
 const crypto = require('crypto');
@@ -78,12 +80,23 @@ function sendSongFile(req, res, song, { download = false } = {}) {
  * @param {() => void} [hooks.onRequestsChanged] - after a request is fulfilled/dismissed
  * @param {(song: object) => void} [hooks.onSongRemoved] - after an admin deletes a song
  * @param {Function} [hooks.loginRateLimit] - middleware for POST /api/admin/login
+ * @param {Function} [hooks.requireWebUser] - middleware: is the caller a web user allowed to read?
  */
 function createLibraryRouter(hooks = {}) {
   const onSongAdded = hooks.onSongAdded || (() => {});
   const onRequestsChanged = hooks.onRequestsChanged || (() => {});
   const onSongRemoved = hooks.onSongRemoved || (() => {});
   const loginRateLimit = hooks.loginRateLimit || ((req, res, next) => next());
+  const requireWebUser = hooks.requireWebUser
+    || ((req, res) => res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' }));
+
+  // Reads: a Bearer token (must be valid), else the admin cookie, else a
+  // logged-in approved web user.
+  const readAccess = (req, res, next) => {
+    if (tokens.hasBearer(req)) return tokens.requireToken(req, res, next);
+    if (adminAuth.isAdmin(req)) return next();
+    return requireWebUser(req, res, next);
+  };
 
   const router = express.Router();
   router.use(apiLimiter);
@@ -116,7 +129,7 @@ function createLibraryRouter(hooks = {}) {
   });
 
   // --- Library ------------------------------------------------------------
-  router.get('/api/library', tokens.optionalToken, requireDb, async (req, res) => {
+  router.get('/api/library', readAccess, requireDb, async (req, res) => {
     try {
       const youtubeId = req.query.youtube_id ? library.parseYoutubeId(String(req.query.youtube_id)) : null;
       if (req.query.youtube_id && !youtubeId) return res.status(400).json({ error: 'Invalid youtube_id' });
@@ -171,20 +184,20 @@ function createLibraryRouter(hooks = {}) {
     }
   });
 
-  router.get('/api/library/:id', tokens.optionalToken, requireDb, async (req, res) => {
+  router.get('/api/library/:id', readAccess, requireDb, async (req, res) => {
     const song = await library.getById(req.params.id).catch(() => null);
     if (!song) return res.status(404).json({ error: 'Song not found' });
     res.json({ song: library.toPublic(song) });
   });
 
-  router.get('/api/library/:id/file', tokens.optionalToken, requireDb, async (req, res) => {
+  router.get('/api/library/:id/file', readAccess, requireDb, async (req, res) => {
     const song = await library.getById(req.params.id).catch(() => null);
     if (!song) return res.status(404).json({ error: 'Song not found' });
     sendSongFile(req, res, song, { download: req.query.dl === '1' || req.query.dl === 'true' });
   });
 
   // --- Requests -----------------------------------------------------------
-  router.get('/api/requests', tokens.optionalToken, requireDb, async (req, res) => {
+  router.get('/api/requests', readAccess, requireDb, async (req, res) => {
     const status = typeof req.query.status === 'string' ? req.query.status : 'pending';
     if (status !== 'all' && !requests.STATUSES.includes(status)) {
       return res.status(400).json({ error: 'status must be pending, fulfilled, dismissed or all' });

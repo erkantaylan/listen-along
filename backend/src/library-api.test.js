@@ -58,7 +58,8 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
     return { status: res.status, body: await res.json() };
   }
 
-  async function getJson(url, headers = {}) {
+  // Reads need a token (or the admin cookie / an approved web user) too.
+  async function getJson(url, headers = auth()) {
     const res = await fetch(base + url, { headers });
     return { status: res.status, body: await res.json().catch(() => null) };
   }
@@ -105,16 +106,20 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
 
   describe('token auth', () => {
     it('GET /api/me requires a valid token', async () => {
-      assert.equal((await getJson('/api/me')).status, 401);
+      assert.equal((await getJson('/api/me', {})).status, 401);
       assert.equal((await getJson('/api/me', auth('la_wrong'))).status, 401);
       const ok = await getJson('/api/me', auth());
       assert.equal(ok.status, 200);
       assert.deepEqual(ok.body, { name: 'Alice' });
     });
 
-    it('upload requires a token; library list works without one but rejects a bad one', async () => {
+    it('upload and every read require a token here (no web-user hook); a bad token is refused', async () => {
       assert.equal((await upload(fx.a, { title: 't', artist: 'a' }, { headers: {} })).status, 401);
       assert.equal((await getJson('/api/library')).status, 200);
+      for (const url of ['/api/library', '/api/library/00000000-0000-4000-8000-000000000000',
+        '/api/library/00000000-0000-4000-8000-000000000000/file', '/api/requests']) {
+        assert.equal((await getJson(url, {})).status, 401, `${url} without a token`);
+      }
       assert.equal((await getJson('/api/library', auth('nope'))).status, 401);
     });
 
@@ -169,19 +174,19 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       assert.equal(s.duration_sec, 2);
       assert.equal((await getJson(`/api/library/${s.id}`)).body.song.source_url, s.source_url);
 
-      const full = await fetch(`${base}/api/library/${s.id}/file`);
+      const full = await fetch(`${base}/api/library/${s.id}/file`, { headers: auth() });
       assert.equal(full.status, 200);
       assert.equal(full.headers.get('content-type'), 'audio/mp4');
       const bytes = Buffer.from(await full.arrayBuffer());
       assert.equal(bytes.length, fs.statSync(fx.a).size);
 
-      const part = await fetch(`${base}/api/library/${s.id}/file`, { headers: { Range: 'bytes=0-99' } });
+      const part = await fetch(`${base}/api/library/${s.id}/file`, { headers: { ...auth(), Range: 'bytes=0-99' } });
       assert.equal(part.status, 206);
       assert.equal((await part.arrayBuffer()).byteLength, 100);
       assert.match(part.headers.get('content-range'), /^bytes 0-99\//);
 
       // A range past the end is a 416 with a JSON body, not a 500 labelled audio/mp4.
-      const past = await fetch(`${base}/api/library/${s.id}/file`, { headers: { Range: `bytes=${bytes.length + 10}-` } });
+      const past = await fetch(`${base}/api/library/${s.id}/file`, { headers: { ...auth(), Range: `bytes=${bytes.length + 10}-` } });
       assert.equal(past.status, 416);
       assert.match(past.headers.get('content-type'), /^application\/json/);
       assert.equal(past.headers.get('content-range'), `bytes */${bytes.length}`);

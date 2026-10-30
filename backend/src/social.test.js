@@ -1,7 +1,7 @@
 // Global chat + people panel: the pure parts (chat.js, presence.js,
 // frontend/chat-format.js), then the real server (in-memory storage, no
 // Postgres) over Socket.IO with two signed-in users, a second tab, an
-// anonymous client and an admin. Postgres persistence: social-pg.test.js.
+// anonymous client (refused) and an admin. Postgres persistence: social-pg.test.js.
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
@@ -334,7 +334,6 @@ describe('global chat and people panel against a running server', { timeout: 60_
 
   let alice;
   let bob;
-  let anon;
 
   it('lists signed-in users with presence; anonymous sockets get nothing', async () => {
     alice = await connect(ALICE);
@@ -350,14 +349,12 @@ describe('global chat and people panel against a running server', { timeout: 60_
     const ids = list.people.filter(p => p.online).map(p => p.id).sort();
     assert.deepEqual(ids, [ALICE, BOB].sort());
 
-    anon = await connect(null);
-    assert.deepEqual(await ask(anon, 'people:list'), { error: 'Not signed in' });
-    assert.deepEqual(await ask(anon, 'chat:send', { text: 'hi' }), { error: 'Not signed in' });
+    // Anonymous sockets are refused at the handshake.
+    await assert.rejects(connect(null), /Authentication required/);
   });
 
   it('delivers a message live to everyone signed in, with the author', async () => {
     const atBob = next(bob, 'chat:message');
-    const atAnon = next(anon, 'chat:message', () => true, 400);
     const res = await ask(alice, 'chat:send', { text: '  hello <b>bob</b>  ' });
     assert.equal(res.ok, true);
     const msg = await atBob;
@@ -365,7 +362,6 @@ describe('global chat and people panel against a running server', { timeout: 60_
     assert.equal(msg.userId, ALICE);
     assert.equal(msg.authorName, 'Alice');
     assert.ok(msg.createdAt > 0);
-    assert.equal(await atAnon, 'timeout');
   });
 
   it('rate limits per user (shared by all their tabs)', async () => {

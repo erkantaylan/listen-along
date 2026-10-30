@@ -124,9 +124,9 @@ describe('playlist permissions against a running server', { timeout: 60_000 }, (
     });
   }
 
-  function getRaw(url) {
+  function getRaw(url, headers = {}) {
     return new Promise((resolve, reject) => {
-      http.get(base + url, (res) => { res.resume(); resolve(res); }).on('error', reject);
+      http.get(base + url, { headers }, (res) => { res.resume(); resolve(res); }).on('error', reject);
     });
   }
 
@@ -140,7 +140,11 @@ describe('playlist permissions against a running server', { timeout: 60_000 }, (
     res = await getRaw('/lobby/abc123/library?q=daft%20punk&page=2');
     assert.equal(res.statusCode, 301);
     assert.equal(res.headers.location, '/playlist/abc123/library?q=daft%20punk&page=2');
+    // The SPA page itself needs a login: logged out -> /login?next=<page>.
     res = await getRaw('/playlist/abc123');
+    assert.equal(res.statusCode, 302);
+    assert.equal(res.headers.location, '/login?next=%2Fplaylist%2Fabc123');
+    res = await getRaw('/playlist/abc123', { cookie: authCookie(ALICE) });
     assert.equal(res.statusCode, 200);
   });
 
@@ -230,12 +234,8 @@ describe('playlist permissions against a running server', { timeout: 60_000 }, (
     alice.disconnect();
   });
 
-  it('socket: not logged in can neither create nor join', async () => {
-    const anon = await connect(null);
-    anon.emit('lobby:create', { name: 'Anon' });
-    assert.equal((await waitFor(anon, ['lobby:error', 'lobby:created']))[0], 'lobby:error');
-    anon.emit('lobby:join', { lobbyId: pubId, username: 'Anon' });
-    assert.equal((await waitFor(anon, ['lobby:not-found', 'lobby:joined']))[0], 'lobby:not-found');
+  it('socket: not logged in cannot even connect', async () => {
+    await assert.rejects(connect(null), /Authentication required/);
   });
 
   it('socket: creating a private playlist makes the creator its owner', async () => {
