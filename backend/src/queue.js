@@ -108,6 +108,27 @@ class Queue {
     }
   }
 
+  /**
+   * Change an entry's url / title / duration / thumbnail in place (keeps its
+   * id, position and addedBy), e.g. after its library song was replaced.
+   * @returns {object|null} the updated entry
+   */
+  updateSong(songId, { url, title, duration, thumbnail }) {
+    const song = this.songs.find(s => s.id === songId);
+    if (!song) return null;
+    if (url) song.url = url;
+    if (title) song.title = title;
+    if (duration !== undefined) song.duration = duration || 0;
+    if (thumbnail !== undefined) song.thumbnail = thumbnail || null;
+    if (db.isAvailable()) {
+      this._write('Failed to update song', () => db.query(
+        'UPDATE queue_songs SET url = $2, title = $3, duration = $4, thumbnail = $5 WHERE id = $1',
+        [song.id, song.url, song.title, song.duration, song.thumbnail]
+      ));
+    }
+    return song;
+  }
+
   getSongs() {
     return [...this.songs];
   }

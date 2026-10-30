@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const db = require('./db');
+const songMatch = require('./songMatch');
 
 const SONGS_PATH = process.env.SONGS_PATH || '/data/songs';
 // New uploads live in a subfolder so they never mix with the legacy cache files.
@@ -20,7 +21,7 @@ const YOUTUBE_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ALLOWED_UPLOAD_MIME = new Set(['audio/mp4', 'audio/x-m4a', 'audio/m4a', 'audio/aac', 'application/octet-stream']);
 
-const PUBLIC_COLUMNS = 'id, youtube_id, title, artist, album, duration_sec, source_url, uploaded_by, created_at';
+const PUBLIC_COLUMNS = 'id, youtube_id, title, artist, album, duration_sec, source_url, uploaded_by, created_at, sha256, replaced_at';
 const MAX_SOURCE_URL_LENGTH = 2048;
 
 function ensureDirs() {
@@ -126,6 +127,10 @@ function toPublic(row) {
     source_url: row.source_url || (row.youtube_id ? youtubeUrl(row.youtube_id) : null),
     uploaded_by: row.uploaded_by,
     created_at: row.created_at,
+    // Changes whenever the audio changes (replace): use it to bust caches,
+    // e.g. /api/library/<id>/file?v=<file_version>.
+    file_version: row.sha256 ? String(row.sha256).slice(0, 16) : null,
+    replaced_at: row.replaced_at || null,
   };
 }
 
@@ -241,6 +246,22 @@ async function resolveQueueUrl(url) {
     if (song) return song;
   }
   const r = await db.query('SELECT * FROM library_songs WHERE source_url = $1 LIMIT 1', [url]);
+  if (r.rows[0]) return r.rows[0];
+  return resolveReplacedUrl(url, ytId);
+}
+
+/**
+ * A url that pointed at a song before its audio was replaced (its old
+ * YouTube id / source link) still resolves to that song. Queue entries are
+ * rewritten on replace; this covers anything that kept the old url.
+ */
+async function resolveReplacedUrl(url, ytId) {
+  const r = await db.query(
+    `SELECT s.* FROM library_song_replacements r JOIN library_songs s ON s.id = r.song_id
+     WHERE ($1::text IS NOT NULL AND r.old_youtube_id = $1) OR r.old_source_url = $2
+     ORDER BY r.created_at DESC LIMIT 1`,
+    [ytId || null, url]
+  ).catch(() => ({ rows: [] }));
   return r.rows[0] || null;
 }
 
@@ -319,11 +340,11 @@ async function findByTitleArtist(title, artist) {
   return r.rows[0] || null;
 }
 
-async function insert(song) {
-  const r = await db.query(
+async function insert(song, client = db) {
+  const r = await client.query(
     `INSERT INTO library_songs
-       (id, youtube_id, title, artist, album, duration_sec, file_path, mime_type, size_bytes, sha256, source_url, uploaded_by, uploaded_by_token, uploaded_by_user_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       (id, youtube_id, title, artist, album, duration_sec, file_path, mime_type, size_bytes, sha256, source_url, uploaded_by, uploaded_by_token, uploaded_by_user_id, meta_key, meta_key_version)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
      RETURNING *`,
     [
       song.id || crypto.randomUUID(),
@@ -340,6 +361,8 @@ async function insert(song) {
       song.uploaded_by,
       song.uploaded_by_token || null,
       song.uploaded_by_user_id || null,
+      songMatch.metaKey(song.title, song.artist),
+      songMatch.META_KEY_VERSION,
     ]
   );
   return r.rows[0];
@@ -359,11 +382,86 @@ async function remove(id) {
 // ---------------------------------------------------------------------------
 
 class UploadError extends Error {
-  constructor(status, message, song) {
+  /**
+   * @param {number} status - HTTP status
+   * @param {string} message
+   * @param {object} [song] - the existing song a 409 collided with
+   * @param {string} [code] - machine-readable reason, e.g. duplicate_hash
+   */
+  constructor(status, message, song, code) {
     super(message);
     this.status = status;
     this.song = song;
+    if (code) this.code = code;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Duplicate detection
+// ---------------------------------------------------------------------------
+
+/** Reasons a song counts as already in the library, strongest first. */
+const DUPLICATE_REASONS = {
+  youtube_id: { code: 'already_in_library', exact: true, message: 'A song with this youtube_id is already in the library' },
+  sha256: { code: 'duplicate_hash', exact: true, message: 'This exact file is already in the library' },
+  metadata: { code: 'duplicate_metadata', exact: false, message: 'A song with the same artist, title and duration (±3s) is already in the library' },
+};
+
+function duplicateMatch(kind, song) {
+  const r = DUPLICATE_REASONS[kind];
+  return { reason: r.code, exact: r.exact, message: r.message, song };
+}
+
+function normalizeSha256(value) {
+  const s = String(value ?? '').trim().toLowerCase();
+  return /^[0-9a-f]{64}$/.test(s) ? s : null;
+}
+
+/**
+ * Songs already in the library that match what is about to be uploaded, by
+ * youtube_id, file hash and (probable) normalized artist + title with a
+ * duration within ±3s. Missing signals are skipped.
+ * @param {object} q - { youtube_id, sha256, title, artist, duration_sec, excludeId, metadata }
+ * @param {object} [client] - db or a transaction client
+ * @returns {Promise<Array<{reason, exact, message, song}>>} strongest first, one entry per song
+ */
+async function findDuplicates(q = {}, client = db) {
+  const matches = [];
+  const seen = new Set();
+  const push = (kind, row) => {
+    if (!row || seen.has(row.id) || (q.excludeId && row.id === q.excludeId)) return;
+    seen.add(row.id);
+    matches.push(duplicateMatch(kind, row));
+  };
+  const ytId = q.youtube_id ? parseYoutubeId(String(q.youtube_id)) : null;
+  if (ytId) {
+    const r = await client.query('SELECT * FROM library_songs WHERE youtube_id = $1', [ytId]);
+    push('youtube_id', r.rows[0]);
+  }
+  const sha = normalizeSha256(q.sha256);
+  if (sha) {
+    const r = await client.query('SELECT * FROM library_songs WHERE sha256 = $1', [sha]);
+    push('sha256', r.rows[0]);
+  }
+  if (q.metadata !== false) {
+    const key = songMatch.metaKey(q.title, q.artist);
+    const duration = Number(q.duration_sec);
+    if (key && Number.isFinite(duration) && duration > 0) {
+      const r = await client.query(
+        `SELECT * FROM library_songs
+         WHERE meta_key = $1 AND duration_sec IS NOT NULL AND abs(duration_sec - $2) <= $3
+         ORDER BY abs(duration_sec - $2), created_at LIMIT 5`,
+        [key, duration, songMatch.DURATION_TOLERANCE_SEC]
+      );
+      for (const row of r.rows) push('metadata', row);
+    }
+  }
+  return matches;
+}
+
+/** Postgres advisory lock key for a metadata key (serializes check + insert). */
+function metaLockKey(key) {
+  return crypto.createHash('sha256').update(`la-meta:${key}`).digest().readInt32BE(0);
 }
 
 function cleanText(value, max) {
@@ -415,7 +513,11 @@ function validateUploadFields(body = {}) {
     if (!isUuid(request_id)) throw new UploadError(400, 'request_id must be a UUID');
   }
 
-  return { title, artist, album, youtube_id, source_url, duration_sec, request_id };
+  // Upload even when a song with the same artist/title/duration exists
+  // (metadata matches are only "probable" duplicates).
+  const allow_similar = ['1', 'true', 'yes', 'on'].includes(String(body.allow_similar ?? '').trim().toLowerCase());
+
+  return { title, artist, album, youtube_id, source_url, duration_sec, request_id, allow_similar };
 }
 
 /**
@@ -458,52 +560,211 @@ function validateUploadFileMeta(file) {
  */
 async function ingestUpload(file, fields, uploader) {
   const tmpPath = uploadTmpPath(file);
+  let finalPath = null;
   try {
     const probe = await probeM4a(tmpPath);
     if (!probe.ok) throw new UploadError(400, probe.reason);
 
-    if (fields.youtube_id) {
-      const existing = await getByYoutubeId(fields.youtube_id);
-      if (existing) throw new UploadError(409, 'A song with this youtube_id is already in the library', existing);
-    }
     const sha = await sha256File(tmpPath);
-    const sameFile = await getBySha256(sha);
-    if (sameFile) throw new UploadError(409, 'This exact file is already in the library', sameFile);
+    const duration = fields.duration_sec ?? probe.duration ?? null;
+    const query = {
+      youtube_id: fields.youtube_id, sha256: sha, title: fields.title, artist: fields.artist,
+      duration_sec: duration, metadata: !fields.allow_similar,
+    };
+    const rejectDuplicate = (matches) => {
+      const m = matches[0];
+      if (m) throw new UploadError(409, m.message, m.song, m.reason);
+    };
+    // Cheap check before touching the library dir; repeated under the lock.
+    rejectDuplicate(await findDuplicates(query));
 
     ensureDirs();
     const id = crypto.randomUUID();
-    const finalPath = path.join(LIBRARY_DIR, `${id}.m4a`);
+    finalPath = path.join(LIBRARY_DIR, `${id}.m4a`);
     fs.renameSync(tmpPath, finalPath);
     const size = fs.statSync(finalPath).size;
+    const row = {
+      id,
+      youtube_id: fields.youtube_id,
+      title: fields.title,
+      artist: fields.artist,
+      album: fields.album,
+      duration_sec: duration,
+      file_path: finalPath,
+      mime_type: 'audio/mp4',
+      size_bytes: size,
+      sha256: sha,
+      source_url: fields.source_url || (fields.youtube_id ? youtubeUrl(fields.youtube_id) : null),
+      uploaded_by: uploader.name,
+      uploaded_by_token: uploader.id,
+      uploaded_by_user_id: uploader.userId || null,
+    };
+
+    // Race-safe: youtube_id and sha256 are unique columns; probable
+    // (metadata) duplicates are serialized per metadata key with an advisory
+    // lock held until commit, and re-checked inside it.
+    const client = await db.getClient();
     try {
-      return await insert({
-        id,
-        youtube_id: fields.youtube_id,
-        title: fields.title,
-        artist: fields.artist,
-        album: fields.album,
-        duration_sec: fields.duration_sec ?? probe.duration ?? null,
-        file_path: finalPath,
-        mime_type: 'audio/mp4',
-        size_bytes: size,
-        sha256: sha,
-        source_url: fields.source_url || (fields.youtube_id ? youtubeUrl(fields.youtube_id) : null),
-        uploaded_by: uploader.name,
-        uploaded_by_token: uploader.id,
-        uploaded_by_user_id: uploader.userId || null,
-      });
+      await client.query('BEGIN');
+      const key = songMatch.metaKey(fields.title, fields.artist);
+      if (key && !fields.allow_similar) await client.query('SELECT pg_advisory_xact_lock($1)', [metaLockKey(key)]);
+      rejectDuplicate(await findDuplicates(query, client));
+      const inserted = await insert(row, client);
+      await client.query('COMMIT');
+      finalPath = null; // owned by the row now
+      return inserted;
     } catch (err) {
-      try { fs.unlinkSync(finalPath); } catch {}
+      await client.query('ROLLBACK').catch(() => {});
       if (err.code === '23505') {
         // Lost a race with a concurrent identical upload.
-        const dup = (fields.youtube_id && await getByYoutubeId(fields.youtube_id)) || await getBySha256(sha);
-        throw new UploadError(409, 'Song is already in the library', dup);
+        const dup = (await findDuplicates({ youtube_id: fields.youtube_id, sha256: sha, metadata: false }))[0];
+        throw new UploadError(409, dup ? dup.message : 'Song is already in the library', dup && dup.song, dup ? dup.reason : 'already_in_library');
       }
       throw err;
+    } finally {
+      client.release();
     }
   } finally {
+    if (finalPath) { try { fs.unlinkSync(finalPath); } catch {} }
     try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {}
   }
+}
+
+// ---------------------------------------------------------------------------
+// Replace: new audio (and metadata) for an existing song, same id
+// ---------------------------------------------------------------------------
+
+/**
+ * Replace the audio file and metadata (title, artist, album, youtube_id,
+ * source_url, duration) of an existing library song, keeping its id — every
+ * playlist that holds it plays the new file. Writes an audit row to
+ * library_song_replacements. The old file is deleted only after the new one
+ * is in place and the row is committed. Always consumes the temp file.
+ *
+ * @param {string} id - library song id
+ * @param {object} file - multer file
+ * @param {object} fields - validated fields (validateUploadFields)
+ * @param {{name: string, id?: string, userId?: string}} actor - who replaces
+ *   (req.apiUser for a token; { name, userId } for a web user)
+ * @returns {Promise<{song: object, previous: object}>} new and old rows
+ * @throws {UploadError} 400 invalid file, 404 unknown song, 409 the file /
+ *   youtube_id belongs to another song (err.song set), or it is the same file
+ */
+async function replaceSong(id, file, fields, actor) {
+  const tmpPath = uploadTmpPath(file);
+  let newPath = null;
+  try {
+    if (!isUuid(id) || !(await getById(id))) throw new UploadError(404, 'Song not found', null, 'not_found');
+    const probe = await probeM4a(tmpPath);
+    if (!probe.ok) throw new UploadError(400, probe.reason);
+    const sha = await sha256File(tmpPath);
+
+    ensureDirs();
+    // A new file name: the old file stays untouched until the row points here.
+    newPath = path.join(LIBRARY_DIR, `${id}-${crypto.randomBytes(4).toString('hex')}.m4a`);
+    fs.renameSync(tmpPath, newPath);
+    const size = fs.statSync(newPath).size;
+
+    const client = await db.getClient();
+    let previous;
+    let updated;
+    try {
+      await client.query('BEGIN');
+      const cur = await client.query('SELECT * FROM library_songs WHERE id = $1 FOR UPDATE', [id]);
+      previous = cur.rows[0];
+      if (!previous) throw new UploadError(404, 'Song not found', null, 'not_found');
+      if (previous.sha256 === sha) throw new UploadError(409, 'This song already has exactly this file', previous, 'same_file');
+      const clash = (await findDuplicates({ youtube_id: fields.youtube_id, sha256: sha, metadata: false, excludeId: id }, client))[0];
+      if (clash) {
+        throw new UploadError(409, `${clash.message} as another song (${clash.song.id}); replace or delete that one instead`, clash.song, clash.reason);
+      }
+      const duration = fields.duration_sec ?? probe.duration ?? null;
+      const sourceUrl = fields.source_url || (fields.youtube_id ? youtubeUrl(fields.youtube_id) : null);
+      const r = await client.query(
+        `UPDATE library_songs SET
+           youtube_id = $2, title = $3, artist = $4, album = $5, duration_sec = $6,
+           file_path = $7, mime_type = 'audio/mp4', size_bytes = $8, sha256 = $9, source_url = $10,
+           meta_key = $11, meta_key_version = $12, replaced_at = now()
+         WHERE id = $1 RETURNING *`,
+        [id, fields.youtube_id || null, fields.title, fields.artist, fields.album || null, duration,
+          newPath, size, sha, sourceUrl, songMatch.metaKey(fields.title, fields.artist), songMatch.META_KEY_VERSION]
+      );
+      updated = r.rows[0];
+      await client.query(
+        `INSERT INTO library_song_replacements
+           (song_id, replaced_by_user_id, replaced_by, replaced_by_token,
+            old_youtube_id, old_source_url, old_sha256, old_title, old_artist, old_album, old_duration_sec,
+            new_youtube_id, new_source_url, new_sha256, new_title, new_artist, new_album, new_duration_sec)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+        [id, actor.userId || null, actor.name || null, actor.id || null,
+          previous.youtube_id, previous.source_url, previous.sha256, previous.title, previous.artist, previous.album, previous.duration_sec,
+          updated.youtube_id, updated.source_url, updated.sha256, updated.title, updated.artist, updated.album, updated.duration_sec]
+      );
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      if (err.code === '23505') {
+        const dup = (await findDuplicates({ youtube_id: fields.youtube_id, sha256: sha, metadata: false, excludeId: id }))[0];
+        throw new UploadError(409, dup ? `${dup.message} as another song` : 'Conflicts with another song', dup && dup.song, dup ? dup.reason : 'conflict');
+      }
+      throw err;
+    } finally {
+      client.release();
+    }
+    newPath = null; // owned by the row now
+    if (previous.file_path && path.resolve(previous.file_path) !== path.resolve(updated.file_path)) {
+      try { fs.unlinkSync(previous.file_path); } catch {}
+    }
+    return { song: updated, previous };
+  } finally {
+    if (newPath) { try { fs.unlinkSync(newPath); } catch {} }
+    try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {}
+  }
+}
+
+/** Replacement history of a song, newest first. */
+async function listReplacements(songId, limit = 20) {
+  if (!isUuid(songId)) return [];
+  const r = await db.query(
+    'SELECT * FROM library_song_replacements WHERE song_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2',
+    [songId, limit]
+  );
+  return r.rows;
+}
+
+/**
+ * Fill / refresh meta_key for songs without one or computed with an older
+ * normalization (META_KEY_VERSION). Runs in small batches with a pause in
+ * between so it never hogs the database; safe to run concurrently with
+ * uploads (each row is updated on its own, keyed by id + old version).
+ * @returns {Promise<number>} rows updated
+ */
+async function backfillMetaKeys({ batchSize = 200, pauseMs = 50 } = {}) {
+  if (!db.isAvailable()) return 0;
+  let updated = 0;
+  let lastId = '00000000-0000-0000-0000-000000000000';
+  for (;;) {
+    const r = await db.query(
+      `SELECT id, title, artist FROM library_songs
+       WHERE (meta_key_version IS NULL OR meta_key_version < $1) AND id > $2
+       ORDER BY id LIMIT $3`,
+      [songMatch.META_KEY_VERSION, lastId, batchSize]
+    );
+    if (!r.rows.length) break;
+    for (const row of r.rows) {
+      const res = await db.query(
+        `UPDATE library_songs SET meta_key = $2, meta_key_version = $3
+         WHERE id = $1 AND (meta_key_version IS NULL OR meta_key_version < $3)`,
+        [row.id, songMatch.metaKey(row.title, row.artist), songMatch.META_KEY_VERSION]
+      );
+      updated += res.rowCount;
+      lastId = row.id;
+    }
+    if (r.rows.length < batchSize) break;
+    if (pauseMs) await new Promise((resolve) => setTimeout(resolve, pauseMs));
+  }
+  if (updated) console.log(`[library] Computed duplicate-detection keys for ${updated} song(s)`);
+  return updated;
 }
 
 // ---------------------------------------------------------------------------
@@ -651,6 +912,12 @@ module.exports = {
   getById,
   getByYoutubeId,
   getBySha256,
+  findDuplicates,
+  normalizeSha256,
+  DUPLICATE_REASONS,
+  replaceSong,
+  listReplacements,
+  backfillMetaKeys,
   resolveQueueUrl,
   findUnavailableUrls,
   findBestTextMatch,

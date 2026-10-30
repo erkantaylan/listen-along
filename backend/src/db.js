@@ -201,6 +201,44 @@ async function createTables() {
   await pool.query(`
     ALTER TABLE library_songs ADD COLUMN IF NOT EXISTS uploaded_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL
   `).catch(() => {});
+  // Migration: duplicate detection. meta_key = normalized "artist|title"
+  // (songMatch.js), meta_key_version = the normalization it was computed
+  // with; library.backfillMetaKeys() fills / refreshes them in the
+  // background after boot. sha256 (file bytes) already exists, NOT NULL UNIQUE.
+  await pool.query(`ALTER TABLE library_songs ADD COLUMN IF NOT EXISTS meta_key TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE library_songs ADD COLUMN IF NOT EXISTS meta_key_version SMALLINT`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_library_songs_meta_key ON library_songs(meta_key)`).catch(() => {});
+  // When a song's audio was last replaced (NULL = never); also busts caches.
+  await pool.query(`ALTER TABLE library_songs ADD COLUMN IF NOT EXISTS replaced_at TIMESTAMPTZ`).catch(() => {});
+
+  // Audit trail of "replace the audio of a library song" (library.replaceSong).
+  // No FK on song_id: the history outlives a deleted song.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS library_song_replacements (
+      id BIGSERIAL PRIMARY KEY,
+      song_id UUID NOT NULL,
+      replaced_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+      replaced_by VARCHAR(255),
+      replaced_by_token UUID,
+      old_youtube_id VARCHAR(32),
+      old_source_url TEXT,
+      old_sha256 CHAR(64),
+      old_title TEXT,
+      old_artist TEXT,
+      old_album TEXT,
+      old_duration_sec REAL,
+      new_youtube_id VARCHAR(32),
+      new_source_url TEXT,
+      new_sha256 CHAR(64),
+      new_title TEXT,
+      new_artist TEXT,
+      new_album TEXT,
+      new_duration_sec REAL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_song_replacements_song ON library_song_replacements(song_id, created_at DESC)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_song_replacements_old_yt ON library_song_replacements(old_youtube_id)`).catch(() => {});
 
   // Song requests: a web user queued something that is not in the library.
   // lobby_id has no FK on purpose — the request outlives a deleted lobby.

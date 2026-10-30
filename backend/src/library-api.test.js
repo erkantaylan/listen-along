@@ -168,7 +168,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       const r = await upload(fx.a, { title: 'Song A', artist: 'Artist', album: 'LP', youtube_id: 'AAAAAAAAAAA', duration_sec: 2 });
       assert.equal(r.status, 201);
       const s = r.body.song;
-      assert.deepEqual(Object.keys(s).sort(), ['album', 'artist', 'created_at', 'duration_sec', 'id', 'source_url', 'title', 'uploaded_by', 'youtube_id']);
+      assert.deepEqual(Object.keys(s).sort(), ['album', 'artist', 'created_at', 'duration_sec', 'file_version', 'id', 'replaced_at', 'source_url', 'title', 'uploaded_by', 'youtube_id']);
       assert.equal(s.uploaded_by, 'Alice');
       const row = (await db.query('SELECT uploaded_by_user_id, uploaded_by_token FROM library_songs WHERE id = $1', [s.id])).rows[0];
       assert.equal(row.uploaded_by_user_id, null, 'legacy token: no owning account');

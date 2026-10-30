@@ -74,7 +74,7 @@ describe('library.validateUploadFields', () => {
     assert.deepEqual(f, {
       title: 'Song', artist: 'Band', album: null, youtube_id: 'dQw4w9WgXcQ',
       source_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', duration_sec: 201.5,
-      request_id: '0b6f3b7e-6b0e-4a59-9a43-6bd1ef3c1f00',
+      request_id: '0b6f3b7e-6b0e-4a59-9a43-6bd1ef3c1f00', allow_similar: false,
     });
   });
 

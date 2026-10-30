@@ -10,7 +10,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const ytdlp = require('./ytdlp');
 const lobby = require('./lobby');
-const { getQueue, getQueueAsync, deleteQueue } = require('./queue');
+const { getQueue, getQueueAsync, deleteQueue, hasQueue } = require('./queue');
 const db = require('./db');
 const library = require('./library');
 const songRequests = require('./requests');
@@ -300,6 +300,7 @@ app.use(createLibraryRouter({
   onSongAdded: (song, fulfilled) => { handleLibrarySongAdded(song, fulfilled).catch(err => console.error('[library] post-upload handling failed:', err)); },
   onRequestsChanged: () => io.to(APP_ROOM).emit('requests:updated'),
   onSongRemoved: (song) => io.to(APP_ROOM).emit('library:updated', { removed: song.id }),
+  onSongReplaced: (song, previous) => { handleLibrarySongReplaced(song, previous).catch(err => console.error('[library] post-replace handling failed:', err)); },
   loginRateLimit: rateLimit,
   // Library / requests reads from the web app: an approved account.
   requireWebUser: userAuth.requireLevel('approved')
@@ -1219,6 +1220,54 @@ async function emitUnavailableSongs(target, songs) {
   } catch (err) {
     console.error('Availability check failed:', err.message);
   }
+}
+
+// A song's audio (and metadata) was replaced under the same id. Queue entries
+// keep pointing at it by url, which may change (a new youtube_id): rewrite
+// every entry of every playlist that held the old song to the new url /
+// title / duration / cover, then tell clients. Players that are playing it
+// get library:updated { replaced } and reload the new file at the same
+// position (frontend player.reloadReplaced).
+async function handleLibrarySongReplaced(librarySong, previous) {
+  const pub = library.toPublic(librarySong);
+  const entry = library.toQueueEntry(librarySong);
+  const oldUrls = [...new Set([library.queueUrlFor(previous), `library:${previous.id}`, previous.source_url].filter(Boolean))];
+  // Queues already in memory, plus (below) any in the DB that hold the song.
+  const lobbyIds = new Set(lobby.getAllLobbies().map(l => l.id).filter(id => hasQueue(id)));
+  if (db.isAvailable()) {
+    // Playlists not loaded in memory yet still have their queue in the DB.
+    const ytId = previous.youtube_id || null;
+    const r = await db.query(
+      `SELECT DISTINCT lobby_id FROM queue_songs WHERE url = ANY($1::text[])
+         OR ($2::text IS NOT NULL AND url LIKE '%' || $2 || '%')`,
+      [oldUrls, ytId]
+    ).catch(() => ({ rows: [] }));
+    for (const row of r.rows) lobbyIds.add(row.lobby_id);
+  }
+  let rewritten = 0;
+  for (const lobbyId of lobbyIds) {
+    try {
+      const queue = await getQueueAsync(lobbyId);
+      const hits = queue.getSongs().filter(s => library.isQueued([s], previous));
+      if (!hits.length) continue;
+      for (const s of hits) {
+        queue.updateSong(s.id, entry);
+        if (entry.thumbnail) covers.cacheCover(s.id, entry.thumbnail).catch(() => {});
+        rewritten++;
+      }
+      io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+    } catch (err) {
+      console.error(`[library] could not rewrite queue of ${lobbyId} after a replace:`, err.message);
+    }
+  }
+  io.to(APP_ROOM).emit('library:updated', {
+    song: pub,
+    replaced: { id: librarySong.id, oldUrls, url: entry.url, file_version: pub.file_version },
+  });
+  for (const url of new Set([entry.url, librarySong.source_url].filter(Boolean))) {
+    io.to(APP_ROOM).emit('download:status', { url, status: 'ready', percent: 100 });
+  }
+  if (rewritten) console.log(`[library] replaced ${librarySong.id}: rewrote ${rewritten} queue entr${rewritten === 1 ? 'y' : 'ies'}`);
 }
 
 // A song was uploaded (or an upload hit an existing song that fulfils
@@ -2346,6 +2395,10 @@ async function start() {
     try { library.ensureDirs(); } catch (err) { console.error('Could not create songs dir:', err.message); }
     library.migrateLegacyCache().catch(err => {
       console.error('Legacy cache migration failed:', err.message);
+    }).then(() => library.backfillMetaKeys()).catch(err => {
+      // Duplicate-detection keys for songs from before they existed (or from
+      // an older normalization). Background, batched; retried next boot.
+      console.error('Duplicate-key backfill failed:', err.message);
     });
   } else {
     console.log('Running in memory-only mode');
