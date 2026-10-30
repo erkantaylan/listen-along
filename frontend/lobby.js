@@ -51,7 +51,7 @@ export function shareLobby() {
   const dialog = document.createElement('div');
   dialog.id = 'share-dialog';
   dialog.className = 'share-overlay';
-  dialog.innerHTML = `<div class="share-dialog"><h3>Share Lobby</h3><img class="share-qr" src="${qrUrl}" alt="QR Code" width="200" height="200"><div class="share-url">${escapeHtml(url)}</div><div class="share-actions"><button class="btn btn-primary" id="share-copy-btn">Copy Link</button>${navigator.share ? '<button class="btn" id="share-native-btn">Share...</button>' : ''}</div><button class="btn-icon share-close-btn" id="share-close-btn" aria-label="Close"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div>`;
+  dialog.innerHTML = `<div class="share-dialog"><h3>Share Lobby</h3><img class="share-qr" src="${escapeHtml(qrUrl)}" alt="QR Code" width="200" height="200"><div class="share-url">${escapeHtml(url)}</div><div class="share-actions"><button class="btn btn-primary" id="share-copy-btn">Copy Link</button>${navigator.share ? '<button class="btn" id="share-native-btn">Share...</button>' : ''}</div><button class="btn-icon share-close-btn" id="share-close-btn" aria-label="Close"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div>`;
   document.body.appendChild(dialog);
   document.getElementById('share-copy-btn').addEventListener('click', function() { copyToClipboard(url); });
   if (navigator.share) {
@@ -267,17 +267,18 @@ function renderLobbies(lobbies) {
     const modeClass = l.listeningMode === 'independent' ? 'independent' : 'synchronized';
     const age = formatAge(l.createdAt);
     const displayName = l.name ? escapeHtml(l.name) : escapeHtml(l.id);
-    const idArg = escapeHtml(l.id);
+    // JS string inside an HTML attribute: JSON-encode, then HTML-escape.
+    const idArg = escapeHtml(JSON.stringify(l.id));
     const pinIcon = l.pinned ? '<svg class="pin-indicator" viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>' : '';
     // Owner-only controls: visibility toggle + delete. Non-owners never see these
     // and never see other people's private lobbies (filtered server-side).
     const privateBadge = (l.isOwner && !l.isPublic)
       ? '<span class="lobby-visibility-badge private">Private</span>' : '';
     const ownerControls = l.isOwner ? `<div class="lobby-owner-controls">`
-      + `<button type="button" class="lobby-visibility-toggle" title="${l.isPublic ? 'Make private' : 'Make public'}" onclick="event.stopPropagation();window.app.toggleLobbyVisibility('${idArg}', ${l.isPublic ? 'false' : 'true'})">${l.isPublic ? 'Public' : 'Private'}</button>`
-      + `<button type="button" class="lobby-delete-btn" title="Delete lobby" onclick="event.stopPropagation();window.app.deleteLobbyCard('${idArg}')">✕</button>`
+      + `<button type="button" class="lobby-visibility-toggle" title="${l.isPublic ? 'Make private' : 'Make public'}" onclick="event.stopPropagation();window.app.toggleLobbyVisibility(${idArg}, ${l.isPublic ? 'false' : 'true'})">${l.isPublic ? 'Public' : 'Private'}</button>`
+      + `<button type="button" class="lobby-delete-btn" title="Delete lobby" onclick="event.stopPropagation();window.app.deleteLobbyCard(${idArg})">✕</button>`
       + `</div>` : '';
-    return `<li class="lobby-card" onclick="window.app.joinLobbyFromCard('${idArg}')"><div class="lobby-card-header"><span class="lobby-card-id">${pinIcon}${displayName}${privateBadge}</span><span class="listening-mode-badge ${modeClass}">${modeLabel}</span></div><div class="lobby-card-stats"><span class="lobby-card-stat"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>${l.userCount}</span><span class="lobby-card-stat"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>${l.songCount}</span><span class="lobby-card-age">${age}</span>${ownerControls}</div></li>`;
+    return `<li class="lobby-card" onclick="window.app.joinLobbyFromCard(${idArg})"><div class="lobby-card-header"><span class="lobby-card-id">${pinIcon}${displayName}${privateBadge}</span><span class="listening-mode-badge ${modeClass}">${modeLabel}</span></div><div class="lobby-card-stats"><span class="lobby-card-stat"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>${l.userCount}</span><span class="lobby-card-stat"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>${l.songCount}</span><span class="lobby-card-age">${age}</span>${ownerControls}</div></li>`;
   }).join('');
 }
 

@@ -106,10 +106,13 @@ export function toLower(text) {
   return text.toLocaleLowerCase('tr');
 }
 
+// Escapes text for HTML element content AND quoted attribute values.
+// Not enough on its own inside a JS string in an inline handler (onclick=...);
+// the browser HTML-decodes the attribute before running it. There, use
+// escapeHtml(JSON.stringify(value)) and don't wrap it in extra quotes.
+const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 export function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
+  return String(text ?? '').replace(/[&<>"']/g, ch => HTML_ESCAPES[ch]);
 }
 
 export function sanitizeUrl(url) {
