@@ -16,6 +16,7 @@ const library = require('./library');
 const requests = require('./requests');
 const tokens = require('./tokens');
 const adminAuth = require('./adminAuth');
+const { apiLimiter } = require('./rateLimits');
 
 function parseIntParam(value, def, min, max) {
   const n = parseInt(value, 10);
@@ -73,6 +74,7 @@ function createLibraryRouter(hooks = {}) {
   const loginRateLimit = hooks.loginRateLimit || ((req, res, next) => next());
 
   const router = express.Router();
+  router.use(apiLimiter);
   router.use(express.json());
 
   const upload = multer({
@@ -121,7 +123,7 @@ function createLibraryRouter(hooks = {}) {
   });
 
   router.post('/api/library/upload', tokens.requireToken, uploadSingle, async (req, res) => {
-    const cleanupTmp = () => { if (req.file) { try { require('fs').rmSync(req.file.path, { force: true }); } catch {} } };
+    const cleanupTmp = () => { if (req.file) library.removeUploadTmp(req.file); };
     let fields;
     try {
       library.validateUploadFileMeta(req.file);

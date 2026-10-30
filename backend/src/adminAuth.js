@@ -32,9 +32,20 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(ha, hb);
 }
 
+// Password comparison goes through scrypt (a proper password KDF) with a
+// per-process random salt, then a constant-time compare.
+const PW_SALT = crypto.randomBytes(16);
+let pwCache = { password: null, key: null };
+
+function passwordKey(value) {
+  return crypto.scryptSync(String(value), PW_SALT, 32);
+}
+
 function checkPassword(candidate) {
   if (!isEnabled() || typeof candidate !== 'string') return false;
-  return safeEqual(candidate, password());
+  const current = password();
+  if (pwCache.password !== current) pwCache = { password: current, key: passwordKey(current) };
+  return crypto.timingSafeEqual(passwordKey(candidate), pwCache.key);
 }
 
 function createSessionValue(now = Date.now()) {

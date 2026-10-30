@@ -269,3 +269,38 @@ describe('songResolver', () => {
     assert.equal((await fakes().resolve({ input: '   ' })).type, 'error');
   });
 });
+
+describe('library.uploadTmpPath', () => {
+  const path = require('node:path');
+  it('resolves multer temp files inside UPLOAD_TMP_DIR only', () => {
+    const root = path.resolve(library.UPLOAD_TMP_DIR);
+    assert.equal(library.uploadTmpPath({ path: path.join(root, 'abc.part') }), path.join(root, 'abc.part'));
+    // anything else is pinned to its basename inside the temp dir
+    assert.equal(library.uploadTmpPath({ path: '/etc/passwd' }), path.join(root, 'passwd'));
+    for (const bad of [{ path: '' }, { path: '..' }, {}, null]) {
+      assert.throws(() => library.uploadTmpPath(bad), /temp path/);
+    }
+  });
+});
+
+describe('rateLimits', () => {
+  it('returns 429 JSON once the per-IP limit is exceeded', async () => {
+    const express = require('express');
+    const http = require('node:http');
+    const { make } = require('./rateLimits');
+    const app = express();
+    app.get('/x', make(2), (req, res) => res.json({ ok: true }));
+    const server = http.createServer(app);
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const url = `http://127.0.0.1:${server.address().port}/x`;
+    try {
+      assert.equal((await fetch(url)).status, 200);
+      assert.equal((await fetch(url)).status, 200);
+      const res = await fetch(url);
+      assert.equal(res.status, 429);
+      assert.match((await res.json()).error, /Too many requests/);
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  });
+});

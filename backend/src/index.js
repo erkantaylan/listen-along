@@ -18,6 +18,7 @@ const db = require('./db');
 const library = require('./library');
 const songRequests = require('./requests');
 const { createLibraryRouter, sendSongFile } = require('./libraryRoutes');
+const { apiLimiter } = require('./rateLimits');
 const { createResolver } = require('./songResolver');
 const covers = require('./covers');
 const chat = require('./chat');
@@ -393,14 +394,14 @@ app.use(createLibraryRouter({
 }));
 
 // Admin page (tokens, requests, library management). Disabled without ADMIN_PASSWORD.
-app.get('/admin', (req, res) => {
+app.get('/admin', apiLimiter, (req, res) => {
   res.sendFile(path.join(frontendPath, 'admin.html'));
 });
 
 // Play audio for a queue entry. `q` is the queue entry's url: a YouTube URL
 // (looked up by youtube_id), `library:<id>`, or a legacy cache URL. The server
 // never downloads: anything not in the library is a 404 NOT_IN_LIBRARY.
-app.get('/api/stream', async (req, res) => {
+app.get('/api/stream', apiLimiter, async (req, res) => {
   const { q } = req.query;
   if (!q) {
     return res.status(400).json({ error: 'Missing query parameter: q' });

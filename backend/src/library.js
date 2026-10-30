@@ -401,6 +401,24 @@ function validateUploadFields(body = {}) {
   return { title, artist, album, youtube_id, source_url, duration_sec, request_id };
 }
 
+/**
+ * The on-disk temp path of a multer upload, resolved inside UPLOAD_TMP_DIR.
+ * multer names temp files itself (`<uuid>.part`), so this only guards against
+ * a path that somehow points elsewhere.
+ * @throws {UploadError} 400 if the path is outside the upload temp dir
+ */
+function uploadTmpPath(file) {
+  const root = path.resolve(UPLOAD_TMP_DIR);
+  const resolved = path.resolve(root, path.basename(String((file && file.path) || '')));
+  if (!resolved.startsWith(root + path.sep)) throw new UploadError(400, 'Bad upload temp path');
+  return resolved;
+}
+
+/** Best-effort delete of a multer upload's temp file. */
+function removeUploadTmp(file) {
+  try { fs.rmSync(uploadTmpPath(file), { force: true }); } catch {}
+}
+
 function validateUploadFileMeta(file) {
   if (!file) throw new UploadError(400, 'file is required (multipart field "file")');
   const ext = path.extname(file.originalname || '').toLowerCase();
@@ -421,7 +439,7 @@ function validateUploadFileMeta(file) {
  * @throws {UploadError} 400 invalid file, 409 duplicate (err.song set)
  */
 async function ingestUpload(file, fields, uploader) {
-  const tmpPath = file.path;
+  const tmpPath = uploadTmpPath(file);
   try {
     const probe = await probeM4a(tmpPath);
     if (!probe.ok) throw new UploadError(400, probe.reason);
@@ -603,6 +621,8 @@ module.exports = {
   remove,
   validateUploadFields,
   validateUploadFileMeta,
+  uploadTmpPath,
+  removeUploadTmp,
   ingestUpload,
   migrateLegacyCache,
   mimeForPath,
