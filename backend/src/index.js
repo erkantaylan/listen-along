@@ -15,6 +15,7 @@ const db = require('./db');
 const library = require('./library');
 const songRequests = require('./requests');
 const { createLibraryRouter, sendSongFile } = require('./libraryRoutes');
+const clientIpSetup = require('./clientIp');
 const adminAuth = require('./adminAuth');
 const { apiLimiter } = require('./rateLimits');
 const { createResolver } = require('./songResolver');
@@ -39,7 +40,7 @@ const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
 const RATE_LIMIT_MAX_REQUESTS = 20; // 20 requests per minute
 
 function rateLimit(req, res, next) {
-  const ip = req.ip || req.connection.remoteAddress;
+  const ip = req.clientIp || req.ip || req.socket.remoteAddress;
   const now = Date.now();
   const record = rateLimitMap.get(ip);
 
@@ -100,6 +101,11 @@ function verifyOAuthState(state) {
 
 const app = express();
 const server = http.createServer(app);
+
+// Behind Cloudflare -> Traefik: trust the private proxy hop and take the
+// visitor's IP from CF-Connecting-IP only when the request really came from
+// Cloudflare. Sets req.clientIp, which the rate limits key on. See clientIp.js.
+clientIpSetup.install(app);
 
 // CORS configuration
 const corsOptions = {

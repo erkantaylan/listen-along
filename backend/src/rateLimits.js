@@ -4,31 +4,42 @@
  * brute force, not normal use (a lobby streams a few Range requests per song;
  * a bulk `la upload` sends one request per file).
  *
- * Keyed by client IP. Note: without `trust proxy`, every client behind the
- * same reverse proxy shares one IP bucket, which is why the limit is high.
+ * Keyed by client IP: req.clientIp (see clientIp.js: the visitor behind
+ * Cloudflare + Traefik), falling back to req.ip / the socket address when the
+ * router is mounted without it (tests).
  */
 
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 
-function keyFor(req) {
-  return ipKeyGenerator(req.ip || req.socket?.remoteAddress || '');
+function clientIpOf(req) {
+  return req.clientIp || req.ip || req.socket?.remoteAddress || '';
 }
 
-function make(limit, windowMs = 60 * 1000) {
+function keyFor(req) {
+  return ipKeyGenerator(clientIpOf(req));
+}
+
+/**
+ * @param {number} limit - requests per window
+ * @param {number} [windowMs]
+ * @param {{keyGenerator?: Function, message?: string}} [opts]
+ */
+function make(limit, windowMs = 60 * 1000, opts = {}) {
+  const message = opts.message || 'Too many requests, slow down';
   return rateLimit({
     windowMs,
     limit,
     standardHeaders: 'draft-7',
     legacyHeaders: false,
-    keyGenerator: keyFor,
-    // We don't set `trust proxy` (the IP is the proxy's); skip the
-    // library's proxy-header warnings.
+    keyGenerator: opts.keyGenerator || keyFor,
+    // The client IP is resolved by clientIp.js (trust proxy + CF-Connecting-IP);
+    // skip the library's own proxy-header guesses.
     validate: { xForwardedForHeader: false, forwardedHeader: false },
-    handler: (req, res) => res.status(429).json({ error: 'Too many requests, slow down' }),
+    handler: (req, res) => res.status(429).json({ error: message }),
   });
 }
 
 /** Library/requests/admin API and audio streaming: 3000 requests/minute. */
 const apiLimiter = make(3000);
 
-module.exports = { apiLimiter, keyFor, make };
+module.exports = { apiLimiter, keyFor, clientIpOf, make };
