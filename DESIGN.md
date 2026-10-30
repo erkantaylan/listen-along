@@ -13,8 +13,8 @@ black), muted text, one restrained accent. There is no light mode and no colour-
 | `frontend/theme.css` | every page, after Bootstrap | Palette (token overrides) and shared rules (navbar, icons, thumbs, empty states). |
 | `frontend/app.css` | `index.html` only | Layout of the single-page app (views, playlist, player, library, dashboard). |
 
-Pages: `index.html` (login, landing, playlist, profile, pending, dashboard views and
-the music-library overlay), `admin.html`, `youtube-playlist.html`,
+Pages: `index.html` (login, landing, playlist, profile, pending, dashboard views, the
+music-library overlay and the chat-and-people panel), `admin.html`, `youtube-playlist.html`,
 `changelog.html`. `admin.html`, `youtube-playlist.html` and `changelog.html` use
 only Bootstrap + `theme.css`; keep it that way.
 
@@ -128,6 +128,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Toasts | `showToast(message, type)` in `ui.js` → `.toast.show` in `#toast-container` (fixed, bottom centre). |
 | Overlays | `.app-modal` (fixed backdrop, toggled with `hidden`) wrapping a `.card.app-modal-card`; give it `role="dialog" aria-modal="true" aria-labelledby`. Full-screen panels (music library) are fixed layers with their own navbar. The dashboard sidebar becomes a slide-in drawer below 1024px (`.open` class). |
 | Cover art | `.app-thumb` (3rem square, grey placeholder with a music-note SVG). |
+| Chat / people | The one `#social-panel` (see "Chat and people panel"). Never add a second chat or people list. |
 | Player | The one app-wide `#player-bar` (`section.sticky-player.player-bar` in `index.html`, outside the views): see "Player bar" below. Never add a second player or a per-page `<audio>`. |
 | Icons | Inline SVG (Material paths), `fill="currentColor"`, `aria-hidden="true"`. Inside buttons they are sized automatically (1.25rem, 1rem in `.btn-sm`); elsewhere add `.icon` or `.icon-sm`. |
 
@@ -145,9 +146,9 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 - **Playlist** (`/playlist/<id>`; internally the "lobby" view): full-height column —
   navbar (back, name/rename, a muted line with the "Private" badge, owner and listener
   count; owner-only lock/globe visibility button, pin, share), scrolling body (56rem)
-  with underline tabs (Queue | Listeners). Listeners is an interim tab (your name/avatar
-  editor + who has this playlist open, now-playing, follow) until the global people panel
-  replaces it. There is no per-playlist chat. Playback is the app-wide player bar, like
+  with the queue (no tabs: who is listening and what they play is the global people
+  panel, your name/avatar is on the profile page). There is no per-playlist chat; there
+  is one global chat (see "Chat and people panel"). Playback is the app-wide player bar, like
   every other page. The back button only navigates; it never leaves the playlist or stops
   audio. Below 400px the per-song YouTube button is hidden (the player keeps the source link).
   A playlist you cannot see (missing, deleted, someone else's private one) shows a
@@ -157,7 +158,10 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   songs (play button — plays in the app-wide player, shows pause on the song that is playing —, Add / disabled "Added" button), 20 per page: a compact
   "‹ Page n of m ›" pager above the list and the full numbered pagination + range below it
   (both follow `?page=`, both hidden when there is one page).
-- **Profile**: navbar with back; avatar + display-name card; connected-accounts card; Sign out.
+- **Profile**: navbar with back; avatar + display-name card (the only place to edit your
+  name/avatar; the chat and people panel show them); connected-accounts card; Sign out.
+- **Social** (`/social`): on phones the chat-and-people panel as a full-screen view; on
+  desktop the URL just opens the sidebar over the landing page. See below.
 - **Dashboard**: navbar (hamburger below 1024px), 15rem sidebar list group, main area with
   stat cards grid, public playlists and users list groups (private playlists are only counted, never listed).
 - **/admin, /youtube-playlist, /changelog**: navbar + narrow column of cards; Bootstrap and
@@ -173,15 +177,54 @@ art, times, buttons).
 
 - Desktop row: cover + title / "artist · context" (one button that opens the context:
   the playlist page, or `/library`), repeat, shuffle, prev, play (`.btn-solid.theme-primary`
-  pill), next, mute + volume; seek `.form-range` with times below.
+  pill), next, chat (`#social-toggle`, unread badge on its corner; toggles the sidebar on
+  desktop, opens `/social` on phones), mute + volume; seek `.form-range` with times below.
 - Below 768px the volume slider hides. Below 576px it is the slim form: cover, title,
-  play/pause, next and a thin seek line (`.player-extra` and times hidden).
+  play/pause, next, chat and a thin seek line (`.player-extra` and times hidden).
 - Empty state (`.is-empty`): "Nothing playing", controls disabled (Play stays enabled on
   a playlist page whose queue has songs).
 - It sits above the library overlay (`--bs-z-fixed` + 1). Its measured height is
   `--app-player-height` on `body` (`.has-player-bar`), which pads `.view` and the library
   body and lifts toasts and prompts; new fixed bottom elements must use it too.
 - Hidden only on the login / pending views.
+
+### Chat and people panel
+
+One `aside#social-panel` in `index.html`, driven by `social.js` (pure helpers in
+`chat-format.js`; server in `backend/src/social.js`). It is shown by body classes,
+never by `[hidden]`: `has-social` (signed in, socket up), `social-collapsed`
+(desktop, remembered in localStorage), `social-route` (the `/social` URL).
+
+- **Desktop (>= 1024px)**: fixed right sidebar, `--app-social-width` (20rem) wide, from
+  the top of the page down to the player bar (`--app-player-height`). `body` gets the
+  same `padding-right`, so every page (and the library overlay, via `right`) shifts left
+  rather than sitting under it. Collapse with the chevron in its header; reopen with the
+  chat button in the player bar. Present on every signed-in page (landing, playlist,
+  library overlay, profile) and next to the pending-approval card; not on `/dashboard`.
+- **Below 1024px**: hidden except on `/social`, where it covers the page above the
+  player bar with a back arrow in its header (the collapse chevron is hidden).
+- Header: back (phones) | underline tabs **Chat** (unread badge) and **People** (online
+  count) | collapse (desktop).
+- **Chat**: a scrolling list (`.chat-scroll`) of messages — avatar, bold name, faint time,
+  then the text in `fg-2`, `white-space: pre-wrap`; consecutive messages from one author
+  within 5 minutes drop the avatar/name. Newest 50 first; scrolling to the top loads the
+  next older page (keyset cursor) and keeps the scroll position. Text is always escaped;
+  http(s) URLs become links (`target=_blank`, `rel="noopener noreferrer nofollow"`).
+  Composer at the bottom: `.input-group` with the input and a primary send icon button.
+  Admins (admin cookie) get a small danger trash button per message (on hover; always on
+  touch screens), with a confirm.
+- **People**: two flush list groups under small uppercase headings, "Online — n" and
+  "Offline — n". Row: round avatar (photo, emoji or initials) with a presence dot
+  (success = online, grey = offline), name (+ subtle "you" / warning "pending" badges),
+  and one muted line: the song playing (accent; muted with a pause icon when paused)
+  "Title — Artist · context", or "Last seen 5m ago" when offline. Offline rows are
+  dimmed. Someone playing from a playlist you can see gets a follow icon button
+  (`.active` while following). A private playlist's name is never shown to anyone but
+  its owner: others see only the song.
+- **Unread**: messages from others that arrive while the chat is not on screen (panel
+  collapsed or hidden, People tab, or the browser tab in the background) count up on
+  every `[data-social-unread]` badge (player-bar chat button, Chat tab, pending card) and
+  reset when the chat is shown.
 
 All pages must work from 320px wide with no horizontal page scroll; check 320 and 375.
 

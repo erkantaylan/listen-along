@@ -61,7 +61,14 @@ where lobby persistence broke entirely on deployed instances.
   playlist or its queue — use `visibleLobby` / `editableLobby` in the socket
   handler and `findVisiblePlaylist` for HTTP. Going private evicts other
   users' sockets (`evictNonOwners`).
-- There is no per-playlist chat (removed; a global chat is planned).
+- There is no per-playlist chat. There is one global chat plus a people panel
+  (presence + now playing): `backend/src/social.js` (socket events, privacy),
+  `chat.js` (store: Postgres `global_chat_messages`, in-memory without a DB;
+  keyset pagination), `presence.js` (online = >= 1 socket, `users.last_seen`,
+  one now-playing entry per user — what listen-along builds on). Never send a
+  raw presence entry to a client: `viewNowPlaying()` drops a playlist the
+  viewer cannot see. Do not name a table `chat_messages`: db.js drops that
+  (old per-playlist chat) on every boot.
 
 ## User Identity
 
