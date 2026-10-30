@@ -43,9 +43,8 @@
   }
 
   function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str == null ? '' : String(str);
-    return div.innerHTML;
+    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return (str == null ? '' : String(str)).replace(/[&<>"']/g, ch => map[ch]);
   }
 
   async function fetchMetadata(videoId) {

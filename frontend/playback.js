@@ -269,7 +269,7 @@ export function updateNowPlaying(track) {
     else { sourceLink.hidden = true; }
   }
   const thumbUrl = track.id ? getCoverUrl(track.id, track.thumbnail) : sanitizeUrl(track.thumbnail);
-  if (thumbUrl) { elements.albumArt.innerHTML = `<img src="${thumbUrl}" alt="Album art">`; }
+  if (thumbUrl) { elements.albumArt.innerHTML = `<img src="${escapeHtml(thumbUrl)}" alt="Album art">`; }
   else { elements.albumArt.innerHTML = '<div class="placeholder-art"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div>'; }
   if (window.MediaSessionManager) {
     MediaSessionManager.updateTrack({ title: track.title, artist: track.artist, thumbnail: track.thumbnail, songId: track.id });
