@@ -163,10 +163,14 @@
   }
   .queue-listener-avatar.emoji { font-size: 0.75rem; }
   .queue-item.playing {
-    background-color: var(--bs-primary-bg-subtle);
-    box-shadow: inset 3px 0 0 var(--bs-primary-base);
+    background-color: var(--app-accent-subtle);
+    box-shadow: inset 3px 0 0 var(--app-accent);
   }
-  .queue-item.playing .queue-item-title { color: var(--bs-primary-fg-emphasis); }
+  .queue-item.playing .queue-item-title,
+  .libpage-item.is-playing .libpage-title { color: var(--app-accent-text-strong); }
+  /* Normal mode: hover and press read as grey, distinct from the blue playing row. */
+  .queue-list:not(.is-editing) .queue-item:not(.playing):hover { background-color: var(--bs-bg-1); }
+  .queue-list:not(.is-editing) .queue-item:not(.playing):active { background-color: var(--bs-bg-2); }
   /* Normal mode: the whole row plays (queue.js). */
   .queue-list:not(.is-editing) .queue-item { cursor: pointer; }
   /* Edit mode (queue-edit.js): drag handle + remove; rows slide while dragging. */
@@ -226,8 +230,9 @@
   .sticky-player {
     flex-shrink: 0;
     padding-block: 0.5rem calc(0.375rem + env(safe-area-inset-bottom, 0px));
-    background-color: var(--bs-bg-body);
-    border-top: var(--bs-border-width) solid var(--bs-border-color);
+    background-color: var(--app-raised);
+    border-top: var(--bs-border-width) solid var(--app-border);
+    box-shadow: 0 -0.25rem 1rem color-mix(in srgb, var(--bs-shadow-color) 45%, transparent);
   }
   .sticky-player > .container { max-width: 56rem; }
   .sticky-player-row { display: flex; gap: 0.75rem; align-items: center; }
@@ -254,7 +259,12 @@
     gap: 0.125rem;
     align-items: center;
   }
+  /* The one big button: accent pill, a size up from the other controls. */
   .btn-play { --bs-btn-min-height: 2.75rem; }
+  .btn-play > svg { width: 1.5rem; height: 1.5rem; }
+  /* Other controls: clearly clickable grey icons that brighten on hover. */
+  .btn-control:not(.active):not(:disabled) { color: var(--app-text-secondary); }
+  .btn-control:not(.active):not(:disabled):hover { color: var(--app-text); background-color: var(--bs-bg-3); }
   .volume-range { width: 5.5rem; margin-left: 0.25rem; }
   .sticky-player-progress { margin-top: 0.125rem; }
   .time-display { margin-top: -0.125rem; }
@@ -347,6 +357,9 @@
     background-color: var(--app-backdrop);
   }
   .app-modal-card {
+    --bs-card-bg: var(--app-overlay);
+    --bs-card-border-color: var(--app-border-strong);
+    --bs-card-cap-bg: var(--bs-bg-3);
     width: 100%;
     max-width: 28rem;
     max-height: calc(100dvh - 2rem);
@@ -404,8 +417,8 @@
     transform: translateX(-50%);
   }
   .app-toasts .toast { width: 100%; }
-  .app-toast-success { border-left: 3px solid var(--bs-success-base); }
-  .app-toast-error { border-left: 3px solid var(--bs-danger-base); }
+  .app-toast-success { border-left: 3px solid var(--app-success); }
+  .app-toast-error { border-left: 3px solid var(--app-danger); }
 
   /* -------------------------------------------------------- Music library */
   .library-page {
@@ -464,7 +477,7 @@
   /* Download tab (jobs.js): downloaders-online dot; job rows wrap their
      action button under the text on phones. */
   .dl-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background-color: var(--bs-bg-4); flex: none; }
-  .dl-dot.online { background-color: var(--bs-success-base); }
+  .dl-dot.online { background-color: var(--app-success); }
   @media (width < 400px) {
     .dl-item { flex-wrap: wrap; }
     .dl-item .dl-cancel, .dl-item .dl-retry { margin-left: auto; }
@@ -479,7 +492,7 @@
   .social-panel {
     display: none;
     flex-direction: column;
-    background-color: var(--bs-bg-body);
+    background-color: var(--app-surface);
   }
   .social-header {
     display: flex;
@@ -600,7 +613,7 @@
     border: 2px solid var(--bs-bg-body);
     border-radius: 50%;
   }
-  .person.is-online .person-dot { background-color: var(--bs-success-base); }
+  .person.is-online .person-dot { background-color: var(--app-success); }
   .person-playing { color: var(--bs-primary-fg); }
   .person-playing.is-paused { color: var(--bs-fg-3); }
   .person-playing .icon-sm { vertical-align: -2px; }

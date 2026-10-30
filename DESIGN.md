@@ -64,33 +64,104 @@ Bootstrap 6 ships its CSS in cascade layers:
 There is one palette, dark, defined in `theme.css`. Every page sets `data-bs-theme="dark"`
 statically on `<html>` (so Bootstrap's own dark tokens and `color-scheme: dark` apply with no
 flash and no script), and `theme.css` overrides the tokens on top. Use the tokens, never literal
-colours (two documented exceptions: the white quiet zone behind the QR code, and the placeholder
-text on the black YouTube frame).
+colours (one documented exception: the white quiet zone behind the QR code).
 
-| Role | Token | Value |
-| --- | --- | --- |
-| Page background | `--app-page-bg` | `#232528` |
-| Surface (cards, navbars, inputs, list groups) | `--bs-bg-body` | `#2c2f33` |
-| Subtle fills / hover | `--bs-bg-1` … `--bs-bg-4` | `#33363a` → `#4c5056` |
-| Body text | `--bs-fg-body` | `#e3e6e9` |
-| Secondary text | `--bs-fg-2` | `#bfc4c9` |
-| Muted text | `--bs-fg-3` | `#a1a8ae` |
-| Faint (icons, timestamps) | `--bs-fg-4` | `#7f868d` |
-| Borders | `--bs-border-color` | `#3f4348` |
-| Accent (solid) | `--bs-primary-bg` | `#557799` |
-| Accent text/links | `--bs-primary-fg` | `#9db8d6` |
-| Accent tint | `--bs-primary-bg-subtle` | `#34404d` |
-| Backdrop | `--app-backdrop` | near-black 55% |
+`theme.css` defines a small set of **semantic tokens** (`--app-*`) and maps Bootstrap 6's
+variables (`--bs-*`) onto them, so stock components come out right without per-component CSS.
+In new CSS prefer the `--app-*` name for the role you mean; `--bs-bg-1…4` / `--bs-fg-*` are fine
+for hover fills and text steps.
 
-The accent is a muted slate blue and is the **only** brand colour. Use it for the one primary
-action in a view, the current/playing item, active toggles, links and focus rings. Neutral
-actions are grey (`.btn`, `.btn-outline.theme-secondary`, `.btn-text.theme-secondary`).
-Success/danger/warning are Bootstrap's own (solid fills slightly calmed) and appear only for
-status: subtle badges, destructive buttons (`.btn-outline.theme-danger`), toasts.
+### Tokens
 
-The key idea: `--bs-bg-body` is the *surface*, not the page. Everything Bootstrap paints
-"body coloured" (cards, inputs, list groups, navbars, toasts) becomes the raised grey surface,
-and `body` itself sits on the slightly darker `--app-page-bg`.
+Contrast is the WCAG 2.x ratio. AA needs **4.5:1** for text and **3:1** for UI parts that convey
+state or identify a control (input borders, focus ring, the playing edge, icons). Borders marked
+"decorative" separate things that are already distinguishable by fill or position and are not
+held to 3:1.
+
+| Role | Token | Hex | Contrast |
+| --- | --- | --- | --- |
+| **Elevation** (each step lighter) | | | |
+| Page (behind everything) | `--app-page-bg` | `#1d1f22` | — |
+| Surface: cards, navbars, list groups, chat panel | `--app-surface` = `--bs-bg-body` | `#2a2d31` | 1.19 vs page |
+| Raised: card headers, player bar | `--app-raised` | `#33373c` | 1.15 vs surface |
+| Overlay: menus, popovers, modals, toasts | `--app-overlay` | `#3b4046` | 1.32 vs surface |
+| Input well (inputs, selects, checkboxes) | `--app-field-bg` | `#222528` | — |
+| Secondary (tonal) button fill / hover | `--app-btn-tonal` / `-hover` | `#41464d` / `#4b5158` | text 7.89 |
+| Hover / pressed row fill | `--bs-bg-1` / `--bs-bg-2` | `#32363b` / `#3a3e44` | — |
+| Backdrop | `--app-backdrop` | `rgb(10 11 12 / .6)` | — |
+| **Text** | | | |
+| Primary text | `--app-text` = `--bs-fg-body` | `#e8eaed` | 11.48 surface, 13.70 page, 8.68 overlay |
+| Secondary text, icon buttons | `--app-text-secondary` = `--bs-fg-2` | `#c3c8ce` | 8.22 surface |
+| Muted: meta lines, hints, times | `--app-text-muted` = `--bs-fg-3` | `#a4abb3` | 5.96 surface, 5.17 raised, 4.51 overlay |
+| Faint: placeholders, drag handles, disabled | `--app-text-faint` = `--bs-fg-4` | `#8f969e` | 4.63 surface, 5.53 page |
+| **Borders** | | | |
+| Subtle: dividers inside a component (decorative) | `--app-border-subtle` | `#3d4147` | 1.35 surface |
+| Default: outline of cards, list groups, panels, navbar/player edges (decorative) | `--app-border` = `--bs-border-color` | `#50565d` | 1.86 surface, 2.23 page |
+| Strong: inputs, secondary/outline buttons, pagination, overlays | `--app-border-strong` | `#737a83` | **3.19** surface, 3.55 field, 3.81 page |
+| Strong, hovered | `--app-border-hover` | `#8c939c` | — |
+| **Accent** (cornflower blue) | | | |
+| Fill: primary buttons, playing edge, checked controls, seek fill | `--app-accent` = `--bs-primary-bg` | `#7cacee` | 5.92 surface, 7.07 page |
+| Fill hovered / pressed | `--app-accent-hover` / `-pressed` | `#97bdf2` / `#6a9de3` | — |
+| Text/icons on the accent fill | `--app-on-accent` = `--bs-primary-contrast` | `#0e1b2c` | 7.42 (8.98 hover, 6.23 pressed) |
+| Accent text: links, playing title, toggled icons | `--app-accent-text` = `--bs-primary-fg` | `#8fbaf2` | 6.90 surface, 5.75 on tint |
+| Accent text, strong (playing title) | `--app-accent-text-strong` | `#b9d3f7` | — |
+| Tint: selected / playing row, toggled icon buttons | `--app-accent-subtle` | `#2b3a4f` | — |
+| Accent border (toggled buttons, chosen presets) | `--app-accent-border` | `#5d84b8` | — |
+| Focus ring (2px, 2px gap) | `--app-focus` | `#9cc2f5` | **7.54** surface, 9.01 page, 5.70 overlay |
+| **Status** | | | |
+| Danger text/icon / outline border | `--app-danger` / `--app-danger-border` | `#f2938d` / `#c06560` | 6.15 surface (4.65 overlay) / 3.47 |
+| Danger fill (white text) / tint | `--app-danger-solid` / `-subtle` | `#c9443e` / `#4a2b2b` | white 4.79 / text 5.58 |
+| Success text / fill (white text) / tint | `--app-success` / `-solid` / `-subtle` | `#6cc893` / `#2b7f50` / `#24402f` | 6.80 / 4.94 / 5.58 |
+| Warning text / fill (dark text) / tint | `--app-warning` / `-solid` / `-subtle` | `#f0c060` / `#e5b23c` / `#47391c` | 8.18 / 8.88 / 6.64 |
+| Info text / fill / tint | `--app-info` / `-solid` / `-subtle` | `#6ec6dc` / `#2b7f93` / `#1f3d45` | 7.10 / — / 5.95 |
+
+**Why this accent.** The old slate blue (`#557799`) had so little chroma that next to the grey
+UI it read as "another grey", and with white text it only just passed (4.6:1). The new accent is
+a lighter, more saturated cornflower blue used *as a fill with dark text* (the Material 3 dark
+pattern): the one primary button per view is now the brightest thing on screen and impossible to
+confuse with a grey button, while staying a soft, cool tone that suits the grey theme. It is
+still the **only** brand colour.
+
+### Elevation and border rules
+
+- The page is the darkest layer; things that sit *on* it are lighter, and things that float are
+  lighter again: **page < surface < raised < overlay**. Never put a darker box on a lighter one,
+  except input wells (`--app-field-bg`), which are deliberately sunken.
+- Every card, list group, navbar edge, side panel and the player bar has a `--app-border`
+  outline. Rows inside a list are divided by the same colour.
+- Anything you type into or click as a secondary control gets `--app-border-strong` (3:1):
+  inputs, selects, checkboxes, `.btn`, `.btn-outline.theme-secondary`, pagination.
+- Overlays (`.menu`, the context menu/popover, `.app-modal-card`, toasts) use `--app-overlay`
+  with a `--app-border-strong` edge and `--bs-box-shadow-lg`. Shadows only on floating things
+  (and the soft one above the player bar).
+- **Row states** must be distinguishable from each other: hover = grey `--bs-bg-1`, pressed =
+  `--bs-bg-2`, selected / playing = `--app-accent-subtle` tint **plus** a 3px `--app-accent`
+  left edge and accent title, keyboard focus = the 2px focus ring inside the row.
+- Focus: every focusable thing shows a 2px `--app-focus` ring with a 2px gap
+  (inset `-2px` in list rows and menu items, so it is not clipped). Never remove it.
+
+### Button hierarchy
+
+Four tiers, distinguishable at a glance. One primary per view; most actions are secondary or
+tertiary.
+
+| Tier | Markup | Looks like | Use for |
+| --- | --- | --- | --- |
+| **Primary** | `.btn-solid.theme-primary` | accent fill, dark semibold text; lightens on hover | The main action of a view or dialog: Create playlist, Save (display name), Download, Replace, Mark as broken (in its dialog), Done (playlist edit mode), the chat send button, the player's **Play/Pause** pill (a size up, 2.75rem, 1.5rem icon). |
+| **Secondary, tonal** | `.btn` | grey fill `--app-btn-tonal` + strong border | Neutral actions next to a primary or on their own: Cancel, Edit, Create token, Disconnect, Refresh, Play (admin), Retry/Cancel on jobs, preset reasons. |
+| **Secondary, outline** | `.btn-outline.theme-secondary` | border only, transparent | Navigation-ish or less important neutral actions: Music library & requests, login providers, Dismiss all, library pager, round library play buttons. |
+| **Tertiary / ghost** | `.btn-text.theme-secondary` (+ `.btn-icon`) | no fill, no border; `--app-text-secondary` icon; grey fill + bright icon on hover | Icon buttons: player controls (repeat, shuffle, prev, next, mute, chat), navbar back / pin / share / lock, ⋮ song menus, drag handles, collapse chevrons, small text links like "Dismiss". Toggled on = `.active`: accent tint + accent icon + accent border. |
+| **Danger** | `.btn-outline.theme-danger` (text) / `.btn-text.theme-danger.btn-icon` (icon) / `.btn-solid.theme-danger` (rare: a confirm step) | red text and border / red icon; red tint on hover | Anything that deletes or revokes: Delete playlist (trash), Clear queue, remove from queue (minus), Revoke token, Sign out, Delete (dashboard), delete chat message, Reject. |
+| **Success** | `.btn-subtle.theme-success` | green tint, green text | Approve (dashboard). Don't use green for ordinary confirm buttons — that's primary. |
+
+**Disabled** buttons of every tier turn flat grey (`--bs-bg-1` fill, `--app-text-faint` label,
+subtle border, 70% opacity; text buttons 55%) so they never read as clickable — e.g. the
+library's "Add" when no playlist is open, the player controls when nothing is playing.
+
+**Badges**: `.badge.badge-subtle.theme-*` = tinted fill + a matching hairline border. Neutral
+(counts, "Private", "you") = `theme-secondary` (grey); "Broken", "pending", waiting jobs =
+`theme-warning`; downloading / unread counts = `theme-primary`; done / approved / online =
+`theme-success`; failed / rejected = `theme-danger`.
 
 Do not reintroduce a light mode, `light-dark()` pairs, `[data-bs-theme=light]` rules or a
 toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
@@ -115,11 +186,9 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Grouped content | `.card` with `.card-header` (h6) / `.card-body` / `.card-footer`. |
 | Lists of items (songs, playlists, users, tokens) | `ul.list-group` with `li.list-group-item` (flex row: `.app-thumb`, text block `min-w-0 flex-grow-1`, actions). Clickable rows: `.list-group-item-action` + `tabindex="0"` + Enter/Space handler. Empty state: `li.list-group-item.app-empty`. |
 | Song lists (playlist queue, library) | Normal vs edit mode, see "Song rows: normal and edit mode" below. |
-| Playing / current row | `.is-playing` (shared) or `.queue-item.playing` (playlist): accent tint + 3px accent left edge. |
-| Primary action | `.btn-solid.theme-primary` — one per view. |
-| Secondary action | `.btn` (grey) or `.btn-outline.theme-secondary`. |
-| Icon-only action | `.btn-text.theme-secondary.btn-icon` with `aria-label` + `title`; toggled state = `.active` (accent tint). |
-| Destructive | `.btn-outline.theme-danger` (or `.btn-text.theme-danger.btn-icon` for a small ×). |
+| Playing / current row | `.is-playing` (shared) or `.queue-item.playing` (playlist): accent tint + 3px accent left edge + accent title. |
+| Buttons | See "Button hierarchy" above: primary `.btn-solid.theme-primary` (one per view), secondary `.btn` / `.btn-outline.theme-secondary`, tertiary `.btn-text.theme-secondary(.btn-icon)`, danger `.btn-outline.theme-danger` / `.btn-text.theme-danger.btn-icon`. |
+| Icon-only action | `.btn-text.theme-secondary.btn-icon` with `aria-label` + `title`; toggled state = `.active` (accent tint + accent border). |
 | Inputs | `.form-control` (also on `<select>`), `.input-group` to attach buttons, `.form-label` or `aria-label`. |
 | Tabs | `nav.nav.nav-underline` with `button.nav-link` (`.active` for the current one). |
 | Status / counts | `.badge.badge-subtle.theme-*`. |
@@ -158,7 +227,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   the server sends `canEdit` with `lobby:joined`) get a grey "Edit" text button in the navbar
   (solid primary "Done" while editing) and the add-song bar; the others see neither. Queue rows
   follow "Song rows: normal and edit mode" below; there is no per-song YouTube button (the
-  player keeps the source link). The "Clear queue" button shows only in edit mode.
+  player keeps the source link). The "Clear queue" button (danger icon button) shows only in edit mode.
   A playlist you cannot see (missing, deleted, someone else's private one) shows a
   "Playlist not found" toast and returns to the landing page.
 - **Music library**: fixed full-screen layer over landing or a playlist: navbar (back, title, "adding
@@ -351,8 +420,10 @@ All pages must work from 320px wide with no horizontal page scroll; check 320 an
 ## Accessibility rules
 
 - Every icon-only button has `aria-label` (and `title` for a tooltip). Decorative SVGs get `aria-hidden="true"`.
-- Focus is always visible: Bootstrap's focus ring (accent, 3px) plus a global `:focus-visible`
-  outline in `theme.css`. Never remove outlines.
+- Focus is always visible: a global 2px `--app-focus` ring with a 2px gap on every focusable
+  element (`theme.css`). Never remove outlines.
+- Contrast: text >= 4.5:1, state-carrying UI (input borders, focus ring, playing edge, icons)
+  >= 3:1 — see the token table. New colours must be added there with their ratios.
 - Clickable non-buttons need `tabindex="0"`, a role and a keyboard handler — prefer a real `<button>`.
 - Touch targets: player controls grow to 2.5rem on coarse pointers; don't go below `.btn-sm` (2rem)
   for primary touch actions.
@@ -386,18 +457,50 @@ no light theme, one accent. Tokens live in `android/app/src/main/java/com/erkant
 (`Palette`), mapped onto a Material 3 `darkColorScheme` so stock M3 components come out right.
 Use `Palette.*`, never literal colours.
 
-| CSS token | `Palette` | Material 3 role |
-| --- | --- | --- |
-| `--app-page-bg` `#232528` | `page` | `background`, `surfaceContainerLowest`, `surfaceDim` |
-| `--bs-bg-body` `#2c2f33` | `surface` | `surface`, `surfaceContainer(Low)` |
-| `--bs-bg-1` … `--bs-bg-4` | `bg1` … `bg4` | `surfaceVariant`/`surfaceContainerHigh` (bg1), `surfaceContainerHighest`/`surfaceBright` (bg2) |
-| `--bs-fg-body` / `-2` / `-3` / `-4` | `fg` / `fg2` / `fg3` / `fg4` | `onSurface`/`onBackground` (fg), `onSurfaceVariant` (fg3) |
-| `--bs-border-color` `#3f4348` | `border` | `outline` |
-| `--bs-primary-bg` `#557799` | `accent` | `primary` (`onPrimary` = `#fff`) |
-| `--bs-primary-fg` `#9db8d6` | `accentFg` | `onPrimaryContainer`, `tertiary` |
-| `--bs-primary-bg-subtle` `#34404d` | `accentSubtle` | `primaryContainer` |
-| `--bs-secondary-bg` / `-bg-subtle` / `-fg` | `secondary` / `secondarySubtle` / `secondaryFg` | `secondary` / `secondaryContainer` |
-| `--bs-danger-bg` / `--bs-success-bg` | `dangerSolid` / `successSolid` (+ text tints `danger`, `success`) | `errorContainer` / `error` |
+### Android mapping
+
+The values below are the source of truth for `Palette` (they match `theme.css` exactly; the
+Android follow-up applies them). Hex is `0xFFRRGGBB` in Compose.
+
+| CSS token | Hex | `Palette` | Material 3 role |
+| --- | --- | --- | --- |
+| `--app-page-bg` | `#1d1f22` | `page` | `background`, `surfaceContainerLowest`, `surfaceDim` |
+| `--app-surface` | `#2a2d31` | `surface` | `surface`, `surfaceContainerLow`, `surfaceContainer` |
+| `--app-raised` | `#33373c` | `raised` | `surfaceContainerHigh` (mini player, top-app-bar when scrolled, card headers) |
+| `--app-overlay` | `#3b4046` | `overlay` | `surfaceContainerHighest`, `surfaceBright` (menus, sheets, dialogs, snackbars) |
+| `--app-field-bg` | `#222528` | `field` | text field container |
+| `--app-btn-tonal` / `-hover` | `#41464d` / `#4b5158` | `tonal` / `tonalHover` | `secondaryContainer` (tonal / secondary button fill) |
+| `--bs-bg-1` / `--bs-bg-2` | `#32363b` / `#3a3e44` | `hover` / `pressed` | row hover / pressed (ripple base) |
+| `--bs-bg-3` / `--bs-bg-4` | `#444950` / `#52575e` | `bg3` / `bg4` | neutral badge fill / its border |
+| `--app-text` | `#e8eaed` | `fg` | `onSurface`, `onBackground`, `onSecondaryContainer` |
+| `--app-text-secondary` | `#c3c8ce` | `fg2` | icon tint for `IconAction` |
+| `--app-text-muted` | `#a4abb3` | `fg3` | `onSurfaceVariant` |
+| `--app-text-faint` | `#8f969e` | `fg4` | placeholders, drag handles, disabled content |
+| `--app-border-subtle` | `#3d4147` | `borderSubtle` | `outlineVariant` (dividers) |
+| `--app-border` | `#50565d` | `border` | card / list outlines |
+| `--app-border-strong` | `#737a83` | `borderStrong` | `outline` (text fields, outlined buttons) |
+| `--app-accent` | `#7cacee` | `accent` | `primary` |
+| `--app-accent-hover` / `-pressed` | `#97bdf2` / `#6a9de3` | `accentHover` / `accentPressed` | — |
+| `--app-on-accent` | `#0e1b2c` | `onAccent` | `onPrimary` (**dark**, no longer white) |
+| `--app-accent-text` | `#8fbaf2` | `accentFg` | `onPrimaryContainer`, `tertiary`, links |
+| `--app-accent-text-strong` | `#b9d3f7` | `accentFgStrong` | playing title |
+| `--app-accent-subtle` | `#2b3a4f` | `accentSubtle` | `primaryContainer` (playing row, toggled icons) |
+| `--app-accent-border` | `#5d84b8` | `accentBorder` | toggled icon / chosen chip border |
+| `--app-focus` | `#9cc2f5` | `focus` | focus indication |
+| `--app-danger` / `-solid` / `-subtle` / `-border` | `#f2938d` / `#c9443e` / `#4a2b2b` / `#c06560` | `danger` / `dangerSolid` / `dangerSubtle` / `dangerBorder` | `error` (`#f2938d`), `onError` `#ffffff` on `dangerSolid`, `errorContainer` (`#4a2b2b`), `onErrorContainer` (`#f2938d`) |
+| `--app-success` / `-solid` / `-subtle` / `-border` | `#6cc893` / `#2b7f50` / `#24402f` / `#4f9a6f` | `success` / `successSolid` / `successSubtle` / `successBorder` | — |
+| `--app-warning` / `-solid` / `-subtle` / `-border` | `#f0c060` / `#e5b23c` / `#47391c` / `#a8873a` | `warning` / `warningSolid` / `warningSubtle` / `warningBorder` | dark text (`#0e1b2c`) on `warningSolid` |
+| `--app-info` / `-solid` / `-subtle` / `-border` | `#6ec6dc` / `#2b7f93` / `#1f3d45` / `#4b98ab` | `info` / `infoSolid` / `infoSubtle` / `infoBorder` | — |
+
+Buttons on Android follow the same hierarchy: `PrimaryButton` = filled `accent` with `onAccent`
+text, semibold; `SecondaryButton` = `tonal` fill + 1dp `borderStrong` outline (or an
+`OutlinedButton` with `borderStrong` for the outline variant); `QuietButton` / `IconAction` =
+no container, `fg2` content, `pressed` fill on press; `DangerButton` = `danger` text + 1dp
+`dangerBorder` outline (icon-only: `danger` tint). Disabled: `hover` fill, `fg4` content, 70%
+alpha. Cards and list groups get a 1dp `border` outline; text fields a 1dp `borderStrong`
+outline on `field`, `accent` 2dp when focused. Menus, sheets and dialogs use `overlay` with a
+1dp `borderStrong` edge. Playing row = `accentSubtle` + 3dp `accent` left edge + `accentFgStrong`
+title; hover/pressed rows use `hover` / `pressed`.
 
 Components (`ui/Components.kt`) stand in for the Bootstrap ones: `AppTopBar` (navbar: back, small
 title, muted subtitle, icon actions), `ListGroupItem` (list group row; `current` = `.is-playing`
@@ -412,7 +515,7 @@ full-screen player; never add a second one.
 
 Song menus: ⋮ on a row opens a `DropdownMenu`; a long-press on the row (or on the full player's
 cover/title) opens the same items in a `ModalBottomSheet` (`SongActionsSheet`), headed by the song's
-title and artist. A song marked as broken shows `ReportIcon` (warning glyph in a muted
+title and artist. A song marked as broken shows `ReportIcon` (warning glyph in
 `Palette.warning`, a real button with a TalkBack label) right after its title. Playlist edit mode
 swaps the top bar's "Edit" for "Done" and gives rows a drag handle and a danger-tinted remove
-button; removals confirm with an Undo `Snackbar` (`bg2`, accent action) rather than a dialog.
+button; removals confirm with an Undo `Snackbar` (`overlay`, accent action) rather than a dialog.

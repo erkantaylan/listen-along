@@ -11,64 +11,157 @@
  */
 
 /* 1. Palette ---------------------------------------------------------------- */
+/* Semantic tokens (--app-*) first, then Bootstrap's own tokens mapped onto
+   them. Contrast ratios for every pairing are listed in DESIGN.md
+   ("Palette"); re-check them there if you change a value. */
 :root,
 :host,
 [data-bs-theme="dark"] {
-  /* Page and surfaces. --bs-bg-body is the *surface* (cards, navbars, inputs,
-     list groups all default to it); the page behind them is --app-page-bg. */
-  --app-page-bg: #232528;
-  --bs-bg-body:  #2c2f33;
-  --bs-bg-1:     #33363a;
-  --bs-bg-2:     #3a3d42;
-  --bs-bg-3:     #42464b;
-  --bs-bg-4:     #4c5056;
-  --app-backdrop: rgb(10 11 12 / 0.55); /* behind modals and drawers */
+  /* Elevation: page < surface < raised < overlay. Each step is lighter. */
+  --app-page-bg:  #1d1f22; /* behind everything */
+  --app-surface:  #2a2d31; /* cards, navbars, list groups, player bar, chat */
+  --app-raised:   #33373c; /* card headers, secondary buttons, hover-raised */
+  --app-overlay:  #3b4046; /* menus, popovers, modals, toasts */
+  --app-field-bg: #222528; /* inputs and selects: a slightly sunken well */
+  --app-backdrop: rgb(10 11 12 / 0.6); /* behind modals and drawers */
 
-  /* Text: light grey, never white; muted steps for secondary text. */
-  --bs-fg-body: #e3e6e9;
-  --bs-fg-1:    #d3d7db;
-  --bs-fg-2:    #bfc4c9;
-  --bs-fg-3:    #a1a8ae;
-  --bs-fg-4:    #7f868d;
+  /* Text */
+  --app-text:           #e8eaed; /* primary text */
+  --app-text-secondary: #c3c8ce; /* secondary text, icon buttons */
+  --app-text-muted:     #a4abb3; /* meta lines, hints, timestamps */
+  --app-text-faint:     #8f969e; /* placeholder icons, disabled labels */
 
   /* Borders */
-  --bs-border-color:       #3f4348;
-  --bs-border-body:        #474b51;
-  --bs-border-muted:       #3a3e43;
-  --bs-border-subtle:      #36393e;
-  --bs-border-emphasized:  #5a5f66;
-  --bs-border-color-translucent: rgb(227 230 233 / 0.12);
+  --app-border-subtle: #3d4147; /* dividers inside a component */
+  --app-border:        #50565d; /* outline of cards, list groups, panels */
+  --app-border-strong: #737a83; /* inputs, secondary / outline buttons, overlays (>= 3:1) */
+  --app-border-hover:  #8c939c; /* the same, hovered */
 
-  /* The one accent: muted slate blue. */
-  --bs-primary-base:        #7f9fc2;
-  --bs-primary-fg:          #9db8d6;
-  --bs-primary-fg-emphasis: #c3d4e7;
-  --bs-primary-bg:          #557799;
-  --bs-primary-bg-subtle:   #34404d;
-  --bs-primary-bg-muted:    #3d4b5a;
-  --bs-primary-border:      #50647a;
-  --bs-primary-focus-ring:  rgb(143 176 211 / 0.5);
-  --bs-primary-contrast:    #fff;
+  /* Secondary (tonal) button fill: clearly lighter than any surface it sits on. */
+  --app-btn-tonal:       #41464d;
+  --app-btn-tonal-hover: #4b5158;
 
-  /* Neutral grey for secondary buttons, icon buttons, subtle badges. */
+  /* Accent: a clear cornflower blue. Filled with dark text, like Material 3. */
+  --app-accent:          #7cacee; /* primary buttons, playing edge, checked controls */
+  --app-accent-hover:    #97bdf2;
+  --app-accent-pressed:  #6a9de3;
+  --app-on-accent:       #0e1b2c; /* text/icons on the accent fill */
+  --app-accent-text:     #8fbaf2; /* links, playing title, active icon buttons */
+  --app-accent-text-strong: #b9d3f7;
+  --app-accent-subtle:   #2b3a4f; /* selected / playing row tint, toggled icon buttons */
+  --app-accent-border:   #5d84b8;
+  --app-focus:           #9cc2f5; /* focus ring */
+
+  /* Status */
+  --app-danger:          #f2938d; /* text, icons, outline */
+  --app-danger-solid:    #c9443e; /* filled danger button (white text) */
+  --app-danger-subtle:   #4a2b2b;
+  --app-danger-border:   #c06560;
+  --app-success:         #6cc893;
+  --app-success-solid:   #2b7f50;
+  --app-success-subtle:  #24402f;
+  --app-success-border:  #4f9a6f;
+  --app-warning:         #f0c060;
+  --app-warning-solid:   #e5b23c; /* dark text on it */
+  --app-warning-subtle:  #47391c;
+  --app-warning-border:  #a8873a;
+  --app-info:            #6ec6dc;
+  --app-info-solid:      #2b7f93;
+  --app-info-subtle:     #1f3d45;
+  --app-info-border:     #4b98ab;
+
+  /* --- Bootstrap mapping ---------------------------------------------- */
+  /* --bs-bg-body is the *surface*: everything Bootstrap paints "body
+     coloured" (cards, inputs, list groups, navbars, toasts) starts there. */
+  --bs-bg-body: var(--app-surface);
+  --bs-bg-1:    #32363b; /* hover fill */
+  --bs-bg-2:    #3a3e44; /* pressed / neutral selected fill */
+  --bs-bg-3:    #444950;
+  --bs-bg-4:    #52575e;
+
+  --bs-fg-body: var(--app-text);
+  --bs-fg-1:    #d6d9dd;
+  --bs-fg-2:    var(--app-text-secondary);
+  --bs-fg-3:    var(--app-text-muted);
+  --bs-fg-4:    var(--app-text-faint);
+
+  --bs-border-color:       var(--app-border);
+  --bs-border-body:        var(--app-border);
+  --bs-border-muted:       var(--app-border-subtle);
+  --bs-border-subtle:      var(--app-border-subtle);
+  --bs-border-emphasized:  var(--app-border-strong);
+  --bs-border-color-translucent: var(--app-border);
+
+  --bs-btn-input-bg: var(--app-field-bg);
+
+  --bs-primary-base:        var(--app-accent);
+  --bs-primary-fg:          var(--app-accent-text);
+  --bs-primary-fg-emphasis: var(--app-accent-text-strong);
+  --bs-primary-bg:          var(--app-accent);
+  --bs-primary-bg-subtle:   var(--app-accent-subtle);
+  --bs-primary-bg-muted:    #34476a;
+  --bs-primary-border:      var(--app-accent-border);
+  --bs-primary-focus-ring:  var(--app-focus);
+  --bs-primary-contrast:    var(--app-on-accent);
+
+  /* Neutral grey: secondary buttons, icon buttons, neutral badges. */
   --bs-secondary-base:        var(--bs-bg-3);
-  --bs-secondary-fg:          #aeb4ba;
-  --bs-secondary-fg-emphasis: #e3e6e9;
-  --bs-secondary-bg:          #42464b;
-  --bs-secondary-bg-subtle:   #383b40;
-  --bs-secondary-bg-muted:    #44484d;
-  --bs-secondary-border:      #50555b;
-  --bs-secondary-focus-ring:  rgb(174 180 186 / 0.4);
-  --bs-secondary-contrast:    #e3e6e9;
+  --bs-secondary-fg:          var(--app-text-secondary);
+  --bs-secondary-fg-emphasis: var(--app-text);
+  --bs-secondary-bg:          var(--bs-bg-3);
+  --bs-secondary-bg-subtle:   var(--bs-bg-2);
+  --bs-secondary-bg-muted:    var(--bs-bg-3);
+  --bs-secondary-border:      var(--app-border-strong);
+  --bs-secondary-focus-ring:  var(--app-focus);
+  --bs-secondary-contrast:    var(--app-text);
 
-  /* Status colours stay Bootstrap's, only the solid fills are calmed down. */
-  --bs-danger-bg:  #b35a57;
-  --bs-success-bg: #4b8f68;
+  --bs-danger-base:        var(--app-danger-solid);
+  --bs-danger-fg:          var(--app-danger);
+  --bs-danger-fg-emphasis: #f8b9b5;
+  --bs-danger-bg:          var(--app-danger-solid);
+  --bs-danger-bg-subtle:   var(--app-danger-subtle);
+  --bs-danger-bg-muted:    #5c3131;
+  --bs-danger-border:      var(--app-danger-border);
+  --bs-danger-focus-ring:  var(--app-focus);
+  --bs-danger-contrast:    #fff;
 
-  --bs-link-color: var(--bs-primary-fg);
-  --bs-link-hover-color: var(--bs-primary-fg-emphasis);
+  --bs-success-base:        var(--app-success);
+  --bs-success-fg:          var(--app-success);
+  --bs-success-fg-emphasis: #a3e0bd;
+  --bs-success-bg:          var(--app-success-solid);
+  --bs-success-bg-subtle:   var(--app-success-subtle);
+  --bs-success-bg-muted:    #2d5039;
+  --bs-success-border:      var(--app-success-border);
+  --bs-success-focus-ring:  var(--app-focus);
+  --bs-success-contrast:    #fff;
+
+  --bs-warning-base:        var(--app-warning);
+  --bs-warning-fg:          var(--app-warning);
+  --bs-warning-fg-emphasis: #f7d995;
+  --bs-warning-bg:          var(--app-warning-solid);
+  --bs-warning-bg-subtle:   var(--app-warning-subtle);
+  --bs-warning-bg-muted:    #574623;
+  --bs-warning-border:      var(--app-warning-border);
+  --bs-warning-focus-ring:  var(--app-focus);
+  --bs-warning-contrast:    var(--app-on-accent);
+
+  --bs-info-base:        var(--app-info);
+  --bs-info-fg:          var(--app-info);
+  --bs-info-fg-emphasis: #a6dcea;
+  --bs-info-bg:          var(--app-info-solid);
+  --bs-info-bg-subtle:   var(--app-info-subtle);
+  --bs-info-bg-muted:    #264b55;
+  --bs-info-border:      var(--app-info-border);
+  --bs-info-focus-ring:  var(--app-focus);
+  --bs-info-contrast:    #fff;
+
+  --bs-focus-ring-color: var(--app-focus);
+  --bs-focus-ring-width: 2px;
+
+  --bs-link-color: var(--app-accent-text);
+  --bs-link-hover-color: var(--app-accent-text-strong);
   --bs-link-decoration: none;
-  --bs-shadow-color: #1c2024;
+  --bs-shadow-color: #0d0e10;
 }
 
 /* 2. Shared rules -------------------------------------------------------------- */
@@ -94,22 +187,177 @@
   .icon-sm { width: 1rem; height: 1rem; flex-shrink: 0; }
   .btn-sm > svg, .btn-xs > svg { width: 1rem; height: 1rem; }
 
-  /* Keyboard focus is always visible, also on elements that are not buttons. */
-  :focus-visible {
-    outline: var(--bs-focus-ring-width) solid var(--bs-focus-ring-color);
-    outline-offset: var(--bs-focus-ring-offset);
+  /* Keyboard focus is always visible, also on elements that are not buttons:
+     a 2px light-blue ring with a gap, on every component. */
+  :focus-visible,
+  :is(.btn, .btn-solid, .btn-outline, .btn-subtle, .btn-text, .btn-link, .nav-link, .page-link):focus-visible {
+    outline: 2px solid var(--app-focus);
+    outline-offset: 2px;
+  }
+  /* Inside lists and menus the ring sits inside the row (no clipping). */
+  :is(.list-group-item, .menu-item):focus-visible { outline-offset: -2px; }
+  .form-control:focus-visible,
+  .form-control:focus {
+    --bs-control-border-color: var(--app-accent);
+    outline: 2px solid var(--app-focus);
+    outline-offset: 1px;
   }
 
-  /* Icon buttons carry an accent when toggled on (repeat, shuffle, pin...). */
+  /* ---- Buttons: four tiers you can tell apart at a glance ----------------
+     primary   .btn-solid.theme-primary   accent fill, dark text, semibold
+     secondary .btn (tonal: raised grey + strong border) or
+               .btn-outline.theme-secondary (border only)
+     tertiary  .btn-text(.theme-secondary)(.btn-icon): no fill, no border
+     danger    .btn-outline.theme-danger / .btn-text.theme-danger / .btn-solid.theme-danger */
+  .btn-solid { --bs-btn-font-weight: var(--bs-font-weight-semibold); }
+  .btn-solid.theme-primary {
+    --bs-btn-bg: var(--app-accent);
+    --bs-btn-border-color: var(--app-accent);
+    --bs-btn-color: var(--app-on-accent);
+  }
+  .btn-solid.theme-primary:hover {
+    --bs-btn-hover-bg: var(--app-accent-hover);
+    --bs-btn-hover-border-color: var(--app-accent-hover);
+    --bs-btn-hover-color: var(--app-on-accent);
+  }
+  .btn-solid.theme-primary:active,
+  .btn-solid.theme-primary.active {
+    --bs-btn-active-bg: var(--app-accent-pressed);
+    --bs-btn-active-border-color: var(--app-accent-pressed);
+    --bs-btn-active-color: var(--app-on-accent);
+  }
+
+  .btn {
+    --bs-btn-bg: var(--app-btn-tonal);
+    --bs-btn-color: var(--app-text);
+    --bs-btn-border-color: var(--app-border-strong);
+    --bs-btn-hover-bg: var(--app-btn-tonal-hover);
+    --bs-btn-hover-color: var(--app-text);
+    --bs-btn-hover-border-color: var(--app-border-hover);
+    --bs-btn-active-bg: var(--bs-bg-3);
+    --bs-btn-active-color: var(--app-text);
+    --bs-btn-active-border-color: var(--app-border-strong);
+  }
+  .btn-outline.theme-secondary {
+    --bs-btn-color: var(--app-text);
+    --bs-btn-hover-bg: var(--bs-bg-2);
+    --bs-btn-hover-color: var(--app-text);
+    --bs-btn-hover-border-color: var(--app-border-hover);
+  }
+  .btn-outline.theme-danger {
+    --bs-btn-hover-bg: var(--app-danger-subtle);
+    --bs-btn-hover-color: var(--bs-danger-fg-emphasis);
+    --bs-btn-hover-border-color: var(--app-danger);
+  }
+  .btn-text.theme-secondary {
+    --bs-btn-hover-bg: var(--bs-bg-2);
+    --bs-btn-hover-color: var(--app-text);
+  }
+  .btn-text.theme-danger { --bs-btn-hover-bg: var(--app-danger-subtle); }
+
+  /* Disabled: grey and flat whatever the tier, so it never reads as clickable. */
+  :is(.btn, .btn-solid, .btn-outline, .btn-subtle):is(:disabled, .disabled) {
+    --bs-btn-disabled-bg: var(--bs-bg-1);
+    --bs-btn-disabled-color: var(--app-text-faint);
+    --bs-btn-disabled-border-color: var(--app-border-subtle);
+    --bs-btn-disabled-opacity: 0.7;
+  }
+  .btn-text:is(:disabled, .disabled) {
+    --bs-btn-disabled-color: var(--app-text-faint);
+    --bs-btn-disabled-opacity: 0.55;
+  }
+
+  /* Toggled icon buttons (repeat, shuffle, pin, chat panel open...). */
   .btn-icon.active,
   .btn-text.active {
-    color: var(--bs-primary-fg);
-    background-color: var(--bs-primary-bg-subtle);
+    color: var(--app-accent-text);
+    background-color: var(--app-accent-subtle);
+    border-color: var(--app-accent-border);
   }
+
+  /* ---- Surfaces and borders --------------------------------------------- */
+  .card {
+    --bs-card-border-color: var(--app-border);
+    --bs-card-cap-bg: var(--app-raised);
+  }
+  .card-header { border-bottom-color: var(--app-border); }
+  .list-group {
+    --bs-list-group-border-color: var(--app-border);
+    --bs-list-group-action-color: var(--app-text);
+    --bs-list-group-action-hover-color: var(--app-text);
+    --bs-list-group-action-hover-bg: var(--bs-bg-1);
+    --bs-list-group-action-active-color: var(--app-text);
+    --bs-list-group-action-active-bg: var(--bs-bg-2);
+  }
+  .form-control {
+    --bs-control-bg: var(--app-field-bg);
+    --bs-control-border-color: var(--app-border-strong);
+    --bs-control-placeholder-color: var(--app-text-faint);
+    --bs-control-disabled-bg: var(--bs-bg-1);
+    --bs-control-box-shadow: none;
+  }
+  .form-control:hover:not(:disabled, :focus) { --bs-control-border-color: var(--app-border-hover); }
+  .input-group-text {
+    color: var(--app-text-muted);
+    background-color: var(--app-raised);
+    border-color: var(--app-border-strong);
+  }
+  .check {
+    --bs-check-bg: var(--app-field-bg);
+    --bs-check-border-color: var(--app-border-strong);
+  }
+
+  /* Overlays: lighter than the surface, strong border, real shadow. */
+  .menu {
+    --bs-menu-bg: var(--app-overlay);
+    --bs-menu-border-color: var(--app-border-strong);
+    --bs-menu-item-hover-bg: var(--bs-bg-4);
+    --bs-menu-divider-bg: var(--app-border);
+    box-shadow: var(--bs-box-shadow-lg);
+  }
+  .toast {
+    --bs-toast-bg: var(--app-overlay);
+    --bs-toast-border-color: var(--app-border-strong);
+    --bs-toast-box-shadow: var(--bs-box-shadow-lg);
+  }
+  .dialog {
+    --bs-dialog-bg: var(--app-overlay);
+    --bs-dialog-border-color: var(--app-border-strong);
+  }
+
+  /* Badges: tinted fill + a matching hairline, so they read on any surface. */
+  .badge-subtle { --bs-badge-border-color: var(--bs-theme-border, var(--app-border)); }
+  .badge-subtle.theme-secondary {
+    --bs-badge-color: var(--app-text-secondary);
+    --bs-badge-bg: var(--bs-bg-3);
+    --bs-badge-border-color: var(--bs-bg-4);
+  }
+
+  /* Tabs: muted until hovered; the current one is bright with an accent bar. */
+  .nav-underline {
+    --bs-nav-link-color: var(--app-text-muted);
+    --bs-nav-link-hover-color: var(--app-text);
+  }
+  .nav-underline .nav-link:hover { border-block-end-color: var(--app-border-strong); }
+  .nav-underline .nav-link.active { color: var(--app-text); border-block-end-color: var(--app-accent); }
+
+  .pagination {
+    --bs-pagination-color: var(--app-text);
+    --bs-pagination-bg: var(--app-surface);
+    --bs-pagination-border-color: var(--app-border-strong);
+    --bs-pagination-hover-color: var(--app-text);
+    --bs-pagination-hover-bg: var(--bs-bg-2);
+    --bs-pagination-hover-border-color: var(--app-border-hover);
+    --bs-pagination-disabled-color: var(--app-text-faint);
+    --bs-pagination-disabled-bg: var(--bs-bg-1);
+    --bs-pagination-disabled-border-color: var(--app-border-subtle);
+  }
+
+  .alert { --bs-alert-border-color: var(--app-border); }
 
   /* Top bar used by every page: a stock .navbar on the surface colour. */
   .app-navbar {
-    --bs-navbar-bg: var(--bs-bg-body);
+    --bs-navbar-bg: var(--app-surface);
     --bs-navbar-padding-y: 0.375rem;
     --bs-navbar-min-height: 3.5rem;
     border-bottom: var(--bs-border-width) solid var(--bs-border-color);
@@ -161,16 +409,18 @@
   }
 
   /* The row that is playing right now, in any list group. */
+  /* Row states: hover = grey (--bs-bg-1), pressed = --bs-bg-2,
+     selected / playing = accent tint + 3px accent edge + accent title. */
   .list-group-item.is-playing {
-    background-color: var(--bs-primary-bg-subtle);
-    box-shadow: inset 3px 0 0 var(--bs-primary-base);
+    background-color: var(--app-accent-subtle);
+    box-shadow: inset 3px 0 0 var(--app-accent);
   }
 
   /* Small centred form (log-in boxes). */
   .app-form-narrow { max-width: 24rem; }
 
   /* Text over the black video frame on /youtube-playlist. */
-  .app-yt-placeholder { color: #c9cdd2; }
+  .app-yt-placeholder { color: var(--app-text-secondary); }
 
   .min-w-0 { min-width: 0; }
 }
