@@ -39,8 +39,8 @@ export function previousIndex({ length, current = -1, repeat = 'off' }) {
 }
 
 // --- Lobby membership --------------------------------------------------------
-// The server lists a socket in one lobby (member: listener list, now-playing,
-// follow) and lets it watch one more (viewing: queue/chat updates, adding
+// The server lists a socket in one lobby (member: listener list, now-playing)
+// and lets it watch one more (viewing: queue/chat updates, adding
 // songs). The member lobby is the playback context while there is one, so the
 // queue being played stays live; otherwise it is the lobby on screen. Any
 // other lobby on screen is only viewed.

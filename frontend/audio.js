@@ -32,6 +32,7 @@ export function setupAudioPlayer() {
 
   audio.addEventListener('error', (e) => {
     if (!audio.src || audio.src === window.location.href) return;
+    if (state.listeningAlong) return; // listen-along.js says which song and waits for the next
     console.error('Audio error:', e);
     const url = state.currentTrack && state.currentTrack.url;
     const missing = url && state.downloadStatus[url] && state.downloadStatus[url].status === 'unavailable';

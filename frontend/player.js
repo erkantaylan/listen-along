@@ -3,21 +3,24 @@
 // tab of the browser plays at a time (BroadcastChannel, see below).
 //
 // "Context" is what playback was last started from: a lobby queue
-// ({ type: 'lobby', lobbyId, name }) or the music library list
-// ({ type: 'library' }), plus its songs. It stays current while other pages
+// ({ type: 'lobby', lobbyId, name }), the music library list
+// ({ type: 'library' }), or another user while listening along
+// ({ type: 'listen', leaderId, name }, no songs), plus its songs. It stays current while other pages
 // (and other lobbies) are shown, and changes only when play is pressed on a
 // song somewhere else (playFrom).
 //
 // Tracks are queue entries ({ id, url, title, artist, thumbnail }) streamed
 // from /api/stream?q=<url>, or carry their own `src` (library files).
 //
-// API (everything the UI, the follow feature and a later listen-along use):
+// API (everything the UI and listen-along use):
 //   player.playFrom(ctx, songs, index)   start playing a context's songs at index
 //   player.setContext(ctx, songs, { keepDriver })  make a queue current without playing
 //   player.updateQueue(lobbyId, songs)   live queue update (ignored unless that lobby is the context)
 //   player.renameContext(lobbyId, name)
 //   player.playIndex(i) / playTrack(track, { position, autoplay })
 //   player.play() / pause() / toggle() / next() / previous() / seek(seconds) / stop()
+//     (these are the listener's own actions: each one ends a driver; the
+//     driver itself passes { keepDriver: true } to play / pause / seek)
 //   player.track / context / queue / index / isPlaying / currentTime / duration
 //   player.on(event, fn) -> unsubscribe
 //     'track'   (track | null)      a different track was loaded
@@ -25,9 +28,14 @@
 //     'time'    ({ currentTime, duration })
 //     'context' (context | null)
 //     'queue'   (songs)
-//   player.setDriver({ name, onTakeover }) lets something else steer playback
-//     (follow today, listen-along later) through playTrack/seek; the first
-//     manual skip, queue pick or context change calls onTakeover and drops it.
+//     'seeked'  (currentTime)       any seek finished (also the driver's)
+//   player.setDriver({ name, onTakeover, onEnded }) lets something else steer
+//     playback (listen-along, listen-along.js) through playTrack and
+//     play/pause/seek with { keepDriver: true }. The listener's first own
+//     action (play/pause, seek, next/previous, a queue or library pick, a
+//     context change, another tab of this browser starting to play) calls
+//     onTakeover and drops it. While a driver is set, a track ending calls
+//     onEnded instead of moving to the next song.
 import { state, elements } from './state.js';
 import { playAudioWithUnlock } from './audio.js';
 import { showToast, t as tr } from './ui.js';
@@ -61,12 +69,14 @@ export function streamUrl(t) {
 function normalizeContext(ctx) {
   if (!ctx) return null;
   if (ctx.type === 'library') return { type: 'library', name: ctx.name || null };
+  if (ctx.type === 'listen') return ctx.leaderId ? { type: 'listen', leaderId: ctx.leaderId, name: ctx.name || null } : null;
   if (!ctx.lobbyId) return null;
   return { type: 'lobby', lobbyId: ctx.lobbyId, name: ctx.name || null };
 }
 
 function sameContext(a, b) {
   if (!a || !b || a.type !== b.type) return false;
+  if (a.type === 'listen') return a.leaderId === b.leaderId;
   return a.type === 'library' || a.lobbyId === b.lobbyId;
 }
 
@@ -95,7 +105,7 @@ export const player = {
   get duration() { return audio().duration || 0; },
   get driver() { return driver; },
 
-  // keepDriver: the driver itself is switching the context (follow).
+  // keepDriver: the driver itself is switching the context (listen-along).
   setContext(ctx, songs = [], { keepDriver = false } = {}) {
     const next = normalizeContext(ctx);
     if (!next) return;
@@ -143,13 +153,17 @@ export const player = {
     if (changed) emit('track', track);
   },
 
-  play() {
+  play({ keepDriver = false } = {}) {
+    if (!keepDriver) takeover();
     if (!track) { if (queue.length) this.playIndex(0); return; }
     const a = audio();
     playAudioWithUnlock(a.getAttribute('src') ? a.src : streamUrl(track), a.currentTime, true);
   },
 
-  pause() { audio().pause(); },
+  pause({ keepDriver = false } = {}) {
+    if (!keepDriver) takeover();
+    audio().pause();
+  },
 
   toggle() {
     if (this.isPlaying) this.pause();
@@ -177,7 +191,8 @@ export const player = {
     this.playIndex(i, { manual: false });
   },
 
-  seek(seconds) {
+  seek(seconds, { keepDriver = false } = {}) {
+    if (!keepDriver) takeover();
     const a = audio();
     if (!a.duration || !isFinite(seconds)) return;
     a.currentTime = Math.max(0, Math.min(seconds, a.duration));
@@ -208,7 +223,11 @@ export const player = {
 export function setupPlayer() {
   const a = audio();
   setupOneTabPlayback(a);
-  a.addEventListener('ended', () => player.next({ auto: true }));
+  a.addEventListener('ended', () => {
+    if (driver && driver.onEnded) driver.onEnded();
+    else if (!driver) player.next({ auto: true });
+  });
+  a.addEventListener('seeked', () => emit('seeked', a.currentTime));
   a.addEventListener('play', () => emit('state', { playing: true }));
   a.addEventListener('pause', () => emit('state', { playing: false }));
   a.addEventListener('timeupdate', () => emit('time', { currentTime: a.currentTime, duration: a.duration || 0 }));
@@ -247,7 +266,8 @@ function setupOneTabPlayback(a) {
   channel.addEventListener('message', (e) => {
     const msg = e.data || {};
     if (msg.type !== 'playing' || msg.tab === TAB_ID || a.paused) return;
-    a.pause();
+    // The listener started something in another tab: that ends listening along here.
+    player.pause();
     showToast(tr('player.playingElsewhere', 'Playing in another tab'), 'info');
   });
 }

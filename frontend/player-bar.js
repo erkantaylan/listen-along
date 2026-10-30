@@ -1,14 +1,19 @@
 // The app-wide player bar (markup in index.html): fixed at the bottom of every
 // page, Spotify-style. Shows an empty state with disabled controls until
 // something is loaded. Track title/art/times are drawn by playback.js; this
-// module handles visibility, page padding, the empty state, the "from" line
-// and opening the context (playlist page or library).
+// module handles visibility, page padding, the empty state, the "from" line,
+// opening the context (playlist page or library) and the listen-along strip
+// ("Listening along with Ayşe" + Stop, or "Ayşe and 2 others are listening
+// along" for the person being listened to).
 import { state, elements } from './state.js';
 import { navigateTo, t } from './ui.js';
 import { player } from './player.js';
 import { playlistPath } from './router.js';
+import { listenState, onListenChange, followersText, stopListenAlong } from './listen-along.js';
 
 const $ = (id) => document.getElementById(id);
+// t() with {placeholders} filled in the fallback too (t returns it raw).
+const tf = (key, fallback, vars) => t(key, fallback, vars).replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
 const CONTROL_IDS = ['repeat-btn', 'shuffle-btn', 'prev-btn', 'next-btn', 'progress-bar'];
 
 // Hidden only before sign-in (login / pending approval).
@@ -25,12 +30,18 @@ function refreshVisibility() {
 export function contextLabel(ctx) {
   if (!ctx) return '';
   if (ctx.type === 'library') return t('player.fromLibrary', 'Music Library');
+  if (ctx.type === 'listen') {
+    // Only while actually listening along (the track stays after stopping).
+    const { leader } = listenState();
+    return leader && leader.id === ctx.leaderId ? tf('listen.withName', 'Listening along with {name}', { name: leader.name }) : '';
+  }
   return ctx.name || `Playlist ${ctx.lobbyId}`;
 }
 
 function contextPath(ctx) {
   if (!ctx) return null;
   if (ctx.type === 'library') return '/library';
+  if (ctx.type === 'listen') return null;
   return playlistPath(ctx.lobbyId);
 }
 
@@ -47,16 +58,39 @@ export function refreshPlayerBar() {
   const open = $('player-open');
   const ctx = player.context;
   if (open) {
-    open.disabled = !track || !ctx;
+    open.disabled = !track || !contextPath(ctx);
     const from = contextLabel(ctx);
     open.title = from ? t('player.openContext', 'Open {name}', { name: from }) : '';
   }
+  refreshListenStrip();
   if (!track) {
     elements.trackTitle.textContent = t('player.nothingPlaying', 'Nothing playing');
     elements.trackArtist.textContent = t('player.pickSong', 'Pick a song in a playlist or the library');
     return;
   }
   elements.trackArtist.textContent = [track.artist, contextLabel(ctx)].filter(Boolean).join(' · ');
+}
+
+// The strip above the bar's row: following someone, or being listened to.
+function refreshListenStrip() {
+  const strip = $('listen-strip');
+  if (!strip) return;
+  const { leader, ending, followers } = listenState();
+  const text = $('listen-strip-text');
+  const stop = $('listen-stop');
+  if (leader) {
+    text.textContent = ending
+      ? tf('listen.endingStrip', '{name} went offline · stops after this song', { name: leader.name })
+      : tf('listen.withName', 'Listening along with {name}', { name: leader.name });
+    stop.hidden = false;
+    strip.hidden = false;
+  } else if (followers.count > 0) {
+    text.textContent = followersText(followers);
+    stop.hidden = true;
+    strip.hidden = false;
+  } else {
+    strip.hidden = true;
+  }
 }
 
 export function setupPlayerBar() {
@@ -80,5 +114,7 @@ export function setupPlayerBarControls() {
   player.on('track', refreshPlayerBar);
   player.on('context', refreshPlayerBar);
   player.on('queue', refreshPlayerBar);
+  onListenChange(refreshPlayerBar);
+  $('listen-stop')?.addEventListener('click', () => stopListenAlong());
   refreshPlayerBar();
 }

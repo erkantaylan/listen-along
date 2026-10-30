@@ -127,12 +127,24 @@
     "olderHint": "Scroll up for older messages",
     "sendFailed": "Could not send the message"
   },
-  "follow": {
-    "followUser": "Follow",
-    "stopFollowing": "Stop following",
-    "started": "Following {name}",
-    "stopped": "Stopped following",
-    "following": "Following",
-    "leaderLeft": "The user you were following has left"
+  "listen": {
+    "listenAlong": "Listen along",
+    "listenAlongWith": "Listen along with {name}",
+    "stop": "Stop listening along",
+    "stopped": "Stopped listening along",
+    "started": "Listening along with {name}",
+    "startedRoot": "Listening along with {name} ({via} is listening along with them)",
+    "nowWith": "Now listening along with {name}",
+    "withName": "Listening along with {name}",
+    "failed": "Could not listen along",
+    "lost": "Listening along ended",
+    "cannotPlay": "Cannot play “{title}” here. Waiting for the next song.",
+    "leaderOffline": "{name} went offline. Playback stops after this song.",
+    "endedOffline": "{name} went offline. Listening along ended.",
+    "endingStrip": "{name} went offline · stops after this song",
+    "someone": "Someone",
+    "oneFollower": "{name} is listening along",
+    "twoFollowers": "{name} and {other} are listening along",
+    "manyFollowers": "{name} and {count} others are listening along"
   }
 }

@@ -31,7 +31,7 @@ const S = {
   route: false,
   unread: 0,
   cameFromApp: false,
-  hooks: { follow: null, isFollowing: () => false, stopFollowing: null },
+  hooks: { listenAlong: null, isListeningWith: () => false, stopListening: null },
 };
 
 const $ = (id) => document.getElementById(id);
@@ -238,7 +238,7 @@ async function deleteMessage(id) {
 
 // ---------------------------------------------------------------- people
 
-const FOLLOW_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg>';
+const LISTEN_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg>';
 
 function contextLabel(np) {
   const c = np && np.context;
@@ -261,20 +261,20 @@ function personHtml(p) {
     const seen = formatLastSeen(p.lastSeen);
     line = `<span class="d-block fs-xs fg-4 text-truncate">${escapeText(seen ? tf('social.lastSeen', 'Last seen {when}', { when: seen }) : t('social.offline', 'Offline'))}</span>`;
   }
-  // Follow (play along with) someone playing from a playlist you can see.
-  let follow = '';
-  const ctx = np && np.context;
-  if (!isMe && ctx && ctx.type === 'lobby' && ctx.socketId && S.hooks.follow) {
-    const on = S.hooks.isFollowing(p);
-    const label = on ? t('follow.stopFollowing', 'Stop following') : t('follow.followUser', 'Follow');
-    follow = `<button class="btn-text theme-secondary btn-icon btn-sm person-follow${on ? ' active' : ''}" type="button" data-follow-id="${escapeText(p.id)}" aria-pressed="${on}" aria-label="${escapeText(`${label} ${p.name}`)}" title="${escapeText(label)}">${FOLLOW_SVG}</button>`;
+  // Listen along with anyone online who is playing something (whatever it
+  // is played from; a private playlist stays hidden, only the song shows).
+  let listen = '';
+  if (!isMe && np && S.hooks.listenAlong) {
+    const on = S.hooks.isListeningWith(p);
+    const label = on ? t('listen.stop', 'Stop listening along') : t('listen.listenAlong', 'Listen along');
+    listen = `<button class="btn-text theme-secondary btn-icon btn-sm person-listen${on ? ' active' : ''}" type="button" data-listen-id="${escapeText(p.id)}" aria-pressed="${on}" aria-label="${escapeText(on ? label : tf('listen.listenAlongWith', 'Listen along with {name}', { name: p.name || 'User' }))}" title="${escapeText(label)}">${LISTEN_SVG}</button>`;
   }
   const badges = (isMe ? `<span class="badge badge-subtle theme-secondary">${escapeText(t('social.you', 'you'))}</span>` : '')
     + (p.pending ? `<span class="badge badge-subtle theme-warning">${escapeText(t('social.pending', 'pending'))}</span>` : '');
   return `<li class="list-group-item person${p.online ? ' is-online' : ''}" data-person-id="${escapeText(p.id)}">`
     + `<span class="person-avatar-wrap">${avatarHtml(p, 'person-avatar')}<span class="person-dot" aria-hidden="true"></span></span>`
     + `<span class="min-w-0 flex-grow-1"><span class="d-flex align-items-center gap-1 min-w-0"><span class="text-truncate fw-medium person-name">${escapeText(p.name || 'User')}</span>${badges}</span>${line}</span>`
-    + `${follow}</li>`;
+    + `${listen}</li>`;
 }
 
 function renderPeople() {
@@ -289,7 +289,7 @@ function renderPeople() {
   for (const el of document.querySelectorAll('[data-online-count]')) el.textContent = String(online.length);
 }
 
-// Re-render (e.g. the follow state changed).
+// Re-render (e.g. the listen-along state changed).
 export function refreshPeople() { renderPeople(); }
 
 function upsertPerson(user) {
@@ -316,14 +316,15 @@ async function loadPeople() {
 // ---------------------------------------------------------- now playing
 
 let reportTimer = null;
-function reportNowPlaying() {
+// Also the listen-along heartbeat (listen-along.js) while someone listens along.
+export function reportNowPlaying() {
   clearTimeout(reportTimer);
   reportTimer = setTimeout(() => {
     if (!S.socket || !S.socket.connected) return;
     const tr = player.track;
     const ctx = player.context;
     S.socket.emit('presence:now-playing', tr ? {
-      track: { id: tr.id || null, title: tr.title, artist: tr.artist || null, thumbnail: tr.thumbnail || null },
+      track: { id: tr.id || null, title: tr.title, artist: tr.artist || null, thumbnail: tr.thumbnail || null, url: tr.url || null },
       context: ctx ? (ctx.type === 'library' ? { type: 'library' } : { type: 'lobby', lobbyId: ctx.lobbyId }) : null,
       playing: player.isPlaying,
       position: player.currentTime,
@@ -350,12 +351,13 @@ export function announceProfile(name, emoji) {
 
 /**
  * Start the chat + people panel on a connected-or-connecting socket.
- * opts: { name, emoji, reportPlayback, follow(person), isFollowing(person) }
+ * opts: { name, emoji, reportPlayback, listenAlong(person), isListeningWith(person), stopListening() }
  */
 export function setupSocial(socket, opts = {}) {
   S.socket = socket;
-  S.hooks.follow = opts.follow || null;
-  if (opts.isFollowing) S.hooks.isFollowing = opts.isFollowing;
+  S.hooks.listenAlong = opts.listenAlong || null;
+  if (opts.isListeningWith) S.hooks.isListeningWith = opts.isListeningWith;
+  S.hooks.stopListening = opts.stopListening || null;
   document.body.classList.add('has-social');
   const toggle = $('social-toggle');
   if (toggle) toggle.hidden = false;
@@ -387,6 +389,8 @@ export function setupSocial(socket, opts = {}) {
     player.on('track', reportNowPlaying);
     player.on('state', reportNowPlaying);
     player.on('context', reportNowPlaying);
+    // Seeks move the position anchor listen-along followers sync to.
+    player.on('seeked', reportNowPlaying);
   }
 
   // DOM wiring
@@ -400,12 +404,12 @@ export function setupSocial(socket, opts = {}) {
     if (btn) deleteMessage(Number(btn.dataset.deleteId));
   });
   $('social-people').addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-follow-id]');
+    const btn = e.target.closest('[data-listen-id]');
     if (!btn) return;
-    const p = S.people.get(btn.dataset.followId);
+    const p = S.people.get(btn.dataset.listenId);
     if (!p) return;
-    if (S.hooks.isFollowing(p)) { if (opts.stopFollowing) opts.stopFollowing(); }
-    else if (S.hooks.follow) S.hooks.follow(p);
+    if (S.hooks.isListeningWith(p)) { if (S.hooks.stopListening) S.hooks.stopListening(); }
+    else if (S.hooks.listenAlong) S.hooks.listenAlong(p);
   });
   const scroller = chatScroller();
   scroller.addEventListener('scroll', () => { if (scroller.scrollTop < 120) loadOlder(); }, { passive: true });

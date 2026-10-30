@@ -308,6 +308,18 @@
   }
   .player-open:not(:disabled) { cursor: pointer; }
   .player-open:not(:disabled):hover .track-title { text-decoration: underline; }
+  /* Listen-along strip (player-bar.js) above the bar's row. */
+  .listen-strip {
+    display: flex;
+    gap: 0.375rem;
+    align-items: center;
+    min-width: 0;
+    padding-top: 0.375rem;
+    font-size: var(--bs-font-size-xs);
+    color: var(--bs-primary-fg);
+  }
+  .listen-strip[hidden] { display: none; }
+  .listen-stop { flex-shrink: 0; }
   .player-bar.is-empty .track-title { color: var(--bs-fg-3); font-weight: var(--bs-font-weight-normal); }
 
   .audio-unlock-prompt {
@@ -549,7 +561,7 @@
   .person-playing { color: var(--bs-primary-fg); }
   .person-playing.is-paused { color: var(--bs-fg-3); }
   .person-playing .icon-sm { vertical-align: -2px; }
-  .person-follow { flex-shrink: 0; }
+  .person-listen { flex-shrink: 0; }
 
   /* Chat button in the player bar, with the unread badge on its corner. */
   .social-toggle { position: relative; }

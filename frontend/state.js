@@ -116,8 +116,7 @@ export const state = {
   volumeBeforeMute: 1,
   hideErroredSongs: storageGet(STORAGE_KEYS.HIDE_ERRORED_SONGS) !== 'false',
   queueSort: storageGet(STORAGE_KEYS.QUEUE_SORT) || 'default',
-  followingSocketId: null,
-  followingUsername: null,
+  listeningAlong: false,  // listen-along.js drives the player
   lobbyName: null
 };
 

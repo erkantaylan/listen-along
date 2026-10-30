@@ -5,12 +5,13 @@ import { setupAudioPlayer } from './audio.js';
 import { player, setupPlayer } from './player.js';
 import { setupPlayerBar, setupPlayerBarControls, refreshPlayerBar } from './player-bar.js';
 import { checkAuth, setupLoginView, showPendingCard, setupProfilePage, loadProfilePage } from './auth.js';
-import { setupSocial, applySocialRoute, toggleSocial } from './social.js';
+import { setupSocial, applySocialRoute, toggleSocial, refreshPeople, reportNowPlaying as reportPresence } from './social.js';
+import { setupListenAlong, listenAlongWith, isListeningWith, stopListenAlong, onListenChange } from './listen-along.js';
 import { checkUrlForDashboard, dashboardJoinLobby, dashboardRemoveLobby, dashboardApproveUser, dashboardRejectUser } from './dashboard.js';
 import { setupLibraryPage, openLibraryPage, closeLibraryPage, isLibraryOpen, showLibraryRoute, handleLibraryUpdated, handleRequestsUpdated } from './library.js';
 import { parseRoute, legacyRedirect } from './router.js';
 import { createLobby, shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyUpdated, handleLobbyPinned, updateVisibilityHint, toggleCurrentVisibility, handleUserJoined, handleUserLeft, handleLobbyClosed, checkForLastLobby, joinLobbyFromCard, updatePinButton, togglePin, promptRenameLobby, toggleLobbyVisibility, deleteLobbyCard, openLobbyPage, closeLobbyPage, syncMembership, resyncMembership, reportNowPlaying } from './lobby.js';
-import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, handleFollowSync, followPerson, flushPendingFollow, isFollowingPerson, stopFollowing, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, updatePlayButton, updatePlaybackModeUI, updateNowPlaying, _setQueueFns } from './playback.js';
+import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, updatePlayButton, updatePlaybackModeUI, updateNowPlaying, _setQueueFns } from './playback.js';
 import { handleQueueUpdated, handleSongAdded, addSong, removeSong, clearQueue, downloadPlaylist, cancelPlaylistDownload, moveSongUp, moveSongDown, playSongAt, setupQueueDragAndDrop, setupQueueSearch, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './queue.js';
 
 // Wire up cross-module dependencies
@@ -28,10 +29,13 @@ function setupSocket() {
     name: auth.user && auth.user.name,
     emoji: auth.user && auth.user.emoji,
     reportPlayback: true,
-    follow: followPerson,
-    isFollowing: isFollowingPerson,
-    stopFollowing,
+    listenAlong: listenAlongWith,
+    isListeningWith,
+    stopListening: stopListenAlong,
   });
+  // Listen along with another user (people panel -> listen-along.js).
+  setupListenAlong(sock, { report: reportPresence });
+  onListenChange(refreshPeople);
 
   // We need to re-import socket after setSocket to get the live binding
   import('./state.js').then(mod => {
@@ -49,7 +53,7 @@ function setupSocket() {
 
     // Lobby Events
     s.on('lobby:created', (data) => handleLobbyCreated(data, updatePinButton));
-    s.on('lobby:joined', (data) => { handleLobbyJoined(data, updatePinButton, updateListeners, updateQueue); flushPendingFollow(data); });
+    s.on('lobby:joined', (data) => handleLobbyJoined(data, updatePinButton, updateListeners, updateQueue));
     s.on('lobby:not-found', handleLobbyNotFound);
     s.on('lobby:error', handleLobbyError);
     s.on('lobby:user-joined', (data) => handleUserJoined(data, updateListeners));
@@ -77,10 +81,6 @@ function setupSocket() {
 
     // Mode Events
     s.on('users:updated', handleUsersUpdated);
-
-    // Follow Events
-    s.on('follow:sync', handleFollowSync);
-    s.on('follow:error', (data) => showToast(data.message, 'error'));
   });
 }
 

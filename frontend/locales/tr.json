@@ -127,12 +127,24 @@
     "olderHint": "Eski mesajlar için yukarı kaydır",
     "sendFailed": "Mesaj gönderilemedi"
   },
-  "follow": {
-    "followUser": "Takip et",
-    "stopFollowing": "Takibi bırak",
-    "started": "{name} takip ediliyor",
-    "stopped": "Takip bırakıldı",
-    "following": "Takip ediliyor",
-    "leaderLeft": "Takip ettiğin kullanıcı ayrıldı"
+  "listen": {
+    "listenAlong": "Birlikte dinle",
+    "listenAlongWith": "{name} ile birlikte dinle",
+    "stop": "Birlikte dinlemeyi bırak",
+    "stopped": "Birlikte dinleme bitti",
+    "started": "{name} ile birlikte dinleniyor",
+    "startedRoot": "{name} ile birlikte dinleniyor ({via} da onunla dinliyor)",
+    "nowWith": "Artık {name} ile birlikte dinleniyor",
+    "withName": "{name} ile birlikte dinleniyor",
+    "failed": "Birlikte dinlenemedi",
+    "lost": "Birlikte dinleme bitti",
+    "cannotPlay": "“{title}” burada çalınamıyor. Sonraki şarkı bekleniyor.",
+    "leaderOffline": "{name} çevrimdışı oldu. Bu şarkıdan sonra çalma durur.",
+    "endedOffline": "{name} çevrimdışı oldu. Birlikte dinleme bitti.",
+    "endingStrip": "{name} çevrimdışı · bu şarkıdan sonra durur",
+    "someone": "Biri",
+    "oneFollower": "{name} birlikte dinliyor",
+    "twoFollowers": "{name} ve {other} birlikte dinliyor",
+    "manyFollowers": "{name} ve {count} kişi daha birlikte dinliyor"
   }
 }
