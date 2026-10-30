@@ -17,8 +17,13 @@
   </nav>
   <main class="container app-narrow py-6">
     <div id="changelog-content" class="vstack gap-4">Loading...</div>
+    <p id="build-commit" class="fs-sm text-muted mt-4 mb-0"></p>
   </main>
   <script>
+    fetch('/api/version').then(r => r.json()).then(v => {
+      document.getElementById('build-commit').textContent =
+        `v${v.version} · ${v.commit}${v.commitDate ? ' · ' + v.commitDate.slice(0, 10) : ''}`;
+    }).catch(() => {});
     fetch('/api/changelog')
       .then(r => r.json())
       .then(data => {

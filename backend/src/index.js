@@ -36,6 +36,7 @@ const { createJobRouter } = require('./jobRoutes');
 const resolver = createResolver();
 const QRCode = require('qrcode');
 const pkg = require('../package.json');
+const { getVersionInfo } = require('./build-info');
 
 const PORT = process.env.PORT || 3000;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
@@ -235,10 +236,7 @@ app.get('/health', async (req, res) => {
 
 // Version endpoint
 app.get('/api/version', (req, res) => {
-  res.json({
-    version: process.env.VERSION || pkg.version,
-    name: pkg.name
-  });
+  res.json(getVersionInfo({ pkg }));
 });
 
 // Changelog endpoint - serves CHANGELOG.md as JSON

@@ -3,6 +3,9 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+      args:
+        # Optional: set GIT_COMMIT in Dokploy; else read from the context's .git
+        - GIT_COMMIT=${GIT_COMMIT:-}
     restart: unless-stopped
     environment:
       - NODE_ENV=production
