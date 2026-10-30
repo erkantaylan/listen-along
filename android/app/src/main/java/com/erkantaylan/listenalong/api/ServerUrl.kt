@@ -12,10 +12,17 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
  */
 object ServerUrl {
 
+    private val LOCAL_HOSTS = setOf("localhost", "127.0.0.1", "10.0.2.2")
+
     fun normalize(input: String): HttpUrl? {
         var text = input.trim()
         if (text.isEmpty()) return null
-        if (!text.contains("://")) text = "https://$text"
+        if (!text.contains("://")) {
+            // The dev hosts (adb reverse tunnel, emulator alias) speak plain
+            // HTTP and are the only ones network_security_config lets through.
+            val host = text.substringBefore('/').substringBefore(':')
+            text = (if (host in LOCAL_HOSTS) "http://" else "https://") + text
+        }
         val url = text.toHttpUrlOrNull() ?: return null
         if (url.host.isBlank()) return null
 

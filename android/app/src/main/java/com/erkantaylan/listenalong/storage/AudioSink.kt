@@ -15,6 +15,12 @@ interface AudioSink {
 
     /** Deletes a saved file. Returns false when it could not be removed. */
     fun delete(uri: String): Boolean
+
+    /**
+     * Removes half-written files left behind when the process died
+     * mid-download. Only called when nothing is being written. Returns how many.
+     */
+    fun cleanupAbandoned(): Int = 0
 }
 
 interface PendingAudio {

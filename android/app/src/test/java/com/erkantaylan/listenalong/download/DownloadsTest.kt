@@ -62,6 +62,12 @@ private class FakeSink : AudioSink {
         }
     }
 
+    val cleanups = AtomicInteger()
+    override fun cleanupAbandoned(): Int {
+        cleanups.incrementAndGet()
+        return 0
+    }
+
     override fun exists(uri: String) = saved.containsKey(uri)
     override fun delete(uri: String) = saved.remove(uri) != null
 }
@@ -123,6 +129,7 @@ class DownloadsTest {
         d.drain(stats)
 
         assertEquals(3, stats.done.get())
+        assertEquals("orphans from a dead process are swept first", 1, sink.cleanups.get())
         assertTrue(queue.pending.value.isEmpty())
         for ((id, bytes) in payloads) {
             val local = index[id]!!

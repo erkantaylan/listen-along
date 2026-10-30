@@ -136,6 +136,32 @@ class MediaStoreAudio(private val context: Context) : AudioSink {
         }
     }
 
+    override fun cleanupAbandoned(): Int = runCatching {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Only this app's own pending rows are visible to it, so nothing
+            // another app is writing can be caught here.
+            val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            val args = android.os.Bundle().apply {
+                putInt(MediaStore.QUERY_ARG_MATCH_PENDING, MediaStore.MATCH_ONLY)
+                putString(ContentResolver.QUERY_ARG_SQL_SELECTION, "${MediaStore.MediaColumns.RELATIVE_PATH} = ?")
+                putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, arrayOf(RELATIVE_PATH))
+            }
+            val ids = resolver.query(collection, arrayOf(MediaStore.MediaColumns._ID), args, null)
+                ?.use { c -> buildList { while (c.moveToNext()) add(c.getLong(0)) } }
+                .orEmpty()
+            ids.count { id ->
+                resolver.delete(android.content.ContentUris.withAppendedId(collection, id), null, null) > 0
+            }
+        } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            @Suppress("DEPRECATION")
+            val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), FOLDER)
+            dir.listFiles { f -> f.name.startsWith(".") && f.name.endsWith(".part") }
+                .orEmpty().count { it.delete() }
+        } else {
+            0 // Android 10: MediaStore expires abandoned pending rows itself after a week.
+        }
+    }.getOrDefault(0)
+
     private fun queryDisplayName(uri: Uri): String? = runCatching {
         resolver.query(uri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)
             ?.use { if (it.moveToFirst()) it.getString(0) else null }

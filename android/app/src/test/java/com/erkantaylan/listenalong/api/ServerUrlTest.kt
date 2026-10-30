@@ -14,6 +14,13 @@ class ServerUrlTest {
     }
 
     @Test
+    fun `dev hosts default to plain http`() {
+        assertEquals("http://localhost:8091/", norm("localhost:8091"))
+        assertEquals("http://10.0.2.2:3000/", norm("10.0.2.2:3000"))
+        assertEquals("https://localhost.example.com/", norm("localhost.example.com"))
+    }
+
+    @Test
     fun `keeps an explicit scheme and port`() {
         assertEquals("http://10.0.2.2:3000/", norm("http://10.0.2.2:3000"))
     }

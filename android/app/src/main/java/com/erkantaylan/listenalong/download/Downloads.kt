@@ -99,6 +99,11 @@ class Downloads(
      * leaves unfinished songs queued for the next run.
      */
     suspend fun drain(stats: DrainStats = DrainStats()) {
+        // One drain at a time per process (WorkManager's unique work), and
+        // nothing is being written yet: anything pending now is an orphan
+        // from a process that died mid-download.
+        if (jobs.isEmpty()) withContext(Dispatchers.IO) { sink.cleanupAbandoned() }
+
         val client = clientProvider()
         if (client == null) {
             // Nothing can be fetched without a server; say so on every row.
