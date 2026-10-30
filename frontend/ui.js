@@ -38,16 +38,31 @@ export function showView(viewName) {
   if (activator) activator();
 }
 
+// Bootstrap toast in #toast-container. type: info | success | error.
+const TOAST_THEMES = { success: 'theme-success', error: 'theme-danger', info: 'theme-secondary' };
 export function showToast(message, type = 'info') {
   const toast = document.createElement('div');
-  toast.className = `toast ${type}`;
-  toast.textContent = message;
+  toast.className = `toast show ${TOAST_THEMES[type] || TOAST_THEMES.info} app-toast app-toast-${type}`;
+  toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
+  const body = document.createElement('div');
+  body.className = 'toast-body';
+  body.textContent = message;
+  toast.appendChild(body);
   elements.toastContainer.appendChild(toast);
   setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateY(1rem)';
+    toast.classList.remove('show');
     setTimeout(() => toast.remove(), 300);
   }, 3000);
+}
+
+// Bootstrap 6 range inputs paint their filled track from --bs-range-fill (0..1).
+// Call after setting .value from code; user input is handled in theme.js.
+export function syncRangeFill(input) {
+  if (!input) return;
+  const min = Number(input.min) || 0;
+  const max = Number(input.max) || 100;
+  const fill = max > min ? (Number(input.value) - min) / (max - min) : 0;
+  input.style.setProperty('--bs-range-fill', String(Math.min(1, Math.max(0, fill))));
 }
 
 export function t(key, fallback, replacements = {}) {

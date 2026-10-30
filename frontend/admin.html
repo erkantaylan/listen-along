@@ -6,73 +6,88 @@
   <meta name="robots" content="noindex">
   <title>listen-along admin</title>
   <link rel="icon" type="image/png" href="/favicon.png">
-  <link rel="stylesheet" href="/admin.css">
+  <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/vendor/bootstrap-6.0.0-alpha.1/css/bootstrap.min.css">
+  <link rel="stylesheet" href="/theme.css">
 </head>
 <body>
-  <div class="adm-page">
-    <header class="adm-header">
-      <h1>listen-along admin</h1>
-      <a href="/" class="adm-link">← Back to app</a>
-      <a href="/dashboard" class="adm-link" id="adm-dashboard-link" hidden>Dashboard</a>
-      <button id="adm-logout" class="adm-btn adm-btn-ghost" type="button" hidden>Log out</button>
-    </header>
+  <nav class="navbar app-navbar">
+    <div class="container app-narrow flex-wrap row-gap-2">
+      <h1 class="app-brand"><img src="/icon-192.png" alt=""><span>admin</span></h1>
+      <div class="d-flex align-items-center gap-0 sm:gap-1 ms-auto">
+        <a href="/" class="btn-text theme-secondary btn-sm">← <span class="d-none sm:d-inline">Back to app</span><span class="sm:d-none">App</span></a>
+        <a href="/dashboard" class="btn-text theme-secondary btn-sm" id="adm-dashboard-link" hidden>Dashboard</a>
+        <button id="adm-logout" class="btn btn-sm" type="button" hidden>Log out</button>
+        <button type="button" class="btn-text theme-secondary btn-icon" data-theme-toggle aria-label="Toggle colour mode"></button>
+      </div>
+    </div>
+  </nav>
 
-    <p id="adm-disabled" class="adm-notice" hidden>
+  <main class="container app-narrow py-6">
+    <p id="adm-disabled" class="alert theme-warning" hidden>
       Admin is disabled. Set the <code>ADMIN_PASSWORD</code> environment variable on the server and restart it.
     </p>
 
-    <form id="adm-login" class="adm-card adm-login" hidden>
-      <h2>Log in</h2>
-      <label for="adm-username">Username</label>
-      <input id="adm-username" type="text" autocomplete="username" required>
-      <label for="adm-password">Password</label>
-      <input id="adm-password" type="password" autocomplete="current-password" required>
-      <button class="adm-btn adm-btn-primary" type="submit">Log in</button>
-      <p id="adm-login-error" class="adm-error" hidden></p>
+    <form id="adm-login" class="card mx-auto app-form-narrow" hidden>
+      <div class="card-body vstack gap-4">
+        <h2 class="h5 mb-0">Log in</h2>
+        <div>
+          <label class="form-label" for="adm-username">Username</label>
+          <input id="adm-username" class="form-control" type="text" autocomplete="username" required>
+        </div>
+        <div>
+          <label class="form-label" for="adm-password">Password</label>
+          <input id="adm-password" class="form-control" type="password" autocomplete="current-password" required>
+        </div>
+        <button class="btn-solid theme-primary w-100" type="submit">Log in</button>
+        <p id="adm-login-error" class="fs-sm fg-danger mb-0" role="alert" hidden></p>
+      </div>
     </form>
 
-    <main id="adm-main" hidden>
-      <section class="adm-card">
-        <h2>CLI tokens</h2>
-        <p class="adm-help">One token per person. The listen-along CLI sends it as
-          <code>Authorization: Bearer &lt;token&gt;</code>; every upload is recorded under the token's name.
-          The token is shown only once — copy it right away.</p>
-        <form id="adm-token-form" class="adm-row">
-          <input id="adm-token-name" type="text" maxlength="100" placeholder="Person's display name" required autocomplete="off">
-          <button class="adm-btn adm-btn-primary" type="submit">Create token</button>
-        </form>
-        <div id="adm-new-token" class="adm-new-token" hidden>
-          <p>New token for <strong id="adm-new-token-name"></strong>:</p>
-          <div class="adm-row">
-            <code id="adm-new-token-value" class="adm-token-value"></code>
-            <button id="adm-copy-token" class="adm-btn" type="button">Copy</button>
+    <div id="adm-main" class="vstack gap-6" hidden>
+      <section class="card">
+        <div class="card-header"><h2 class="h6 mb-0">CLI tokens</h2></div>
+        <div class="card-body vstack gap-4">
+          <p class="fs-sm fg-3 mb-0">One token per person. The listen-along CLI sends it as
+            <code>Authorization: Bearer &lt;token&gt;</code>; every upload is recorded under the token's name.
+            The token is shown only once — copy it right away.</p>
+          <form id="adm-token-form" class="input-group">
+            <input id="adm-token-name" class="form-control" type="text" maxlength="100" placeholder="Person's display name" aria-label="Person's display name" required autocomplete="off">
+            <button class="btn-solid theme-primary" type="submit">Create token</button>
+          </form>
+          <div id="adm-new-token" class="alert theme-success flex-column" hidden>
+            <p class="mb-2">New token for <strong id="adm-new-token-name"></strong>:</p>
+            <div class="d-flex align-items-center gap-2 w-100">
+              <code id="adm-new-token-value" class="form-control font-monospace text-break user-select-all"></code>
+              <button id="adm-copy-token" class="btn" type="button">Copy</button>
+            </div>
           </div>
+          <ul id="adm-tokens" class="list-group"></ul>
         </div>
-        <ul id="adm-tokens" class="adm-list"></ul>
       </section>
 
-      <section class="adm-card">
-        <div class="adm-section-head">
-          <h2>Song requests</h2>
-          <select id="adm-request-status" aria-label="Request status">
+      <section class="card">
+        <div class="card-header d-flex flex-row align-items-center justify-content-between gap-3">
+          <h2 class="h6 mb-0">Song requests</h2>
+          <select id="adm-request-status" class="form-control form-control-sm w-auto" aria-label="Request status">
             <option value="pending">Waiting</option>
             <option value="fulfilled">Uploaded</option>
             <option value="dismissed">Dismissed</option>
             <option value="all">All</option>
           </select>
         </div>
-        <ul id="adm-requests" class="adm-list"></ul>
+        <ul id="adm-requests" class="list-group list-group-flush"></ul>
       </section>
 
-      <section class="adm-card">
-        <div class="adm-section-head">
-          <h2>Library <span id="adm-library-total" class="adm-muted"></span></h2>
-          <input id="adm-library-search" type="search" placeholder="Search…" autocomplete="off" aria-label="Search library">
+      <section class="card">
+        <div class="card-header d-flex flex-row flex-wrap align-items-center justify-content-between gap-3">
+          <h2 class="h6 mb-0">Library <span id="adm-library-total" class="fg-3 fw-normal"></span></h2>
+          <input id="adm-library-search" class="form-control form-control-sm w-auto" type="search" placeholder="Search…" autocomplete="off" aria-label="Search library">
         </div>
-        <ul id="adm-library" class="adm-list"></ul>
+        <ul id="adm-library" class="list-group list-group-flush"></ul>
       </section>
-    </main>
-  </div>
+    </div>
+  </main>
   <script src="/admin.js"></script>
 </body>
 </html>

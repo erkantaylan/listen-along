@@ -1,0 +1,176 @@
+/* listen-along theme: light theming on top of Bootstrap 6.0.0-alpha.1.
+ *
+ * Loaded by every page right after vendor/bootstrap-6.0.0-alpha.1/css/bootstrap.min.css.
+ * DESIGN.md is the reference for what lives here and how to use it.
+ *
+ * 1. Palette: overrides Bootstrap's root tokens. These are unlayered, like
+ *    Bootstrap's own :root tokens, and win by coming later. Every colour is a
+ *    light-dark() pair, so Bootstrap's colour modes (data-bs-theme on <html>,
+ *    or the OS setting when it is absent) switch them; theme.js sets the mode.
+ * 2. Shared rules: in @layer custom, which Bootstrap orders after its
+ *    components and before its utilities, so utility classes still win.
+ */
+
+/* 1. Palette ---------------------------------------------------------------- */
+:root,
+:host {
+  /* Page and surfaces. --bs-bg-body is the *surface* (cards, navbars, inputs,
+     list groups all default to it); the page behind them is --app-page-bg. */
+  --app-page-bg: light-dark(#eef0f2, #232528);
+  --bs-bg-body:  light-dark(#fafbfc, #2c2f33);
+  --bs-bg-1:     light-dark(#f2f4f6, #33363a);
+  --bs-bg-2:     light-dark(#e9ecef, #3a3d42);
+  --bs-bg-3:     light-dark(#e1e5e9, #42464b);
+  --bs-bg-4:     light-dark(#d5dade, #4c5056);
+  --app-backdrop: light-dark(rgb(47 52 57 / 0.35), rgb(10 11 12 / 0.55)); /* behind modals and drawers */
+
+  /* Text: dark grey, never black; muted steps for secondary text. */
+  --bs-fg-body: light-dark(#2f3439, #e3e6e9);
+  --bs-fg-1:    light-dark(#3d4349, #d3d7db);
+  --bs-fg-2:    light-dark(#4f565d, #bfc4c9);
+  --bs-fg-3:    light-dark(#646c74, #a1a8ae);
+  --bs-fg-4:    light-dark(#8a9198, #7f868d);
+
+  /* Borders */
+  --bs-border-color:       light-dark(#dde1e5, #3f4348);
+  --bs-border-body:        light-dark(#d0d5da, #474b51);
+  --bs-border-muted:       light-dark(#e3e6ea, #3a3e43);
+  --bs-border-subtle:      light-dark(#e8ebee, #36393e);
+  --bs-border-emphasized:  light-dark(#b9c0c7, #5a5f66);
+  --bs-border-color-translucent: light-dark(rgb(47 52 57 / 0.12), rgb(227 230 233 / 0.12));
+
+  /* The one accent: muted slate blue. */
+  --bs-primary-base:        light-dark(#4f6d8f, #7f9fc2);
+  --bs-primary-fg:          light-dark(#46617f, #9db8d6);
+  --bs-primary-fg-emphasis: light-dark(#334760, #c3d4e7);
+  --bs-primary-bg:          light-dark(#4f6d8f, #557799);
+  --bs-primary-bg-subtle:   light-dark(#e4eaf1, #34404d);
+  --bs-primary-bg-muted:    light-dark(#d3dde8, #3d4b5a);
+  --bs-primary-border:      light-dark(#b5c5d7, #50647a);
+  --bs-primary-focus-ring:  light-dark(rgb(79 109 143 / 0.45), rgb(143 176 211 / 0.5));
+  --bs-primary-contrast:    #fff;
+
+  /* Neutral grey for secondary buttons, icon buttons, subtle badges. */
+  --bs-secondary-base:        var(--bs-bg-3);
+  --bs-secondary-fg:          light-dark(#5b636b, #aeb4ba);
+  --bs-secondary-fg-emphasis: light-dark(#2f3439, #e3e6e9);
+  --bs-secondary-bg:          light-dark(#e9ecef, #42464b);
+  --bs-secondary-bg-subtle:   light-dark(#eceef1, #383b40);
+  --bs-secondary-bg-muted:    light-dark(#e1e5e9, #44484d);
+  --bs-secondary-border:      light-dark(#cfd4d9, #50555b);
+  --bs-secondary-focus-ring:  light-dark(rgb(91 99 107 / 0.35), rgb(174 180 186 / 0.4));
+  --bs-secondary-contrast:    light-dark(#2f3439, #e3e6e9);
+
+  /* Status colours stay Bootstrap's, only the solid fills are calmed down. */
+  --bs-danger-bg:  light-dark(#c0504d, #b35a57);
+  --bs-success-bg: light-dark(#3f8a5f, #4b8f68);
+
+  --bs-link-color: var(--bs-primary-fg);
+  --bs-link-hover-color: var(--bs-primary-fg-emphasis);
+  --bs-link-decoration: none;
+  --bs-shadow-color: #1c2024;
+}
+
+/* 2. Shared rules -------------------------------------------------------------- */
+@layer custom {
+  body {
+    min-height: 100vh;
+    min-height: 100dvh;
+    background-color: var(--app-page-bg);
+    overflow-x: hidden;
+  }
+
+  a:hover { text-decoration: underline; }
+  .btn:hover, a.btn:hover, .btn-solid:hover, .btn-outline:hover, .btn-subtle:hover, .btn-text:hover,
+  .list-group-item-action:hover, .nav-link:hover, .page-link:hover, .navbar-brand:hover { text-decoration: none; }
+
+  /* Inline SVG icons: size them by the class, never by the viewBox. */
+  .icon,
+  :is(.btn, .btn-solid, .btn-outline, .btn-subtle, .btn-text, .nav-link, .page-link) > svg {
+    width: 1.25rem;
+    height: 1.25rem;
+    flex-shrink: 0;
+  }
+  .icon-sm { width: 1rem; height: 1rem; flex-shrink: 0; }
+  .btn-sm > svg, .btn-xs > svg { width: 1rem; height: 1rem; }
+
+  /* Keyboard focus is always visible, also on elements that are not buttons. */
+  :focus-visible {
+    outline: var(--bs-focus-ring-width) solid var(--bs-focus-ring-color);
+    outline-offset: var(--bs-focus-ring-offset);
+  }
+
+  /* Icon buttons carry an accent when toggled on (repeat, shuffle, pin...). */
+  .btn-icon.active,
+  .btn-text.active {
+    color: var(--bs-primary-fg);
+    background-color: var(--bs-primary-bg-subtle);
+  }
+
+  /* Top bar used by every page: a stock .navbar on the surface colour. */
+  .app-navbar {
+    --bs-navbar-bg: var(--bs-bg-body);
+    --bs-navbar-padding-y: 0.375rem;
+    --bs-navbar-min-height: 3.5rem;
+    border-bottom: var(--bs-border-width) solid var(--bs-border-color);
+    padding-top: calc(var(--bs-navbar-padding-y) + env(safe-area-inset-top, 0px));
+  }
+  .app-navbar > .container,
+  .app-navbar > .container-fluid {
+    flex-wrap: nowrap;
+    gap: 0.5rem;
+  }
+  .app-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+    font-size: var(--bs-font-size-md);
+    font-weight: var(--bs-font-weight-semibold);
+    color: var(--bs-fg-body);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .app-brand img { width: 1.75rem; height: 1.75rem; border-radius: var(--bs-radius-4); }
+
+  /* Narrow page column (forms, settings, lists). */
+  .app-narrow { max-width: 40rem; }
+
+  /* Square cover thumbnail with a music-note placeholder. */
+  .app-thumb {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 3rem;
+    height: 3rem;
+    overflow: hidden;
+    color: var(--bs-fg-4);
+    object-fit: cover;
+    background-color: var(--bs-bg-2);
+    border-radius: var(--bs-radius-4);
+  }
+  .app-thumb > img { width: 100%; height: 100%; object-fit: cover; }
+  .app-thumb > svg { width: 45%; height: 45%; }
+
+  /* Empty-state line inside a list group. */
+  .app-empty {
+    padding: 1.5rem 1rem;
+    color: var(--bs-fg-3);
+    text-align: center;
+  }
+
+  /* The row that is playing right now, in any list group. */
+  .list-group-item.is-playing {
+    background-color: var(--bs-primary-bg-subtle);
+    box-shadow: inset 3px 0 0 var(--bs-primary-base);
+  }
+
+  /* Small centred form (log-in boxes). */
+  .app-form-narrow { max-width: 24rem; }
+
+  /* Text over the black video frame on /youtube-playlist. */
+  .app-yt-placeholder { color: #c9cdd2; }
+
+  .min-w-0 { min-width: 0; }
+}

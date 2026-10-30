@@ -61,17 +61,17 @@
     const list = $('adm-tokens');
     try {
       const { tokens } = await api('GET', '/api/admin/tokens');
-      if (!tokens.length) { list.innerHTML = '<li class="adm-empty">No tokens yet.</li>'; return; }
+      if (!tokens.length) { list.innerHTML = '<li class="list-group-item app-empty adm-empty">No tokens yet.</li>'; return; }
       list.innerHTML = tokens.map((t) => `
-        <li class="adm-item${t.active ? '' : ' revoked'}">
-          <div class="adm-item-main">
-            <div class="adm-item-title">${esc(t.name)}</div>
-            <div class="adm-item-sub">${esc(t.prefix)}… · created ${esc(when(t.created_at))}${t.last_used_at ? ' · last used ' + esc(when(t.last_used_at)) : ' · never used'}${t.revoked_at ? ' · revoked ' + esc(when(t.revoked_at)) : ''}</div>
+        <li class="list-group-item d-flex align-items-center gap-3 adm-item${t.active ? '' : ' revoked fg-3'}">
+          <div class="min-w-0 flex-grow-1 adm-item-main">
+            <div class="fw-medium text-break adm-item-title">${esc(t.name)}</div>
+            <div class="fs-xs fg-3 text-break adm-item-sub">${esc(t.prefix)}… · created ${esc(when(t.created_at))}${t.last_used_at ? ' · last used ' + esc(when(t.last_used_at)) : ' · never used'}${t.revoked_at ? ' · revoked ' + esc(when(t.revoked_at)) : ''}</div>
           </div>
-          ${t.active ? `<button class="adm-btn adm-btn-danger" data-revoke="${esc(t.id)}" data-name="${esc(t.name)}">Revoke</button>` : ''}
+          ${t.active ? `<button class="btn-outline theme-danger btn-sm" data-revoke="${esc(t.id)}" data-name="${esc(t.name)}">Revoke</button>` : ''}
         </li>`).join('');
     } catch (err) {
-      list.innerHTML = `<li class="adm-empty">${esc(err.message)}</li>`;
+      list.innerHTML = `<li class="list-group-item app-empty adm-empty">${esc(err.message)}</li>`;
     }
   }
 
@@ -113,21 +113,21 @@
     const status = $('adm-request-status').value;
     try {
       const { requests } = await api('GET', `/api/requests?status=${encodeURIComponent(status)}`);
-      if (!requests.length) { list.innerHTML = '<li class="adm-empty">Nothing here.</li>'; return; }
+      if (!requests.length) { list.innerHTML = '<li class="list-group-item app-empty adm-empty">Nothing here.</li>'; return; }
       list.innerHTML = requests.map((r) => {
         const title = r.title || r.youtube_id || r.url || 'Unknown';
         const link = r.youtube_id ? `https://www.youtube.com/watch?v=${encodeURIComponent(r.youtube_id)}` : (r.url && /^https?:\/\//.test(r.url) ? r.url : null);
         return `
-        <li class="adm-item">
-          <div class="adm-item-main">
-            <div class="adm-item-title">${link ? `<a href="${esc(link)}" target="_blank" rel="noopener noreferrer">${esc(title)}</a>` : esc(title)}</div>
-            <div class="adm-item-sub">${r.artist ? esc(r.artist) + ' · ' : ''}by ${esc(r.requested_by)}${r.lobby_id ? ' in lobby ' + esc(r.lobby_id) : ''} · ${esc(when(r.created_at))} · ${esc(r.status)}</div>
+        <li class="list-group-item d-flex align-items-center gap-3 adm-item">
+          <div class="min-w-0 flex-grow-1 adm-item-main">
+            <div class="fw-medium text-break adm-item-title">${link ? `<a href="${esc(link)}" target="_blank" rel="noopener noreferrer">${esc(title)}</a>` : esc(title)}</div>
+            <div class="fs-xs fg-3 text-break adm-item-sub">${r.artist ? esc(r.artist) + ' · ' : ''}by ${esc(r.requested_by)}${r.lobby_id ? ' in lobby ' + esc(r.lobby_id) : ''} · ${esc(when(r.created_at))} · ${esc(r.status)}</div>
           </div>
-          ${r.status === 'pending' ? `<button class="adm-btn adm-btn-ghost" data-dismiss="${esc(r.id)}">Dismiss</button>` : ''}
+          ${r.status === 'pending' ? `<button class="btn btn-sm" data-dismiss="${esc(r.id)}">Dismiss</button>` : ''}
         </li>`;
       }).join('');
     } catch (err) {
-      list.innerHTML = `<li class="adm-empty">${esc(err.message)}</li>`;
+      list.innerHTML = `<li class="list-group-item app-empty adm-empty">${esc(err.message)}</li>`;
     }
   }
 
@@ -174,18 +174,18 @@
     try {
       const { songs, total } = await api('GET', `/api/library?limit=500&q=${encodeURIComponent(q)}`);
       $('adm-library-total').textContent = `(${total})`;
-      if (!songs.length) { list.innerHTML = '<li class="adm-empty">No songs.</li>'; return; }
+      if (!songs.length) { list.innerHTML = '<li class="list-group-item app-empty adm-empty">No songs.</li>'; return; }
       list.innerHTML = songs.map((s) => `
-        <li class="adm-item">
-          <div class="adm-item-main">
-            <div class="adm-item-title">${esc(s.title)} <span class="adm-muted">— ${esc(s.artist)}</span></div>
-            <div class="adm-item-sub">${s.album ? esc(s.album) + ' · ' : ''}${s.youtube_id ? 'YouTube ' + esc(s.youtube_id) + ' · ' : ''}uploaded by ${esc(s.uploaded_by)} · ${esc(when(s.created_at))}</div>
+        <li class="list-group-item d-flex align-items-center gap-3 adm-item">
+          <div class="min-w-0 flex-grow-1 adm-item-main">
+            <div class="fw-medium text-break adm-item-title">${esc(s.title)} <span class="fg-3 fw-normal">— ${esc(s.artist)}</span></div>
+            <div class="fs-xs fg-3 text-break adm-item-sub">${s.album ? esc(s.album) + ' · ' : ''}${s.youtube_id ? 'YouTube ' + esc(s.youtube_id) + ' · ' : ''}uploaded by ${esc(s.uploaded_by)} · ${esc(when(s.created_at))}</div>
           </div>
-          <button class="adm-btn adm-btn-ghost" data-play="${esc(s.id)}" type="button">${previewId === s.id && !previewAudio.paused ? 'Pause' : 'Play'}</button>
-          <button class="adm-btn adm-btn-danger" data-delete="${esc(s.id)}" data-title="${esc(s.title)}">Delete</button>
+          <button class="btn btn-sm" data-play="${esc(s.id)}" type="button">${previewId === s.id && !previewAudio.paused ? 'Pause' : 'Play'}</button>
+          <button class="btn-outline theme-danger btn-sm" data-delete="${esc(s.id)}" data-title="${esc(s.title)}">Delete</button>
         </li>`).join('');
     } catch (err) {
-      list.innerHTML = `<li class="adm-empty">${esc(err.message)}</li>`;
+      list.innerHTML = `<li class="list-group-item app-empty adm-empty">${esc(err.message)}</li>`;
     }
   }
 

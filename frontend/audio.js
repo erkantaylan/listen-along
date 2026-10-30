@@ -1,6 +1,6 @@
 // Audio player, volume controls, and Safari unlock handling
 import { state, elements, socket, STORAGE_KEYS, storageSet } from './state.js';
-import { showToast, formatTime } from './ui.js';
+import { showToast, formatTime, syncRangeFill } from './ui.js';
 
 export function setupAudioPlayer(advanceLocalQueue) {
   const audio = elements.audioPlayer;
@@ -9,6 +9,7 @@ export function setupAudioPlayer(advanceLocalQueue) {
     if (audio.duration) {
       const percent = (audio.currentTime / audio.duration) * 100;
       elements.progressBar.value = percent;
+      syncRangeFill(elements.progressBar);
       elements.currentTime.textContent = formatTime(audio.currentTime);
     }
   });
@@ -106,6 +107,7 @@ export function setupVolumeControls() {
   const volumePercent = Math.round(state.volume * 100);
   if (elements.volumeBar) {
     elements.volumeBar.value = volumePercent;
+    syncRangeFill(elements.volumeBar);
     elements.volumeBar.addEventListener('input', handleVolumeChange);
   }
   if (elements.volumeBtn) elements.volumeBtn.addEventListener('click', toggleMute);
@@ -119,7 +121,7 @@ function handleVolumeChange(e) {
   elements.audioPlayer.volume = volume;
   storageSet(STORAGE_KEYS.VOLUME, volume);
   const percent = Math.round(volume * 100);
-  if (elements.volumeBar) elements.volumeBar.value = percent;
+  if (elements.volumeBar) { elements.volumeBar.value = percent; syncRangeFill(elements.volumeBar); }
   updateVolumeIcon();
 }
 
@@ -135,7 +137,7 @@ export function toggleMute() {
   elements.audioPlayer.volume = state.volume;
   storageSet(STORAGE_KEYS.VOLUME, state.volume);
   const percent = Math.round(state.volume * 100);
-  if (elements.volumeBar) elements.volumeBar.value = percent;
+  if (elements.volumeBar) { elements.volumeBar.value = percent; syncRangeFill(elements.volumeBar); }
   updateVolumeIcon();
 }
 
@@ -173,16 +175,15 @@ export function playAudioWithUnlock(src, position, shouldPlay) {
 
 function showUnlockPrompt() {
   if (document.getElementById('audio-unlock-prompt')) return;
-  const prompt = document.createElement('div');
+  const prompt = document.createElement('button');
+  prompt.type = 'button';
   prompt.id = 'audio-unlock-prompt';
-  prompt.className = 'audio-unlock-prompt';
+  prompt.className = 'btn-solid theme-primary btn-lg rounded-pill shadow-lg audio-unlock-prompt';
   prompt.innerHTML = `
-    <div class="unlock-content">
-      <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
         <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
-    </svg>
+      </svg>
       <span>Tap to enable audio</span>
-    </div>
   `;
   prompt.addEventListener('click', () => {
     const audio = elements.audioPlayer;

@@ -43,7 +43,7 @@ function previewPlaying(songId) {
 
 function previewButtonHtml(songId) {
   const playing = previewPlaying(songId);
-  return `<button class="btn-icon libpage-preview${playing ? ' playing' : ''}" data-id="${escapeHtml(songId)}" type="button" aria-label="${playing ? 'Pause preview' : 'Play preview'}" title="${playing ? 'Pause' : 'Preview'}">${playing ? PAUSE_ICON : PLAY_ICON}</button>`;
+  return `<button class="btn-outline theme-secondary btn-icon btn-sm rounded-pill libpage-preview${playing ? ' playing' : ''}" data-id="${escapeHtml(songId)}" type="button" aria-label="${playing ? 'Pause preview' : 'Play preview'}" title="${playing ? 'Pause' : 'Preview'}">${playing ? PAUSE_ICON : PLAY_ICON}</button>`;
 }
 
 function updatePreviewButtons() {
@@ -101,9 +101,9 @@ function relativeDate(value) {
 
 function thumbHtml(youtubeId) {
   if (youtubeId) {
-    return `<img class="libpage-thumb" src="https://i.ytimg.com/vi/${encodeURIComponent(youtubeId)}/default.jpg" alt="" loading="lazy">`;
+    return `<img class="app-thumb libpage-thumb" src="https://i.ytimg.com/vi/${encodeURIComponent(youtubeId)}/default.jpg" alt="" loading="lazy">`;
   }
-  return '<div class="libpage-thumb libpage-thumb-placeholder"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div>';
+  return '<div class="app-thumb libpage-thumb"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div>';
 }
 
 // Small "source" link to where the song originally came from (e.g. YouTube).
@@ -187,7 +187,7 @@ function renderSongs() {
   const count = $('libpage-count');
   if (count) count.textContent = lib.total ? String(lib.total) : '';
   if (!lib.songs.length) {
-    list.innerHTML = `<li class="libpage-empty">${lib.loading ? 'Loading…' : (lib.query ? 'No songs match your search' : 'The library is empty. Songs appear here once they are uploaded.')}</li>`;
+    list.innerHTML = `<li class="list-group-item app-empty libpage-empty">${lib.loading ? 'Loading…' : (lib.query ? 'No songs match your search' : 'The library is empty. Songs appear here once they are uploaded.')}</li>`;
   } else {
     list.innerHTML = lib.songs.map((song) => {
       const sub = [song.artist, song.album].filter(Boolean).map(escapeHtml).join(' · ');
@@ -197,15 +197,15 @@ function renderSongs() {
         relativeDate(song.created_at),
         sourceLinkHtml(song),
       ].filter(Boolean).join(' · ');
-      return `<li class="libpage-item" data-id="${escapeHtml(song.id)}">
+      return `<li class="list-group-item libpage-item" data-id="${escapeHtml(song.id)}">
         ${thumbHtml(song.youtube_id)}
-        <div class="libpage-info">
-          <div class="libpage-title" title="${escapeHtml(song.title)}">${escapeHtml(song.title)}</div>
-          <div class="libpage-sub">${sub}</div>
-          <div class="libpage-meta">${meta}</div>
+        <div class="libpage-info min-w-0">
+          <div class="fw-medium text-truncate libpage-title" title="${escapeHtml(song.title)}">${escapeHtml(song.title)}</div>
+          <div class="fs-sm fg-2 text-truncate libpage-sub">${sub}</div>
+          <div class="fs-xs fg-3 libpage-meta">${meta}</div>
         </div>
         ${previewButtonHtml(song.id)}
-        <button class="btn btn-small btn-primary libpage-add" data-id="${escapeHtml(song.id)}">Add</button>
+        <button class="btn-solid theme-primary btn-sm libpage-add" type="button" data-id="${escapeHtml(song.id)}">Add</button>
       </li>`;
     }).join('');
     const keys = queuedKeys();
@@ -243,15 +243,15 @@ function renderPager() {
   const p = lib.page;
   const from = p * PAGE_SIZE + 1;
   const to = Math.min(lib.total, (p + 1) * PAGE_SIZE);
-  const btn = (page, label, { current = false, disabled = false, aria = '' } = {}) =>
-    `<button class="libpage-page${current ? ' current' : ''}" type="button" data-page="${page}"${disabled ? ' disabled' : ''}${current ? ' aria-current="page"' : ''}${aria ? ` aria-label="${aria}"` : ''}>${label}</button>`;
+  const item = (page, label, { current = false, disabled = false, aria = '' } = {}) =>
+    `<li class="page-item${current ? ' active' : ''}${disabled ? ' disabled' : ''}"><button class="page-link libpage-page" type="button" data-page="${page}"${disabled ? ' disabled' : ''}${current ? ' aria-current="page"' : ''}${aria ? ` aria-label="${aria}"` : ''}>${label}</button></li>`;
   pager.innerHTML = `
-    <div class="libpage-pages">
-      ${btn(p - 1, '‹', { disabled: p === 0, aria: 'Previous page' })}
-      ${pageItems(p, count).map((i) => (i === null ? '<span class="libpage-gap">…</span>' : btn(i, i + 1, { current: i === p, aria: `Page ${i + 1}` }))).join('')}
-      ${btn(p + 1, '›', { disabled: p >= count - 1, aria: 'Next page' })}
-    </div>
-    <span class="libpage-range">${from.toLocaleString()}–${to.toLocaleString()} of ${lib.total.toLocaleString()}</span>`;
+    <ul class="pagination pagination-sm mb-0 libpage-pages">
+      ${item(p - 1, '‹', { disabled: p === 0, aria: 'Previous page' })}
+      ${pageItems(p, count).map((i) => (i === null ? '<li class="page-item disabled" aria-hidden="true"><span class="page-link libpage-gap">…</span></li>' : item(i, i + 1, { current: i === p, aria: `Page ${i + 1}` }))).join('')}
+      ${item(p + 1, '›', { disabled: p >= count - 1, aria: 'Next page' })}
+    </ul>
+    <span class="fs-sm fg-3 libpage-range">${from.toLocaleString()}–${to.toLocaleString()} of ${lib.total.toLocaleString()}</span>`;
 }
 
 function goToPage(page) {
@@ -311,9 +311,10 @@ function addToQueue(songId, btn) {
 
 // --- Requests -------------------------------------------------------------
 
+const STATUS_THEMES = { pending: 'theme-warning', fulfilled: 'theme-success', dismissed: 'theme-secondary' };
 function statusBadge(status) {
   const label = { pending: 'waiting', fulfilled: 'uploaded', dismissed: 'not found' }[status] || status;
-  return `<span class="libpage-badge ${escapeHtml(status)}">${escapeHtml(label)}</span>`;
+  return `<span class="badge badge-subtle ${STATUS_THEMES[status] || 'theme-secondary'} libpage-badge ${escapeHtml(status)}">${escapeHtml(label)}</span>`;
 }
 
 async function loadRequests() {
@@ -326,25 +327,25 @@ async function loadRequests() {
     if (lib.requestStatus === 'pending') setRequestCount(requests.length);
     if (!list) return;
     if (!requests.length) {
-      list.innerHTML = `<li class="libpage-empty">${lib.requestStatus === 'pending' ? 'No songs are waiting. Anything you queue that is not in the library shows up here.' : 'Nothing here yet.'}</li>`;
+      list.innerHTML = `<li class="list-group-item app-empty libpage-empty">${lib.requestStatus === 'pending' ? 'No songs are waiting. Anything you queue that is not in the library shows up here.' : 'Nothing here yet.'}</li>`;
       return;
     }
     list.innerHTML = requests.map((r) => {
       const title = r.title || r.youtube_id || r.url || 'Unknown song';
       const sub = [r.artist, r.youtube_id ? `YouTube ${r.youtube_id}` : (r.url || '')].filter(Boolean).map(escapeHtml).join(' · ');
       const link = r.youtube_id ? `https://www.youtube.com/watch?v=${encodeURIComponent(r.youtube_id)}` : (r.url && /^https?:\/\//.test(r.url) ? r.url : null);
-      return `<li class="libpage-item">
+      return `<li class="list-group-item libpage-item">
         ${thumbHtml(r.youtube_id)}
-        <div class="libpage-info">
-          <div class="libpage-title" title="${escapeHtml(title)}">${link ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>` : escapeHtml(title)}</div>
-          <div class="libpage-sub">${sub}</div>
-          <div class="libpage-meta">requested by ${escapeHtml(r.requested_by)} · ${relativeDate(r.created_at)}</div>
+        <div class="libpage-info min-w-0">
+          <div class="fw-medium text-truncate libpage-title" title="${escapeHtml(title)}">${link ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>` : escapeHtml(title)}</div>
+          <div class="fs-sm fg-2 text-truncate libpage-sub">${sub}</div>
+          <div class="fs-xs fg-3 libpage-meta">requested by ${escapeHtml(r.requested_by)} · ${relativeDate(r.created_at)}</div>
         </div>
         ${statusBadge(r.status)}
       </li>`;
     }).join('');
   } catch (err) {
-    if (list) list.innerHTML = `<li class="libpage-empty">Could not load requests: ${escapeHtml(err.message)}</li>`;
+    if (list) list.innerHTML = `<li class="list-group-item app-empty libpage-empty">Could not load requests: ${escapeHtml(err.message)}</li>`;
   }
 }
 

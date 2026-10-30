@@ -315,9 +315,9 @@ export function updateListeningModeBadge() {
   const badge = elements.listeningModeBadge;
   if (!badge) return;
   if (state.listeningMode === 'independent') {
-    badge.textContent = 'Independent'; badge.className = 'listening-mode-badge independent';
+    badge.textContent = 'Independent'; badge.className = 'badge badge-subtle theme-secondary listening-mode-badge independent';
   } else {
-    badge.textContent = 'JAM'; badge.className = 'listening-mode-badge synchronized';
+    badge.textContent = 'JAM'; badge.className = 'badge badge-subtle theme-primary listening-mode-badge synchronized';
   }
   badge.hidden = false;
 }

@@ -4,35 +4,44 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Shared YouTube Playlist</title>
-  <link rel="stylesheet" href="/youtube-playlist.css">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/vendor/bootstrap-6.0.0-alpha.1/css/bootstrap.min.css">
+  <link rel="stylesheet" href="/theme.css">
 </head>
 <body>
-  <div class="yt-page">
-    <header class="yt-header">
-      <h1>Shared YouTube Playlist</h1>
-      <p class="yt-subtitle">Paste a YouTube link to add a song. Anyone with this page open can add songs and play them. Playback is local to your browser — it's not synced with anyone else.</p>
-    </header>
+  <nav class="navbar app-navbar">
+    <div class="container app-narrow">
+      <h1 class="app-brand"><img src="/icon-192.png" alt="">Shared YouTube Playlist</h1>
+      <button type="button" class="btn-text theme-secondary btn-icon ms-auto" data-theme-toggle aria-label="Toggle colour mode"></button>
+    </div>
+  </nav>
 
-    <div class="yt-player-wrap">
-      <div class="yt-player-frame">
-        <iframe id="yt-player" src="" title="YouTube player" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
-        <div id="yt-player-placeholder" class="yt-player-placeholder">Pick a song below to play it</div>
+  <main class="container app-narrow py-6">
+    <p class="fs-sm fg-3 mb-5">Paste a YouTube link to add a song. Anyone with this page open can add songs and play them. Playback is local to your browser — it's not synced with anyone else.</p>
+
+    <div class="mb-5">
+      <div class="position-relative ratio-16x9 overflow-hidden rounded-5 bg-black">
+        <iframe id="yt-player" class="position-absolute top-0 start-0 w-100 h-100" src="" title="YouTube player" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+        <div id="yt-player-placeholder" class="position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center p-4 fs-sm text-center app-yt-placeholder">Pick a song below to play it</div>
       </div>
-      <div id="yt-now-playing" class="yt-now-playing"></div>
+      <div id="yt-now-playing" class="fs-sm fg-3 mt-2" aria-live="polite"></div>
     </div>
 
-    <form id="yt-add-form" class="yt-add-form">
-      <input id="yt-name-input" type="text" maxlength="50" placeholder="Your name (optional)" autocomplete="off">
-      <div class="yt-add-row">
-        <input id="yt-url-input" type="text" placeholder="Paste a YouTube video link..." autocomplete="off" required>
-        <button type="submit" id="yt-add-button">Add</button>
+    <form id="yt-add-form" class="card mb-5">
+      <div class="card-body vstack gap-3">
+        <input id="yt-name-input" class="form-control" type="text" maxlength="50" placeholder="Your name (optional)" aria-label="Your name (optional)" autocomplete="off">
+        <div class="input-group">
+          <input id="yt-url-input" class="form-control" type="text" placeholder="Paste a YouTube video link..." aria-label="YouTube video link" autocomplete="off" required>
+          <button type="submit" id="yt-add-button" class="btn-solid theme-primary">Add</button>
+        </div>
+        <div id="yt-add-error" class="alert theme-danger fs-sm mb-0" role="alert" hidden></div>
       </div>
-      <div id="yt-add-error" class="yt-add-error" hidden></div>
     </form>
 
-    <ul id="yt-song-list" class="yt-song-list"></ul>
-    <p id="yt-empty-message" class="yt-empty-message" hidden>No songs yet — paste a YouTube link above to start the list.</p>
-  </div>
+    <ul id="yt-song-list" class="list-group"></ul>
+    <p id="yt-empty-message" class="app-empty mb-0" hidden>No songs yet — paste a YouTube link above to start the list.</p>
+  </main>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="/youtube-playlist.js"></script>

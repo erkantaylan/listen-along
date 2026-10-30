@@ -82,15 +82,15 @@
       const isPlaying = song.id === playingId;
       const thumb = song.thumbnail || `https://img.youtube.com/vi/${song.videoId}/hqdefault.jpg`;
       return `
-        <li class="yt-song-item ${isPlaying ? 'is-playing' : ''}" data-id="${escapeHtml(song.id)}">
-          <img class="yt-song-thumb" src="${escapeHtml(thumb)}" alt="" loading="lazy">
-          <div class="yt-song-info">
-            <div class="yt-song-title">${escapeHtml(song.title)}</div>
-            <div class="yt-song-meta">added by ${escapeHtml(song.addedBy)}</div>
+        <li class="list-group-item d-flex align-items-center gap-3 yt-song-item ${isPlaying ? 'is-playing' : ''}" data-id="${escapeHtml(song.id)}">
+          <img class="app-thumb yt-song-thumb" src="${escapeHtml(thumb)}" alt="" loading="lazy">
+          <div class="min-w-0 flex-grow-1 yt-song-info">
+            <div class="fw-medium text-truncate yt-song-title">${escapeHtml(song.title)}</div>
+            <div class="fs-xs fg-3 text-truncate yt-song-meta">added by ${escapeHtml(song.addedBy)}</div>
           </div>
-          <div class="yt-song-actions">
-            <button type="button" data-action="play">Play</button>
-            <button type="button" data-action="remove">Remove</button>
+          <div class="d-flex gap-1 flex-shrink-0 yt-song-actions">
+            <button type="button" class="btn-solid theme-primary btn-sm" data-action="play">Play</button>
+            <button type="button" class="btn btn-sm" data-action="remove">Remove</button>
           </div>
         </li>
       `;

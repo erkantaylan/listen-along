@@ -52,8 +52,11 @@ export function shareLobby() {
   if (existing) existing.remove();
   const dialog = document.createElement('div');
   dialog.id = 'share-dialog';
-  dialog.className = 'share-overlay';
-  dialog.innerHTML = `<div class="share-dialog"><h3>Share Lobby</h3><img class="share-qr" src="${escapeHtml(qrUrl)}" alt="QR Code" width="200" height="200"><div class="share-url">${escapeHtml(url)}</div><div class="share-actions"><button class="btn btn-primary" id="share-copy-btn">Copy Link</button>${navigator.share ? '<button class="btn" id="share-native-btn">Share...</button>' : ''}</div><button class="btn-icon share-close-btn" id="share-close-btn" aria-label="Close"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div>`;
+  dialog.className = 'app-modal share-overlay';
+  dialog.setAttribute('role', 'dialog');
+  dialog.setAttribute('aria-modal', 'true');
+  dialog.setAttribute('aria-labelledby', 'share-title');
+  dialog.innerHTML = `<div class="card app-modal-card share-dialog"><div class="card-header d-flex flex-row align-items-center justify-content-between gap-2"><h2 id="share-title" class="h6 mb-0">Share Lobby</h2><button class="btn-text theme-secondary btn-icon btn-sm share-close-btn" id="share-close-btn" type="button" aria-label="Close"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button></div><div class="card-body text-center"><img class="share-qr d-block mx-auto mb-4" src="${escapeHtml(qrUrl)}" alt="QR code for the lobby link" width="200" height="200"><div class="form-control fs-sm text-break user-select-all share-url">${escapeHtml(url)}</div></div><div class="card-footer d-flex justify-content-end gap-2 share-actions">${navigator.share ? '<button class="btn" id="share-native-btn" type="button">Share...</button>' : ''}<button class="btn-solid theme-primary" id="share-copy-btn" type="button">Copy Link</button></div></div>`;
   document.body.appendChild(dialog);
   document.getElementById('share-copy-btn').addEventListener('click', function() { copyToClipboard(url); });
   if (navigator.share) {
@@ -62,6 +65,8 @@ export function shareLobby() {
   }
   document.getElementById('share-close-btn').addEventListener('click', function() { dialog.remove(); });
   dialog.addEventListener('click', function(e) { if (e.target === dialog) dialog.remove(); });
+  dialog.addEventListener('keydown', function(e) { if (e.key === 'Escape') dialog.remove(); });
+  document.getElementById('share-copy-btn').focus();
 }
 
 export function handleLobbyCreated(data, requestChatHistory, updateListeningModeBadge, updatePinButton) {
@@ -223,8 +228,9 @@ function showRejoinPrompt(lobbyId) {
   if (document.getElementById('rejoin-prompt')) return;
   const prompt = document.createElement('div');
   prompt.id = 'rejoin-prompt';
-  prompt.className = 'rejoin-prompt';
-  prompt.innerHTML = `<div class="rejoin-content"><p>Rejoin your last lobby?</p><div class="rejoin-lobby-id">${escapeHtml(lobbyId)}</div><div class="rejoin-actions"><button class="btn rejoin-btn" id="rejoin-yes">Rejoin</button><button class="btn btn-secondary rejoin-btn" id="rejoin-no">No thanks</button></div></div>`;
+  prompt.className = 'toast show rejoin-prompt';
+  prompt.setAttribute('role', 'status');
+  prompt.innerHTML = `<div class="toast-body"><p class="mb-1 fw-medium">Rejoin your last lobby?</p><div class="fs-sm fg-3 text-truncate mb-3 rejoin-lobby-id">${escapeHtml(lobbyId)}</div><div class="d-flex justify-content-end gap-2 rejoin-actions"><button class="btn btn-sm rejoin-btn" id="rejoin-no" type="button">No thanks</button><button class="btn-solid theme-primary btn-sm rejoin-btn" id="rejoin-yes" type="button">Rejoin</button></div></div>`;
   if (elements.landingView) elements.landingView.appendChild(prompt);
   document.getElementById('rejoin-yes').addEventListener('click', () => {
     hideRejoinPrompt();
@@ -275,12 +281,12 @@ function renderLobbies(lobbies) {
     // Owner-only controls: visibility toggle + delete. Non-owners never see these
     // and never see other people's private lobbies (filtered server-side).
     const privateBadge = (l.isOwner && !l.isPublic)
-      ? '<span class="lobby-visibility-badge private">Private</span>' : '';
-    const ownerControls = l.isOwner ? `<div class="lobby-owner-controls">`
-      + `<button type="button" class="lobby-visibility-toggle" title="${l.isPublic ? 'Make private' : 'Make public'}" onclick="event.stopPropagation();window.app.toggleLobbyVisibility(${idArg}, ${l.isPublic ? 'false' : 'true'})">${l.isPublic ? 'Public' : 'Private'}</button>`
-      + `<button type="button" class="lobby-delete-btn" title="Delete lobby" onclick="event.stopPropagation();window.app.deleteLobbyCard(${idArg})">✕</button>`
+      ? '<span class="badge badge-subtle theme-secondary lobby-visibility-badge private">Private</span>' : '';
+    const ownerControls = l.isOwner ? `<div class="d-flex gap-1 ms-auto lobby-owner-controls">`
+      + `<button type="button" class="btn btn-xs lobby-visibility-toggle" title="${l.isPublic ? 'Make private' : 'Make public'}" onclick="event.stopPropagation();window.app.toggleLobbyVisibility(${idArg}, ${l.isPublic ? 'false' : 'true'})">${l.isPublic ? 'Public' : 'Private'}</button>`
+      + `<button type="button" class="btn-text theme-danger btn-icon btn-xs lobby-delete-btn" title="Delete lobby" aria-label="Delete lobby" onclick="event.stopPropagation();window.app.deleteLobbyCard(${idArg})">✕</button>`
       + `</div>` : '';
-    return `<li class="lobby-card" onclick="window.app.joinLobbyFromCard(${idArg})"><div class="lobby-card-header"><span class="lobby-card-id">${pinIcon}${displayName}${privateBadge}</span><span class="listening-mode-badge ${modeClass}">${modeLabel}</span></div><div class="lobby-card-stats"><span class="lobby-card-stat"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>${l.userCount}</span><span class="lobby-card-stat"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>${l.songCount}</span><span class="lobby-card-age">${age}</span>${ownerControls}</div></li>`;
+    return `<li class="list-group-item list-group-item-action lobby-card" tabindex="0" role="button" onclick="window.app.joinLobbyFromCard(${idArg})" onkeydown="if((event.key==='Enter'||event.key===' ')&&event.target===this){event.preventDefault();window.app.joinLobbyFromCard(${idArg})}"><div class="d-flex align-items-center justify-content-between gap-2 lobby-card-header"><span class="d-flex align-items-center gap-2 min-w-0 fw-medium lobby-card-id"><span class="text-truncate">${pinIcon}${displayName}</span>${privateBadge}</span><span class="badge badge-subtle ${modeClass === 'independent' ? 'theme-secondary' : 'theme-primary'} listening-mode-badge ${modeClass}">${modeLabel}</span></div><div class="d-flex align-items-center gap-3 fs-sm fg-3 mt-1 lobby-card-stats"><span class="lobby-card-stat"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>${l.userCount}</span><span class="lobby-card-stat"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>${l.songCount}</span><span class="lobby-card-age">${age}</span>${ownerControls}</div></li>`;
   }).join('');
 }
 

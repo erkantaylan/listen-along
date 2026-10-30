@@ -42,7 +42,7 @@ export function handleChatMessage(msg) {
 export function handleChatHistory(data) {
   if (!elements.chatMessages) return;
   if (!data.messages || data.messages.length === 0) {
-    elements.chatMessages.innerHTML = '<div class="chat-empty"><p>No messages yet</p><p class="hint">Be the first to say something!</p></div>';
+    elements.chatMessages.innerHTML = '<div class="app-empty chat-empty"><p class="mb-1">No messages yet</p><p class="fs-sm mb-0 hint">Be the first to say something!</p></div>';
     return;
   }
   elements.chatMessages.innerHTML = '';
@@ -66,7 +66,7 @@ function appendChatMessage(msg) {
     const thumbUrl = msg.songMention.id ? getCoverUrl(msg.songMention.id, msg.songMention.thumbnail) : sanitizeUrl(msg.songMention.thumbnail);
     songMentionHtml = `
       <div class="chat-song-mention">
-        ${thumbUrl ? `<img class="chat-song-mention-thumb" src="${escapeHtml(thumbUrl)}" alt="">` : '<div class="chat-song-mention-thumb-placeholder"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div>'}
+        ${thumbUrl ? `<img class="chat-song-mention-thumb" src="${escapeHtml(thumbUrl)}" alt="">` : '<div class="chat-song-mention-thumb chat-song-mention-thumb-placeholder"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div>'}
         <span class="chat-song-mention-title">${escapeHtml(msg.songMention.title)}</span>
       </div>`;
   }
@@ -114,7 +114,7 @@ export function resetChat() {
   tickerMessages = [];
   clearSongMention();
   if (elements.chatMessages) {
-    elements.chatMessages.innerHTML = '<div class="chat-empty"><p>No messages yet</p><p class="hint">Be the first to say something!</p></div>';
+    elements.chatMessages.innerHTML = '<div class="app-empty chat-empty"><p class="mb-1">No messages yet</p><p class="fs-sm mb-0 hint">Be the first to say something!</p></div>';
   }
   if (elements.chatTicker) elements.chatTicker.hidden = true;
   if (elements.chatTickerContent) elements.chatTickerContent.innerHTML = '';

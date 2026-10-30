@@ -27,6 +27,7 @@ where lobby persistence broke entirely on deployed instances.
 
 - Backend: Node.js + Express + Socket.IO (`backend/src/`)
 - Frontend: Vanilla JS, single-page (`frontend/`)
+- UI is stock Bootstrap 6 (vendored in `frontend/vendor/`) with light theming; read `DESIGN.md` before changing any page or CSS
 - `index.js` is the main server (~1700 lines, handles all HTTP routes + socket events)
 - Domain modules: lobby.js, queue.js, playback.js, chat.js, covers.js, db.js,
   library.js (music library + m4a validation + legacy cache migration),

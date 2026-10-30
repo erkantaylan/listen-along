@@ -78,23 +78,23 @@ export function fetchDashboardStats() {
 
 function updateDashboardLobbies(lobbies) {
   if (!lobbies || lobbies.length === 0) {
-    elements.dashboardLobbyList.innerHTML = '<li class="dashboard-empty">No active lobbies</li>';
+    elements.dashboardLobbyList.innerHTML = '<li class="list-group-item app-empty dashboard-empty">No active lobbies</li>';
     return;
   }
   elements.dashboardLobbyList.innerHTML = lobbies.map(lobby => {
     const age = formatAge(lobby.createdAt);
-    return `<li class="dashboard-lobby-item">
-      <div class="dashboard-lobby-id">${lobby.name ? escapeHtml(lobby.name) : escapeHtml(lobby.id)}</div>
-      <div class="dashboard-lobby-info">
+    return `<li class="list-group-item dashboard-lobby-item">
+      <div class="fw-medium text-truncate dashboard-lobby-id">${lobby.name ? escapeHtml(lobby.name) : escapeHtml(lobby.id)}</div>
+      <div class="d-flex flex-wrap column-gap-4 fs-sm fg-3 dashboard-lobby-info">
         <span class="dashboard-lobby-users">${lobby.userCount} user${lobby.userCount !== 1 ? 's' : ''}</span>
         <span class="dashboard-lobby-queue">${lobby.queueLength} in queue</span>
         ${lobby.currentTrack ? `<span class="dashboard-lobby-track ${lobby.isPlaying ? 'playing' : ''}">${escapeHtml(lobby.currentTrack)}</span>` : ''}
       </div>
-      <div class="dashboard-lobby-actions">
-        <button class="btn btn-small" onclick="window.dashboardJoinLobby(${escapeHtml(JSON.stringify(lobby.id))})">Join</button>
-        <button class="btn btn-small btn-danger" onclick="window.dashboardRemoveLobby(${escapeHtml(JSON.stringify(lobby.id))})">Remove</button>
+      <div class="d-flex gap-2 dashboard-lobby-actions">
+        <button class="btn btn-sm" type="button" onclick="window.dashboardJoinLobby(${escapeHtml(JSON.stringify(lobby.id))})">Join</button>
+        <button class="btn-outline theme-danger btn-sm" type="button" onclick="window.dashboardRemoveLobby(${escapeHtml(JSON.stringify(lobby.id))})">Remove</button>
       </div>
-      <div class="dashboard-lobby-age">${age}</div>
+      <div class="fs-xs fg-3 dashboard-lobby-age">${age}</div>
     </li>`;
   }).join('');
 }
@@ -121,26 +121,26 @@ export function renderDashboardUserList() {
   let filtered = dashboardUsers;
   if (filterStatus !== 'all') filtered = filtered.filter(u => u.status === filterStatus);
   if (searchTerm) filtered = filtered.filter(u => (u.username || '').toLocaleLowerCase('tr').includes(searchTerm) || (u.name || '').toLocaleLowerCase('tr').includes(searchTerm) || (u.email || '').toLocaleLowerCase('tr').includes(searchTerm) || (u.user_id || '').toLocaleLowerCase('tr').includes(searchTerm));
-  if (filtered.length === 0) { elements.dashboardUserList.innerHTML = '<li class="dashboard-empty">No users found</li>'; return; }
+  if (filtered.length === 0) { elements.dashboardUserList.innerHTML = '<li class="list-group-item app-empty dashboard-empty">No users found</li>'; return; }
   elements.dashboardUserList.innerHTML = filtered.map(user => {
     const date = new Date(parseInt(user.created_at)).toLocaleDateString();
     const showApprove = user.status !== 'approved';
     const showReject = user.status !== 'rejected';
     const avatarHtml = user.avatar_url
-      ? `<img class="dashboard-user-avatar-img" src="${escapeHtml(user.avatar_url)}" alt="" loading="lazy">`
-      : `<div class="dashboard-user-avatar">${escapeHtml(user.emoji || '\uD83C\uDFB5')}</div>`;
+      ? `<img class="app-thumb rounded-pill dashboard-user-avatar-img" src="${escapeHtml(user.avatar_url)}" alt="" loading="lazy">`
+      : `<div class="app-thumb rounded-pill dashboard-user-avatar">${escapeHtml(user.emoji || '\uD83C\uDFB5')}</div>`;
     const displayName = user.name || user.username;
-    const subName = user.name && user.username && user.name !== user.username ? `<span class="dashboard-user-handle">@${escapeHtml(user.username)}</span>` : '';
-    return `<li class="dashboard-user-item" data-user-id="${escapeHtml(user.id)}">
+    const subName = user.name && user.username && user.name !== user.username ? `<span class="fs-sm fg-3 fw-normal ms-1 dashboard-user-handle">@${escapeHtml(user.username)}</span>` : '';
+    return `<li class="list-group-item dashboard-user-item" data-user-id="${escapeHtml(user.id)}">
       ${avatarHtml}
-      <div class="dashboard-user-info">
-        <div class="dashboard-user-name">${escapeHtml(displayName)}${subName}</div>
-        <div class="dashboard-user-meta">${escapeHtml(user.email || user.user_id)} &middot; ${user.provider || 'local'} &middot; ${date}</div>
+      <div class="min-w-0 flex-grow-1 dashboard-user-info">
+        <div class="fw-medium text-truncate dashboard-user-name">${escapeHtml(displayName)}${subName}</div>
+        <div class="fs-xs fg-3 text-truncate dashboard-user-meta">${escapeHtml(user.email || user.user_id)} &middot; ${user.provider || 'local'} &middot; ${date}</div>
       </div>
-      <span class="dashboard-user-status status-${user.status}">${user.status}</span>
-      <div class="dashboard-user-actions">
-        ${showApprove ? `<button class="btn btn-small btn-approve" onclick="window.dashboardApproveUser(${escapeHtml(JSON.stringify(user.id))})">Approve</button>` : ''}
-        ${showReject ? `<button class="btn btn-small btn-reject" onclick="window.dashboardRejectUser(${escapeHtml(JSON.stringify(user.id))})">Reject</button>` : ''}
+      <span class="badge badge-subtle ${({ approved: 'theme-success', pending: 'theme-warning', rejected: 'theme-danger', denied: 'theme-danger' })[user.status] || 'theme-secondary'} dashboard-user-status status-${user.status}">${user.status}</span>
+      <div class="d-flex gap-2 dashboard-user-actions">
+        ${showApprove ? `<button class="btn-subtle theme-success btn-sm btn-approve" type="button" onclick="window.dashboardApproveUser(${escapeHtml(JSON.stringify(user.id))})">Approve</button>` : ''}
+        ${showReject ? `<button class="btn-subtle theme-danger btn-sm btn-reject" type="button" onclick="window.dashboardRejectUser(${escapeHtml(JSON.stringify(user.id))})">Reject</button>` : ''}
       </div>
     </li>`;
   }).join('');
