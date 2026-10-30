@@ -199,7 +199,7 @@ function createLibraryRouter(hooks = {}) {
 
   // Dismiss: a CLI token or a logged-in admin.
   const tokenOrAdmin = (req, res, next) => {
-    if (!req.headers.authorization && adminAuth.isAdmin(req)) return next();
+    if (!tokens.hasBearer(req) && adminAuth.isAdmin(req)) return next();
     return tokens.requireToken(req, res, next);
   };
   router.post('/api/requests/:id/dismiss', tokenOrAdmin, requireDb, async (req, res) => {

@@ -87,10 +87,16 @@ function requireToken(req, res, next) {
 
 /**
  * Express middleware for endpoints the web UI may call without a token: no
- * Authorization header -> pass; a header that is present must be valid.
+ * Bearer token -> pass; a Bearer token that is present must be valid. Other
+ * Authorization schemes are ignored (browsers keep resending cached Basic
+ * credentials from the old dashboard login).
  */
+function hasBearer(req) {
+  return /^Bearer\s/i.test(req.headers.authorization || '');
+}
+
 function optionalToken(req, res, next) {
-  if (!req.headers.authorization) return next();
+  if (!hasBearer(req)) return next();
   return requireToken(req, res, next);
 }
 
@@ -104,4 +110,5 @@ module.exports = {
   bearerFrom,
   requireToken,
   optionalToken,
+  hasBearer,
 };

@@ -162,6 +162,15 @@ describe('tokens helpers', () => {
     assert.equal(tokens.bearerFrom({ headers: { authorization: 'Basic abc' } }), null);
     assert.equal(tokens.bearerFrom({ headers: {} }), null);
   });
+
+  it('optionalToken ignores non-Bearer Authorization (cached browser Basic auth)', () => {
+    let passed = false;
+    const res = { status() { throw new Error('should not respond'); } };
+    tokens.optionalToken({ headers: { authorization: 'Basic YWRtaW46cHc=' } }, res, () => { passed = true; });
+    assert.equal(passed, true);
+    assert.equal(tokens.hasBearer({ headers: { authorization: 'Bearer x' } }), true);
+    assert.equal(tokens.hasBearer({ headers: { authorization: 'Basic x' } }), false);
+  });
 });
 
 describe('adminAuth', () => {
