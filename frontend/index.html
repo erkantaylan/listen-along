@@ -397,6 +397,25 @@
           </ul>
         </div>
       </section>
+      <!-- Your activity (profile-activity.js): only ever the signed-in user's own. -->
+      <section id="profile-activity-card" class="card mb-4 profile-activity" aria-labelledby="profile-activity-title" hidden>
+        <div class="card-header d-flex flex-row align-items-center justify-content-between gap-3">
+          <h2 id="profile-activity-title" class="h6 mb-0">Your activity</h2>
+          <span class="fs-xs fg-3">Only you can see this</span>
+        </div>
+        <div class="card-body vstack gap-4">
+          <p id="profile-activity-summary" class="fs-sm fg-2 mb-0"></p>
+          <nav class="nav nav-underline flex-wrap profile-activity-tabs" aria-label="Activity">
+            <button class="nav-link active" type="button" data-activity-tab="uploaded">Uploaded <span class="badge badge-subtle theme-secondary" data-activity-count="uploaded"></span></button>
+            <button class="nav-link" type="button" data-activity-tab="asked">Asked for <span class="badge badge-subtle theme-secondary" data-activity-count="asked"></span></button>
+            <button class="nav-link" type="button" data-activity-tab="fulfilled">My downloaders fulfilled <span class="badge badge-subtle theme-secondary" data-activity-count="fulfilled"></span></button>
+            <button class="nav-link" type="button" data-activity-tab="workers">My downloaders <span class="badge badge-subtle theme-secondary" data-activity-count="workers"></span></button>
+          </nav>
+          <ul id="profile-activity-list" class="list-group profile-activity-list">
+            <li class="list-group-item app-empty">Loading...</li>
+          </ul>
+        </div>
+      </section>
       <div class="text-end">
         <button id="profile-logout-btn" class="btn-outline theme-danger" type="button">Sign Out</button>
       </div>
@@ -533,6 +552,7 @@
         <nav class="nav nav-underline mb-4 libpage-tabs" aria-label="Library sections">
           <button class="nav-link libpage-tab active" data-libtab="library" type="button">Songs <span id="libpage-count" class="badge libpage-tab-count"></span></button>
           <button class="nav-link libpage-tab" data-libtab="requests" type="button">Requested <span id="libpage-requests-count" class="badge badge-subtle theme-primary libpage-tab-badge" hidden></span></button>
+          <button class="nav-link libpage-tab" data-libtab="downloads" type="button">Download <span id="libpage-downloads-count" class="badge badge-subtle theme-primary libpage-tab-badge" hidden></span></button>
         </nav>
         <section id="libpage-songs-panel" class="libpage-panel">
           <div class="d-flex flex-wrap gap-2 mb-4 libpage-toolbar">
@@ -558,6 +578,31 @@
             </select>
           </div>
           <ul id="libpage-requests" class="list-group libpage-list"></ul>
+        </section>
+        <!-- Download box (jobs.js): a job for a downloader (someone's `la worker`). -->
+        <section id="libpage-downloads-panel" class="libpage-panel" hidden>
+          <form id="dl-form" class="card mb-5 dl-form" autocomplete="off" novalidate>
+            <div class="card-body vstack gap-4">
+              <div>
+                <label for="dl-input" class="form-label fs-sm fw-medium">Download a song</label>
+                <input id="dl-input" class="form-control" type="text" maxlength="500" placeholder="YouTube or Spotify link, or artist – title" aria-describedby="dl-input-hint">
+                <p id="dl-input-hint" class="fs-xs fg-3 mt-2 mb-0">A YouTube video or playlist link, a Spotify track link, or a search. A downloader — someone running <code>la worker</code> at home — fetches it and uploads it to the library.</p>
+              </div>
+              <div>
+                <label for="dl-playlist" class="form-label fs-sm fw-medium">Add it to</label>
+                <select id="dl-playlist" class="form-control">
+                  <option value="">The library only</option>
+                </select>
+              </div>
+              <div class="d-flex flex-wrap align-items-center gap-3">
+                <button id="dl-submit" class="btn-solid theme-primary" type="submit">Download</button>
+                <span id="dl-workers" class="d-inline-flex align-items-center gap-2 fs-sm fg-3 dl-workers" role="status"></span>
+              </div>
+              <div id="dl-error" class="alert theme-danger fs-sm mb-0" role="alert" hidden></div>
+            </div>
+          </form>
+          <h2 class="h6 mb-3">Your downloads</h2>
+          <ul id="dl-list" class="list-group libpage-list dl-list" aria-live="polite"></ul>
         </section>
       </div>
     </div>

@@ -44,6 +44,32 @@
 
     <div id="adm-main" class="vstack gap-6" hidden>
       <section class="card">
+        <div class="card-header d-flex flex-row flex-wrap align-items-center justify-content-between gap-3">
+          <h2 class="h6 mb-0">Downloaders <span id="adm-workers-summary" class="fg-3 fw-normal"></span></h2>
+          <button id="adm-workers-refresh" class="btn btn-sm" type="button">Refresh</button>
+        </div>
+        <div class="card-body vstack gap-4">
+          <p class="fs-sm fg-3 mb-0">Computers running <code>la worker</code> with someone's token. Host, OS, IP
+            and versions are shown here only; everyone else sees the name and owner.</p>
+          <ul id="adm-workers" class="list-group"></ul>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-header d-flex flex-row flex-wrap align-items-center justify-content-between gap-3">
+          <h2 class="h6 mb-0">Download jobs <span id="adm-jobs-counts" class="fg-3 fw-normal fs-sm"></span></h2>
+          <select id="adm-job-status" class="form-control form-control-sm w-auto" aria-label="Job status">
+            <option value="active">Waiting + running</option>
+            <option value="all">All</option>
+            <option value="failed">Failed</option>
+            <option value="done">Done</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+        <ul id="adm-jobs" class="list-group list-group-flush"></ul>
+      </section>
+
+      <section class="card">
         <div class="card-header"><h2 class="h6 mb-0">CLI tokens</h2></div>
         <div class="card-body vstack gap-4">
           <p class="fs-sm fg-3 mb-0">Every token for the listen-along CLI. People create their own on

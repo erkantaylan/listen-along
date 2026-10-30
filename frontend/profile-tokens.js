@@ -56,7 +56,7 @@ function showNewToken(token, record) {
   $('profile-new-token-label').textContent = `"${record.label}"`;
   $('profile-new-token-value').value = token;
   $('profile-token-usage').textContent =
-    `la config set server ${window.location.origin}\nla config set token ${token}\nla whoami`;
+    `la config set server ${window.location.origin}\nla config set token ${token}\nla whoami\nla worker      # optional: be a downloader for everyone's requests`;
   $('profile-new-token').hidden = false;
   $('profile-new-token-value').focus();
   $('profile-new-token-value').select();

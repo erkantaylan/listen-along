@@ -9,6 +9,7 @@ import { setupSocial, applySocialRoute, toggleSocial, refreshPeople, reportNowPl
 import { setupListenAlong, listenAlongWith, isListeningWith, stopListenAlong, onListenChange } from './listen-along.js';
 import { checkUrlForDashboard, dashboardJoinLobby, dashboardRemoveLobby, dashboardApproveUser, dashboardRejectUser } from './dashboard.js';
 import { setupLibraryPage, openLibraryPage, closeLibraryPage, isLibraryOpen, showLibraryRoute, handleLibraryUpdated, handleRequestsUpdated } from './library.js';
+import { handleJobUpdate, handleWorkersUpdate } from './jobs.js';
 import { parseRoute, legacyRedirect } from './router.js';
 import { createLobby, shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyUpdated, handleLobbyPinned, updateVisibilityHint, toggleCurrentVisibility, handleUserJoined, handleUserLeft, handleLobbyClosed, checkForLastLobby, joinLobbyFromCard, updatePinButton, togglePin, promptRenameLobby, toggleLobbyVisibility, deleteLobbyCard, openLobbyPage, closeLobbyPage, syncMembership, resyncMembership, reportNowPlaying } from './lobby.js';
 import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, updatePlayButton, updatePlaybackModeUI, updateNowPlaying, _setQueueFns } from './playback.js';
@@ -74,6 +75,9 @@ function setupSocket() {
     // Library Events
     s.on('library:updated', handleLibraryUpdated);
     s.on('requests:updated', handleRequestsUpdated);
+    // Download jobs (Download tab) and downloaders online.
+    s.on('jobs:update', handleJobUpdate);
+    s.on('workers:update', handleWorkersUpdate);
 
     // Download Events
     s.on('download:status', handleDownloadStatus);

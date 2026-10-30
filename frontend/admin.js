@@ -1,4 +1,5 @@
-// Admin page: CLI tokens, song requests, library management.
+// Admin page: downloaders (workers) and download jobs, CLI tokens, song
+// requests, library management.
 // Auth is the ADMIN_USER / ADMIN_PASSWORD cookie set by POST /api/admin/login,
 // which also unlocks /dashboard.
 (function () {
@@ -51,10 +52,94 @@
     $('adm-login').hidden = true;
     $('adm-main').hidden = false;
     $('adm-logout').hidden = false;
+    loadWorkers();
+    loadJobs();
     loadTokens();
     loadRequests();
     loadLibrary();
+    clearInterval(refreshTimer);
+    refreshTimer = setInterval(() => { if (!document.hidden && !$('adm-main').hidden) { loadWorkers(); loadJobs(); } }, 10000);
   }
+  let refreshTimer = null;
+
+  // --- downloaders + jobs ---------------------------------------------------
+  function ago(value) {
+    if (!value) return 'never';
+    const s = Math.max(0, (Date.now() - new Date(value).getTime()) / 1000);
+    if (s < 60) return 'just now';
+    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+    return `${Math.floor(s / 86400)}d ago`;
+  }
+
+  async function loadWorkers() {
+    const list = $('adm-workers');
+    try {
+      const { workers, online, busy } = await api('GET', '/api/admin/workers');
+      $('adm-workers-summary').textContent = `(${online} online${busy ? `, ${busy} busy` : ''})`;
+      if (!workers.length) { list.innerHTML = '<li class="list-group-item app-empty adm-empty">No downloader has connected yet.</li>'; return; }
+      list.innerHTML = workers.map((w) => {
+        const state = w.online ? (w.busy ? '<span class="badge badge-subtle theme-primary">busy</span>' : '<span class="badge badge-subtle theme-success">online</span>') : '<span class="badge badge-subtle theme-secondary">offline</span>';
+        const owner = w.owner ? esc(w.owner) : '<span class="badge badge-subtle theme-warning">legacy token</span>';
+        const machine = [w.hostname, [w.platform, w.arch].filter(Boolean).join('/'), w.os_release].filter(Boolean).map(esc).join(' · ');
+        const versions = [`la ${w.cli_version || '?'}`, `yt-dlp ${w.ytdlp_version || '?'}`, `node ${w.node_version || '?'}`].map(esc).join(' · ');
+        return `
+        <li class="list-group-item d-flex align-items-center gap-3 adm-item adm-worker">
+          <div class="min-w-0 flex-grow-1 adm-item-main">
+            <div class="fw-medium text-break adm-item-title">${esc(w.name)} <span class="fs-sm fw-normal fg-2">· ${owner}</span></div>
+            <div class="fs-xs fg-3 text-break adm-item-sub">${machine}</div>
+            <div class="fs-xs fg-3 text-break adm-item-sub">IP <span class="font-monospace">${esc(w.last_ip || '?')}</span> · ${versions}</div>
+            <div class="fs-xs fg-3 text-break adm-item-sub">${w.online ? `connected ${esc(ago(w.connected_since))}` : `last seen ${esc(ago(w.last_seen_at))}`} · ${w.jobs_done} done · ${w.jobs_failed} failed</div>
+          </div>
+          ${state}
+        </li>`;
+      }).join('');
+    } catch (err) {
+      list.innerHTML = `<li class="list-group-item app-empty adm-empty">${esc(err.message)}</li>`;
+    }
+  }
+
+  const JOB_THEMES = { queued: 'theme-warning', assigned: 'theme-primary', done: 'theme-success', failed: 'theme-danger', cancelled: 'theme-secondary' };
+
+  async function loadJobs() {
+    const list = $('adm-jobs');
+    const status = $('adm-job-status').value;
+    try {
+      const { jobs, counts } = await api('GET', `/api/admin/jobs?status=${encodeURIComponent(status)}`);
+      $('adm-jobs-counts').textContent = `${counts.queued} waiting · ${counts.assigned} running · ${counts.done} done · ${counts.failed} failed`;
+      if (!jobs.length) { list.innerHTML = '<li class="list-group-item app-empty adm-empty">Nothing here.</li>'; return; }
+      list.innerHTML = jobs.map((j) => {
+        const where = j.worker ? `${j.status === 'assigned' ? 'on' : 'by'} ${esc(j.worker.name)}${j.worker.owner ? ` (${esc(j.worker.owner)})` : ''}` : '';
+        const detail = j.status === 'failed' ? `${esc(j.error_code || '')} ${esc(j.error_message || '')}` : esc(j.progress || '');
+        const action = j.status === 'queued' ? `<button class="btn btn-sm" data-job-cancel="${esc(j.id)}" type="button">Cancel</button>`
+          : (j.status === 'failed' || j.status === 'cancelled') ? `<button class="btn btn-sm" data-job-retry="${esc(j.id)}" type="button">Retry</button>` : '';
+        return `
+        <li class="list-group-item d-flex align-items-center gap-3 adm-item adm-job">
+          <div class="min-w-0 flex-grow-1 adm-item-main">
+            <div class="fw-medium text-break adm-item-title">${esc(j.title || j.input)}</div>
+            <div class="fs-xs fg-3 text-break adm-item-sub">${esc(j.source === 'request' ? 'song request' : j.kind)} · asked by ${esc(j.requested_by || '?')}${j.playlist_name ? ` · for ${esc(j.playlist_name)}` : ''} · ${esc(when(j.created_at))}${j.attempts > 1 ? ` · attempt ${j.attempts}` : ''}</div>
+            ${where || detail ? `<div class="fs-xs fg-3 text-break adm-item-sub">${[where, detail].filter(Boolean).join(' · ')}</div>` : ''}
+          </div>
+          <span class="badge badge-subtle ${JOB_THEMES[j.status] || 'theme-secondary'}">${esc(j.status === 'assigned' ? 'running' : j.status)}</span>
+          ${action}
+        </li>`;
+      }).join('');
+    } catch (err) {
+      list.innerHTML = `<li class="list-group-item app-empty adm-empty">${esc(err.message)}</li>`;
+    }
+  }
+
+  $('adm-workers-refresh').addEventListener('click', () => { loadWorkers(); loadJobs(); });
+  $('adm-job-status').addEventListener('change', loadJobs);
+  $('adm-jobs').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-job-cancel], [data-job-retry]');
+    if (!btn) return;
+    btn.disabled = true;
+    const id = btn.dataset.jobCancel || btn.dataset.jobRetry;
+    try { await api('POST', `/api/admin/jobs/${encodeURIComponent(id)}/${btn.dataset.jobCancel ? 'cancel' : 'retry'}`); }
+    catch (err) { alert(err.message); }
+    loadJobs();
+  });
 
   // --- tokens ---------------------------------------------------------------
   // All tokens, with their owner. Created by users on their profile page;
@@ -164,7 +249,7 @@
         <li class="list-group-item d-flex align-items-center gap-3 adm-item">
           <div class="min-w-0 flex-grow-1 adm-item-main">
             <div class="fw-medium text-break adm-item-title">${esc(s.title)} <span class="fg-3 fw-normal">— ${esc(s.artist)}</span></div>
-            <div class="fs-xs fg-3 text-break adm-item-sub">${s.album ? esc(s.album) + ' · ' : ''}${s.youtube_id ? 'YouTube ' + esc(s.youtube_id) + ' · ' : ''}uploaded by ${esc(s.uploaded_by)} · ${esc(when(s.created_at))}</div>
+            <div class="fs-xs fg-3 text-break adm-item-sub">${s.album ? esc(s.album) + ' · ' : ''}${s.youtube_id ? 'YouTube ' + esc(s.youtube_id) + ' · ' : ''}uploaded by ${s.uploaded_by_worker ? `${esc(s.uploaded_by_worker)} (${esc(s.uploaded_by)})` : esc(s.uploaded_by)}${s.requested_by ? ` · asked by ${esc(s.requested_by)}` : ''} · ${esc(when(s.created_at))}</div>
           </div>
           <button class="btn btn-sm" data-play="${esc(s.id)}" type="button">${previewId === s.id && !previewAudio.paused ? 'Pause' : 'Play'}</button>
           <button class="btn-outline theme-danger btn-sm" data-delete="${esc(s.id)}" data-title="${esc(s.title)}">Delete</button>

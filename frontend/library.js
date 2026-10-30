@@ -5,6 +5,7 @@ import { state, socket } from './state.js';
 import { showToast, formatDuration, notifyViewChange } from './ui.js';
 import { libraryPath, basePath } from './router.js';
 import { player } from './player.js';
+import { setupDownloads, showDownloads, hideDownloads } from './jobs.js';
 
 // Escapes for both text and attribute contexts (ui.js escapeHtml leaves quotes).
 function escapeHtml(value) {
@@ -125,6 +126,14 @@ function sourceLinkHtml(song) {
   return `<a class="libpage-source" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(url)}">${escapeHtml(label)} ↗</a>`;
 }
 
+// "added by Ayşe", or "uploaded by living-room-pc (Ayşe)" when a downloader
+// (`la worker`) did it; plus who asked for it, if anyone.
+function uploaderHtml(song) {
+  const who = escapeHtml(song.uploaded_by || 'unknown');
+  const by = song.uploaded_by_worker ? `uploaded by ${escapeHtml(song.uploaded_by_worker)} (${who})` : `added by ${who}`;
+  return song.requested_by ? `${by} · asked by ${escapeHtml(song.requested_by)}` : by;
+}
+
 function updateContext() {
   const el = $('libpage-context');
   if (!el) return;
@@ -199,7 +208,7 @@ function renderSongs() {
       const sub = [song.artist, song.album].filter(Boolean).map(escapeHtml).join(' · ');
       const meta = [
         song.duration_sec ? formatDuration(song.duration_sec) : '',
-        `added by ${escapeHtml(song.uploaded_by || 'unknown')}`,
+        uploaderHtml(song),
         relativeDate(song.created_at),
         sourceLinkHtml(song),
       ].filter(Boolean).join(' · ');
@@ -455,7 +464,9 @@ function switchTab(tab) {
   document.querySelectorAll('#library-page .libpage-tab').forEach((b) => b.classList.toggle('active', b.dataset.libtab === tab));
   $('libpage-songs-panel').hidden = tab !== 'library';
   $('libpage-requests-panel').hidden = tab !== 'requests';
+  $('libpage-downloads-panel').hidden = tab !== 'downloads';
   if (tab === 'requests') loadRequests();
+  if (tab === 'downloads') showDownloads(); else hideDownloads();
 }
 
 export function openLibraryPage(tab = 'library') {
@@ -473,6 +484,8 @@ export function openLibraryPage(tab = 'library') {
   history.pushState({ libDepth: 1 }, '', libraryPath(state.lobbyId, lib));
   const search = $('libpage-search');
   if (search && tab === 'library' && window.matchMedia('(pointer: fine)').matches) search.focus();
+  const dlInput = $('dl-input');
+  if (dlInput && tab === 'downloads' && window.matchMedia('(pointer: fine)').matches) dlInput.focus();
 }
 
 export function closeLibraryPage() {
@@ -481,6 +494,7 @@ export function closeLibraryPage() {
   lib.open = false;
   page.hidden = true;
   document.body.classList.remove('libpage-open');
+  hideDownloads();
   notifyViewChange();
 }
 
@@ -598,6 +612,7 @@ export function setupLibraryPage() {
   const page = $('library-page');
   if (!page) return;
   $('libpage-close').addEventListener('click', requestCloseLibrary);
+  setupDownloads();
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && lib.open && !$('replace-dialog')) requestCloseLibrary(); });
   page.querySelectorAll('.libpage-tab').forEach((b) => b.addEventListener('click', () => {
     if (b.dataset.libtab === lib.tab) return;

@@ -426,6 +426,14 @@
     .libpage-thumb { width: 2.5rem; height: 2.5rem; }
     .libpage-add { min-width: 3.75rem; }
   }
+  /* Download tab (jobs.js): downloaders-online dot; job rows wrap their
+     action button under the text on phones. */
+  .dl-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background-color: var(--bs-bg-4); flex: none; }
+  .dl-dot.online { background-color: var(--bs-success-base); }
+  @media (width < 400px) {
+    .dl-item { flex-wrap: wrap; }
+    .dl-item .dl-cancel, .dl-item .dl-retry { margin-left: auto; }
+  }
 
   /* ------------------------------------------------- Chat and people panel */
   /* social.js. One #social-panel, shown by body classes (never [hidden]):
