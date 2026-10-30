@@ -1,21 +1,15 @@
 package com.erkantaylan.listenalong.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -25,21 +19,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.erkantaylan.listenalong.api.formatDuration
 import com.erkantaylan.listenalong.download.DownloadSnapshot
 import com.erkantaylan.listenalong.download.Downloads
-import com.erkantaylan.listenalong.download.QueuedSong
+import com.erkantaylan.listenalong.player.NowPlaying
 import com.erkantaylan.listenalong.storage.FileNames
 import com.erkantaylan.listenalong.storage.LocalSong
 import com.erkantaylan.listenalong.storage.MediaStoreAudio
@@ -62,8 +51,9 @@ internal fun sortedForDevice(songs: Collection<LocalSong>, query: String): List<
 fun OnDeviceScreen(
     snapshot: DownloadSnapshot,
     downloads: Downloads,
-    onOpen: (LocalSong) -> Unit,
-    onMessage: (String) -> Unit,
+    nowPlaying: NowPlaying,
+    actions: AppActions,
+    online: Boolean,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var refreshing by remember { mutableStateOf(false) }
@@ -73,22 +63,24 @@ fun OnDeviceScreen(
     BackHandler(enabled = query.isNotEmpty()) { query = "" }
 
     val songs = remember(snapshot.downloaded, query) { sortedForDevice(snapshot.downloaded.values, query) }
+    val asSongs = remember(songs) { songs.map { it.toSong() } }
     val totalBytes = snapshot.downloaded.values.sumOf { it.bytes }
 
-    Column(Modifier.fillMaxSize().background(Palette.bg).semantics { testTagsAsResourceId = true }) {
-        ScreenHeader("ON DEVICE") {
-            Text(
-                "${snapshot.downloaded.size} · ${formatBytes(totalBytes)}",
-                color = Palette.textDim, fontSize = 12.sp,
-            )
-        }
+    Column(Modifier.fillMaxSize().background(Palette.page).semantics { testTagsAsResourceId = true }) {
+        AppTopBar(
+            title = "On device",
+            subtitle = {
+                Text("${snapshot.downloaded.size} songs · ${formatBytes(totalBytes)}", color = Palette.fg3, fontSize = 12.sp)
+            },
+        )
 
         TextInput(
             value = query,
             onValueChange = { query = it },
             placeholder = "Filter downloaded songs",
             tag = "filter",
-            modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 10.dp),
+            leadingIcon = AppIcons.Search,
+            modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 12.dp),
         )
 
         PullToRefreshBox(
@@ -98,48 +90,76 @@ fun OnDeviceScreen(
                 scope.launch {
                     val gone = downloads.reconcile()
                     refreshing = false
-                    if (gone > 0) onMessage("$gone deleted outside the app — forgotten")
+                    if (gone > 0) actions.message("$gone deleted outside the app — forgotten")
                 }
             },
             modifier = Modifier.fillMaxSize(),
         ) {
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
                 if (snapshot.pending.isNotEmpty()) {
                     item(key = "downloading-header") {
-                        Row(
-                            Modifier.fillMaxWidth().padding(end = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(Modifier.weight(1f)) { SectionLabel("Downloading · ${snapshot.pending.size}") }
-                            HeaderAction("Cancel all", "cancel-all") { downloads.cancelAll() }
+                        SectionHeading("Downloading — ${snapshot.pending.size}") {
+                            QuietButton("Cancel all", { downloads.cancelAll() }, accent = false, tag = "cancel-all")
                         }
                     }
-                    items(snapshot.pending, key = { "q-${it.id}" }) { song ->
-                        PendingRow(song, snapshot) { downloads.cancel(song.id) }
+                    itemsIndexed(snapshot.pending, key = { _, s -> "q-${s.id}" }) { i, song ->
+                        SongRow(
+                            index = i, count = snapshot.pending.size, tag = "pending:${song.id}",
+                            title = song.title.ifBlank { FileNames.baseName(song.artist, song.title) },
+                            artist = song.artist, durationSec = song.durationSec,
+                            download = snapshot.stateOf(song.id), current = false,
+                            onClick = null,
+                            onCancelDownload = { downloads.cancel(song.id) },
+                        )
                     }
-                    item(key = "saved-header") { SectionLabel("Saved") }
+                    item(key = "saved-header") { SectionHeading("Saved — ${snapshot.downloaded.size}") }
                 }
 
                 if (songs.isEmpty()) {
                     item(key = "empty") {
-                        Text(
-                            when {
-                                query.isNotBlank() -> "Nothing matches."
-                                else -> "Nothing downloaded yet.\nTap a song in Library to save it here."
-                            },
-                            color = Palette.textDim, fontSize = 13.sp, textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth().padding(32.dp),
+                        EmptyState(
+                            title = if (query.isNotBlank()) "Nothing matches." else "Nothing downloaded yet",
+                            body = if (query.isNotBlank()) null
+                                   else "Use the download button on a song or a playlist. Downloaded songs play with no connection.",
+                            icon = if (query.isNotBlank()) AppIcons.Search else AppIcons.Download,
+                        )
+                    }
+                } else {
+                    item(key = "play-all") {
+                        PlayAllBar(
+                            playEnabled = true,
+                            onPlay = { actions.play(asSongs, 0, "On device", false) },
+                            onShuffle = { actions.play(asSongs, 0, "On device", true) },
                         )
                     }
                 }
-                items(songs, key = { it.songId }) { song ->
-                    LocalRow(song, onTap = { onOpen(song) }, onLongPress = { deleting = song })
+                itemsIndexed(songs, key = { _, s -> s.songId }) { i, song ->
+                    SongRow(
+                        index = i, count = songs.size, tag = "local:${song.songId}",
+                        title = song.title.ifBlank { song.displayName },
+                        artist = song.artist,
+                        durationSec = song.durationSec,
+                        download = null,
+                        current = nowPlaying.songId == song.songId,
+                        extraMeta = "${song.displayName.substringAfterLast('.', "").uppercase()} · ${formatBytes(song.bytes)}",
+                        onClick = { actions.play(asSongs, i, "On device", false) },
+                    ) { dismiss ->
+                        MenuEntry("Add to playlist", AppIcons.PlaylistAdd, "menu-add-to-playlist", enabled = online) {
+                            dismiss(); actions.addToPlaylist(listOf(song.toSong()))
+                        }
+                        MenuEntry("Open in another app", AppIcons.OpenInNew, "menu-open") {
+                            dismiss(); actions.openExternal(song)
+                        }
+                        MenuEntry("Delete from device", AppIcons.Delete, "menu-delete", destructive = true) {
+                            dismiss(); deleting = song
+                        }
+                    }
                 }
                 if (songs.isNotEmpty()) {
                     item(key = "where") {
                         Text(
-                            "Saved in ${MediaStoreAudio.RELATIVE_PATH} · long-press to delete",
-                            color = Palette.textDim, fontSize = 11.sp, textAlign = TextAlign.Center,
+                            "Saved as plain audio files in ${MediaStoreAudio.RELATIVE_PATH}",
+                            color = Palette.fg4, fontSize = 12.sp, textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth().padding(16.dp),
                         )
                     }
@@ -159,82 +179,11 @@ fun OnDeviceScreen(
                 deleting = null
                 scope.launch {
                     val removed = downloads.delete(song)
-                    onMessage(if (removed) "Deleted" else "Forgotten (the file could not be deleted by this app)")
+                    actions.message(if (removed) "Deleted" else "Forgotten (the file could not be deleted by this app)")
                 }
             },
             onDismiss = { deleting = null },
         )
-    }
-}
-
-@Composable
-private fun PendingRow(song: QueuedSong, snapshot: DownloadSnapshot, onCancel: () -> Unit) {
-    val progress = snapshot.progress[song.id]
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .padding(bottom = 8.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(Palette.panel)
-            .border(1.dp, Palette.border, RoundedCornerShape(10.dp))
-            .combinedClickable(onClick = onCancel)
-            .padding(12.dp),
-    ) {
-        Text(FileNames.baseName(song.artist, song.title), color = Palette.text, fontSize = 14.sp,
-             maxLines = 2, overflow = TextOverflow.Ellipsis)
-        val label = when {
-            progress == null -> "queued · tap to cancel"
-            progress.total > 0 -> "${progress.bytesRead * 100 / progress.total}% of " +
-                "${formatBytes(progress.total)} · tap to cancel"
-            else -> "${formatBytes(progress.bytesRead)} · tap to cancel"
-        }
-        Text(label, color = Palette.accent, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
-        if (progress != null) {
-            val mod = Modifier.fillMaxWidth().padding(top = 6.dp)
-            if (progress.total > 0) {
-                LinearProgressIndicator(
-                    progress = { (progress.bytesRead.toFloat() / progress.total).coerceIn(0f, 1f) },
-                    color = Palette.accent, trackColor = Palette.panel2,
-                    drawStopIndicator = {}, gapSize = 0.dp, modifier = mod,
-                )
-            } else {
-                LinearProgressIndicator(color = Palette.accent, trackColor = Palette.panel2, modifier = mod)
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun LocalRow(song: LocalSong, onTap: () -> Unit, onLongPress: () -> Unit) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp)
-            .padding(bottom = 8.dp)
-            .testTag("local:${song.songId}")
-            .clip(RoundedCornerShape(10.dp))
-            .background(Palette.panel)
-            .border(1.dp, Palette.border, RoundedCornerShape(10.dp))
-            .combinedClickable(onClick = onTap, onLongClick = onLongPress)
-            .padding(12.dp),
-    ) {
-        Text(song.title.ifBlank { song.displayName }, color = Palette.text, fontSize = 15.sp, lineHeight = 21.sp)
-        if (song.artist.isNotBlank()) {
-            Text(song.artist, color = Palette.textDim, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
-        }
-        Row(Modifier.padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            val ext = song.displayName.substringAfterLast('.', "").uppercase()
-            Text(ext, color = Palette.ok, fontSize = 11.sp)
-            formatDuration(song.durationSec).takeIf { it.isNotEmpty() }?.let {
-                MetaSeparator(); Text(it, color = Palette.textDim, fontSize = 11.sp)
-            }
-            MetaSeparator()
-            Text(formatBytes(song.bytes), color = Palette.textDim, fontSize = 11.sp)
-            MetaSeparator()
-            Text("tap to play", color = Palette.ok, fontSize = 11.sp)
-        }
     }
 }
 

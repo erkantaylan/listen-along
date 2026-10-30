@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg">#1C1A16</color>
-    <color name="accent">#D99E5A</color>
-    <color name="launcher_bg">#24211B</color>
+    <!-- DESIGN.md palette: page background, solid accent, surface. -->
+    <color name="bg">#232528</color>
+    <color name="accent">#557799</color>
+    <color name="launcher_bg">#2C2F33</color>
 </resources>

@@ -278,3 +278,34 @@ restyling never breaks behaviour.
 `theme.css`, give it a role name (`--app-…`), and add it to the palette table above.
 
 Before finishing: check 320px and desktop, keyboard focus, and the console.
+
+## Android
+
+The Android app (`android/`, Jetpack Compose) follows this guide too: same dark-only palette,
+no light theme, one accent. Tokens live in `android/app/src/main/java/com/erkantaylan/listenalong/ui/theme/Theme.kt`
+(`Palette`), mapped onto a Material 3 `darkColorScheme` so stock M3 components come out right.
+Use `Palette.*`, never literal colours.
+
+| CSS token | `Palette` | Material 3 role |
+| --- | --- | --- |
+| `--app-page-bg` `#232528` | `page` | `background`, `surfaceContainerLowest`, `surfaceDim` |
+| `--bs-bg-body` `#2c2f33` | `surface` | `surface`, `surfaceContainer(Low)` |
+| `--bs-bg-1` … `--bs-bg-4` | `bg1` … `bg4` | `surfaceVariant`/`surfaceContainerHigh` (bg1), `surfaceContainerHighest`/`surfaceBright` (bg2) |
+| `--bs-fg-body` / `-2` / `-3` / `-4` | `fg` / `fg2` / `fg3` / `fg4` | `onSurface`/`onBackground` (fg), `onSurfaceVariant` (fg3) |
+| `--bs-border-color` `#3f4348` | `border` | `outline` |
+| `--bs-primary-bg` `#557799` | `accent` | `primary` (`onPrimary` = `#fff`) |
+| `--bs-primary-fg` `#9db8d6` | `accentFg` | `onPrimaryContainer`, `tertiary` |
+| `--bs-primary-bg-subtle` `#34404d` | `accentSubtle` | `primaryContainer` |
+| `--bs-secondary-bg` / `-bg-subtle` / `-fg` | `secondary` / `secondarySubtle` / `secondaryFg` | `secondary` / `secondaryContainer` |
+| `--bs-danger-bg` / `--bs-success-bg` | `dangerSolid` / `successSolid` (+ text tints `danger`, `success`) | `errorContainer` / `error` |
+
+Components (`ui/Components.kt`) stand in for the Bootstrap ones: `AppTopBar` (navbar: back, small
+title, muted subtitle, icon actions), `ListGroupItem` (list group row; `current` = `.is-playing`
+accent tint + 3dp left edge), `PrimaryButton` / `SecondaryButton` / `DangerButton` / `QuietButton`,
+`IconAction` (`.btn-text.btn-icon`, `active` = accent tint), `SubtleBadge` (e.g. "Private" with a
+lock), `TextInput` (`.form-control`), `Alert`, `EmptyState` (`.app-empty`), `Thumb` (`.app-thumb`).
+Type: the system font at 16sp body, 14sp/12sp secondary text in `fg3`, small semibold titles.
+Radii 8dp (buttons, inputs) and 12dp (cards, list groups). Icons are Material paths (`ui/Icons.kt`),
+tinted `fg3` by default. The player is one persistent mini bar above the tabs (cover, title,
+"artist · context", previous / solid accent play pill / next, thin progress line) plus a
+full-screen player; never add a second one.

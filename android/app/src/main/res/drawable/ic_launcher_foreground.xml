@@ -5,18 +5,18 @@
     android:viewportHeight="108">
     <!-- A beamed pair of eighth notes, inside the adaptive-icon safe zone. -->
     <path
-        android:fillColor="#D99E5A"
+        android:fillColor="#9DB8D6"
         android:pathData="M44,38 L72,32 L72,38 L44,44 Z" />
     <path
-        android:fillColor="#D99E5A"
+        android:fillColor="#9DB8D6"
         android:pathData="M44,38 L47,38 L47,66 L44,66 Z" />
     <path
-        android:fillColor="#D99E5A"
+        android:fillColor="#9DB8D6"
         android:pathData="M69,32 L72,32 L72,60 L69,60 Z" />
     <path
-        android:fillColor="#E8C79A"
+        android:fillColor="#C3D4E7"
         android:pathData="M38,66 a7,5.5 0 1,0 14,0 a7,5.5 0 1,0 -14,0 Z" />
     <path
-        android:fillColor="#E8C79A"
+        android:fillColor="#C3D4E7"
         android:pathData="M63,60 a7,5.5 0 1,0 14,0 a7,5.5 0 1,0 -14,0 Z" />
 </vector>

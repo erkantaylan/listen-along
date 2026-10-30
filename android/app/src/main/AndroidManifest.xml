@@ -9,6 +9,10 @@
     <!-- WorkManager runs the download queue as a dataSync foreground service. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- The player: a mediaPlayback foreground service while it plays, and a
+         wake lock so a stream keeps going with the screen off. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Android 8-9 only: no MediaStore RELATIVE_PATH there, so the file is
          written into the public Music folder directly. Android 10+ saves
          through MediaStore and needs no storage permission at all. -->
@@ -51,6 +55,17 @@
         <receiver
             android:name=".download.CancelDownloadsReceiver"
             android:exported="false" />
+
+        <!-- Exported so the system, Bluetooth and Android Auto style
+             controllers can find the media session. -->
+        <service
+            android:name=".player.PlaybackService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
 
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"
