@@ -10,6 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const db = require('./db');
 const songMatch = require('./songMatch');
+const songReports = require('./songReports');
 
 const SONGS_PATH = process.env.SONGS_PATH || '/data/songs';
 // New uploads live in a subfolder so they never mix with the legacy cache files.
@@ -301,7 +302,7 @@ async function findUnavailableUrls(urls) {
  * Search/list library songs. Every whitespace-separated word of q must appear
  * (case-insensitive) in title, artist or album.
  */
-async function list({ q = '', limit = 100, offset = 0, youtubeId = null, sort = 'recent' } = {}) {
+async function list({ q = '', limit = 100, offset = 0, youtubeId = null, sort = 'recent', reported = false } = {}) {
   const where = [];
   const params = [];
   const words = String(q || '').trim().split(/\s+/).filter(Boolean).slice(0, 10);
@@ -313,17 +314,23 @@ async function list({ q = '', limit = 100, offset = 0, youtubeId = null, sort = 
     params.push(youtubeId);
     where.push(`youtube_id = $${params.length}`);
   }
+  // Only songs marked broken ("needs replacement") by someone.
+  if (reported) where.push(songReports.OPEN_REPORT_EXISTS_SQL);
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const orderSql = {
     recent: 'created_at DESC, id',
     title: 'lower(title), lower(artist), id',
     artist: 'lower(artist), lower(title), id',
   }[sort] || 'created_at DESC, id';
+  // The reported list, "recent": the most recently reported first.
+  const orderFinal = reported && (sort === 'recent' || !sort)
+    ? '(SELECT max(rr.updated_at) FROM library_song_reports rr WHERE rr.song_id = library_songs.id AND rr.resolved_at IS NULL) DESC NULLS LAST, id'
+    : orderSql;
 
   const total = await db.query(`SELECT COUNT(*)::int AS n FROM library_songs ${whereSql}`, params);
   params.push(limit, offset);
   const rows = await db.query(
-    `SELECT ${PUBLIC_COLUMNS} FROM library_songs ${whereSql} ORDER BY ${orderSql} LIMIT $${params.length - 1} OFFSET $${params.length}`,
+    `SELECT ${PUBLIC_COLUMNS} FROM library_songs ${whereSql} ORDER BY ${orderFinal} LIMIT $${params.length - 1} OFFSET $${params.length}`,
     params
   );
   return { songs: rows.rows.map(toPublic), total: total.rows[0].n };
@@ -663,7 +670,8 @@ async function ingestUpload(file, fields, uploader) {
  * @param {object} fields - validated fields (validateUploadFields)
  * @param {{name: string, id?: string, userId?: string}} actor - who replaces
  *   (req.apiUser for a token; { name, userId } for a web user)
- * @returns {Promise<{song: object, previous: object}>} new and old rows
+ * @returns {Promise<{song: object, previous: object, resolvedReports: number}>} new
+ *   and old rows, and how many open "needs replacement" reports it resolved
  * @throws {UploadError} 400 invalid file, 404 unknown song, 409 the file /
  *   youtube_id belongs to another song (err.song set), or it is the same file
  */
@@ -685,6 +693,7 @@ async function replaceSong(id, file, fields, actor) {
     const client = await db.getClient();
     let previous;
     let updated;
+    let resolvedReports = 0;
     try {
       await client.query('BEGIN');
       const cur = await client.query('SELECT * FROM library_songs WHERE id = $1 FOR UPDATE', [id]);
@@ -717,6 +726,8 @@ async function replaceSong(id, file, fields, actor) {
           previous.youtube_id, previous.source_url, previous.sha256, previous.title, previous.artist, previous.album, previous.duration_sec,
           updated.youtube_id, updated.source_url, updated.sha256, updated.title, updated.artist, updated.album, updated.duration_sec]
       );
+      // The song is fixed: every open "needs replacement" report is resolved.
+      resolvedReports = await songReports.resolveForSong(id, { resolution: 'replaced', userId: actor.userId, name: actor.name }, client);
       await client.query('COMMIT');
     } catch (err) {
       await client.query('ROLLBACK').catch(() => {});
@@ -732,7 +743,7 @@ async function replaceSong(id, file, fields, actor) {
     if (previous.file_path && path.resolve(previous.file_path) !== path.resolve(updated.file_path)) {
       try { fs.unlinkSync(previous.file_path); } catch {}
     }
-    return { song: updated, previous };
+    return { song: updated, previous, resolvedReports };
   } finally {
     if (newPath) { try { fs.unlinkSync(newPath); } catch {} }
     try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {}

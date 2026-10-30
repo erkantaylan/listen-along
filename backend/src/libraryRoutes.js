@@ -18,6 +18,7 @@ const library = require('./library');
 const requests = require('./requests');
 const tokens = require('./tokens');
 const downloadJobs = require('./downloadJobs');
+const songReports = require('./songReports');
 const adminAuth = require('./adminAuth');
 const { apiLimiter } = require('./rateLimits');
 
@@ -92,6 +93,7 @@ function sendSongFile(req, res, song, { download = false } = {}) {
  * @param {Function} [hooks.requireWebUser] - middleware: is the caller a web user allowed to read?
  * @param {(job: object, song: object) => void} [hooks.onJobUpload] - a worker uploaded a song for a job
  * @param {(request: object) => void} [hooks.onRequestDismissed]
+ * @param {(songId: string) => void} [hooks.onReportsChanged] - a song was marked / unmarked broken, or its reports dismissed
  */
 function createLibraryRouter(hooks = {}) {
   const onSongAdded = hooks.onSongAdded || (() => {});
@@ -100,6 +102,7 @@ function createLibraryRouter(hooks = {}) {
   const onSongReplaced = hooks.onSongReplaced || (() => {});
   const onJobUpload = hooks.onJobUpload || (() => {});
   const onRequestDismissed = hooks.onRequestDismissed || (() => {});
+  const onReportsChanged = hooks.onReportsChanged || (() => {});
   const loginRateLimit = hooks.loginRateLimit || ((req, res, next) => next());
   const requireWebUser = hooks.requireWebUser
     || ((req, res) => res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' }));
@@ -124,6 +127,10 @@ function createLibraryRouter(hooks = {}) {
     const account = (req._listenAuth && req._listenAuth.account) || {};
     return { id: null, userId: account.id || null, name: account.name || account.username || 'web user' };
   };
+
+  // The account behind the request (token owner or web user), for "mine".
+  const viewerOf = (req) => (req.apiUser ? req.apiUser.userId || null
+    : (req._listenAuth && req._listenAuth.account && req._listenAuth.account.id) || null);
 
   const router = express.Router();
   router.use(apiLimiter);
@@ -169,7 +176,10 @@ function createLibraryRouter(hooks = {}) {
         offset: parseIntParam(req.query.offset, 0, 0, 1e9),
         youtubeId,
         sort: typeof req.query.sort === 'string' ? req.query.sort : 'recent',
+        reported: req.query.reported === '1' || req.query.reported === 'true',
       });
+      // Open "needs replacement" reports of each song (reports + report_count).
+      await songReports.attachReports(result.songs, viewerOf(req));
       res.json(result);
     } catch (err) {
       console.error('[library] list error:', err.message);
@@ -282,11 +292,12 @@ function createLibraryRouter(hooks = {}) {
     }
     try {
       const actor = actorOf(req);
-      const { song, previous } = await library.replaceSong(req.params.id, req.file, fields, actor);
-      console.log(`[library] ${actor.name} replaced the audio of ${song.id}: "${previous.title}" by ${previous.artist} -> "${song.title}" by ${song.artist}`);
+      const { song, previous, resolvedReports } = await library.replaceSong(req.params.id, req.file, fields, actor);
+      console.log(`[library] ${actor.name} replaced the audio of ${song.id}: "${previous.title}" by ${previous.artist} -> "${song.title}" by ${song.artist}${resolvedReports ? `; resolved ${resolvedReports} report(s)` : ''}`);
       try { onSongReplaced(song, previous); } catch (err) { console.error('[library] onSongReplaced hook failed:', err); }
       res.json({
         song: library.toPublic(song),
+        resolved_reports: resolvedReports || 0,
         previous: {
           youtube_id: previous.youtube_id || null,
           source_url: previous.source_url || null,
@@ -309,6 +320,43 @@ function createLibraryRouter(hooks = {}) {
     }
   });
 
+  // --- "Mark as broken — needs replacement" -------------------------------
+  // Any approved user (web session, or a token that has an owner): one open
+  // report per user per song; reporting again updates the reason.
+  // Body: { reason?: string (max 200) } -> { report, song }.
+  router.post('/api/library/:id/report', writeAccess, requireDb, async (req, res) => {
+    if (!library.isUuid(req.params.id)) return res.status(404).json({ error: 'Song not found', code: 'NOT_FOUND' });
+    try {
+      const actor = actorOf(req);
+      const { report, created } = await songReports.report(req.params.id, actor, req.body && req.body.reason);
+      console.log(`[reports] ${actor.name} ${created ? 'marked' : 'updated their report on'} ${req.params.id} as broken${report.reason ? `: ${report.reason}` : ''}`);
+      const pub = library.toPublic(await library.getById(req.params.id));
+      await songReports.attachReports([pub], actor.userId);
+      try { onReportsChanged(req.params.id); } catch {}
+      res.status(created ? 201 : 200).json({ report, song: pub });
+    } catch (err) {
+      if (err instanceof songReports.ReportError) return res.status(err.status).json({ error: err.message, code: err.code });
+      console.error('[reports] report error:', err.message);
+      res.status(500).json({ error: 'Could not report the song' });
+    }
+  });
+
+  // Withdraw your own report (nobody can withdraw someone else's).
+  router.delete('/api/library/:id/report', writeAccess, requireDb, async (req, res) => {
+    if (!library.isUuid(req.params.id)) return res.status(404).json({ error: 'Song not found', code: 'NOT_FOUND' });
+    const actor = actorOf(req);
+    try {
+      const removed = await songReports.unmark(req.params.id, actor.userId);
+      if (!removed) return res.status(404).json({ error: 'You have not marked this song as broken', code: 'NOT_FOUND' });
+      console.log(`[reports] ${actor.name} unmarked ${req.params.id}`);
+      try { onReportsChanged(req.params.id); } catch {}
+      res.json({ ok: true });
+    } catch (err) {
+      console.error('[reports] unmark error:', err.message);
+      res.status(500).json({ error: 'Could not unmark the song' });
+    }
+  });
+
   router.get('/api/library/:id/replacements', readAccess, requireDb, async (req, res) => {
     const song = await library.getById(req.params.id).catch(() => null);
     if (!song) return res.status(404).json({ error: 'Song not found' });
@@ -319,7 +367,9 @@ function createLibraryRouter(hooks = {}) {
   router.get('/api/library/:id', readAccess, requireDb, async (req, res) => {
     const song = await library.getById(req.params.id).catch(() => null);
     if (!song) return res.status(404).json({ error: 'Song not found' });
-    res.json({ song: library.toPublic(song) });
+    const pub = library.toPublic(song);
+    await songReports.attachReports([pub], viewerOf(req)).catch(() => {});
+    res.json({ song: pub });
   });
 
   router.get('/api/library/:id/file', readAccess, requireDb, async (req, res) => {
@@ -393,6 +443,24 @@ function createLibraryRouter(hooks = {}) {
     if (!record) return res.status(404).json({ error: 'Token not found' });
     console.log(`[admin] revoked token ${record.prefix}… ("${record.label}", owner ${record.owner ? record.owner.name || record.owner.id : 'legacy'})`);
     res.json({ record });
+  });
+
+  // Dismiss "needs replacement" reports: one report, or every open one of a song.
+  router.post('/api/admin/library/reports/:reportId/dismiss', adminAuth.requireAdmin, requireDb, async (req, res) => {
+    const row = await songReports.dismissReport(req.params.reportId).catch(() => null);
+    if (!row) return res.status(404).json({ error: 'Open report not found' });
+    console.log(`[admin] dismissed report ${row.id} on ${row.song_id}`);
+    try { onReportsChanged(String(row.song_id)); } catch {}
+    res.json({ ok: true, dismissed: 1 });
+  });
+
+  router.post('/api/admin/library/:id/reports/dismiss', adminAuth.requireAdmin, requireDb, async (req, res) => {
+    if (!library.isUuid(req.params.id)) return res.status(404).json({ error: 'Song not found' });
+    const n = await songReports.resolveForSong(req.params.id, { resolution: 'dismissed', name: 'admin' });
+    if (!n) return res.status(404).json({ error: 'No open reports for this song' });
+    console.log(`[admin] dismissed ${n} report(s) on ${req.params.id}`);
+    try { onReportsChanged(req.params.id); } catch {}
+    res.json({ ok: true, dismissed: n });
   });
 
   router.delete('/api/admin/library/:id', adminAuth.requireAdmin, requireDb, async (req, res) => {

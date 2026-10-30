@@ -240,6 +240,34 @@ async function createTables() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_song_replacements_song ON library_song_replacements(song_id, created_at DESC)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_song_replacements_old_yt ON library_song_replacements(old_youtube_id)`).catch(() => {});
 
+  // "Mark as broken — needs replacement" reports (songReports.js). One OPEN
+  // report per user per song (partial unique index); re-marking updates the
+  // reason. A report is resolved when the song's audio is replaced
+  // (resolution 'replaced', in library.replaceSong's transaction) or an admin
+  // dismisses it ('dismissed'). Deleting the song deletes its reports.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS library_song_reports (
+      id BIGSERIAL PRIMARY KEY,
+      song_id UUID NOT NULL REFERENCES library_songs(id) ON DELETE CASCADE,
+      reported_by_user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+      reported_by VARCHAR(255),
+      reason VARCHAR(200),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      resolved_at TIMESTAMPTZ,
+      resolved_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+      resolved_by VARCHAR(255),
+      resolution VARCHAR(20)
+    )
+  `);
+  await pool.query(`ALTER TABLE library_song_reports ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`).catch(() => {});
+  await pool.query(`ALTER TABLE library_song_reports ADD COLUMN IF NOT EXISTS resolved_by VARCHAR(255)`).catch(() => {});
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_song_reports_open_user
+      ON library_song_reports(song_id, reported_by_user_id) WHERE resolved_at IS NULL
+  `).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_song_reports_open ON library_song_reports(song_id) WHERE resolved_at IS NULL`).catch(() => {});
+
   // Song requests: a web user queued something that is not in the library.
   // lobby_id has no FK on purpose — the request outlives a deleted lobby.
   await pool.query(`

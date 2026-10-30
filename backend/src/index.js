@@ -371,6 +371,8 @@ app.use(createLibraryRouter({
   onSongAdded: (song, fulfilled) => { handleLibrarySongAdded(song, fulfilled).catch(err => console.error('[library] post-upload handling failed:', err)); },
   onRequestsChanged: () => io.to(APP_ROOM).emit('requests:updated'),
   onSongRemoved: (song) => io.to(APP_ROOM).emit('library:updated', { removed: song.id }),
+  // Marked / unmarked broken, or reports dismissed: badges everywhere refresh.
+  onReportsChanged: (songId) => io.to(APP_ROOM).emit('library:updated', { reports: { id: songId } }),
   onSongReplaced: (song, previous) => { handleLibrarySongReplaced(song, previous).catch(err => console.error('[library] post-replace handling failed:', err)); },
   loginRateLimit: rateLimit,
   // Library / requests reads from the web app: an approved account.
