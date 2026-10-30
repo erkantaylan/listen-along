@@ -128,6 +128,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Toasts | `showToast(message, type)` in `ui.js` → `.toast.show` in `#toast-container` (fixed, bottom centre). |
 | Overlays | `.app-modal` (fixed backdrop, toggled with `hidden`) wrapping a `.card.app-modal-card`; give it `role="dialog" aria-modal="true" aria-labelledby`. Full-screen panels (music library) are fixed layers with their own navbar. The dashboard sidebar becomes a slide-in drawer below 1024px (`.open` class). |
 | Cover art | `.app-thumb` (3rem square, grey placeholder with a music-note SVG). |
+| Player | The one app-wide `#player-bar` (`section.sticky-player.player-bar` in `index.html`, outside the views): see "Player bar" below. Never add a second player or a per-page `<audio>`. |
 | Icons | Inline SVG (Material paths), `fill="currentColor"`, `aria-hidden="true"`. Inside buttons they are sized automatically (1.25rem, 1rem in `.btn-sm`); elsewhere add `.icon` or `.icon-sm`. |
 
 ## Page layouts
@@ -138,13 +139,12 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   then "Active lobbies" card with a flush list group, footer (version, language, GitHub).
 - **Lobby**: full-height column — navbar (back, name/rename, listener count,
   pin/share), optional chat ticker, scrolling body (56rem) with underline tabs
-  (Queue | Social), and a fixed player bar at the bottom (cover, title, controls, volume,
-  seek bar, times). Below 768px the controls wrap to their own row; below 400px the volume
-  slider is hidden (mute stays) and the per-song YouTube button is hidden (the player keeps
-  the source link).
+  (Queue | Social). Playback is the app-wide player bar, like every other page. The back
+  button only navigates; it never leaves the lobby or stops audio. Below 400px the per-song
+  YouTube button is hidden (the player keeps the source link).
 - **Music library**: fixed full-screen layer over landing or lobby: navbar (back, title, "adding
   to" context), tabs Songs/Requested with count badges, search + sort toolbar, list group of
-  songs (preview play button, Add / disabled "Added" button), 20 per page: a compact
+  songs (play button — plays in the app-wide player, shows pause on the song that is playing —, Add / disabled "Added" button), 20 per page: a compact
   "‹ Page n of m ›" pager above the list and the full numbered pagination + range below it
   (both follow `?page=`, both hidden when there is one page).
 - **Profile**: navbar with back; avatar + display-name card; connected-accounts card; Sign out.
@@ -152,6 +152,26 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   stat cards grid, lobbies and users list groups.
 - **/admin, /youtube-playlist, /changelog**: navbar + narrow column of cards; Bootstrap and
   utilities only.
+
+### Player bar
+
+One persistent bar, fixed to the bottom of every signed-in SPA page (landing, library
+overlay, profile, dashboard, every lobby page), Spotify-style. Markup: `#player-bar` in
+`index.html`; behaviour: `player.js` (the only thing that touches `<audio id="audio-player">`),
+`player-bar.js` (visibility, padding, empty state, "from" line) and `playback.js` (title,
+art, times, buttons).
+
+- Desktop row: cover + title / "artist · context" (one button that opens the context:
+  the lobby page, or `/library`), repeat, shuffle, prev, play (`.btn-solid.theme-primary`
+  pill), next, mute + volume; seek `.form-range` with times below.
+- Below 768px the volume slider hides. Below 576px it is the slim form: cover, title,
+  play/pause, next and a thin seek line (`.player-extra` and times hidden).
+- Empty state (`.is-empty`): "Nothing playing", controls disabled (Play stays enabled on
+  a lobby page whose queue has songs).
+- It sits above the library overlay (`--bs-z-fixed` + 1). Its measured height is
+  `--app-player-height` on `body` (`.has-player-bar`), which pads `.view` and the library
+  body and lifts toasts and prompts; new fixed bottom elements must use it too.
+- Hidden only on the login / pending views.
 
 All pages must work from 320px wide with no horizontal page scroll; check 320 and 375.
 
