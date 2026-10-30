@@ -22,7 +22,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
@@ -74,6 +73,9 @@ val LocalReportActions = staticCompositionLocalOf<ReportActions?> { null }
 
 /** The muted warning tint of the broken icon. */
 private val WarningMuted get() = Palette.warning.copy(alpha = 0.85f)
+
+/** The bottom sheet's shape (its edge follows it). */
+private val SheetShape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
 
 /**
  * The small warning icon after a reported song's title. A real button:
@@ -140,9 +142,10 @@ fun SongActionsSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = state,
-        containerColor = Palette.surface,
+        containerColor = Palette.overlay,
         scrimColor = Palette.backdrop,
-        modifier = Modifier.testTag("song-sheet"),
+        shape = SheetShape,
+        modifier = Modifier.border(1.dp, Palette.borderStrong, SheetShape).testTag("song-sheet"),
     ) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 8.dp)) {
             Text(title.ifBlank { "Untitled" }, color = Palette.fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
@@ -152,7 +155,7 @@ fun SongActionsSheet(
                 Text(subtitle, color = Palette.fg3, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                      modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp))
             }
-            HorizontalDivider(color = Palette.border, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp))
+            HorizontalDivider(color = Palette.borderSubtle, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp))
             Column(Modifier.padding(horizontal = 8.dp)) { content(onDismiss) }
         }
     }
@@ -164,9 +167,9 @@ fun ReportDetailsDialog(song: Song, reports: List<SongReport>, onDismiss: () -> 
     val n = reports.size
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Palette.surface,
+        containerColor = Palette.overlay,
         shape = CardShape,
-        modifier = Modifier.testTag("report-details"),
+        modifier = Modifier.dialogEdge().testTag("report-details"),
         title = {
             Column {
                 Text("Needs replacement · $n ${if (n == 1) "report" else "reports"}", color = Palette.fg,
@@ -193,9 +196,7 @@ fun ReportDetailsDialog(song: Song, reports: List<SongReport>, onDismiss: () -> 
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss, modifier = Modifier.testTag("dialog:confirm")) {
-                Text("Close", color = Palette.accentFg, fontWeight = FontWeight.SemiBold)
-            }
+            DialogDismiss(onDismiss, text = "Close", tag = "dialog:confirm")
         },
     )
 }
@@ -218,9 +219,9 @@ fun ReportDialog(
     val editing = current != null
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Palette.surface,
+        containerColor = Palette.overlay,
         shape = CardShape,
-        modifier = Modifier.testTag("report-dialog"),
+        modifier = Modifier.dialogEdge().testTag("report-dialog"),
         title = { Text(if (editing) "Edit your report" else "Mark as broken", color = Palette.fg, fontSize = 17.sp, fontWeight = FontWeight.SemiBold) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -248,13 +249,11 @@ fun ReportDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSubmit(reason) }, enabled = !busy, modifier = Modifier.testTag("dialog:confirm")) {
-                Text(if (busy) "Saving…" else if (editing) "Update" else "Mark as broken",
-                     color = if (busy) Palette.fg4 else Palette.accentFg, fontWeight = FontWeight.SemiBold)
-            }
+            DialogConfirm(if (busy) "Saving…" else if (editing) "Update" else "Mark as broken",
+                          { onSubmit(reason) }, enabled = !busy)
         },
         dismissButton = {
-            TextButton(onClick = onDismiss, modifier = Modifier.testTag("dialog:dismiss")) { Text("Cancel", color = Palette.fg3) }
+            DialogDismiss(onDismiss)
         },
     )
 }
@@ -265,14 +264,14 @@ private fun ReasonChip(text: String, selected: Boolean, onClick: () -> Unit) {
     Row(
         Modifier
             .clip(ButtonShape)
-            .background(if (selected) Palette.accentSubtle else Palette.secondarySubtle)
-            .border(1.dp, if (selected) Palette.accent else Palette.border, ButtonShape)
+            .background(if (selected) Palette.accentSubtle else Palette.tonal)
+            .border(1.dp, if (selected) Palette.accentBorder else Palette.borderStrong, ButtonShape)
             .clickable(onClick = onClick)
             .semantics { role = Role.Checkbox; this.selected = selected; contentDescription = text }
             .heightIn(min = 36.dp)
             .padding(horizontal = 12.dp, vertical = 8.dp)
             .testTag("reason:$text"),
     ) {
-        Text(text, color = if (selected) Palette.accentFg else Palette.fg2, fontSize = 14.sp)
+        Text(text, color = if (selected) Palette.accentFg else Palette.fg, fontSize = 14.sp)
     }
 }

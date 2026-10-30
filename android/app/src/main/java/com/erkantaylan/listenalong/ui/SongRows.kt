@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -82,7 +81,7 @@ fun SongRow(
             meta = meta,
             titleColor = when {
                 !enabled -> Palette.fg4
-                current -> Palette.accentFg
+                current -> Palette.accentFgStrong
                 else -> Palette.fg
             },
             extra = if (download != null || detail != null) {
@@ -160,12 +159,7 @@ private fun RowMenu(tag: String, content: @Composable ColumnScope.(dismiss: () -
     var open by remember { mutableStateOf(false) }
     Box {
         IconAction(AppIcons.More, "More actions", tag = "menu:$tag") { open = true }
-        DropdownMenu(
-            expanded = open,
-            onDismissRequest = { open = false },
-            containerColor = Palette.bg1,
-            shape = ButtonShape,
-        ) { content { open = false } }
+        AppDropdownMenu(expanded = open, onDismissRequest = { open = false }) { content { open = false } }
     }
 }
 

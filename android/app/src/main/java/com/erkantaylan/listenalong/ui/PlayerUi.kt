@@ -31,6 +31,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -82,8 +84,8 @@ private fun Cover(now: NowPlaying, size: Dp, corner: Dp) {
         Image(art, contentDescription = null, contentScale = ContentScale.Crop,
               modifier = Modifier.size(size).clip(RoundedCornerShape(corner)))
     } else {
-        Box(Modifier.size(size).clip(RoundedCornerShape(corner)).background(Palette.bg2), contentAlignment = Alignment.Center) {
-            Icon(AppIcons.MusicNote, contentDescription = null, tint = Palette.fg4, modifier = Modifier.size(size * 0.45f))
+        Box(Modifier.size(size).clip(RoundedCornerShape(corner)).background(Palette.bg3), contentAlignment = Alignment.Center) {
+            Icon(AppIcons.MusicNote, contentDescription = null, tint = Palette.fg3, modifier = Modifier.size(size * 0.45f))
         }
     }
 }
@@ -92,13 +94,19 @@ private fun Cover(now: NowPlaying, size: Dp, corner: Dp) {
 private fun secondLine(now: NowPlaying): String =
     listOfNotNull(now.artist.takeIf { it.isNotBlank() }, now.context).joinToString(" · ")
 
-/** The web's play button: a solid accent pill/circle. */
+/** The web's play button: the primary accent pill (dark icon), darker while pressed. */
 @Composable
 private fun PlayPill(now: NowPlaying, size: Dp, onClick: () -> Unit) {
+    val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
     IconButton(
         onClick = onClick,
+        interactionSource = interaction,
         modifier = Modifier.size(size).testTag("player:toggle"),
-        colors = IconButtonDefaults.iconButtonColors(containerColor = Palette.accent, contentColor = Palette.onAccent),
+        colors = IconButtonDefaults.iconButtonColors(
+            containerColor = if (pressed) Palette.accentPressed else Palette.accent,
+            contentColor = Palette.onAccent,
+        ),
         shape = CircleShape,
     ) {
         Icon(if (now.isPlaying) AppIcons.Pause else AppIcons.Play,
@@ -114,11 +122,11 @@ private fun PlayPill(now: NowPlaying, size: Dp, onClick: () -> Unit) {
 @Composable
 fun MiniPlayer(now: NowPlaying, player: PlayerConnection, onOpen: () -> Unit) {
     val position = rememberPosition(player, now)
-    Column(Modifier.fillMaxWidth().background(Palette.surface).testTag("mini-player")) {
+    Column(Modifier.fillMaxWidth().background(Palette.raised).testTag("mini-player")) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.border))
         val fraction = if (now.durationMs > 0) (position.toFloat() / now.durationMs).coerceIn(0f, 1f) else 0f
         LinearProgressIndicator(
-            progress = { fraction }, color = Palette.accentFg, trackColor = Palette.bg2,
+            progress = { fraction }, color = Palette.accent, trackColor = Palette.bg4,
             drawStopIndicator = {}, gapSize = 0.dp, modifier = Modifier.fillMaxWidth().height(2.dp),
         )
         Row(
@@ -132,7 +140,7 @@ fun MiniPlayer(now: NowPlaying, player: PlayerConnection, onOpen: () -> Unit) {
                 Text(secondLine(now), color = Palette.fg3, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             IconAction(AppIcons.Previous, "Previous", tag = "mini:previous", onClick = player::previous)
-            PlayPill(now, 40.dp, player::togglePlay)
+            PlayPill(now, 46.dp, player::togglePlay)
             IconAction(AppIcons.Next, "Next", tag = "mini:next", enabled = now.hasNext, onClick = player::next)
         }
     }
@@ -178,7 +186,8 @@ fun FullPlayer(now: NowPlaying, player: PlayerConnection, onClose: () -> Unit) {
                     Image(art, contentDescription = null, contentScale = ContentScale.Crop,
                           modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)))
                 } else {
-                    Box(Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)).background(Palette.surface),
+                    Box(Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)).background(Palette.surface)
+                            .border(1.dp, Palette.border, RoundedCornerShape(12.dp)),
                         contentAlignment = Alignment.Center) {
                         Icon(AppIcons.MusicNote, contentDescription = null, tint = Palette.fg4, modifier = Modifier.size(96.dp))
                     }
@@ -198,8 +207,8 @@ fun FullPlayer(now: NowPlaying, player: PlayerConnection, onClose: () -> Unit) {
                      overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
             }
             Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (now.local) SubtleBadge("On device", AppIcons.DownloadDone, accent = false)
-                else SubtleBadge("Streaming", AppIcons.Public, accent = false)
+                if (now.local) SubtleBadge("On device", AppIcons.DownloadDone, tone = BadgeTone.SUCCESS)
+                else SubtleBadge("Streaming", AppIcons.Public)
                 if (now.queueSize > 1) SubtleBadge("${now.index + 1} of ${now.queueSize}")
             }
 
@@ -215,11 +224,11 @@ fun FullPlayer(now: NowPlaying, player: PlayerConnection, onClose: () -> Unit) {
                 },
                 enabled = duration > 0,
                 colors = SliderDefaults.colors(
-                    thumbColor = Palette.accentFg,
+                    thumbColor = Palette.accent,
                     activeTrackColor = Palette.accent,
-                    inactiveTrackColor = Palette.bg3,
+                    inactiveTrackColor = Palette.bg4,
                     disabledThumbColor = Palette.fg4,
-                    disabledInactiveTrackColor = Palette.bg2,
+                    disabledInactiveTrackColor = Palette.hover,
                 ),
                 modifier = Modifier.fillMaxWidth().testTag("player:seek"),
             )
@@ -241,7 +250,7 @@ fun FullPlayer(now: NowPlaying, player: PlayerConnection, onClose: () -> Unit) {
                            active = now.shuffle, size = 48.dp, iconSize = 24.dp, onClick = player::toggleShuffle)
                 IconAction(AppIcons.Previous, "Previous", tag = "player:previous", tint = Palette.fg2,
                            size = 56.dp, iconSize = 32.dp, onClick = player::previous)
-                PlayPill(now, 72.dp, player::togglePlay)
+                PlayPill(now, 76.dp, player::togglePlay)
                 IconAction(AppIcons.Next, "Next", tag = "player:next", tint = Palette.fg2, enabled = now.hasNext,
                            size = 56.dp, iconSize = 32.dp, onClick = player::next)
                 IconAction(

@@ -459,8 +459,8 @@ Use `Palette.*`, never literal colours.
 
 ### Android mapping
 
-The values below are the source of truth for `Palette` (they match `theme.css` exactly; the
-Android follow-up applies them). Hex is `0xFFRRGGBB` in Compose.
+The values below are the source of truth for `Palette` (they match `theme.css` exactly).
+Hex is `0xFFRRGGBB` in Compose.
 
 | CSS token | Hex | `Palette` | Material 3 role |
 | --- | --- | --- | --- |
@@ -503,10 +503,18 @@ outline on `field`, `accent` 2dp when focused. Menus, sheets and dialogs use `ov
 title; hover/pressed rows use `hover` / `pressed`.
 
 Components (`ui/Components.kt`) stand in for the Bootstrap ones: `AppTopBar` (navbar: back, small
-title, muted subtitle, icon actions), `ListGroupItem` (list group row; `current` = `.is-playing`
-accent tint + 3dp left edge), `PrimaryButton` / `SecondaryButton` / `DangerButton` / `QuietButton`,
-`IconAction` (`.btn-text.btn-icon`, `active` = accent tint), `SubtleBadge` (e.g. "Private" with a
-lock), `TextInput` (`.form-control`), `Alert`, `EmptyState` (`.app-empty`), `Thumb` (`.app-thumb`).
+title, muted subtitle, icon actions), `ListGroupItem` (list group row; each row draws its slice of
+the group's 1dp `border` outline; pressed = `pressed` fill, `current` = `.is-playing` accent tint +
+3dp left edge, `lifted` = the row being dragged), `PrimaryButton` / `SecondaryButton` (`outlined`
+variant) / `DangerButton` (`solid` only as a destructive dialog's confirm) / `QuietButton`, all with
+`compact` for top bars and dialogs, `IconAction` (`.btn-text.btn-icon`, `active` = accent tint +
+accent border), `SubtleBadge` (`tone`: NEUTRAL "Private" / counts, ACCENT, WARNING "Broken" count,
+SUCCESS "On device", DANGER), `TextInput` (`.form-control`), `Alert` (tinted fill + matching border),
+`EmptyState` (`.app-empty`), `Thumb` (`.app-thumb`), and for overlays `AppDropdownMenu`,
+`Modifier.dialogEdge()`, `DialogConfirm` (primary, or solid danger) / `DialogDismiss` (secondary).
+Dialog actions are real buttons (Cancel secondary + one primary), not M3's text buttons.
+There is no hover on touch: pressed uses `accentPressed` (primary, play pill), `tonalHover` +
+`borderHover` (secondary), `dangerSubtle` (danger), `pressed` (icon buttons, rows); the focus ring is left to the platform (Compose draws no ring by default).
 Type: the system font at 16sp body, 14sp/12sp secondary text in `fg3`, small semibold titles.
 Radii 8dp (buttons, inputs) and 12dp (cards, list groups). Icons are Material paths (`ui/Icons.kt`),
 tinted `fg3` by default. The player is one persistent mini bar above the tabs (cover, title,

@@ -99,7 +99,7 @@ fun OnDeviceScreen(
                 if (snapshot.pending.isNotEmpty()) {
                     item(key = "downloading-header") {
                         SectionHeading("Downloading — ${snapshot.pending.size}") {
-                            QuietButton("Cancel all", { downloads.cancelAll() }, accent = false, tag = "cancel-all")
+                            DangerButton("Cancel all", { downloads.cancelAll() }, tag = "cancel-all", compact = true)
                         }
                     }
                     itemsIndexed(snapshot.pending, key = { _, s -> "q-${s.id}" }) { i, song ->

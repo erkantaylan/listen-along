@@ -6,8 +6,9 @@ and keep songs as **plain, unencrypted, tagged audio files** that VLC or any
 other player can open too.
 
 Kotlin + Jetpack Compose + Media3, no cross-platform runtime. The look follows
-the web app (`DESIGN.md`, "Android" section): dark only, soft greys, one muted
-slate-blue accent.
+the web app (`DESIGN.md`, "Android" section): dark only, soft greys on a page < surface < raised < overlay scale with
+visible borders, and one cornflower-blue accent (filled, dark text) for the
+main action of each screen and the play button.
 
 ## Getting started
 

@@ -22,7 +22,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -288,17 +287,25 @@ private fun BrokenFilter(brokenOnly: Boolean, count: Int, onChange: (Boolean) ->
         horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
     ) {
         FilterToggle("All songs", null, !brokenOnly, "filter:all") { onChange(false) }
-        FilterToggle(if (count > 0) "Broken · $count" else "Broken", AppIcons.Warning, brokenOnly, "filter:broken") { onChange(true) }
+        FilterToggle("Broken", AppIcons.Warning, brokenOnly, "filter:broken", count.takeIf { it > 0 }) { onChange(true) }
     }
 }
 
 @Composable
-private fun FilterToggle(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector?, selected: Boolean, tag: String, onClick: () -> Unit) {
+private fun FilterToggle(
+    text: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector?,
+    selected: Boolean,
+    tag: String,
+    /** A warning count badge after the label (the web's Broken tab). */
+    count: Int? = null,
+    onClick: () -> Unit,
+) {
     androidx.compose.foundation.layout.Row(
         Modifier
             .clip(ButtonShape)
             .background(if (selected) Palette.accentSubtle else Palette.surface)
-            .border(1.dp, if (selected) Palette.accent else Palette.border, ButtonShape)
+            .border(1.dp, if (selected) Palette.accentBorder else Palette.borderStrong, ButtonShape)
             .clickable(onClick = onClick)
             .semantics { this.selected = selected; role = androidx.compose.ui.semantics.Role.Tab }
             .heightIn(min = 34.dp)
@@ -308,10 +315,14 @@ private fun FilterToggle(text: String, icon: androidx.compose.ui.graphics.vector
     ) {
         if (icon != null) {
             androidx.compose.material3.Icon(icon, contentDescription = null,
-                tint = if (selected) Palette.accentFg else Palette.fg3, modifier = Modifier.size(16.dp))
+                tint = if (selected) Palette.accentFg else Palette.warning, modifier = Modifier.size(16.dp))
             androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
         }
         Text(text, color = if (selected) Palette.accentFg else Palette.fg2, fontSize = 14.sp)
+        if (count != null) {
+            androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
+            SubtleBadge("$count", tone = BadgeTone.WARNING)
+        }
     }
 }
 
@@ -321,7 +332,7 @@ private fun SortMenu(sort: SortOrder, onChange: (SortOrder) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         IconAction(AppIcons.Sort, "Sort: ${sort.label}", tag = "sort") { open = true }
-        DropdownMenu(open, onDismissRequest = { open = false }, containerColor = Palette.bg1, shape = ButtonShape) {
+        AppDropdownMenu(open, onDismissRequest = { open = false }) {
             SortOrder.entries.forEach { option ->
                 MenuEntry(
                     option.label,

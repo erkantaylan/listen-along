@@ -1,6 +1,7 @@
 package com.erkantaylan.listenalong.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -90,6 +91,7 @@ private fun TabButton(tab: Tab, active: Boolean, badge: String?, modifier: Modif
             Box(
                 Modifier.clip(RoundedCornerShape(14.dp))
                     .background(if (active) Palette.accentSubtle else Palette.surface)
+                    .border(1.dp, if (active) Palette.accentBorder else Palette.surface, RoundedCornerShape(14.dp))
                     .padding(horizontal = 16.dp, vertical = 3.dp),
             ) {
                 Icon(tab.icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
@@ -98,6 +100,7 @@ private fun TabButton(tab: Tab, active: Boolean, badge: String?, modifier: Modif
                 Text(
                     badge, color = Palette.onAccent, fontSize = 10.sp, fontWeight = FontWeight.Bold,
                     modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Palette.accent)
+                        .border(1.dp, Palette.surface, RoundedCornerShape(8.dp))
                         .padding(horizontal = 5.dp),
                 )
             }

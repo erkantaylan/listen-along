@@ -34,11 +34,9 @@ import androidx.compose.ui.zIndex
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -232,8 +230,8 @@ private fun PlaylistRow(
     onDialog: (PlaylistDialog) -> Unit,
 ) {
     ListGroupItem(index, count, modifier = Modifier.testTag("playlist:${playlist.id}"), onClick = onOpen) {
-        Box(Modifier.size(44.dp).clip(RoundedCornerShape(6.dp)).background(Palette.bg2), contentAlignment = Alignment.Center) {
-            Icon(AppIcons.QueueMusic, contentDescription = null, tint = Palette.fg3, modifier = Modifier.size(22.dp))
+        Box(Modifier.size(44.dp).clip(RoundedCornerShape(6.dp)).background(Palette.bg3), contentAlignment = Alignment.Center) {
+            Icon(AppIcons.QueueMusic, contentDescription = null, tint = Palette.fg2, modifier = Modifier.size(22.dp))
         }
         Column(Modifier.weight(1f).padding(start = 12.dp, end = 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -269,7 +267,7 @@ private fun PlaylistMenu(
     var open by remember { mutableStateOf(false) }
     Box {
         IconAction(AppIcons.More, "Playlist actions", tag = "menu:playlist:${playlist.id}") { open = true }
-        DropdownMenu(open, onDismissRequest = { open = false }, containerColor = Palette.bg1, shape = ButtonShape) {
+        AppDropdownMenu(open, onDismissRequest = { open = false }) {
             extra?.invoke { open = false }
             MenuEntry("Rename", AppIcons.Edit, "menu-rename", enabled = !readOnly) {
                 open = false; onDialog(PlaylistDialog.Rename(playlist))
@@ -358,10 +356,12 @@ private fun PlaylistDetail(
             } else null,
         ) {
             if (editing) {
-                QuietButton("Done", { viewModel.finishEditing() }, tag = "edit-done")
+                PrimaryButton("Done", { viewModel.finishEditing() }, tag = "edit-done", compact = true,
+                              modifier = Modifier.padding(end = 8.dp))
             } else if (playlist != null) {
                 if (canEdit && state.entries.isNotEmpty()) {
-                    QuietButton("Edit", { viewModel.startEditing() }, tag = "edit-playlist")
+                    SecondaryButton("Edit", { viewModel.startEditing() }, tag = "edit-playlist", compact = true,
+                                    modifier = Modifier.padding(end = 4.dp))
                 }
                 IconAction(AppIcons.Download, "Download playlist", tag = "download-playlist",
                            enabled = songs.isNotEmpty() && online) {
@@ -496,11 +496,11 @@ private fun PlaylistDetail(
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(12.dp)) { data ->
             Snackbar(
                 data,
-                containerColor = Palette.bg2,
+                containerColor = Palette.overlay,
                 contentColor = Palette.fg,
                 actionColor = Palette.accentFg,
                 shape = ButtonShape,
-                modifier = Modifier.testTag("snackbar"),
+                modifier = Modifier.border(1.dp, Palette.borderStrong, ButtonShape).testTag("snackbar"),
             )
         }
     }
@@ -533,9 +533,9 @@ private fun EditableEntryRow(
             .semantics { customActions = moves }
             .testTag("edit-entry:${entry.entryId}")
     ) {
-        ListGroupItem(index, count, current = dragging) {
+        ListGroupItem(index, count, lifted = dragging) {
             Box(handle.size(40.dp).testTag("drag:${entry.entryId}"), contentAlignment = Alignment.Center) {
-                Icon(AppIcons.DragHandle, contentDescription = "Drag to reorder", tint = Palette.fg3, modifier = Modifier.size(22.dp))
+                Icon(AppIcons.DragHandle, contentDescription = "Drag to reorder", tint = Palette.fg4, modifier = Modifier.size(22.dp))
             }
             TitleAndMeta(
                 title = entry.cleanTitle.ifBlank { "Untitled" },
@@ -600,8 +600,8 @@ private fun VisibilityChoice(text: String, icon: androidx.compose.ui.graphics.ve
     Row(
         Modifier
             .clip(ButtonShape)
-            .background(if (selected) Palette.accentSubtle else Palette.surface)
-            .border(1.dp, if (selected) Palette.accent else Palette.border, ButtonShape)
+            .background(if (selected) Palette.accentSubtle else Palette.field)
+            .border(1.dp, if (selected) Palette.accentBorder else Palette.borderStrong, ButtonShape)
             .clickable(onClick = onClick)
             .heightIn(min = 36.dp)
             .padding(horizontal = 12.dp, vertical = 6.dp)
@@ -643,8 +643,9 @@ fun AddToPlaylistDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = Palette.surface,
+        containerColor = Palette.overlay,
         shape = CardShape,
+        modifier = Modifier.dialogEdge(),
         title = {
             Text(
                 if (songs.size == 1) "Add \"${songs[0].title.ifBlank { "Untitled" }}\" to…" else "Add ${songs.size} songs to…",
@@ -682,7 +683,7 @@ fun AddToPlaylistDialog(
         },
         confirmButton = {},
         dismissButton = {
-            TextButton(onClick = onDismiss, modifier = Modifier.testTag("dialog:dismiss")) { Text("Cancel", color = Palette.fg3) }
+            DialogDismiss(onDismiss)
         },
     )
 }

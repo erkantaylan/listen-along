@@ -154,12 +154,12 @@ fun SettingsScreen(graph: AppGraph, snapshot: DownloadSnapshot, actions: AppActi
                     placeholder = "Paste the token from your profile", tag = "api-token",
                     secret = true, imeAction = ImeAction.Done, onSubmit = ::saveAndCheck,
                     trailing = {
-                        QuietButton("Paste", {
+                        SecondaryButton("Paste", {
                             val clip = context.getSystemService(ClipboardManager::class.java)
                             val text = clip?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)
                                 ?.coerceToText(context)?.toString()?.trim()
                             if (text.isNullOrEmpty()) actions.message("The clipboard is empty") else token = text
-                        }, tag = "paste-token")
+                        }, tag = "paste-token", compact = true, modifier = Modifier.padding(end = 4.dp))
                     },
                 )
                 Text(
@@ -172,7 +172,8 @@ fun SettingsScreen(graph: AppGraph, snapshot: DownloadSnapshot, actions: AppActi
                     verticalAlignment = Alignment.CenterVertically) {
                     PrimaryButton(if (checking) "Checking…" else "Save and test", ::saveAndCheck,
                                   enabled = !checking, tag = "save")
-                    if (config.hasToken) QuietButton("Profile", actions.openProfile, tag = "open-profile-small")
+                    if (config.hasToken) SecondaryButton("Profile", actions.openProfile, icon = AppIcons.OpenInNew,
+                                                         tag = "open-profile-small", outlined = true)
                 }
                 lines.forEach { line ->
                     Text(

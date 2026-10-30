@@ -14,58 +14,94 @@ import androidx.core.view.WindowCompat
 
 /**
  * The web app's palette (frontend/theme.css, DESIGN.md "Palette"), one to one.
- * Dark only: soft greys (never black), muted text, and one muted slate-blue
- * accent. There is no light scheme and no toggle, exactly as on the web.
+ * Dark only: soft greys (never black), muted text, and one cornflower-blue
+ * accent used as a fill with dark text. There is no light scheme and no toggle, exactly as on the web.
  *
  * Use these names, never literal colours. DESIGN.md's "Android" section maps
  * each one to its CSS token and to the Material 3 role it fills.
  */
 object Palette {
+    // --- Elevation: page < surface < raised < overlay (each step lighter). ---
     /** `--app-page-bg`: behind everything. */
-    val page = Color(0xFF232528)
-    /** `--bs-bg-body`: the raised surface (cards, list groups, bars, inputs). */
-    val surface = Color(0xFF2C2F33)
-    /** `--bs-bg-1` … `--bs-bg-4`: subtle fills and hover/pressed states. */
-    val bg1 = Color(0xFF33363A)
-    val bg2 = Color(0xFF3A3D42)
-    val bg3 = Color(0xFF42464B)
-    val bg4 = Color(0xFF4C5056)
+    val page = Color(0xFF1D1F22)
+    /** `--app-surface`: cards, list groups, top bar, tab bar. */
+    val surface = Color(0xFF2A2D31)
+    /** `--app-raised`: the mini player, card headers. */
+    val raised = Color(0xFF33373C)
+    /** `--app-overlay`: menus, bottom sheets, dialogs, snackbars. */
+    val overlay = Color(0xFF3B4046)
+    /** `--app-field-bg`: the sunken well of text fields. */
+    val field = Color(0xFF222528)
+    /** `--app-btn-tonal` / `-hover`: secondary (tonal) button fill. */
+    val tonal = Color(0xFF41464D)
+    val tonalHover = Color(0xFF4B5158)
+    /** `--bs-bg-1` / `--bs-bg-2`: row hover / pressed fill (also the disabled fill). */
+    val hover = Color(0xFF32363B)
+    val pressed = Color(0xFF3A3E44)
+    /** `--bs-bg-3` / `--bs-bg-4`: neutral badge fill / its border, placeholder covers. */
+    val bg3 = Color(0xFF444950)
+    val bg4 = Color(0xFF52575E)
 
-    /** `--bs-fg-body`: body text. */
-    val fg = Color(0xFFE3E6E9)
-    /** `--bs-fg-2`: secondary text. */
-    val fg2 = Color(0xFFBFC4C9)
-    /** `--bs-fg-3`: muted text (bylines, counts). */
-    val fg3 = Color(0xFFA1A8AE)
-    /** `--bs-fg-4`: faint (icons, timestamps, placeholders). */
-    val fg4 = Color(0xFF7F868D)
+    // --- Text ---
+    /** `--app-text`: body text. */
+    val fg = Color(0xFFE8EAED)
+    /** `--app-text-secondary`: secondary text, icon buttons. */
+    val fg2 = Color(0xFFC3C8CE)
+    /** `--app-text-muted`: meta lines, hints, times. */
+    val fg3 = Color(0xFFA4ABB3)
+    /** `--app-text-faint`: placeholders, drag handles, disabled. */
+    val fg4 = Color(0xFF8F969E)
 
-    /** `--bs-border-color`. */
-    val border = Color(0xFF3F4348)
+    // --- Borders ---
+    /** `--app-border-subtle`: dividers inside a component. */
+    val borderSubtle = Color(0xFF3D4147)
+    /** `--app-border`: outline of cards, list groups, bars. */
+    val border = Color(0xFF50565D)
+    /** `--app-border-strong`: text fields, secondary buttons, overlays (3:1). */
+    val borderStrong = Color(0xFF737A83)
+    /** `--app-border-hover`. */
+    val borderHover = Color(0xFF8C939C)
 
-    /** `--bs-primary-bg`: solid accent (the one primary button, the play pill). */
-    val accent = Color(0xFF557799)
-    /** `--bs-primary-fg`: accent text, links, active icons. */
-    val accentFg = Color(0xFF9DB8D6)
-    /** `--bs-primary-bg-subtle`: accent tint (current row, active toggle). */
-    val accentSubtle = Color(0xFF34404D)
-    /** `--bs-primary-contrast`: text on the solid accent. */
-    val onAccent = Color(0xFFFFFFFF)
+    // --- Accent (cornflower blue), used as a fill with dark text. ---
+    /** `--app-accent`: primary buttons, the play pill, the playing edge, seek fill. */
+    val accent = Color(0xFF7CACEE)
+    val accentHover = Color(0xFF97BDF2)
+    val accentPressed = Color(0xFF6A9DE3)
+    /** `--app-on-accent`: text and icons on the accent fill (dark). */
+    val onAccent = Color(0xFF0E1B2C)
+    /** `--app-accent-text`: links, toggled icons. */
+    val accentFg = Color(0xFF8FBAF2)
+    /** `--app-accent-text-strong`: the playing title. */
+    val accentFgStrong = Color(0xFFB9D3F7)
+    /** `--app-accent-subtle`: playing row, toggled icon buttons, chosen chips. */
+    val accentSubtle = Color(0xFF2B3A4F)
+    /** `--app-accent-border`: toggled icon / chosen chip border. */
+    val accentBorder = Color(0xFF5D84B8)
+    /** `--app-focus`: focus indication. */
+    val focus = Color(0xFF9CC2F5)
 
-    /** `--bs-secondary-bg` / `-bg-subtle` / `-fg`: grey buttons and subtle badges. */
-    val secondary = Color(0xFF42464B)
-    val secondarySubtle = Color(0xFF383B40)
-    val secondaryFg = Color(0xFFAEB4BA)
+    // --- Status ---
+    val danger = Color(0xFFF2938D)
+    val dangerSolid = Color(0xFFC9443E)
+    val dangerSubtle = Color(0xFF4A2B2B)
+    val dangerBorder = Color(0xFFC06560)
+    val success = Color(0xFF6CC893)
+    val successSolid = Color(0xFF2B7F50)
+    val successSubtle = Color(0xFF24402F)
+    val successBorder = Color(0xFF4F9A6F)
+    val warning = Color(0xFFF0C060)
+    val warningSolid = Color(0xFFE5B23C)
+    val warningSubtle = Color(0xFF47391C)
+    val warningBorder = Color(0xFFA8873A)
+    val info = Color(0xFF6EC6DC)
+    val infoSolid = Color(0xFF2B7F93)
+    val infoSubtle = Color(0xFF1F3D45)
+    val infoBorder = Color(0xFF4B98AB)
+    /** White text on the solid danger / success fills. */
+    val onSolid = Color(0xFFFFFFFF)
 
-    /** Status only: `--bs-danger-bg` / `--bs-success-bg` and readable text tints of them. */
-    val dangerSolid = Color(0xFFB35A57)
-    val danger = Color(0xFFE39A97)
-    val successSolid = Color(0xFF4B8F68)
-    val success = Color(0xFF8CC7A3)
-    val warning = Color(0xFFE0BE6E)
-
-    /** `--app-backdrop` behind dialogs. */
-    val backdrop = Color(0x8C0A0B0C)
+    /** `--app-backdrop` behind dialogs and sheets. */
+    val backdrop = Color(0x990A0B0C)
 }
 
 private val colors = darkColorScheme(
@@ -74,9 +110,9 @@ private val colors = darkColorScheme(
     primaryContainer = Palette.accentSubtle,
     onPrimaryContainer = Palette.accentFg,
     inversePrimary = Palette.accentFg,
-    secondary = Palette.secondary,
-    onSecondary = Palette.fg,
-    secondaryContainer = Palette.secondarySubtle,
+    secondary = Palette.fg2,
+    onSecondary = Palette.page,
+    secondaryContainer = Palette.tonal,
     onSecondaryContainer = Palette.fg,
     tertiary = Palette.accentFg,
     onTertiary = Palette.page,
@@ -84,24 +120,24 @@ private val colors = darkColorScheme(
     onBackground = Palette.fg,
     surface = Palette.surface,
     onSurface = Palette.fg,
-    surfaceVariant = Palette.bg1,
+    surfaceVariant = Palette.raised,
     onSurfaceVariant = Palette.fg3,
     surfaceTint = Palette.surface,
-    surfaceBright = Palette.bg2,
+    surfaceBright = Palette.overlay,
     surfaceDim = Palette.page,
     surfaceContainerLowest = Palette.page,
     surfaceContainerLow = Palette.surface,
     surfaceContainer = Palette.surface,
-    surfaceContainerHigh = Palette.bg1,
-    surfaceContainerHighest = Palette.bg2,
+    surfaceContainerHigh = Palette.raised,
+    surfaceContainerHighest = Palette.overlay,
     inverseSurface = Palette.fg,
     inverseOnSurface = Palette.page,
-    outline = Palette.border,
-    outlineVariant = Palette.bg1,
+    outline = Palette.borderStrong,
+    outlineVariant = Palette.borderSubtle,
     error = Palette.danger,
-    onError = Palette.page,
-    errorContainer = Palette.dangerSolid,
-    onErrorContainer = Palette.fg,
+    onError = Palette.onSolid,
+    errorContainer = Palette.dangerSubtle,
+    onErrorContainer = Palette.danger,
     scrim = Palette.backdrop,
 )
 
