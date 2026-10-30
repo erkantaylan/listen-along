@@ -31,7 +31,6 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 function simulateRestart() {
   delete require.cache[require.resolve('./lobby')];
   delete require.cache[require.resolve('./queue')];
-  delete require.cache[require.resolve('./playback')];
 }
 
 // Lobby ownership + visibility + no-auto-expiry (hq-9gvy). Exercises the data
@@ -66,7 +65,6 @@ describe('Lobby ownership, visibility, persistence', { skip: skipReason, timeout
     delete require.cache[require.resolve('./db')];
     delete require.cache[require.resolve('./lobby')];
     delete require.cache[require.resolve('./queue')];
-    delete require.cache[require.resolve('./playback')];
   });
 
   it('lobbies table has an is_public column', async () => {
@@ -81,7 +79,7 @@ describe('Lobby ownership, visibility, persistence', { skip: skipReason, timeout
 
   it('createLobbyAsync persists host_id and defaults is_public=true', async () => {
     const lobby = require('./lobby');
-    const created = await lobby.createLobbyAsync(ALICE, 'own-1', 'synchronized', 'Alice room');
+    const created = await lobby.createLobbyAsync(ALICE, 'own-1', 'Alice room');
     assert.equal(created.hostId, ALICE);
     assert.equal(created.isPublic, true);
 
@@ -92,14 +90,14 @@ describe('Lobby ownership, visibility, persistence', { skip: skipReason, timeout
 
   it('anonymous creator persists host_id = null (no owner)', async () => {
     const lobby = require('./lobby');
-    await lobby.createLobbyAsync(null, 'anon-1', 'synchronized');
+    await lobby.createLobbyAsync(null, 'anon-1');
     const row = await db.query('SELECT host_id FROM lobbies WHERE id = $1', ['anon-1']);
     assert.equal(row.rows[0].host_id, null);
   });
 
   it('setVisibility persists and survives a restart', async () => {
     const lobby = require('./lobby');
-    await lobby.createLobbyAsync(ALICE, 'vis-1', 'synchronized', 'Toggle me');
+    await lobby.createLobbyAsync(ALICE, 'vis-1', 'Toggle me');
 
     await lobby.setVisibility('vis-1', false);
     let row = await db.query('SELECT is_public FROM lobbies WHERE id = $1', ['vis-1']);
@@ -119,8 +117,8 @@ describe('Lobby ownership, visibility, persistence', { skip: skipReason, timeout
 
   it('getAllLobbies carries hostId + isPublic for visibility filtering', async () => {
     const lobby = require('./lobby');
-    await lobby.createLobbyAsync(BOB, 'list-pub', 'synchronized', 'Bob public');
-    const priv = await lobby.createLobbyAsync(BOB, 'list-priv', 'synchronized', 'Bob private');
+    await lobby.createLobbyAsync(BOB, 'list-pub', 'Bob public');
+    const priv = await lobby.createLobbyAsync(BOB, 'list-priv', 'Bob private');
     await lobby.setVisibility(priv.id, false);
 
     const all = lobby.getAllLobbies();
@@ -141,7 +139,7 @@ describe('Lobby ownership, visibility, persistence', { skip: skipReason, timeout
 
   it('idle lobbies are NOT auto-deleted (no time-based expiry)', async () => {
     const lobby = require('./lobby');
-    await lobby.createLobbyAsync(ALICE, 'idle-1', 'synchronized', 'Idle room');
+    await lobby.createLobbyAsync(ALICE, 'idle-1', 'Idle room');
 
     // Backdate well past the old 24h timeout.
     const ancient = Date.now() - (1000 * 60 * 60 * 24 * 30); // 30 days
@@ -158,7 +156,7 @@ describe('Lobby ownership, visibility, persistence', { skip: skipReason, timeout
 
   it('deleteLobbyAsync removes the row from the DB (creator/admin delete)', async () => {
     const lobby = require('./lobby');
-    await lobby.createLobbyAsync(ALICE, 'del-1', 'synchronized', 'Delete me');
+    await lobby.createLobbyAsync(ALICE, 'del-1', 'Delete me');
     await delay(50);
 
     await lobby.deleteLobbyAsync('del-1');

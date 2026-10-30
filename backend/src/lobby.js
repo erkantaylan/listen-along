@@ -14,17 +14,16 @@ function generateLobbyId() {
   return uuidv4().substring(0, 8);
 }
 
-async function createLobby(hostId = null, customId = null, listeningMode = 'synchronized', name = null, isPublic = true) {
+// Every lobby is a shared queue that each listener plays at their own pace.
+async function createLobby(hostId = null, customId = null, name = null, isPublic = true) {
   const id = customId || generateLobbyId();
   const now = Date.now();
-  const mode = (listeningMode === 'independent') ? 'independent' : 'synchronized';
   const pub = isPublic !== false;
 
   const lobby = {
     id,
     hostId: hostId || null,
     name: name || null,
-    listeningMode: mode,
     isPublic: pub,
     pinned: false,
     createdAt: now,
@@ -34,8 +33,8 @@ async function createLobby(hostId = null, customId = null, listeningMode = 'sync
   if (db.isAvailable()) {
     try {
       await db.query(
-        'INSERT INTO lobbies (id, host_id, name, listening_mode, is_public, created_at, last_activity, pinned) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO UPDATE SET last_activity = $7',
-        [id, hostId || null, name || null, mode, pub, now, now, false]
+        'INSERT INTO lobbies (id, host_id, name, is_public, created_at, last_activity, pinned) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO UPDATE SET last_activity = $6',
+        [id, hostId || null, name || null, pub, now, now, false]
       );
     } catch (err) {
       console.error('Failed to persist lobby:', err.message);
@@ -56,7 +55,7 @@ async function getLobby(id) {
   if (!lobby && db.isAvailable()) {
     try {
       const result = await db.query(
-        'SELECT id, host_id, name, listening_mode, is_public, created_at, last_activity, pinned FROM lobbies WHERE id = $1',
+        'SELECT id, host_id, name, is_public, created_at, last_activity, pinned FROM lobbies WHERE id = $1',
         [id]
       );
       if (result.rows.length > 0) {
@@ -65,7 +64,6 @@ async function getLobby(id) {
           id: row.id,
           hostId: row.host_id,
           name: row.name || null,
-          listeningMode: row.listening_mode || 'synchronized',
           isPublic: row.is_public !== false,
           pinned: row.pinned || false,
           createdAt: parseInt(row.created_at),
@@ -117,9 +115,8 @@ async function joinLobby(lobbyId, socketId, username, emoji) {
     username: username || `User-${socketId.substring(0, 4)}`,
     emoji: emoji || null,
     joinedAt: Date.now(),
-    mode: 'listening', // 'listening' or 'lobby'
     currentTrack: null,  // { title, thumbnail } - what user is currently listening to
-    followingSocketId: null  // socketId of user being followed (independent mode)
+    followingSocketId: null  // socketId of user being followed
   };
 
   let users = lobbyUsers.get(lobbyId);
@@ -155,22 +152,6 @@ function getLobbyUsers(lobbyId) {
   return Array.from(users.values());
 }
 
-function setUserMode(lobbyId, socketId, mode) {
-  const users = lobbyUsers.get(lobbyId);
-  if (!users) return null;
-
-  const user = users.get(socketId);
-  if (!user) return null;
-
-  // Validate mode
-  if (mode !== 'listening' && mode !== 'lobby') {
-    return null;
-  }
-
-  user.mode = mode;
-  return user;
-}
-
 function updateUser(lobbyId, socketId, updates) {
   const users = lobbyUsers.get(lobbyId);
   if (!users) return null;
@@ -190,14 +171,6 @@ function updateUser(lobbyId, socketId, updates) {
   return user;
 }
 
-function getUserMode(lobbyId, socketId) {
-  const users = lobbyUsers.get(lobbyId);
-  if (!users) return null;
-
-  const user = users.get(socketId);
-  return user ? user.mode : null;
-}
-
 function setUserCurrentTrack(lobbyId, socketId, track) {
   const users = lobbyUsers.get(lobbyId);
   if (!users) return null;
@@ -207,18 +180,6 @@ function setUserCurrentTrack(lobbyId, socketId, track) {
 
   user.currentTrack = track ? { title: track.title, thumbnail: track.thumbnail } : null;
   return user;
-}
-
-function setAllUsersCurrentTrack(lobbyId, track) {
-  const users = lobbyUsers.get(lobbyId);
-  if (!users) return;
-
-  const trackInfo = track ? { title: track.title, thumbnail: track.thumbnail } : null;
-  for (const user of users.values()) {
-    if (user.mode === 'listening') {
-      user.currentTrack = trackInfo;
-    }
-  }
 }
 
 function setUserFollowing(lobbyId, socketId, targetSocketId) {
@@ -347,17 +308,14 @@ async function deleteLobby(id) {
 
 // Time-based lobby deletion was removed in hq-9gvy: idle lobbies are NEVER
 // deleted, in memory or in the DB. They persist until a creator (or admin)
-// explicitly deletes them. This sweep now only reclaims orphaned queue/playback
-// state for lobby IDs that no longer exist in memory (e.g. lazily created by
+// explicitly deletes them. This sweep now only reclaims orphaned queue state
+// for lobby IDs that no longer exist in memory (e.g. lazily created by
 // getQueue() for an already-deleted lobby) — it never removes a lobby itself.
 async function cleanupEmptyLobbies() {
-  // Lazy require to avoid circular dependency (playback.js requires lobby.js)
   const { cleanupOrphanedQueues } = require('./queue');
-  const playback = require('./playback');
 
   const validLobbyIds = new Set(lobbies.keys());
   cleanupOrphanedQueues(validLobbyIds);
-  playback.cleanupOrphanedPlayback(validLobbyIds);
 }
 
 // Cleanup interval handle (only start in production)
@@ -382,17 +340,15 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 // Sync wrapper for backward compatibility with tests
-function createLobbySync(hostId = null, customId = null, listeningMode = 'synchronized', name = null, isPublic = true) {
+function createLobbySync(hostId = null, customId = null, name = null, isPublic = true) {
   const id = customId || generateLobbyId();
   const now = Date.now();
-  const mode = (listeningMode === 'independent') ? 'independent' : 'synchronized';
 
   const users = new Map();
   const lobby = {
     id,
     hostId: hostId || null,
     name: name || null,
-    listeningMode: mode,
     isPublic: isPublic !== false,
     pinned: false,
     createdAt: now,
@@ -427,9 +383,8 @@ function joinLobbySync(lobbyId, socketId, username, emoji) {
     username: username || `User-${socketId.substring(0, 4)}`,
     emoji: emoji || null,
     joinedAt: Date.now(),
-    mode: 'listening', // 'listening' or 'lobby'
     currentTrack: null,  // { title, thumbnail } - what user is currently listening to
-    followingSocketId: null  // socketId of user being followed (independent mode)
+    followingSocketId: null  // socketId of user being followed
   };
 
   let users = lobbyUsers.get(lobbyId);
@@ -465,7 +420,7 @@ async function loadLobbiesFromDB() {
 
   try {
     const result = await db.query(
-      'SELECT id, host_id, name, listening_mode, is_public, created_at, last_activity, pinned FROM lobbies ORDER BY last_activity DESC'
+      'SELECT id, host_id, name, is_public, created_at, last_activity, pinned FROM lobbies ORDER BY last_activity DESC'
     );
 
     for (const row of result.rows) {
@@ -474,7 +429,6 @@ async function loadLobbiesFromDB() {
           id: row.id,
           hostId: row.host_id,
           name: row.name || null,
-          listeningMode: row.listening_mode || 'synchronized',
           isPublic: row.is_public !== false,
           pinned: row.pinned || false,
           createdAt: parseInt(row.created_at),
@@ -500,7 +454,6 @@ function getAllLobbies() {
     result.push({
       id,
       name: lobbyData.name || null,
-      listeningMode: lobbyData.listeningMode || 'synchronized',
       hostId: lobbyData.hostId || null,
       isPublic: lobbyData.isPublic !== false,
       pinned: lobbyData.pinned || false,
@@ -510,11 +463,6 @@ function getAllLobbies() {
     });
   }
   return result;
-}
-
-function getListeningMode(lobbyId) {
-  const lobby = lobbies.get(lobbyId);
-  return lobby ? lobby.listeningMode || 'synchronized' : 'synchronized';
 }
 
 function deleteLobbySync(id) {
@@ -529,12 +477,8 @@ module.exports = {
   leaveLobby: leaveLobbySync,
   getLobbyUsers,
   getAllLobbies,
-  getListeningMode,
-  setUserMode,
-  getUserMode,
   updateUser,
   setUserCurrentTrack,
-  setAllUsersCurrentTrack,
   setUserFollowing,
   getFollowers,
   clearFollowersOf,

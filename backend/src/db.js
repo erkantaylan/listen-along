@@ -55,24 +55,9 @@ async function createTables() {
       id VARCHAR(8) PRIMARY KEY,
       host_id VARCHAR(255),
       name VARCHAR(50),
-      listening_mode VARCHAR(20) DEFAULT 'synchronized',
       is_public BOOLEAN NOT NULL DEFAULT TRUE,
       created_at BIGINT NOT NULL,
       last_activity BIGINT NOT NULL
-    )
-  `;
-
-  const createPlaybackStateTable = `
-    CREATE TABLE IF NOT EXISTS playback_state (
-      lobby_id VARCHAR(8) PRIMARY KEY REFERENCES lobbies(id) ON DELETE CASCADE,
-      current_track JSONB,
-      position REAL DEFAULT 0,
-      is_playing BOOLEAN DEFAULT FALSE,
-      started_at BIGINT,
-      shuffle_enabled BOOLEAN DEFAULT FALSE,
-      shuffled_indices JSONB DEFAULT '[]',
-      shuffle_index INTEGER DEFAULT 0,
-      repeat_mode VARCHAR(10) DEFAULT 'off'
     )
   `;
 
@@ -167,7 +152,6 @@ async function createTables() {
   `;
 
   await pool.query(createLobbiesTable);
-  await pool.query(createPlaybackStateTable);
   await pool.query(createQueueSongsTable);
   await pool.query(createSongsTable);
   await pool.query(createChatMessagesTable);
@@ -252,13 +236,13 @@ async function createTables() {
     ALTER TABLE lobbies ADD COLUMN IF NOT EXISTS pinned BOOLEAN DEFAULT FALSE
   `).catch(() => {}); // Ignore if column already exists
 
-  await pool.query(`
-    ALTER TABLE lobbies ADD COLUMN IF NOT EXISTS listening_mode VARCHAR(20) DEFAULT 'synchronized'
-  `).catch(() => {}); // Ignore if column already exists
-
-  await pool.query(`
-    ALTER TABLE lobbies ADD COLUMN IF NOT EXISTS current_index INTEGER DEFAULT -1
-  `).catch(() => {}); // Ignore if column already exists
+  // "Jam" (synchronized) lobbies were removed: every lobby is a shared queue
+  // each listener plays at their own pace. Drop the per-lobby mode, the shared
+  // queue cursor and the server-side playback state so existing deployments
+  // load every lobby (including former Jam ones) the same way.
+  await pool.query(`ALTER TABLE lobbies DROP COLUMN IF EXISTS listening_mode`).catch(() => {});
+  await pool.query(`ALTER TABLE lobbies DROP COLUMN IF EXISTS current_index`).catch(() => {});
+  await pool.query(`DROP TABLE IF EXISTS playback_state`).catch(() => {});
 
   // Lobby visibility: public by default. Existing rows backfill to TRUE so no
   // lobby silently disappears on deploy.
@@ -268,10 +252,6 @@ async function createTables() {
 
   await pool.query(`
     ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS song_mention TEXT
-  `).catch(() => {}); // Ignore if column already exists
-
-  await pool.query(`
-    ALTER TABLE playback_state ADD COLUMN IF NOT EXISTS shuffle_history JSONB DEFAULT '[]'
   `).catch(() => {}); // Ignore if column already exists
 
   // Users table migrations (OAuth support)

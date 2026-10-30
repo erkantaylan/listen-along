@@ -60,10 +60,10 @@ run_socket_test() {
 }
 
 # ─────────────────────────────────────────────────────────────────
-# Scenario 1: Independent lobby + queue survives restart
+# Scenario 1: Lobby + queue survives restart
 # ─────────────────────────────────────────────────────────────────
 scenario_1() {
-  log "Scenario 1: Independent lobby + 3 songs → restart → verify"
+  log "Scenario 1: Lobby + 3 songs → restart → verify"
 
   local result
   result=$(node -e "
@@ -74,7 +74,6 @@ scenario_1() {
       socket.emit('lobby:create', {
         username: 'TestUser',
         emoji: '🎵',
-        listeningMode: 'independent',
         name: 'restart-test-1'
       });
     });
@@ -89,7 +88,7 @@ scenario_1() {
 
       // Wait for DB writes, then output lobby ID
       setTimeout(() => {
-        console.log(JSON.stringify({ lobbyId, listeningMode: data.listeningMode }));
+        console.log(JSON.stringify({ lobbyId }));
         socket.disconnect();
       }, 1000);
     });
@@ -104,14 +103,6 @@ scenario_1() {
 
   local lobby_id
   lobby_id=$(echo "$result" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const j=JSON.parse(d);process.stdout.write(j.lobbyId);})")
-  local mode
-  mode=$(echo "$result" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const j=JSON.parse(d);process.stdout.write(j.listeningMode);})")
-
-  if [ "$mode" != "independent" ]; then
-    fail "Scenario 1: Expected independent mode, got: $mode"
-    return
-  fi
-
   # Restart
   restart_app
 
@@ -154,7 +145,7 @@ scenario_1() {
   song_count=$(echo "$verify" | node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const j=JSON.parse(d);process.stdout.write(String(j.songCount));})")
 
   if [ "$song_count" = "3" ]; then
-    pass "Scenario 1: Independent lobby + 3 songs restored after restart"
+    pass "Scenario 1: Lobby + 3 songs restored after restart"
   else
     fail "Scenario 1: Expected 3 songs, got: $song_count"
   fi
@@ -177,7 +168,6 @@ scenario_3() {
       socket.emit('lobby:create', {
         username: 'OrderTest',
         emoji: '🔀',
-        listeningMode: 'synchronized',
         name: 'restart-test-3'
       });
     });
@@ -259,7 +249,6 @@ scenario_5() {
       s1.emit('lobby:create', {
         username: 'User1',
         emoji: '👤',
-        listeningMode: 'synchronized',
         name: 'restart-test-5'
       });
     });

@@ -1,8 +1,7 @@
 const { describe, it, beforeEach, after } = require('node:test');
 const assert = require('node:assert');
-const { createLobby, getLobby, joinLobby, leaveLobby, getLobbyUsers, getListeningMode, deleteLobby, isNameTaken, renameLobby, getAllLobbies, pinLobby, setVisibility, lobbies, cleanupEmptyLobbies } = require('./lobby');
+const { createLobby, getLobby, joinLobby, leaveLobby, getLobbyUsers, deleteLobby, isNameTaken, renameLobby, getAllLobbies, pinLobby, setVisibility, lobbies, cleanupEmptyLobbies } = require('./lobby');
 const { getQueue, deleteQueue, hasQueue } = require('./queue');
-const playback = require('./playback');
 
 describe('Lobby System', () => {
   beforeEach(() => {
@@ -32,7 +31,7 @@ describe('Lobby System', () => {
     });
 
     it('honors an explicit private visibility', () => {
-      const lobby = createLobby('host-1', null, 'synchronized', null, false);
+      const lobby = createLobby('host-1', null, null, false);
       assert.strictEqual(lobby.isPublic, false);
     });
 
@@ -55,7 +54,7 @@ describe('Lobby System', () => {
     });
 
     it('getAllLobbies exposes hostId and isPublic', () => {
-      createLobby('owner-x', 'all-test', 'synchronized', 'Mine', false);
+      createLobby('owner-x', 'all-test', 'Mine', false);
       const entry = getAllLobbies().find(l => l.id === 'all-test');
       assert.ok(entry);
       assert.strictEqual(entry.hostId, 'owner-x');
@@ -149,37 +148,6 @@ describe('Lobby System', () => {
     });
   });
 
-  describe('listeningMode', () => {
-    it('defaults to synchronized', () => {
-      const lobby = createLobby('host-1');
-      assert.strictEqual(lobby.listeningMode, 'synchronized');
-    });
-
-    it('can be set to independent', () => {
-      const lobby = createLobby('host-1', null, 'independent');
-      assert.strictEqual(lobby.listeningMode, 'independent');
-    });
-
-    it('sanitizes invalid mode to synchronized', () => {
-      const lobby = createLobby('host-1', null, 'invalid');
-      assert.strictEqual(lobby.listeningMode, 'synchronized');
-    });
-
-    it('getListeningMode returns mode for existing lobby', () => {
-      const lobby = createLobby('host-1', null, 'independent');
-      assert.strictEqual(getListeningMode(lobby.id), 'independent');
-    });
-
-    it('getListeningMode returns synchronized for non-existent lobby', () => {
-      assert.strictEqual(getListeningMode('nonexistent'), 'synchronized');
-    });
-
-    it('is accessible via getLobby', () => {
-      const created = createLobby('host-1', null, 'independent');
-      const found = getLobby(created.id);
-      assert.strictEqual(found.listeningMode, 'independent');
-    });
-  });
 
   describe('deleteLobby', () => {
     it('removes lobby', () => {
@@ -197,7 +165,7 @@ describe('Lobby System', () => {
 
   describe('lobby naming', () => {
     it('creates a lobby with a name', () => {
-      const lobby = createLobby('host-1', null, 'synchronized', 'My Lobby');
+      const lobby = createLobby('host-1', null, 'My Lobby');
       assert.strictEqual(lobby.name, 'My Lobby');
     });
 
@@ -207,7 +175,7 @@ describe('Lobby System', () => {
     });
 
     it('includes name in getAllLobbies', () => {
-      createLobby('host-1', null, 'synchronized', 'Named Lobby');
+      createLobby('host-1', null, 'Named Lobby');
       const all = getAllLobbies();
       assert.strictEqual(all.length, 1);
       assert.strictEqual(all[0].name, 'Named Lobby');
@@ -221,23 +189,23 @@ describe('Lobby System', () => {
     });
 
     it('returns true when name is taken', () => {
-      createLobby('host-1', null, 'synchronized', 'My Lobby');
+      createLobby('host-1', null, 'My Lobby');
       assert.strictEqual(isNameTaken('My Lobby'), true);
     });
 
     it('is case-insensitive', () => {
-      createLobby('host-1', null, 'synchronized', 'My Lobby');
+      createLobby('host-1', null, 'My Lobby');
       assert.strictEqual(isNameTaken('my lobby'), true);
       assert.strictEqual(isNameTaken('MY LOBBY'), true);
     });
 
     it('excludes a specific lobby from the check', () => {
-      const lobby = createLobby('host-1', null, 'synchronized', 'My Lobby');
+      const lobby = createLobby('host-1', null, 'My Lobby');
       assert.strictEqual(isNameTaken('My Lobby', lobby.id), false);
     });
 
     it('returns false for null or empty name', () => {
-      createLobby('host-1', null, 'synchronized', 'My Lobby');
+      createLobby('host-1', null, 'My Lobby');
       assert.strictEqual(isNameTaken(null), false);
       assert.strictEqual(isNameTaken(''), false);
     });
@@ -245,7 +213,7 @@ describe('Lobby System', () => {
 
   describe('renameLobby', () => {
     it('renames an existing lobby', async () => {
-      const lobby = createLobby('host-1', null, 'synchronized', 'Old Name');
+      const lobby = createLobby('host-1', null, 'Old Name');
       const result = await renameLobby(lobby.id, 'New Name');
       assert.ok(result.lobby);
       assert.strictEqual(result.lobby.name, 'New Name');
@@ -275,7 +243,7 @@ describe('Lobby System', () => {
     });
 
     it('returns error when name is already taken', async () => {
-      createLobby('host-1', null, 'synchronized', 'Taken Name');
+      createLobby('host-1', null, 'Taken Name');
       const lobby2 = createLobby('host-2');
       const result = await renameLobby(lobby2.id, 'Taken Name');
       assert.ok(result.error);
@@ -283,7 +251,7 @@ describe('Lobby System', () => {
     });
 
     it('allows renaming to same name (own lobby)', async () => {
-      const lobby = createLobby('host-1', null, 'synchronized', 'My Name');
+      const lobby = createLobby('host-1', null, 'My Name');
       const result = await renameLobby(lobby.id, 'My Name');
       assert.ok(result.lobby);
       assert.strictEqual(result.lobby.name, 'My Name');
@@ -336,12 +304,10 @@ describe('Lobby System', () => {
       const lobby = createLobby('host-1', 'cleanup-test');
       const lobbyId = lobby.id;
 
-      // Set up queue and playback state for this lobby
+      // Set up queue state for this lobby
       getQueue(lobbyId);
-      playback.initLobby(lobbyId);
 
       assert.ok(hasQueue(lobbyId), 'queue should exist before cleanup');
-      assert.ok(playback.getState(lobbyId), 'playback state should exist before cleanup');
 
       // Make the lobby far older than the old 24h timeout
       const lobbyData = lobbies.get(lobbyId);
@@ -352,7 +318,6 @@ describe('Lobby System', () => {
       // Lobby and its state must survive — no idle deletion anymore
       assert.ok(lobbies.has(lobbyId), 'idle lobby should NOT be removed');
       assert.ok(hasQueue(lobbyId), 'queue for idle lobby should NOT be removed');
-      assert.ok(playback.getState(lobbyId), 'playback for idle lobby should NOT be removed');
     });
 
     it('does not clean up pinned lobbies', async () => {
@@ -360,7 +325,6 @@ describe('Lobby System', () => {
       const lobbyId = lobby.id;
 
       getQueue(lobbyId);
-      playback.initLobby(lobbyId);
 
       // Pin the lobby
       await pinLobby(lobbyId, true);
@@ -380,7 +344,6 @@ describe('Lobby System', () => {
       const lobby = createLobby('host-1', 'active-test');
 
       getQueue(lobby.id);
-      playback.initLobby(lobby.id);
 
       await cleanupEmptyLobbies();
 
@@ -388,33 +351,26 @@ describe('Lobby System', () => {
       assert.ok(hasQueue(lobby.id), 'queue for active lobby should not be removed');
     });
 
-    it('sweeps orphaned queue/playback entries for non-existent lobbies', async () => {
+    it('sweeps orphaned queue entries for non-existent lobbies', async () => {
       // Create a real lobby that should survive
       const lobby = createLobby('host-1', 'active-test');
       getQueue(lobby.id);
-      playback.initLobby(lobby.id);
 
-      // Create orphaned queue/playback entries (no corresponding lobby)
+      // Create orphaned queue entries (no corresponding lobby)
       getQueue('orphan-1');
       getQueue('orphan-2');
-      playback.initLobby('orphan-1');
-      playback.initLobby('orphan-2');
 
       assert.ok(hasQueue('orphan-1'), 'orphaned queue should exist before cleanup');
-      assert.ok(playback.getState('orphan-1'), 'orphaned playback should exist before cleanup');
 
       await cleanupEmptyLobbies();
 
       // Active lobby should survive
       assert.ok(lobbies.has(lobby.id), 'active lobby should remain');
       assert.ok(hasQueue(lobby.id), 'active queue should remain');
-      assert.ok(playback.getState(lobby.id), 'active playback should remain');
 
       // Orphaned entries should be cleaned up
       assert.strictEqual(hasQueue('orphan-1'), false, 'orphaned queue should be removed');
       assert.strictEqual(hasQueue('orphan-2'), false, 'orphaned queue should be removed');
-      assert.strictEqual(playback.getState('orphan-1'), null, 'orphaned playback should be removed');
-      assert.strictEqual(playback.getState('orphan-2'), null, 'orphaned playback should be removed');
     });
   });
 });

@@ -11,7 +11,6 @@ const crypto = require('crypto');
 const session = require('express-session');
 const PgSession = require('connect-pg-simple')(session);
 const ytdlp = require('./ytdlp');
-const playback = require('./playback');
 const lobby = require('./lobby');
 const { getQueue, getQueueAsync, deleteQueue } = require('./queue');
 const db = require('./db');
@@ -427,7 +426,6 @@ app.get('/api/lobbies', async (req, res) => {
     return {
       id: l.id,
       name: l.name || null,
-      listeningMode: l.listeningMode,
       isPublic: l.isPublic !== false,
       isOwner: !!l.hostId && l.hostId === authUserId,
       pinned: l.pinned || false,
@@ -834,7 +832,7 @@ function getAuthUserId(req) {
   return payload ? payload.id : null;
 }
 
-// Tear down a lobby everywhere: notify + disconnect members, clear playback,
+// Tear down a lobby everywhere: notify + disconnect members, clear
 // queue and chat state, then delete the row from BOTH memory and the DB.
 // Shared by the admin (dashboard) and creator delete paths. Uses the async
 // delete so the row does not resurrect on restart (there is no longer any
@@ -845,7 +843,6 @@ async function destroyLobby(lobbyId, { reason } = {}) {
   });
   io.in(lobbyId).socketsLeave(lobbyId);
 
-  playback.cleanupLobby(lobbyId);
   deleteQueue(lobbyId);
   chat.cleanupLobby(lobbyId);
 
@@ -856,8 +853,7 @@ async function destroyLobby(lobbyId, { reason } = {}) {
 // Library -> lobby queue glue
 // ==========================================
 
-// Append a library song to a lobby's queue (starting playback if the queue was
-// empty). Caller broadcasts the queue:update.
+// Append a library song to a lobby's queue. Caller broadcasts the queue:update.
 // skipIfQueued: add nothing (returns null) when the song is already in the
 // queue. Checked here, with no await before addSong, so two quick adds of the
 // same song cannot both get through.
@@ -870,10 +866,6 @@ async function addLibrarySongToLobby(lobbyId, librarySong, addedBy, { skipIfQueu
     covers.cacheCover(song.id, entry.thumbnail).catch(err => {
       console.error(`Failed to cache cover for ${song.id}:`, err.message);
     });
-  }
-  if (queue.getSongs().length === 1) {
-    queue.setCurrentIndex(0);
-    playback.setTrack(lobbyId, song, true, io);
   }
   return song;
 }
@@ -913,7 +905,7 @@ async function handleLibrarySongAdded(librarySong, fulfilled = []) {
       const alreadyQueued = queue.getSongs().some(s => urls.has(s.url));
       if (!alreadyQueued) {
         await addLibrarySongToLobby(lobbyId, librarySong, request.requested_by);
-        io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
+        io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
       }
       io.to(lobbyId).emit('request:fulfilled', {
         request,
@@ -1309,16 +1301,12 @@ app.get('/api/dashboard/stats', adminAuth.requireAdmin, async (req, res) => {
     stats.totalUsers += userCount;
 
     const queue = await getQueueAsync(lobbyId);
-    const playbackState = playback.getState(lobbyId);
 
     stats.lobbies.push({
       id: lobbyId,
       name: lobbyData.name || null,
       userCount,
-      listeningMode: lobbyData.listeningMode || 'synchronized',
       queueLength: queue.getSongs().length,
-      currentTrack: playbackState?.currentTrack?.title || null,
-      isPlaying: playbackState?.isPlaying || false,
       createdAt: lobbyData.createdAt,
       lastActivity: lobbyData.lastActivity
     });
@@ -1430,9 +1418,6 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
-// Set up playback sync handlers
-playback.setupSocketHandlers(io);
-
 // Set up shared YouTube playlist handlers (separate namespace, no auth)
 youtubePlaylist.setupSocketHandlers(io);
 
@@ -1475,7 +1460,7 @@ io.on('connection', (socket) => {
   };
 
   // Create a new lobby
-  socket.on('lobby:create', async ({ username, emoji, listeningMode, name, lobbyId: requestedId, userId }) => {
+  socket.on('lobby:create', async ({ username, emoji, name, lobbyId: requestedId, userId }) => {
     // Check user approval
     if (!(await checkUserApproved(userId))) {
       socket.emit('lobby:error', { message: 'Your account is pending approval' });
@@ -1509,7 +1494,7 @@ io.on('connection', (socket) => {
     // Persist the creator when the socket is from an authenticated user (listen_auth
     // cookie). Anonymous creators get host_id = null and thus no owner-only controls.
     const creatorId = getAuthUserId({ headers: socket.request.headers || {} });
-    const newLobby = await lobby.createLobbyAsync(creatorId, customId, listeningMode, lobbyName);
+    const newLobby = await lobby.createLobbyAsync(creatorId, customId, lobbyName);
     const result = await lobby.joinLobbyAsync(newLobby.id, socket.id, username || 'Anonymous', emoji);
 
     currentLobby = newLobby.id;
@@ -1518,14 +1503,13 @@ io.on('connection', (socket) => {
     socket.emit('lobby:created', {
       lobbyId: newLobby.id,
       name: newLobby.name,
-      listeningMode: newLobby.listeningMode,
       isPublic: newLobby.isPublic !== false,
       pinned: newLobby.pinned || false,
       user: result.user,
       users: lobby.getLobbyUsers(newLobby.id)
     });
 
-    console.log(`Lobby ${newLobby.id} created by ${username} (${newLobby.listeningMode})${newLobby.name ? ` name="${newLobby.name}"` : ''}`);
+    console.log(`Lobby ${newLobby.id} created by ${username}${newLobby.name ? ` name="${newLobby.name}"` : ''}`);
   });
 
   // Handle joining a lobby room (integrates with lobby system)
@@ -1552,10 +1536,6 @@ io.on('connection', (socket) => {
           user,
           users: remainingUsers
         });
-        // Stop sync timer when lobby becomes empty to prevent leaked intervals
-        if (remainingUsers.length === 0) {
-          playback.stopSyncTimer(currentLobby);
-        }
       }
     }
 
@@ -1577,40 +1557,20 @@ io.on('connection', (socket) => {
     socket.join(lobbyId);
 
     // Send joined confirmation to the user
-    const listeningMode = lobby.getListeningMode(lobbyId);
     const joinedLobbyData = await lobby.getLobbyAsync(lobbyId);
     socket.emit('lobby:joined', {
       lobbyId,
       name: joinedLobbyData ? joinedLobbyData.name : null,
-      listeningMode,
       pinned: joinedLobbyData ? (joinedLobbyData.pinned || false) : false,
       user: result.user,
       users: lobby.getLobbyUsers(lobbyId)
     });
 
-    console.log(`User ${username} joined lobby ${lobbyId} (${listeningMode})`);
-
-    // Restore playback state from DB if not already in memory
-    await playback.initLobbyFromDB(lobbyId);
-
-    // Set user's currentTrack for listener display
-    if (listeningMode === 'synchronized') {
-      const pbState = playback.getState(lobbyId);
-      if (pbState && pbState.currentTrack) {
-        lobby.setUserCurrentTrack(lobbyId, socket.id, pbState.currentTrack);
-      }
-    }
-
-    // Send current playback state to new user joining mid-song
-    // Only send sync state for synchronized lobbies
-    const playbackState = playback.getJoinState(lobbyId);
-    if (playbackState && listeningMode === 'synchronized') {
-      socket.emit('playback:sync', playbackState);
-    }
+    console.log(`User ${username} joined lobby ${lobbyId}`);
 
     // Send current queue state to new joiner
     const queue = await getQueueAsync(lobbyId);
-    socket.emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
+    socket.emit('queue:update', { lobbyId, songs: queue.getSongs() });
     emitUnavailableSongs(socket, queue.getSongs());
   });
 
@@ -1619,35 +1579,6 @@ io.on('connection', (socket) => {
       handleLeave(socket, lobbyId);
     }
     currentLobby = null;
-  });
-
-  // Set user mode (listening or lobby)
-  socket.on('mode:set', ({ lobbyId, mode }) => {
-    if (!lobbyId) lobbyId = currentLobby;
-    if (!lobbyId) return;
-
-    const user = lobby.setUserMode(lobbyId, socket.id, mode);
-    if (user) {
-      console.log(`User ${user.username} switched to ${mode} mode in lobby ${lobbyId}`);
-
-      // Update currentTrack based on mode
-      if (mode === 'lobby') {
-        lobby.setUserCurrentTrack(lobbyId, socket.id, null);
-      } else if (mode === 'listening' && lobby.getListeningMode(lobbyId) === 'synchronized') {
-        const playbackState = playback.getState(lobbyId);
-        if (playbackState && playbackState.currentTrack) {
-          lobby.setUserCurrentTrack(lobbyId, socket.id, playbackState.currentTrack);
-        }
-      }
-
-      // Broadcast updated user list to all in lobby
-      io.to(lobbyId).emit('users:updated', {
-        users: lobby.getLobbyUsers(lobbyId)
-      });
-
-      // Confirm mode change to the user
-      socket.emit('mode:changed', { mode: user.mode });
-    }
   });
 
   // Update user profile (name/emoji)
@@ -1664,7 +1595,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Report currently playing track (for independent mode listener display)
+  // Report what this listener is playing (shown next to queue items; followers sync to it)
   socket.on('listener:now-playing', ({ lobbyId, track }) => {
     if (!lobbyId) lobbyId = currentLobby;
     if (!lobbyId) return;
@@ -1694,12 +1625,10 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Follow another user in independent mode (listen to same songs)
+  // Follow another listener (play the same songs they play)
   socket.on('follow:start', ({ lobbyId, targetSocketId }) => {
     if (!lobbyId) lobbyId = currentLobby;
     if (!lobbyId) return;
-
-    if (lobby.getListeningMode(lobbyId) !== 'independent') return;
 
     const user = lobby.setUserFollowing(lobbyId, socket.id, targetSocketId);
     if (!user) {
@@ -1834,7 +1763,7 @@ io.on('connection', (socket) => {
       }
       console.log(`Song added to lobby ${lobbyId}: ${song.title}`);
       const queue = await getQueueAsync(lobbyId);
-      io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
+      io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
       return;
     }
 
@@ -1874,7 +1803,7 @@ io.on('connection', (socket) => {
       }
     }
     const queue = await getQueueAsync(lobbyId);
-    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
+    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
     if (requested) io.emit('requests:updated');
     const capped = result.total > result.items.length ? ` (first ${result.items.length} of ${result.total})` : '';
     const notInLibrary = result.items.length - added;
@@ -1894,7 +1823,7 @@ io.on('connection', (socket) => {
     const removed = queue.removeSong(songId);
     if (removed) {
       console.log(`Song removed from lobby ${lobbyId}: ${removed.title}`);
-      io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
+      io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
     }
   });
 
@@ -1904,27 +1833,8 @@ io.on('connection', (socket) => {
     const success = queue.reorderSong(songId, newIndex);
     if (success) {
       console.log(`Song reordered in lobby ${lobbyId}: moved to position ${newIndex}`);
-      io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
+      io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
     }
-  });
-
-  // Play song at specific index (jam mode: click-to-play)
-  socket.on('queue:play-at', async ({ lobbyId, index }) => {
-    if (!verifyLobbyMembership(lobbyId)) return;
-    const queue = await getQueueAsync(lobbyId);
-    const song = queue.getSongAtIndex(index);
-    if (!song) return;
-    queue.setCurrentIndex(index);
-    playback.setTrack(lobbyId, song, true, io);
-    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
-  });
-
-  // Shuffle upcoming songs (jam mode: one-shot visible shuffle)
-  socket.on('queue:shuffle', async ({ lobbyId }) => {
-    if (!verifyLobbyMembership(lobbyId)) return;
-    const queue = await getQueueAsync(lobbyId);
-    queue.shuffleUpcoming();
-    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
   });
 
   // Clear all songs from queue
@@ -1932,275 +1842,14 @@ io.on('connection', (socket) => {
     if (!verifyLobbyMembership(lobbyId)) return;
     const queue = await getQueueAsync(lobbyId);
     queue.clear();
-    playback.trackEnded(lobbyId, io);
-    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
+    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
   });
 
   // Get current queue state
   socket.on('queue:get', async (lobbyId) => {
     const queue = await getQueueAsync(lobbyId);
-    socket.emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
+    socket.emit('queue:update', { lobbyId, songs: queue.getSongs() });
   });
-
-  // Advance to next song (when current song ends)
-  socket.on('queue:next', async (lobbyId) => {
-    const queue = await getQueueAsync(lobbyId);
-    const shuffleState = playback.getShuffleState(lobbyId);
-    const songs = queue.getSongs();
-
-    if (shuffleState.shuffleEnabled && songs.length > 1) {
-      // Shuffle mode: get next index from shuffle order
-      const currentState = playback.getState(lobbyId);
-      const currentTrackId = currentState && currentState.currentTrack ? currentState.currentTrack.id : null;
-      const nextIndex = playback.getNextShuffleIndex(lobbyId, songs.length, currentTrackId);
-      if (nextIndex !== null && songs[nextIndex]) {
-        const nextSong = songs[nextIndex];
-        console.log(`Shuffle: playing song at index ${nextIndex} in lobby ${lobbyId}: ${nextSong.title}`);
-        playback.setTrack(lobbyId, nextSong, true, io);
-      }
-    } else {
-      // Normal mode: advance queue (removes first song)
-      const finished = queue.advanceQueue();
-      if (finished) {
-        console.log(`Song finished in lobby ${lobbyId}: ${finished.title}`);
-      }
-      const currentSong = queue.getCurrentSong();
-      if (currentSong) {
-        playback.setTrack(lobbyId, currentSong, true, io);
-      }
-    }
-    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
-  });
-
-  // Toggle playback (play/pause)
-  socket.on('playback:toggle', async ({ lobbyId }) => {
-    if (!verifyLobbyMembership(lobbyId)) {
-      return;
-    }
-
-    await playback.initLobbyFromDB(lobbyId);
-    const state = playback.getState(lobbyId);
-    if (!state) return;
-
-    if (state.isPlaying) {
-      playback.pause(lobbyId, io);
-    } else {
-      // If no current track, try to play first song in queue
-      if (!state.currentTrack) {
-        const queue = await getQueueAsync(lobbyId);
-        const song = queue.getCurrentSong();
-        if (song) {
-          playback.setTrack(lobbyId, song, true, io);
-        }
-      } else {
-        playback.resume(lobbyId, io);
-      }
-    }
-  });
-
-  // Skip to next track
-  socket.on('playback:next', async ({ lobbyId }) => {
-    const queue = await getQueueAsync(lobbyId);
-    const repeatMode = playback.getRepeatMode(lobbyId);
-    const isIndependent = lobby.getListeningMode(lobbyId) === 'independent';
-
-    if (isIndependent) {
-      // Independent mode: advance per-user position, don't modify shared queue
-      let nextSong = queue.advanceUserPosition(socket.id);
-      if (!nextSong && repeatMode === 'all' && queue.getSongs().length > 0) {
-        queue.setUserPosition(socket.id, 0);
-        nextSong = queue.getSongAtIndex(0);
-      }
-      if (nextSong) {
-        playback.setTrack(lobbyId, nextSong, true, io);
-      } else {
-        playback.setTrack(lobbyId, null, false, io);
-      }
-      return;
-    }
-
-    const shuffleState = playback.getShuffleState(lobbyId);
-    const songs = queue.getSongs();
-
-    if (shuffleState.shuffleEnabled && songs.length > 1) {
-      // Shuffle mode: pick next from shuffle order, record history
-      const currentState = playback.getState(lobbyId);
-      const currentTrackId = currentState && currentState.currentTrack ? currentState.currentTrack.id : null;
-      const nextIndex = playback.getNextShuffleIndex(lobbyId, songs.length, currentTrackId);
-      if (nextIndex !== null && songs[nextIndex]) {
-        playback.setTrack(lobbyId, songs[nextIndex], true, io);
-      }
-      io.to(lobbyId).emit('queue:update', { lobbyId, songs, currentIndex: queue.getCurrentIndex() });
-      return;
-    }
-
-    if (repeatMode === 'all') {
-      // Move current song to end of queue (circular)
-      queue.moveCurrentToEnd();
-    } else {
-      const finished = queue.advanceQueue();
-      if (finished) {
-        console.log(`Skipped track in lobby ${lobbyId}: ${finished.title}`);
-      }
-    }
-
-    const nextSong = queue.getCurrentSong();
-    if (nextSong) {
-      playback.setTrack(lobbyId, nextSong, true, io);
-    } else {
-      // No more songs, stop playback
-      playback.setTrack(lobbyId, null, false, io);
-    }
-
-    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
-  });
-
-  // Go to previous track
-  socket.on('playback:previous', async ({ lobbyId }) => {
-    const state = playback.getState(lobbyId);
-    if (!state) return;
-
-    // If more than 3 seconds into the track, restart from beginning
-    const pos = state.isPlaying && state.startedAt
-      ? state.position + (Date.now() - state.startedAt) / 1000
-      : state.position;
-    if (state.currentTrack && pos > 3) {
-      playback.seek(lobbyId, 0, io);
-      if (!state.isPlaying) {
-        playback.resume(lobbyId, io);
-      }
-      return;
-    }
-
-    // Otherwise go to previous track in queue
-    const queue = await getQueueAsync(lobbyId);
-    const songs = queue.getSongs();
-    if (songs.length === 0) return;
-
-    const shuffleState = playback.getShuffleState(lobbyId);
-
-    // In shuffle mode, use history to go back to the actual previous song
-    if (shuffleState.shuffleEnabled) {
-      const prevTrackId = playback.getPreviousShuffleTrackId(lobbyId);
-      if (prevTrackId) {
-        const prevSong = songs.find(s => s.id === prevTrackId);
-        if (prevSong) {
-          playback.setTrack(lobbyId, prevSong, true, io);
-          io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
-          return;
-        }
-      }
-      // No history or song not found — restart current track
-      playback.seek(lobbyId, 0, io);
-      if (!state.isPlaying) {
-        playback.resume(lobbyId, io);
-      }
-      return;
-    }
-
-    const currentIndex = state.currentTrack
-      ? songs.findIndex(s => s.id === state.currentTrack.id)
-      : -1;
-
-    let prevIndex = currentIndex - 1;
-    const repeatMode = playback.getRepeatMode(lobbyId);
-    if (prevIndex < 0) {
-      if (repeatMode === 'all') {
-        prevIndex = songs.length - 1;
-      } else {
-        // At beginning, just restart
-        playback.seek(lobbyId, 0, io);
-        if (!state.isPlaying) {
-          playback.resume(lobbyId, io);
-        }
-        return;
-      }
-    }
-
-    playback.setTrack(lobbyId, songs[prevIndex], true, io);
-    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
-  });
-
-  // Handle track ended - coordinates playback and queue with repeat modes
-  socket.on('playback:ended', async ({ lobbyId }) => {
-    if (!lobbyId) lobbyId = currentLobby;
-    if (!lobbyId) return;
-
-    const repeatMode = playback.getRepeatMode(lobbyId);
-    const queue = await getQueueAsync(lobbyId);
-    const isIndependent = lobby.getListeningMode(lobbyId) === 'independent';
-
-    // For repeat-one mode, playback.js handles restarting the track
-    if (repeatMode === 'one') {
-      playback.trackEnded(lobbyId, io);
-      return;
-    }
-
-    if (isIndependent) {
-      // Independent mode: advance per-user position, don't modify shared queue
-      let nextSong = queue.advanceUserPosition(socket.id);
-      if (!nextSong && repeatMode === 'all' && queue.getSongs().length > 0) {
-        queue.setUserPosition(socket.id, 0);
-        nextSong = queue.getSongAtIndex(0);
-      }
-      if (nextSong) {
-        playback.setTrack(lobbyId, nextSong, true, io);
-      } else {
-        playback.trackEnded(lobbyId, io);
-      }
-      return;
-    }
-
-    // Get current track before advancing
-    const currentSong = queue.getCurrentSong();
-    if (!currentSong) {
-      playback.trackEnded(lobbyId, io);
-      return;
-    }
-
-    const shuffleState = playback.getShuffleState(lobbyId);
-    const songs = queue.getSongs();
-
-    if (shuffleState.shuffleEnabled && songs.length > 1) {
-      // Shuffle mode: pick next from shuffle order, record history
-      const currentState = playback.getState(lobbyId);
-      const currentTrackId = currentState && currentState.currentTrack ? currentState.currentTrack.id : null;
-      const nextIndex = playback.getNextShuffleIndex(lobbyId, songs.length, currentTrackId);
-      if (nextIndex !== null && songs[nextIndex]) {
-        playback.setTrack(lobbyId, songs[nextIndex], true, io);
-        console.log(`Shuffle: playing song at index ${nextIndex} in lobby ${lobbyId}: ${songs[nextIndex].title}`);
-      } else {
-        playback.trackEnded(lobbyId, io);
-      }
-      io.to(lobbyId).emit('queue:update', { lobbyId, songs, currentIndex: queue.getCurrentIndex() });
-      return;
-    }
-
-    if (repeatMode === 'all') {
-      // Move current song to end of queue (circular)
-      queue.moveCurrentToEnd();
-    } else {
-      // Normal mode: remove current song
-      queue.advanceQueue();
-    }
-
-    // Get next song to play
-    const nextSong = queue.getCurrentSong();
-
-    // Update queue state for all clients
-    io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs(), currentIndex: queue.getCurrentIndex() });
-
-    if (nextSong) {
-      // Play next track
-      playback.setTrack(lobbyId, nextSong, true, io);
-      console.log(`Playing next song in lobby ${lobbyId}: ${nextSong.title} (repeat: ${repeatMode})`);
-    } else {
-      // Queue empty - stop playback
-      playback.trackEnded(lobbyId, io);
-      console.log(`Queue empty in lobby ${lobbyId}`);
-    }
-  });
-
 
   // Chat: send message
   socket.on('chat:send', async ({ lobbyId, userId, username, emoji, content, songMention }) => {
@@ -2248,10 +1897,7 @@ io.on('connection', (socket) => {
   });
 });
 
-async function handleLeave(socket, lobbyId) {
-  const queue = await getQueueAsync(lobbyId);
-  queue.removeUserPosition(socket.id);
-
+function handleLeave(socket, lobbyId) {
   // Clear follow relationships: unfollow anyone this user was following,
   // and notify anyone following this user that they've been unfollowed
   lobby.clearFollowersOf(lobbyId, socket.id);
@@ -2265,11 +1911,6 @@ async function handleLeave(socket, lobbyId) {
       users: remainingUsers
     });
     console.log(`User ${user.username} left lobby ${lobbyId}`);
-
-    // Stop sync timer when lobby becomes empty to prevent leaked intervals
-    if (remainingUsers.length === 0) {
-      playback.stopSyncTimer(lobbyId);
-    }
   }
 }
 

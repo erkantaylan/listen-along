@@ -64,7 +64,6 @@ async function waitForTitles(db, lobbyId, expected) {
 function simulateRestart() {
   delete require.cache[require.resolve('./lobby')];
   delete require.cache[require.resolve('./queue')];
-  delete require.cache[require.resolve('./playback')];
 }
 
 describe('Lobby persistence across server restarts', { skip: skipReason, timeout: 120_000 }, () => {
@@ -93,15 +92,13 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
     delete require.cache[require.resolve('./db')];
     delete require.cache[require.resolve('./lobby')];
     delete require.cache[require.resolve('./queue')];
-    delete require.cache[require.resolve('./playback')];
   });
 
-  it('preserves listening mode "independent" after restart', async () => {
+  it('restores a lobby (name, visibility) from DB after restart', async () => {
     const lobby = require('./lobby');
 
-    // Create lobby with independent listening mode
-    const created = await lobby.createLobbyAsync(null, 'lm-test1', 'independent');
-    assert.equal(created.listeningMode, 'independent');
+    const created = await lobby.createLobbyAsync(null, 'lm-test1', 'Restart me', false);
+    assert.equal(created.name, 'Restart me');
 
     // Simulate server restart (clears in-memory maps)
     simulateRestart();
@@ -111,15 +108,46 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
     const restored = await lobbyAfter.getLobbyAsync('lm-test1');
     assert.ok(restored, 'Lobby should be restored from DB');
     assert.equal(restored.id, 'lm-test1');
-    assert.equal(restored.listeningMode, 'independent',
-      'Listening mode should still be independent, not synchronized');
+    assert.equal(restored.name, 'Restart me');
+    assert.equal(restored.isPublic, false);
+  });
+
+  it('migrates a pre-existing Jam lobby to a plain lobby on startup', async () => {
+    // Recreate the old schema: per-lobby listening mode, shared queue cursor
+    // and server-side playback state, with a lobby stored as synchronized.
+    await db.query(`ALTER TABLE lobbies ADD COLUMN IF NOT EXISTS listening_mode VARCHAR(20) DEFAULT 'synchronized'`);
+    await db.query(`ALTER TABLE lobbies ADD COLUMN IF NOT EXISTS current_index INTEGER DEFAULT -1`);
+    await db.query(`CREATE TABLE IF NOT EXISTS playback_state (lobby_id VARCHAR(8) PRIMARY KEY REFERENCES lobbies(id) ON DELETE CASCADE, position REAL DEFAULT 0)`);
+    await db.query(
+      `INSERT INTO lobbies (id, name, listening_mode, current_index, created_at, last_activity) VALUES ('jam-old1', 'Old jam', 'synchronized', 2, $1, $1)`,
+      [Date.now()]
+    );
+    await db.query(`INSERT INTO playback_state (lobby_id, position) VALUES ('jam-old1', 42)`);
+
+    // Restart: init runs the migrations again on the existing schema.
+    await db.close();
+    assert.ok(await db.init(), 'Database should re-initialize');
+
+    const cols = await db.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = 'lobbies' AND column_name IN ('listening_mode', 'current_index')`
+    );
+    assert.equal(cols.rows.length, 0, 'listening_mode and current_index should be dropped');
+    const tables = await db.query(`SELECT to_regclass('playback_state') AS t`);
+    assert.equal(tables.rows[0].t, null, 'playback_state should be dropped');
+
+    simulateRestart();
+    const lobby = require('./lobby');
+    const restored = await lobby.getLobbyAsync('jam-old1');
+    assert.ok(restored, 'Former Jam lobby should still load');
+    assert.equal(restored.name, 'Old jam');
+    assert.equal(restored.listeningMode, undefined);
   });
 
   it('restores queue songs from DB after restart', async () => {
     const lobby = require('./lobby');
     const { getQueueAsync } = require('./queue');
 
-    await lobby.createLobbyAsync(null, 'q-test1', 'synchronized');
+    await lobby.createLobbyAsync(null, 'q-test1');
     const queue = await getQueueAsync('q-test1');
 
     queue.addSong({ url: 'https://youtube.com/watch?v=song1', title: 'Song One', duration: 180, addedBy: 'Alice' });
@@ -150,7 +178,7 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
     const lobby = require('./lobby');
     const { getQueueAsync } = require('./queue');
 
-    await lobby.createLobbyAsync(null, 'qo-test1', 'synchronized');
+    await lobby.createLobbyAsync(null, 'qo-test1');
     const queue = await getQueueAsync('qo-test1');
 
     const songA = queue.addSong({ url: 'https://youtube.com/watch?v=a', title: 'Alpha', duration: 100, addedBy: 'User1' });
@@ -187,76 +215,5 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
     assert.equal(songs[1].title, 'Delta', 'Second song should be Delta (reordered)');
     assert.equal(songs[2].title, 'Beta', 'Third song should be Beta');
     assert.equal(songs[3].title, 'Charlie', 'Fourth song should be Charlie');
-  });
-
-  it('restores playback state (current track + position) after restart', async () => {
-    const lobby = require('./lobby');
-    const { getQueueAsync } = require('./queue');
-    const playback = require('./playback');
-
-    await lobby.createLobbyAsync(null, 'pb-test1', 'synchronized');
-    const queue = await getQueueAsync('pb-test1');
-
-    const song1 = queue.addSong({ url: 'https://youtube.com/watch?v=pb1', title: 'Track One', duration: 300, addedBy: 'DJ' });
-    queue.addSong({ url: 'https://youtube.com/watch?v=pb2', title: 'Track Two', duration: 240, addedBy: 'DJ' });
-
-    await waitForTitles(db, 'pb-test1', ['Track One', 'Track Two']);
-
-    // Simulate playback: play track 1 at position 90s with repeat-all
-    const mockIo = { to: () => ({ emit: () => {} }) };
-    playback.play('pb-test1', song1, mockIo);
-    playback.seek('pb-test1', 90, mockIo);
-    playback.setRepeatMode('pb-test1', 'all', mockIo);
-
-    // Wait for all queued playback persists (serialized per lobby) to finish
-    await playback.flushPersist('pb-test1');
-
-    // Simulate server restart (a real restart also kills the sync timer)
-    playback.cleanupLobby('pb-test1');
-    simulateRestart();
-    const playbackAfter = require('./playback');
-
-    // Restore playback from DB (this is what initLobbyFromDB does)
-    const state = await playbackAfter.initLobbyFromDB('pb-test1');
-
-    assert.ok(state, 'Playback state should be restored');
-    assert.ok(state.currentTrack, 'Current track should be restored');
-    assert.equal(state.currentTrack.title, 'Track One', 'Should restore correct track');
-    assert.ok(state.position >= 89, 'Position should be approximately 90s');
-    assert.equal(state.isPlaying, false, 'Should start paused after restart');
-    assert.equal(state.repeatMode, 'all', 'Repeat mode should be restored');
-  });
-
-  it('restores shuffle state after restart', async () => {
-    const lobby = require('./lobby');
-    const { getQueueAsync } = require('./queue');
-    const playback = require('./playback');
-
-    await lobby.createLobbyAsync(null, 'sh-test1', 'synchronized');
-    const queue = await getQueueAsync('sh-test1');
-
-    queue.addSong({ url: 'https://youtube.com/watch?v=sh1', title: 'Shuffle A', duration: 200, addedBy: 'DJ' });
-    queue.addSong({ url: 'https://youtube.com/watch?v=sh2', title: 'Shuffle B', duration: 210, addedBy: 'DJ' });
-    queue.addSong({ url: 'https://youtube.com/watch?v=sh3', title: 'Shuffle C', duration: 220, addedBy: 'DJ' });
-
-    await waitForTitles(db, 'sh-test1', ['Shuffle A', 'Shuffle B', 'Shuffle C']);
-
-    // Enable shuffle
-    const mockIo = { to: () => ({ emit: () => {} }) };
-    playback.initLobby('sh-test1');
-    playback.toggleShuffle('sh-test1', true, 3, mockIo);
-
-    await playback.flushPersist('sh-test1');
-
-    // Simulate server restart
-    simulateRestart();
-    const playbackAfter = require('./playback');
-
-    const state = await playbackAfter.initLobbyFromDB('sh-test1');
-
-    assert.ok(state, 'Playback state should be restored');
-    assert.equal(state.shuffleEnabled, true, 'Shuffle should still be enabled');
-    assert.ok(Array.isArray(state.shuffledIndices), 'Shuffled indices should be an array');
-    assert.equal(state.shuffledIndices.length, 3, 'Should have 3 shuffled indices');
   });
 });
