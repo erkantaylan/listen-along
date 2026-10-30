@@ -17,6 +17,7 @@ const db = require('./db');
 const library = require('./library');
 const requests = require('./requests');
 const tokens = require('./tokens');
+const downloadJobs = require('./downloadJobs');
 const adminAuth = require('./adminAuth');
 const { apiLimiter } = require('./rateLimits');
 
@@ -89,12 +90,16 @@ function sendSongFile(req, res, song, { download = false } = {}) {
  * @param {(song: object, previous: object) => void} [hooks.onSongReplaced] - after a song's audio was replaced
  * @param {Function} [hooks.loginRateLimit] - middleware for POST /api/admin/login
  * @param {Function} [hooks.requireWebUser] - middleware: is the caller a web user allowed to read?
+ * @param {(job: object, song: object) => void} [hooks.onJobUpload] - a worker uploaded a song for a job
+ * @param {(request: object) => void} [hooks.onRequestDismissed]
  */
 function createLibraryRouter(hooks = {}) {
   const onSongAdded = hooks.onSongAdded || (() => {});
   const onRequestsChanged = hooks.onRequestsChanged || (() => {});
   const onSongRemoved = hooks.onSongRemoved || (() => {});
   const onSongReplaced = hooks.onSongReplaced || (() => {});
+  const onJobUpload = hooks.onJobUpload || (() => {});
+  const onRequestDismissed = hooks.onRequestDismissed || (() => {});
   const loginRateLimit = hooks.loginRateLimit || ((req, res, next) => next());
   const requireWebUser = hooks.requireWebUser
     || ((req, res) => res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' }));
@@ -184,10 +189,25 @@ function createLibraryRouter(hooks = {}) {
     }
 
     try {
-      const row = await library.ingestUpload(req.file, fields, req.apiUser);
+      // Upload records: the worker (worker_id), its job (job_id) and who asked.
+      const ctx = await downloadJobs.uploadContext(req.apiUser, req.body || {}, fields);
+      if (ctx.requestId && !fields.request_id) fields.request_id = ctx.requestId;
+      const uploader = {
+        ...req.apiUser,
+        workerId: ctx.workerId, workerName: ctx.workerName, jobId: ctx.jobId,
+        requestedByUserId: ctx.requestedByUserId, requestedBy: ctx.requestedBy,
+      };
+      let row;
+      try {
+        row = await library.ingestUpload(req.file, fields, uploader);
+      } catch (err) {
+        err.uploadContext = ctx;
+        throw err;
+      }
       const song = library.toPublic(row);
+      if (ctx.job) { try { onJobUpload(ctx.job, row); } catch (err) { console.error('[library] onJobUpload hook failed:', err); } }
       const fulfilled = await requests.fulfillRequests(row, fields.request_id);
-      console.log(`[library] ${req.apiUser.name} uploaded "${row.title}" by ${row.artist} (${row.id}); fulfilled ${fulfilled.length} request(s)`);
+      console.log(`[library] ${req.apiUser.name}${ctx.workerName ? ` (worker ${ctx.workerName})` : ''} uploaded "${row.title}" by ${row.artist} (${row.id}); fulfilled ${fulfilled.length} request(s)`);
       try { onSongAdded(row, fulfilled); } catch (err) { console.error('[library] onSongAdded hook failed:', err); }
       if (fulfilled.length) onRequestsChanged();
       res.status(201).json({ song, fulfilled_requests: fulfilled.map((r) => r.id) });
@@ -195,6 +215,7 @@ function createLibraryRouter(hooks = {}) {
       if (err instanceof library.UploadError) {
         if (err.status === 409 && err.song) {
           // The song already exists — any matching pending request is satisfied by it.
+          if (err.uploadContext && err.uploadContext.job) { try { onJobUpload(err.uploadContext.job, err.song); } catch {} }
           const fulfilled = await requests.fulfillRequests(err.song, fields.request_id, fields.youtube_id).catch(() => []);
           if (fulfilled.length) {
             try { onSongAdded(err.song, fulfilled); } catch {}
@@ -334,6 +355,7 @@ function createLibraryRouter(hooks = {}) {
     const request = await requests.dismissRequest(req.params.id).catch(() => null);
     if (!request) return res.status(404).json({ error: 'Request not found' });
     console.log(`[requests] dismissed ${request.id} (${request.title || request.youtube_id}) by ${req.apiUser ? req.apiUser.name : 'admin'}`);
+    try { onRequestDismissed(request); } catch {}
     onRequestsChanged();
     res.json({ request });
   });

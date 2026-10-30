@@ -259,6 +259,85 @@ async function createTables() {
     )
   `);
 
+  // Downloaders ("workers"): `la worker` processes on users' own machines
+  // that connect out to the server and run download jobs (workerHub.js).
+  // One row per (owner, name); a legacy ownerless token keys on token_id.
+  // hostname / platform / os_release / last_ip are admin-only.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS download_workers (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+      token_id UUID REFERENCES api_tokens(id) ON DELETE SET NULL,
+      owner_name VARCHAR(255),
+      name VARCHAR(100) NOT NULL,
+      hostname VARCHAR(255),
+      platform VARCHAR(32),
+      arch VARCHAR(32),
+      os_release VARCHAR(128),
+      cli_version VARCHAR(32),
+      ytdlp_version VARCHAR(64),
+      node_version VARCHAR(32),
+      last_ip VARCHAR(64),
+      jobs_done INTEGER NOT NULL DEFAULT 0,
+      jobs_failed INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_connected_at TIMESTAMPTZ,
+      last_seen_at TIMESTAMPTZ
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_download_workers_user ON download_workers(user_id)`).catch(() => {});
+
+  // Download jobs: a song request (automatic) or the web "Download" box.
+  // Routed to a connected worker (workerHub.js); survive restarts (an
+  // 'assigned' job whose worker is gone goes back to 'queued').
+  // status: queued | assigned | done | failed | cancelled.
+  // request_id / playlist_id / song_id have no FKs that cascade: the job
+  // history outlives a deleted request, playlist or song.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS download_jobs (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      source VARCHAR(16) NOT NULL DEFAULT 'web',
+      kind VARCHAR(16) NOT NULL DEFAULT 'search',
+      input TEXT NOT NULL,
+      title TEXT,
+      request_id UUID,
+      playlist_id VARCHAR(8),
+      requested_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+      requested_by VARCHAR(255),
+      status VARCHAR(16) NOT NULL DEFAULT 'queued',
+      worker_id UUID REFERENCES download_workers(id) ON DELETE SET NULL,
+      worker_name VARCHAR(100),
+      worker_owner VARCHAR(255),
+      attempts INTEGER NOT NULL DEFAULT 0,
+      stage VARCHAR(32),
+      progress TEXT,
+      result JSONB,
+      error_code VARCHAR(64),
+      error_message TEXT,
+      song_id UUID,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      started_at TIMESTAMPTZ,
+      finished_at TIMESTAMPTZ
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_download_jobs_status ON download_jobs(status, created_at)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_download_jobs_requester ON download_jobs(requested_by_user_id, created_at DESC)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_download_jobs_request ON download_jobs(request_id)`).catch(() => {});
+
+  // Migration: upload records. Which worker uploaded a song (and its name
+  // as a snapshot, shown as "uploaded by <worker> (<owner>)"), the job it
+  // ran, and who asked for it (job requester or song request).
+  await pool.query(`ALTER TABLE library_songs ADD COLUMN IF NOT EXISTS uploaded_by_worker_id UUID REFERENCES download_workers(id) ON DELETE SET NULL`).catch(() => {});
+  await pool.query(`ALTER TABLE library_songs ADD COLUMN IF NOT EXISTS uploaded_by_worker VARCHAR(100)`).catch(() => {});
+  await pool.query(`ALTER TABLE library_songs ADD COLUMN IF NOT EXISTS upload_job_id UUID`).catch(() => {});
+  await pool.query(`ALTER TABLE library_songs ADD COLUMN IF NOT EXISTS requested_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL`).catch(() => {});
+  await pool.query(`ALTER TABLE library_songs ADD COLUMN IF NOT EXISTS requested_by VARCHAR(255)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_library_songs_uploader ON library_songs(uploaded_by_user_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_library_songs_worker ON library_songs(uploaded_by_worker_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_library_songs_requester ON library_songs(requested_by_user_id)`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_song_requests_requester ON song_requests(requested_by_id)`).catch(() => {});
+
   // The personal-playlist feature was removed; drop its tables so existing
   // deployments are cleaned up (CASCADE also clears playlist_songs).
   await pool.query(`DROP TABLE IF EXISTS playlist_songs, playlists CASCADE`).catch(() => {});

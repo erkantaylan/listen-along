@@ -21,7 +21,7 @@ const YOUTUBE_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ALLOWED_UPLOAD_MIME = new Set(['audio/mp4', 'audio/x-m4a', 'audio/m4a', 'audio/aac', 'application/octet-stream']);
 
-const PUBLIC_COLUMNS = 'id, youtube_id, title, artist, album, duration_sec, source_url, uploaded_by, created_at, sha256, replaced_at';
+const PUBLIC_COLUMNS = 'id, youtube_id, title, artist, album, duration_sec, source_url, uploaded_by, created_at, sha256, replaced_at, uploaded_by_worker, requested_by';
 const MAX_SOURCE_URL_LENGTH = 2048;
 
 function ensureDirs() {
@@ -126,6 +126,11 @@ function toPublic(row) {
     duration_sec: row.duration_sec === null || row.duration_sec === undefined ? null : Number(row.duration_sec),
     source_url: row.source_url || (row.youtube_id ? youtubeUrl(row.youtube_id) : null),
     uploaded_by: row.uploaded_by,
+    // The downloader (`la worker`) that uploaded it, if any: shown as
+    // "uploaded by <worker> (<uploaded_by>)". Who asked for it (a song
+    // request or a web download job), if anyone.
+    uploaded_by_worker: row.uploaded_by_worker || null,
+    requested_by: row.requested_by || null,
     created_at: row.created_at,
     // Changes whenever the audio changes (replace): use it to bust caches,
     // e.g. /api/library/<id>/file?v=<file_version>.
@@ -343,8 +348,9 @@ async function findByTitleArtist(title, artist) {
 async function insert(song, client = db) {
   const r = await client.query(
     `INSERT INTO library_songs
-       (id, youtube_id, title, artist, album, duration_sec, file_path, mime_type, size_bytes, sha256, source_url, uploaded_by, uploaded_by_token, uploaded_by_user_id, meta_key, meta_key_version)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+       (id, youtube_id, title, artist, album, duration_sec, file_path, mime_type, size_bytes, sha256, source_url, uploaded_by, uploaded_by_token, uploaded_by_user_id, meta_key, meta_key_version,
+        uploaded_by_worker_id, uploaded_by_worker, upload_job_id, requested_by_user_id, requested_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
      RETURNING *`,
     [
       song.id || crypto.randomUUID(),
@@ -363,6 +369,11 @@ async function insert(song, client = db) {
       song.uploaded_by_user_id || null,
       songMatch.metaKey(song.title, song.artist),
       songMatch.META_KEY_VERSION,
+      song.uploaded_by_worker_id || null,
+      song.uploaded_by_worker || null,
+      song.upload_job_id || null,
+      song.requested_by_user_id || null,
+      song.requested_by || null,
     ]
   );
   return r.rows[0];
@@ -598,6 +609,12 @@ async function ingestUpload(file, fields, uploader) {
       uploaded_by: uploader.name,
       uploaded_by_token: uploader.id,
       uploaded_by_user_id: uploader.userId || null,
+      // Upload records (jobRecords.uploadContext): worker, job, requester.
+      uploaded_by_worker_id: uploader.workerId || null,
+      uploaded_by_worker: uploader.workerName || null,
+      upload_job_id: uploader.jobId || null,
+      requested_by_user_id: uploader.requestedByUserId || null,
+      requested_by: uploader.requestedBy || null,
     };
 
     // Race-safe: youtube_id and sha256 are unique columns; probable

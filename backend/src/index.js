@@ -30,6 +30,9 @@ const chat = require('./chat');
 const { createPresence } = require('./presence');
 const { createSocial } = require('./social');
 const { createListenAlong, createSourceResolver } = require('./listenAlong');
+const downloadJobs = require('./downloadJobs');
+const { createWorkerHub } = require('./workerHub');
+const { createJobRouter } = require('./jobRoutes');
 const resolver = createResolver();
 const QRCode = require('qrcode');
 const pkg = require('../package.json');
@@ -108,7 +111,7 @@ const server = http.createServer(app);
 // Behind Cloudflare -> Traefik: trust the private proxy hop and take the
 // visitor's IP from CF-Connecting-IP only when the request really came from
 // Cloudflare. Sets req.clientIp, which the rate limits key on. See clientIp.js.
-clientIpSetup.install(app);
+const clientIpOf = clientIpSetup.install(app);
 
 // CORS configuration
 const corsOptions = {
@@ -295,8 +298,78 @@ app.get('/api/qr/:lobbyId', async (req, res) => {
   }
 });
 
+// Download workers (`la worker` on users' machines) and their jobs: see
+// workerHub.js (WebSocket, routing), downloadJobs.js (store), jobRoutes.js
+// (HTTP API). Live job status goes to the requester's sockets (jobs:update),
+// worker counts to every approved socket (workers:update).
+function upgradeIp(req) {
+  try {
+    // The upgrade request skips Express: apply the same trust-proxy rule.
+    req.ip = require('proxy-addr')(req, app.get('trust proxy fn'));
+  } catch {}
+  return clientIpOf(req);
+}
+function emitJob(row) {
+  if (!row || !row.requested_by_user_id) return;
+  io.to(userRoom(row.requested_by_user_id)).emit('jobs:update', { job: downloadJobs.toPublic(row), workers: workerHub.stats() });
+}
+// A web download job targets a playlist: add what it got (as the requester,
+// if they can still edit it). Song-request jobs need nothing here: the
+// request flow (handleLibrarySongAdded) adds to the requesting playlist.
+async function addJobSongsToPlaylist(job, songs) {
+  if (!job || job.source !== 'web' || !job.playlist_id || !db.isAvailable()) return;
+  const l = await lobby.getLobbyAsync(job.playlist_id);
+  if (!l || !access.canEdit(l, job.requested_by_user_id)) return;
+  let added = 0;
+  for (const song of songs) {
+    if (!song) continue;
+    if (await addLibrarySongToLobby(job.playlist_id, song, job.requested_by || 'Someone', { skipIfQueued: true })) added++;
+  }
+  if (added) {
+    const queue = await getQueueAsync(job.playlist_id);
+    io.to(job.playlist_id).emit('queue:update', { lobbyId: job.playlist_id, songs: queue.getSongs() });
+  }
+}
+let workersChangedTimer = null;
+const workerHub = createWorkerHub({
+  verifyToken: (token) => tokens.verifyToken(token),
+  ipOf: upgradeIp,
+  dbAvailable: () => db.isAvailable(),
+  onJobUpdated: emitJob,
+  onJobFinished: (job, songIds) => {
+    Promise.all(songIds.map((id) => library.getById(id).catch(() => null)))
+      .then((songs) => addJobSongsToPlaylist(job, songs))
+      .catch((err) => console.error('[jobs] playlist add failed:', err.message));
+  },
+  onWorkersChanged: () => {
+    // Coalesce bursts (connect + dispatch + finish).
+    if (workersChangedTimer) return;
+    workersChangedTimer = setTimeout(() => {
+      workersChangedTimer = null;
+      io.to(APP_ROOM).emit('workers:update', workerHub.stats());
+    }, 200);
+  },
+});
+workerHub.attach(server);
+
+// A song request was created: it becomes a download job (automatic).
+async function queueRequestJob(request, requestedByUserId) {
+  try {
+    const row = await downloadJobs.createForRequest(request, { requestedByUserId });
+    if (!row) return;
+    emitJob(row);
+    workerHub.dispatch();
+  } catch (err) {
+    console.error('[jobs] could not queue a job for request', request && request.id, err.message);
+  }
+}
+
 // Music library, song requests, CLI tokens and admin API (see libraryRoutes.js)
 app.use(createLibraryRouter({
+  onJobUpload: (job, song) => { addJobSongsToPlaylist(job, [song]).catch(err => console.error('[jobs] playlist add failed:', err.message)); },
+  onRequestDismissed: (request) => {
+    downloadJobs.cancelForRequest(request.id).then((rows) => rows.forEach(emitJob)).catch(() => {});
+  },
   onSongAdded: (song, fulfilled) => { handleLibrarySongAdded(song, fulfilled).catch(err => console.error('[library] post-upload handling failed:', err)); },
   onRequestsChanged: () => io.to(APP_ROOM).emit('requests:updated'),
   onSongRemoved: (song) => io.to(APP_ROOM).emit('library:updated', { removed: song.id }),
@@ -312,6 +385,30 @@ app.use(createTokenRouter({
     req.account = req._listenAuth.account;
     next();
   }),
+}));
+
+// Download jobs, workers, profile activity (jobRoutes.js).
+const withAccount = (level) => (req, res, next) => userAuth.requireLevel(level)(req, res, () => {
+  req.account = req._listenAuth.account;
+  next();
+});
+app.use(createJobRouter({
+  requireUser: withAccount('approved'),
+  requireMember: withAccount('member'),
+  hub: workerHub,
+  editablePlaylist: async (playlistId, userId) => {
+    const l = await lobby.getLobbyAsync(playlistId);
+    return access.canEdit(l, userId) ? l : null;
+  },
+  spotifyTrack: (url) => spotify.getTrack(url),
+  addSongToPlaylist: async (playlistId, song, addedBy) => {
+    const entry = await addLibrarySongToLobby(playlistId, song, addedBy, { skipIfQueued: true });
+    if (!entry) return false;
+    const queue = await getQueueAsync(playlistId);
+    io.to(playlistId).emit('queue:update', { lobbyId: playlistId, songs: queue.getSongs() });
+    return true;
+  },
+  onJobUpdated: emitJob,
 }));
 
 // Admin page (all CLI tokens, requests, library management). Disabled without ADMIN_PASSWORD.
@@ -1276,6 +1373,11 @@ async function handleLibrarySongReplaced(librarySong, previous) {
 async function handleLibrarySongAdded(librarySong, fulfilled = []) {
   const pub = library.toPublic(librarySong);
   io.to(APP_ROOM).emit('library:updated', { song: pub });
+  // Waiting download jobs for these requests have nothing left to do.
+  if (fulfilled.length && db.isAvailable()) {
+    downloadJobs.settleForFulfilledRequests(fulfilled.map(r => r.id), librarySong)
+      .then((rows) => rows.forEach(emitJob)).catch(() => {});
+  }
   const urls = new Set([library.queueUrlFor(librarySong)]);
   if (librarySong.source_url) urls.add(librarySong.source_url);
   for (const url of urls) io.to(APP_ROOM).emit('download:status', { url, status: 'ready', percent: 100 });
@@ -2255,7 +2357,10 @@ io.on('connection', (socket) => {
             ? `"${name}" isn't in the library yet. It has been requested and will be added to the queue once uploaded.`
             : `"${name}" isn't in the library yet. It was already requested.`
         });
-        if (created) io.to(APP_ROOM).emit('requests:updated');
+        if (created) {
+          io.to(APP_ROOM).emit('requests:updated');
+          queueRequestJob(request, userId);
+        }
       } catch (err) {
         console.error('Request create error:', err.message);
         socket.emit('queue:error', { message: 'Could not record the request' });
@@ -2272,8 +2377,8 @@ io.on('connection', (socket) => {
           await addLibrarySongToLobby(lobbyId, item.song, addedBy);
           added++;
         } else {
-          const { created } = await songRequests.createRequest({ ...item.request, ...requester });
-          if (created) requested++;
+          const { request, created } = await songRequests.createRequest({ ...item.request, ...requester });
+          if (created) { requested++; queueRequestJob(request, userId); }
         }
       } catch (err) {
         console.error(`[playlist] item failed: ${err.message}`);
@@ -2389,6 +2494,10 @@ async function start() {
     // Restore lobbies from database into memory so lobby list works after restart
     await lobby.loadLobbiesFromDB();
 
+    // Download jobs that were running when the server stopped go back in the
+    // queue; workers reconnect and pick them up (or reclaim their own).
+    await workerHub.start().catch(err => console.error('[workers] start failed:', err.message));
+
     // Register the legacy yt-dlp cache into the library (idempotent). Runs in
     // the background: hashing a large cache can take a while. Library songs
     // are permanent — there is no age-based cleanup any more.
@@ -2424,6 +2533,7 @@ const shutdown = (signal) => {
 
   const lastSeenDone = social ? social.flushLastSeen().catch(() => {}) : Promise.resolve();
   presence.close();
+  workerHub.close();
 
   server.close(async () => {
     console.log('HTTP server closed');
