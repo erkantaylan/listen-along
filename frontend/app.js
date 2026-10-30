@@ -10,6 +10,7 @@ import { setupListenAlong, listenAlongWith, isListeningWith, stopListenAlong, on
 import { checkUrlForDashboard, dashboardJoinLobby, dashboardRemoveLobby, dashboardApproveUser, dashboardRejectUser } from './dashboard.js';
 import { setupLibraryPage, openLibraryPage, closeLibraryPage, isLibraryOpen, showLibraryRoute, handleLibraryUpdated, handleRequestsUpdated } from './library.js';
 import { handleJobUpdate, handleWorkersUpdate } from './jobs.js';
+import { loadReports } from './song-reports.js';
 import { parseRoute, legacyRedirect } from './router.js';
 import { createLobby, shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyUpdated, handleLobbyPinned, updateVisibilityHint, toggleCurrentVisibility, handleUserJoined, handleUserLeft, handleLobbyClosed, checkForLastLobby, joinLobbyFromCard, updatePinButton, togglePin, promptRenameLobby, toggleLobbyVisibility, deleteLobbyCard, openLobbyPage, closeLobbyPage, syncMembership, resyncMembership, reportNowPlaying } from './lobby.js';
 import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, updatePlayButton, updatePlaybackModeUI, updateNowPlaying, _setQueueFns } from './playback.js';
@@ -47,7 +48,7 @@ function setupSocket() {
     let connectedBefore = false;
     s.on('connect', () => {
       console.log('Connected to server');
-      if (connectedBefore) { showToast(t('toast.reconnected', 'Reconnected!'), 'success'); resyncMembership(); }
+      if (connectedBefore) { showToast(t('toast.reconnected', 'Reconnected!'), 'success'); resyncMembership(); loadReports(); }
       connectedBefore = true;
     });
     s.on('disconnect', () => { console.log('Disconnected from server'); showToast(t('toast.connectionLost', 'Connection lost. Reconnecting...'), 'error'); });
@@ -226,6 +227,8 @@ function initAuthenticatedApp() {
   setupAudioPlayer();
   setupPlayer();
   setupPlayerBarControls();
+  // Songs marked "needs replacement" (badges everywhere; song-reports.js).
+  loadReports();
   // The full player and the lobby page follow the app-wide player.
   player.on('state', updatePlayButton);
   player.on('track', (track) => {

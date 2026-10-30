@@ -6,6 +6,8 @@ import { showToast, formatDuration, notifyViewChange } from './ui.js';
 import { libraryPath, basePath } from './router.js';
 import { player } from './player.js';
 import { setupDownloads, showDownloads, hideDownloads } from './jobs.js';
+import { bindSongMenu, songMenuButtonHtml, reportIconHtml, reportLines, reportsFor, onReportsChange, reportedCount, reportsLoaded, handleReportsUpdated, isReportDialogOpen } from './song-reports.js';
+import { isContextMenuOpen } from './context-menu.js';
 
 // Escapes for both text and attribute contexts (ui.js escapeHtml leaves quotes).
 function escapeHtml(value) {
@@ -200,12 +202,21 @@ function renderSongs() {
   const list = $('libpage-list');
   if (!list) return;
   const count = $('libpage-count');
-  if (count) count.textContent = lib.total ? String(lib.total) : '';
+  if (count && lib.tab !== 'broken') count.textContent = lib.total ? String(lib.total) : '';
+  renderBrokenCount();
   if (!lib.songs.length) {
-    list.innerHTML = `<li class="list-group-item app-empty libpage-empty">${lib.loading ? 'Loading…' : (lib.query ? 'No songs match your search' : 'The library is empty. Songs appear here once they are uploaded.')}</li>`;
+    const empty = lib.tab === 'broken'
+      ? (lib.query ? 'No reported songs match your search' : 'Nothing needs replacement. Right-click a song (or use its ⋮ button) to mark it as broken.')
+      : (lib.query ? 'No songs match your search' : 'The library is empty. Songs appear here once they are uploaded.');
+    list.innerHTML = `<li class="list-group-item app-empty libpage-empty">${lib.loading ? 'Loading…' : empty}</li>`;
   } else {
     list.innerHTML = lib.songs.map((song) => {
       const sub = [song.artist, song.album].filter(Boolean).map(escapeHtml).join(' · ');
+      // Open "needs replacement" reports: the live store, else what the list sent.
+      const reports = reportsLoaded() ? reportsFor({ songId: song.id }) : (song.reports || []);
+      const reportsHtml = lib.tab === 'broken' && reports.length
+        ? `<ul class="list-unstyled fs-xs fg-2 mb-0 mt-1 libpage-reports">${reportLines(reports).map((l) => `<li>${escapeHtml(l)}</li>`).join('')}</ul>`
+        : '';
       const meta = [
         song.duration_sec ? formatDuration(song.duration_sec) : '',
         uploaderHtml(song),
@@ -215,13 +226,15 @@ function renderSongs() {
       return `<li class="list-group-item libpage-item${isCurrentSong(song.id) ? ' is-playing' : ''}" data-id="${escapeHtml(song.id)}">
         ${thumbHtml(song.youtube_id)}
         <div class="libpage-info min-w-0">
-          <div class="fw-medium text-truncate libpage-title" title="${escapeHtml(song.title)}">${escapeHtml(song.title)}</div>
+          <div class="d-flex align-items-center gap-1 min-w-0 libpage-title-row"><div class="fw-medium text-truncate libpage-title" title="${escapeHtml(song.title)}">${escapeHtml(song.title)}</div>${reportIconHtml(reports)}</div>
           <div class="fs-sm fg-2 text-truncate libpage-sub">${sub}</div>
           <div class="fs-xs fg-3 libpage-meta">${meta}</div>
+          ${reportsHtml}
         </div>
         ${playButtonHtml(song.id)}
         <button class="btn-text theme-secondary btn-icon btn-sm libpage-replace" type="button" data-id="${escapeHtml(song.id)}" aria-label="Replace audio of ${escapeHtml(song.title)}" title="Replace audio…">${REPLACE_ICON}</button>
         <button class="btn-solid theme-primary btn-sm libpage-add" type="button" data-id="${escapeHtml(song.id)}">Add</button>
+        ${songMenuButtonHtml(song.title)}
       </li>`;
     }).join('');
     const keys = queuedKeys();
@@ -229,6 +242,17 @@ function renderSongs() {
   }
   renderPager();
 }
+
+function renderBrokenCount() {
+  const el = $('libpage-broken-count');
+  if (!el) return;
+  const n = reportedCount();
+  el.textContent = n ? String(n) : '';
+  el.hidden = !n;
+}
+
+// Marked / unmarked anywhere: badges and the tab count follow.
+onReportsChange(() => { if (lib.open) renderSongs(); });
 
 function pageCount() {
   return Math.max(1, Math.ceil(lib.total / PAGE_SIZE));
@@ -302,6 +326,7 @@ async function loadSongs({ page = 0, refresh = false } = {}) {
   const params = new URLSearchParams({
     q: lib.query,
     sort: lib.sort,
+    ...(lib.tab === 'broken' ? { reported: '1' } : {}),
     limit: String(PAGE_SIZE),
     offset: String(page * PAGE_SIZE),
   });
@@ -444,8 +469,14 @@ export function showLibraryRoute(route) {
     notifyViewChange();
   }
   updateContext();
-  if (!wasOpen || route.tab !== lib.tab || (route.tab === 'requests' && requestsChanged)) switchTab(route.tab);
-  if (songsChanged) loadSongs({ page: route.page });
+  const tabChanged = route.tab !== lib.tab;
+  const songsTabSwitch = tabChanged && ['library', 'broken'].includes(route.tab) && ['library', 'broken'].includes(lib.tab);
+  if (!wasOpen || tabChanged || (route.tab === 'requests' && requestsChanged)) {
+    // switchTab reloads on a Songs <-> Broken switch; do it once, at the right page.
+    if (songsTabSwitch) { lib.tab = route.tab; switchTab(route.tab); }
+    else switchTab(route.tab);
+  }
+  if (songsChanged || songsTabSwitch) loadSongs({ page: route.page });
 }
 
 // Close button / Escape: step back to the page the library was opened from,
@@ -459,14 +490,23 @@ function requestCloseLibrary() {
 
 // --- Page -----------------------------------------------------------------
 
+// "Broken" (needs replacement) is the Songs panel filtered to reported songs.
 function switchTab(tab) {
+  const songsMode = (t) => (t === 'broken' ? 'broken' : t === 'library' ? 'library' : null);
+  const reload = lib.open && songsMode(tab) && songsMode(lib.tab) && tab !== lib.tab;
   lib.tab = tab;
-  document.querySelectorAll('#library-page .libpage-tab').forEach((b) => b.classList.toggle('active', b.dataset.libtab === tab));
-  $('libpage-songs-panel').hidden = tab !== 'library';
+  document.querySelectorAll('#library-page .libpage-tab').forEach((b) => {
+    b.classList.toggle('active', b.dataset.libtab === tab);
+    if (b.dataset.libtab === tab) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  });
+  $('libpage-songs-panel').hidden = tab !== 'library' && tab !== 'broken';
+  const hint = $('libpage-broken-hint');
+  if (hint) hint.hidden = tab !== 'broken';
   $('libpage-requests-panel').hidden = tab !== 'requests';
   $('libpage-downloads-panel').hidden = tab !== 'downloads';
   if (tab === 'requests') loadRequests();
   if (tab === 'downloads') showDownloads(); else hideDownloads();
+  if (reload) loadSongs();
 }
 
 export function openLibraryPage(tab = 'library') {
@@ -502,6 +542,7 @@ export function closeLibraryPage() {
 // playing it reloads the new file at the same position (player.js).
 export function handleLibraryUpdated(payload) {
   if (payload && payload.replaced) player.reloadReplaced(payload.replaced, payload.song);
+  handleReportsUpdated(payload);
   if (lib.open) loadSongs({ page: lib.page, refresh: true });
 }
 
@@ -613,7 +654,14 @@ export function setupLibraryPage() {
   if (!page) return;
   $('libpage-close').addEventListener('click', requestCloseLibrary);
   setupDownloads();
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && lib.open && !$('replace-dialog')) requestCloseLibrary(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && lib.open && !$('replace-dialog') && !isReportDialogOpen() && !isContextMenuOpen()) requestCloseLibrary();
+  });
+  // Right-click / long-press / ⋮ on a song row: the song menu (song-reports.js).
+  bindSongMenu($('libpage-list'), '.libpage-item[data-id]', (row) => {
+    const song = lib.songs.find((s) => s.id === row.dataset.id);
+    return song ? { songId: song.id, title: song.title, artist: song.artist } : null;
+  });
   page.querySelectorAll('.libpage-tab').forEach((b) => b.addEventListener('click', () => {
     if (b.dataset.libtab === lib.tab) return;
     switchTab(b.dataset.libtab);

@@ -35,6 +35,11 @@ describe('frontend router: parseRoute', () => {
     assert.deepEqual(r.library, { ...LIBRARY_DEFAULTS });
   });
 
+  it('knows the Broken ("needs replacement") library tab', () => {
+    assert.equal(parseRoute('/library', '?tab=broken').library.tab, 'broken');
+    assert.equal(libraryPath(null, { tab: 'broken', page: 1 }), '/library?tab=broken&page=2');
+  });
+
   it('reads library params, ignoring invalid values', () => {
     assert.deepEqual(parseRoute('/library', '?q=%20daft%20punk%20&sort=artist&page=3&tab=requests&status=fulfilled').library,
       { tab: 'requests', query: 'daft punk', sort: 'artist', page: 2, requestStatus: 'fulfilled' });

@@ -57,6 +57,18 @@
 
       <section class="card">
         <div class="card-header d-flex flex-row flex-wrap align-items-center justify-content-between gap-3">
+          <h2 class="h6 mb-0">Broken songs <span id="adm-reports-summary" class="fg-3 fw-normal"></span></h2>
+          <button id="adm-reports-refresh" class="btn btn-sm" type="button">Refresh</button>
+        </div>
+        <div class="card-body vstack gap-4">
+          <p class="fs-sm fg-3 mb-0">Songs people marked as broken. Replacing a song's audio (in the
+            library, or <code>la upload --replace</code>) resolves its reports; dismiss the ones that are wrong.</p>
+          <ul id="adm-reports" class="list-group"></ul>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-header d-flex flex-row flex-wrap align-items-center justify-content-between gap-3">
           <h2 class="h6 mb-0">Download jobs <span id="adm-jobs-counts" class="fg-3 fw-normal fs-sm"></span></h2>
           <select id="adm-job-status" class="form-control form-control-sm w-auto" aria-label="Job status">
             <option value="active">Waiting + running</option>

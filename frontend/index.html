@@ -486,6 +486,9 @@
             <span id="track-artist" class="d-block track-artist text-truncate">Pick a song in a playlist or the library</span>
           </span>
         </button>
+          <!-- Reported song (song-reports.js): warning icon, opens the report details. -->
+          <span id="track-broken" class="flex-shrink-0 track-broken" hidden></span>
+          <button id="player-menu-btn" class="btn-text theme-secondary btn-icon btn-sm song-menu-btn player-extra player-menu-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="More actions for the current song" title="More actions" hidden><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg></button>
           <div class="sticky-player-controls">
             <button id="repeat-btn" disabled class="btn-text theme-secondary btn-icon btn-control player-extra" type="button" aria-label="Repeat off" title="Repeat off">
               <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/><path d="M8 8h8v8H8z"/></svg>
@@ -553,8 +556,10 @@
           <button class="nav-link libpage-tab active" data-libtab="library" type="button">Songs <span id="libpage-count" class="badge libpage-tab-count"></span></button>
           <button class="nav-link libpage-tab" data-libtab="requests" type="button">Requested <span id="libpage-requests-count" class="badge badge-subtle theme-primary libpage-tab-badge" hidden></span></button>
           <button class="nav-link libpage-tab" data-libtab="downloads" type="button">Download <span id="libpage-downloads-count" class="badge badge-subtle theme-primary libpage-tab-badge" hidden></span></button>
+          <button class="nav-link libpage-tab" data-libtab="broken" type="button">Broken <span id="libpage-broken-count" class="badge badge-subtle theme-warning libpage-tab-badge" hidden></span></button>
         </nav>
         <section id="libpage-songs-panel" class="libpage-panel">
+          <p id="libpage-broken-hint" class="fs-sm fg-3 mb-4 libpage-hint" hidden>Songs someone marked as broken (needs replacement). Click a song's warning icon for the reasons. Replacing a song's audio (the swap button, or <code>la upload --replace</code>) clears its reports.</p>
           <div class="d-flex flex-wrap gap-2 mb-4 libpage-toolbar">
             <input type="search" id="libpage-search" class="form-control libpage-search" placeholder="Search title, artist, album…" autocomplete="off" aria-label="Search the library">
             <select id="libpage-sort" class="form-control w-auto libpage-select" aria-label="Sort">

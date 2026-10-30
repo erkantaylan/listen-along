@@ -10,6 +10,27 @@ import { navigateTo, t } from './ui.js';
 import { player } from './player.js';
 import { playlistPath } from './router.js';
 import { listenState, onListenChange, followersText, stopListenAlong } from './listen-along.js';
+import { bindSongMenu, bindReportIcons, reportIconHtml, reportsFor, onReportsChange } from './song-reports.js';
+
+// The current song as the song menu / reports see it.
+function currentSong() {
+  const track = player.track;
+  if (!track) return null;
+  return { songId: track.libraryId || null, url: track.url, title: track.title, artist: track.artist };
+}
+
+// The warning icon (reported song) and the ⋮ button follow the track.
+function refreshBroken() {
+  const song = currentSong();
+  const el = $('track-broken');
+  if (el) {
+    const html = song ? reportIconHtml(reportsFor(song)) : '';
+    el.innerHTML = html;
+    el.hidden = !html;
+  }
+  const btn = $('player-menu-btn');
+  if (btn) btn.hidden = !song;
+}
 
 const $ = (id) => document.getElementById(id);
 // t() with {placeholders} filled in the fallback too (t returns it raw).
@@ -63,6 +84,7 @@ export function refreshPlayerBar() {
     open.title = from ? t('player.openContext', 'Open {name}', { name: from }) : '';
   }
   refreshListenStrip();
+  refreshBroken();
   if (!track) {
     elements.trackTitle.textContent = t('player.nothingPlaying', 'Nothing playing');
     elements.trackArtist.textContent = t('player.pickSong', 'Pick a song in a playlist or the library');
@@ -116,5 +138,9 @@ export function setupPlayerBarControls() {
   player.on('queue', refreshPlayerBar);
   onListenChange(refreshPlayerBar);
   $('listen-stop')?.addEventListener('click', () => stopListenAlong());
+  // Right-click / long-press the current song, or its ⋮ button: the song menu.
+  bindSongMenu(document.querySelector('#player-bar .sticky-player-row'), '.player-open, .player-menu-btn', () => currentSong());
+  bindReportIcons($('track-broken'), () => { const song = currentSong(); return song ? reportsFor(song) : []; });
+  onReportsChange(refreshBroken);
   refreshPlayerBar();
 }

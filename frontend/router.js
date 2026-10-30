@@ -14,10 +14,10 @@
 // server answers them with a 301 too).
 //
 // Library query params (defaults are left out of the URL):
-//   tab=requests|downloads, status=fulfilled|dismissed|all (requests filter),
+//   tab=requests|downloads|broken ("Needs replacement": reported songs), status=fulfilled|dismissed|all (requests filter),
 //   q=<search>, sort=title|artist, page=<n> (1-based)
 
-export const LIBRARY_TABS = ['library', 'requests', 'downloads'];
+export const LIBRARY_TABS = ['library', 'requests', 'downloads', 'broken'];
 export const LIBRARY_SORTS = ['recent', 'title', 'artist'];
 export const REQUEST_STATUSES = ['pending', 'fulfilled', 'dismissed', 'all'];
 

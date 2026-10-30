@@ -1,5 +1,5 @@
-// Admin page: downloaders (workers) and download jobs, CLI tokens, song
-// requests, library management.
+// Admin page: downloaders (workers) and download jobs, songs marked as
+// needing replacement, CLI tokens, song requests, library management.
 // Auth is the ADMIN_USER / ADMIN_PASSWORD cookie set by POST /api/admin/login,
 // which also unlocks /dashboard.
 (function () {
@@ -54,11 +54,12 @@
     $('adm-logout').hidden = false;
     loadWorkers();
     loadJobs();
+    loadReports();
     loadTokens();
     loadRequests();
     loadLibrary();
     clearInterval(refreshTimer);
-    refreshTimer = setInterval(() => { if (!document.hidden && !$('adm-main').hidden) { loadWorkers(); loadJobs(); } }, 10000);
+    refreshTimer = setInterval(() => { if (!document.hidden && !$('adm-main').hidden) { loadWorkers(); loadJobs(); loadReports(); } }, 10000);
   }
   let refreshTimer = null;
 
@@ -209,6 +210,54 @@
     try { await api('POST', `/api/requests/${encodeURIComponent(btn.dataset.dismiss)}/dismiss`); }
     catch (err) { alert(`Could not dismiss: ${err.message}`); }
     loadRequests();
+  });
+
+  // --- needs replacement (songs marked broken) -------------------------------
+  async function loadReports() {
+    const list = $('adm-reports');
+    try {
+      const { songs, total } = await api('GET', '/api/library?reported=1&limit=500');
+      const reports = songs.reduce((n, s) => n + (s.report_count || 0), 0);
+      $('adm-reports-summary').textContent = total ? `(${total} song${total === 1 ? '' : 's'}, ${reports} report${reports === 1 ? '' : 's'})` : '';
+      if (!songs.length) { list.innerHTML = '<li class="list-group-item app-empty adm-empty">Nothing is marked as broken.</li>'; return; }
+      list.innerHTML = songs.map((s) => `
+        <li class="list-group-item vstack gap-2 adm-item">
+          <div class="d-flex align-items-start gap-3">
+            <div class="min-w-0 flex-grow-1 adm-item-main">
+              <div class="fw-medium text-break adm-item-title">${esc(s.title)} <span class="fg-3 fw-normal">— ${esc(s.artist)}</span>
+                <span class="badge badge-subtle theme-warning">Broken${s.report_count > 1 ? ` · ${s.report_count}` : ''}</span></div>
+              <div class="fs-xs fg-3 text-break adm-item-sub">${s.youtube_id ? 'YouTube ' + esc(s.youtube_id) + ' · ' : ''}id ${esc(s.id)}</div>
+            </div>
+            <button class="btn btn-sm" data-play="${esc(s.id)}" type="button">${previewId === s.id && !previewAudio.paused ? 'Pause' : 'Play'}</button>
+            <button class="btn-outline theme-secondary btn-sm" data-dismiss-song="${esc(s.id)}" type="button">Dismiss all</button>
+          </div>
+          <ul class="list-unstyled vstack gap-1 mb-0 fs-sm">
+            ${(s.reports || []).map((r) => `
+            <li class="d-flex align-items-center gap-2">
+              <span class="min-w-0 flex-grow-1 text-break"><span class="fg-2">${r.reason ? `“${esc(r.reason)}”` : '<span class="fg-3">No reason given</span>'}</span>
+                <span class="fs-xs fg-3">— ${esc(r.reported_by)}, ${esc(when(r.updated_at || r.created_at))}</span></span>
+              <button class="btn-text theme-secondary btn-xs" data-dismiss-report="${esc(r.id)}" type="button">Dismiss</button>
+            </li>`).join('')}
+          </ul>
+        </li>`).join('');
+    } catch (err) {
+      list.innerHTML = `<li class="list-group-item app-empty adm-empty">${esc(err.message)}</li>`;
+    }
+  }
+
+  $('adm-reports-refresh').addEventListener('click', loadReports);
+  $('adm-reports').addEventListener('click', async (e) => {
+    const play = e.target.closest('[data-play]');
+    if (play) { togglePreview(play.dataset.play); return; }
+    const one = e.target.closest('[data-dismiss-report]');
+    const all = e.target.closest('[data-dismiss-song]');
+    if (!one && !all) return;
+    (one || all).disabled = true;
+    try {
+      if (one) await api('POST', `/api/admin/library/reports/${encodeURIComponent(one.dataset.dismissReport)}/dismiss`);
+      else await api('POST', `/api/admin/library/${encodeURIComponent(all.dataset.dismissSong)}/reports/dismiss`);
+    } catch (err) { alert(`Could not dismiss: ${err.message}`); }
+    loadReports();
   });
 
   // --- library --------------------------------------------------------------
