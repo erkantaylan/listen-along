@@ -657,8 +657,8 @@ app.get(playlistPaths('/:id'), playlistRoute('get playlist', async (req, res) =>
   res.json({ ...(await playlistInfo(l, viewer.userId)), users: lobby.getLobbyUsers(l.id) });
 }));
 
-// Rename and/or change visibility. Body: { name?, visibility? }. Renaming is
-// an edit (anyone who can see it); visibility is owner-only.
+// Rename and/or change visibility. Body: { name?, visibility? }. Both are
+// owner-only (an ownerless legacy playlist can be renamed by an admin only).
 async function updatePlaylist(req, res, { name, visibility }) {
   const viewer = await requireViewer(req, res);
   if (!viewer) return;
@@ -673,7 +673,9 @@ async function updatePlaylist(req, res, { name, visibility }) {
     }
   }
   if (name !== undefined) {
-    if (!access.viewerCanEdit(l, viewer)) return res.status(404).json({ error: 'Playlist not found', code: 'NOT_FOUND' });
+    if (!access.viewerCanRename(l, viewer, { admin: adminAuth.isAdmin(req) })) {
+      return res.status(403).json({ error: 'Only the owner can rename', code: 'FORBIDDEN' });
+    }
     const result = await lobby.renameLobby(l.id, name, other => access.viewerCanView(other, viewer));
     if (!result) return res.status(404).json({ error: 'Playlist not found', code: 'NOT_FOUND' });
     if (result.error) {
@@ -2310,7 +2312,12 @@ io.on('connection', (socket) => {
     if (!lobbyId) lobbyId = currentLobby;
     if (!lobbyId) return;
 
-    const result = (await editableLobby(lobbyId)) ? await lobby.renameLobby(lobbyId, name, visibleTo) : null;
+    const l = await editableLobby(lobbyId);
+    if (l && !access.canRename(l, userId, { admin: adminAuth.isAdmin({ headers: socket.handshake.headers }) })) {
+      socket.emit('lobby:error', { message: 'Only the owner can rename' });
+      return;
+    }
+    const result = l ? await lobby.renameLobby(lobbyId, name, visibleTo) : null;
     if (!result) {
       socket.emit('lobby:error', { message: 'Playlist not found' });
       return;

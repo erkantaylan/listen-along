@@ -136,8 +136,11 @@ describe('playlist API with CLI tokens on Postgres', { skip, timeout: 180_000 },
     // Bob may not even learn the name is taken.
     assert.equal((await req('POST', '/api/playlists', as('bob', { body: { name: 'Alice Private' } }))).status, 201);
 
-    // Public: Bob renames, but cannot change visibility or delete.
+    // Public: Bob can neither rename, change visibility nor delete; Alice renames.
     let r = await req('PATCH', `/api/playlists/${pl.alicePub}`, as('bob', { body: { name: 'Shared' } }));
+    assert.equal(r.status, 403);
+    assert.equal(r.body.code, 'FORBIDDEN');
+    r = await req('PATCH', `/api/playlists/${pl.alicePub}`, as('alice', { body: { name: 'Shared' } }));
     assert.equal(r.status, 200);
     assert.equal(r.body.name, 'Shared');
     r = await req('PATCH', `/api/playlists/${pl.alicePub}`, as('bob', { body: { visibility: 'private' } }));
@@ -185,7 +188,10 @@ describe('playlist API with CLI tokens on Postgres', { skip, timeout: 180_000 },
     assert.equal((await req('PATCH', `/api/playlists/${pl.alicePub}`, as('legacy', { body: { visibility: 'private' } }))).status, 403);
     assert.equal((await req('DELETE', `/api/playlists/${pl.legacy}`, as('legacy'))).status, 403);
     // Ownerless means every user can edit it, and nobody but an admin deletes it.
-    assert.equal((await req('PATCH', `/api/playlists/${pl.legacy}`, as('bob', { body: { name: 'Bot list 2' } }))).status, 200);
+    // Ownerless: nobody but an admin renames it; the legacy token can't rename anything.
+    assert.equal((await req('PATCH', `/api/playlists/${pl.legacy}`, as('bob', { body: { name: 'Bot list 2' } }))).status, 403);
+    assert.equal((await req('PATCH', `/api/playlists/${pl.legacy}`, as('legacy', { body: { name: 'Bot list 2' } }))).status, 403);
+    assert.equal((await req('PATCH', `/api/playlists/${pl.alicePub}`, as('legacy', { body: { name: 'Bot rename' } }))).status, 403);
     assert.equal((await req('DELETE', `/api/playlists/${pl.legacy}`, as('bob'))).status, 403);
   });
 

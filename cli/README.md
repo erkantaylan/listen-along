@@ -310,12 +310,13 @@ file_version}` and counts in `summary.replaced`. Not combinable with
 ### Playlists
 
 `la playlist` acts as the token's owner with the web app's rules: a public
-playlist is seen and edited (songs, rename) by every user; a private one only
+playlist is seen and its songs edited by every user; a private one only
 by its owner — to anyone else it does not exist ("not found"). Only the owner
-changes visibility or deletes. A **legacy token** (created before tokens had
+renames, changes visibility or deletes (others get 403 `FORBIDDEN`). A **legacy token** (created before tokens had
 owners; `la whoami --json` shows `"legacy": true`) sees public playlists only,
-creates only public playlists (they have no owner, so every user can edit them
-and only an admin can delete them) and can never change visibility or delete.
+creates only public playlists (they have no owner, so every user can edit their
+songs and only an admin can rename or delete them) and can never rename, change
+visibility or delete.
 
 Playlists are named by **id or exact case-insensitive name** among those you
 can see; an ambiguous name fails (exit 1, `AMBIGUOUS`) listing the ids.

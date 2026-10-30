@@ -67,6 +67,23 @@ describe('playlistAccess rules', () => {
     assert.equal(access.viewerCanView(pub, null), false);
   });
 
+  it('rename: owner only; an ownerless playlist only by an admin', () => {
+    const alice = { userId: ALICE, legacy: false };
+    const bob = { userId: BOB, legacy: false };
+    const legacy = { userId: null, legacy: true };
+    assert.equal(access.canRename(pub, ALICE), true);
+    assert.equal(access.canRename(pub, BOB), false);
+    assert.equal(access.canRename(pub, BOB, { admin: true }), false);
+    assert.equal(access.canRename(ownerless, BOB), false);
+    assert.equal(access.canRename(ownerless, BOB, { admin: true }), true);
+    assert.equal(access.viewerCanRename(pub, alice), true);
+    assert.equal(access.viewerCanRename(pub, bob), false);
+    assert.equal(access.viewerCanRename(pub, legacy), false);
+    assert.equal(access.viewerCanRename(ownerless, legacy), false);
+    assert.equal(access.viewerCanRename(ownerless, bob, { admin: true }), true);
+    assert.equal(access.viewerCanRename(priv, bob, { admin: true }), false);
+  });
+
   it('not logged in sees nothing', () => {
     assert.equal(access.canView(pub, null), false);
     assert.equal(access.canEdit(ownerless, null), false);
@@ -213,10 +230,14 @@ describe('playlist permissions against a running server', { timeout: 60_000 }, (
     assert.equal((await api('GET', `/api/playlists/${privId}`, { user: ALICE })).body.name, 'Alice Secret');
   });
 
-  it('lets anyone rename a public playlist but only the owner change visibility or delete', async () => {
+  it('only the owner renames, changes visibility or deletes a public playlist', async () => {
     const rename = await api('PATCH', `/api/playlists/${pubId}`, { user: BOB, body: { name: 'Renamed by Bob' } });
-    assert.equal(rename.status, 200);
-    assert.equal(rename.body.name, 'Renamed by Bob');
+    assert.equal(rename.status, 403);
+    assert.equal(rename.body.code, 'FORBIDDEN');
+    assert.equal(rename.body.error, 'Only the owner can rename');
+    const own = await api('PATCH', `/api/playlists/${pubId}`, { user: ALICE, body: { name: 'Renamed by Alice' } });
+    assert.equal(own.status, 200);
+    assert.equal(own.body.name, 'Renamed by Alice');
     assert.equal((await api('PATCH', `/api/playlists/${pubId}`, { user: BOB, body: { visibility: 'private' } })).status, 403);
     assert.equal((await api('DELETE', `/api/playlists/${pubId}`, { user: BOB })).status, 403);
   });
@@ -270,7 +291,15 @@ describe('playlist permissions against a running server', { timeout: 60_000 }, (
     bob.emit('lobby:join', { lobbyId: pubId, username: 'Bob' });
     assert.equal((await waitFor(bob, ['lobby:joined']))[0], 'lobby:joined');
     bob.emit('lobby:rename', { lobbyId: pubId, name: 'Bob was here' });
-    assert.equal((await waitFor(bob, ['lobby:renamed', 'lobby:error']))[0], 'lobby:renamed');
+    const [ev, data] = await waitFor(bob, ['lobby:renamed', 'lobby:error']);
+    assert.equal(ev, 'lobby:error');
+    assert.equal(data.message, 'Only the owner can rename');
+    const alice = await connect(ALICE);
+    alice.emit('lobby:join', { lobbyId: pubId, username: 'Alice' });
+    assert.equal((await waitFor(alice, ['lobby:joined']))[0], 'lobby:joined');
+    alice.emit('lobby:rename', { lobbyId: pubId, name: 'Alice socket name' });
+    assert.equal((await waitFor(alice, ['lobby:renamed', 'lobby:error']))[0], 'lobby:renamed');
+    alice.disconnect();
 
     const closed = waitFor(bob, ['lobby:closed']);
     const res = await api('PATCH', `/api/playlists/${pubId}`, { user: ALICE, body: { visibility: 'private' } });

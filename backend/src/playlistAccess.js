@@ -4,14 +4,14 @@
  * rules are unit tested (playlist-access.test.js).
  *
  *   public  playlist: every logged-in user can see it and edit it (add,
- *                     remove, reorder, clear songs, rename, pin).
+ *                     remove, reorder, clear songs, pin).
  *   private playlist: only its owner can see it. To everyone else it does not
  *                     exist: callers answer "not found", never "forbidden".
- *   manage  (switch public <-> private, delete): the owner only.
+ *   manage  (rename, switch public <-> private, delete): the owner only.
  *
  * Ownerless playlists (legacy rows, or created while not logged in) are always
  * public: editable by every logged-in user, never switchable to private, and
- * deletable only by an admin (dashboard).
+ * renamable / deletable only by an admin (admin cookie).
  *
  * `userId` is the users.id from the signed listen_auth cookie (null when not
  * logged in). A user who is not logged in can see nothing.
@@ -46,6 +46,13 @@ function canAdminDelete(lobby) {
   return !!lobby && !isPrivate(lobby);
 }
 
+// Rename is owner-only. An ownerless (legacy) public playlist has no owner, so
+// only an admin may rename it.
+function canRename(lobby, userId, { admin = false } = {}) {
+  if (canManage(lobby, userId)) return true;
+  return !!admin && !!lobby && !lobby.ownerId && !isPrivate(lobby);
+}
+
 // --- Viewers -------------------------------------------------------------
 // HTTP callers are "viewers": { userId, legacy }. A web session or a CLI
 // token owned by a user is that user (userId set). A legacy CLI token (made
@@ -67,7 +74,13 @@ function viewerCanManage(lobby, viewer) {
   return !!viewer && !viewer.legacy && canManage(lobby, viewer.userId);
 }
 
+function viewerCanRename(lobby, viewer, { admin = false } = {}) {
+  if (viewerCanManage(lobby, viewer)) return true;
+  return !!viewer && viewerCanView(lobby, viewer) && canRename(lobby, null, { admin });
+}
+
 module.exports = {
+  canRename, viewerCanRename,
   isOwner, isPrivate, canView, canEdit, canManage, canAdminDelete,
   viewerCanView, viewerCanEdit, viewerCanManage,
 };
