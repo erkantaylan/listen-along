@@ -15,6 +15,7 @@ const db = require('./db');
 const library = require('./library');
 const songRequests = require('./requests');
 const { createLibraryRouter, sendSongFile } = require('./libraryRoutes');
+const { createTokenRouter } = require('./tokenRoutes');
 const clientIpSetup = require('./clientIp');
 const adminAuth = require('./adminAuth');
 const { apiLimiter } = require('./rateLimits');
@@ -294,7 +295,15 @@ app.use(createLibraryRouter({
   requireWebUser: userAuth.requireLevel('approved')
 }));
 
-// Admin page (tokens, requests, library management). Disabled without ADMIN_PASSWORD.
+// The caller's own CLI tokens (profile page). Approved accounts only.
+app.use(createTokenRouter({
+  requireUser: (req, res, next) => userAuth.requireLevel('approved')(req, res, () => {
+    req.account = req._listenAuth.account;
+    next();
+  }),
+}));
+
+// Admin page (all CLI tokens, requests, library management). Disabled without ADMIN_PASSWORD.
 app.get('/admin', apiLimiter, (req, res) => {
   res.sendFile(path.join(frontendPath, 'admin.html'));
 });

@@ -428,7 +428,8 @@ describe('account status and CLI tokens on Postgres', { skip: pgSkip, timeout: 1
   it('CLI Bearer token: /api/me, /api/library and upload keep working', async () => {
     let r = await c.req('GET', '/api/me', { headers: bearer() });
     assert.equal(r.status, 200);
-    assert.deepEqual(r.body, { name: 'Uploader' });
+    assert.equal(r.body.name, 'Uploader');
+    assert.equal(r.body.user, null, 'a legacy token has no owner');
     assert.equal((await c.req('GET', '/api/me')).status, 401);
     assert.equal((await c.req('GET', '/api/me', { headers: bearer('la_wrong') })).status, 401);
     r = await c.req('GET', '/api/library?limit=5', { headers: bearer() });

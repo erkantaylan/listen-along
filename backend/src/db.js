@@ -188,6 +188,19 @@ async function createTables() {
       revoked_at TIMESTAMPTZ
     )
   `);
+  // Migration: tokens belong to a user account (created from the profile
+  // page). Tokens made before this keep user_id NULL ("legacy, no owner") and
+  // keep working. Deleting the account deletes its tokens.
+  await pool.query(`
+    ALTER TABLE api_tokens ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE CASCADE
+  `).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id)`).catch(() => {});
+  // Migration: which account uploaded a library song (the token's owner;
+  // NULL for legacy tokens and the migrated cache). uploaded_by keeps the
+  // display name snapshot the UI shows.
+  await pool.query(`
+    ALTER TABLE library_songs ADD COLUMN IF NOT EXISTS uploaded_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL
+  `).catch(() => {});
 
   // Song requests: a web user queued something that is not in the library.
   // lobby_id has no FK on purpose — the request outlives a deleted lobby.

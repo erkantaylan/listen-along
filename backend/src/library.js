@@ -322,8 +322,8 @@ async function findByTitleArtist(title, artist) {
 async function insert(song) {
   const r = await db.query(
     `INSERT INTO library_songs
-       (id, youtube_id, title, artist, album, duration_sec, file_path, mime_type, size_bytes, sha256, source_url, uploaded_by, uploaded_by_token)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       (id, youtube_id, title, artist, album, duration_sec, file_path, mime_type, size_bytes, sha256, source_url, uploaded_by, uploaded_by_token, uploaded_by_user_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
      RETURNING *`,
     [
       song.id || crypto.randomUUID(),
@@ -339,6 +339,7 @@ async function insert(song) {
       song.source_url || null,
       song.uploaded_by,
       song.uploaded_by_token || null,
+      song.uploaded_by_user_id || null,
     ]
   );
   return r.rows[0];
@@ -450,7 +451,8 @@ function validateUploadFileMeta(file) {
  * deletes) the temp file.
  * @param {{path, originalname, mimetype, size}} file - multer file
  * @param {object} fields - validated fields (validateUploadFields)
- * @param {{name: string, id: string}} uploader - the token owner
+ * @param {{name: string, id: string, userId?: string}} uploader - req.apiUser:
+ *   name is credited in uploaded_by, id is the token, userId its owner (or null)
  * @returns {Promise<object>} inserted DB row
  * @throws {UploadError} 400 invalid file, 409 duplicate (err.song set)
  */
@@ -488,6 +490,7 @@ async function ingestUpload(file, fields, uploader) {
         source_url: fields.source_url || (fields.youtube_id ? youtubeUrl(fields.youtube_id) : null),
         uploaded_by: uploader.name,
         uploaded_by_token: uploader.id,
+        uploaded_by_user_id: uploader.userId || null,
       });
     } catch (err) {
       try { fs.unlinkSync(finalPath); } catch {}

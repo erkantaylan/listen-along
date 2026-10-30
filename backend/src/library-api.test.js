@@ -79,6 +79,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
     fx.b = makeAudio('b.m4a', 550, ['-c:a', 'aac']);
     fx.c = makeAudio('c.m4a', 660, ['-c:a', 'aac']);
     fx.d = makeAudio('d.m4a', 770, ['-c:a', 'aac']);
+    fx.e = makeAudio('e.m4a', 990, ['-c:a', 'aac']);
     fx.mp3 = makeAudio('song.mp3', 880, ['-c:a', 'libmp3lame']);
     fx.mp3AsM4a = path.join(FX, 'fake.m4a');
     fs.copyFileSync(fx.mp3, fx.mp3AsM4a);
@@ -110,7 +111,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       assert.equal((await getJson('/api/me', auth('la_wrong'))).status, 401);
       const ok = await getJson('/api/me', auth());
       assert.equal(ok.status, 200);
-      assert.deepEqual(ok.body, { name: 'Alice' });
+      assert.deepEqual(ok.body, { name: 'Alice', user: null, token: { label: 'Alice', legacy: true } }, 'a legacy token (no owner)');
     });
 
     it('upload and every read require a token here (no web-user hook); a bad token is refused', async () => {
@@ -169,6 +170,9 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       const s = r.body.song;
       assert.deepEqual(Object.keys(s).sort(), ['album', 'artist', 'created_at', 'duration_sec', 'id', 'source_url', 'title', 'uploaded_by', 'youtube_id']);
       assert.equal(s.uploaded_by, 'Alice');
+      const row = (await db.query('SELECT uploaded_by_user_id, uploaded_by_token FROM library_songs WHERE id = $1', [s.id])).rows[0];
+      assert.equal(row.uploaded_by_user_id, null, 'legacy token: no owning account');
+      assert.equal(row.uploaded_by_token, tokenRecord.id);
       assert.equal(s.youtube_id, 'AAAAAAAAAAA');
       assert.equal(s.source_url, 'https://www.youtube.com/watch?v=AAAAAAAAAAA', 'derived from youtube_id');
       assert.equal(s.duration_sec, 2);
@@ -220,6 +224,43 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       assert.equal(row.source_url, 'https://music.youtube.com/watch?v=DDDDDDDDDDD');
       // clean up so later dedupe/request tests see the same library as before
       await library.remove(r.body.song.id);
+    });
+  });
+
+  describe('token owners', () => {
+    let owner;
+    let ownerToken;
+    before(async () => {
+      const r = await db.query(
+        `INSERT INTO users (provider, provider_id, name, display_name, status, created_at)
+         VALUES ('github', 'owner-1', 'Real Name', 'Deejay', 'approved', 1) RETURNING id`
+      );
+      owner = r.rows[0].id;
+      ({ token: ownerToken } = await require('./tokens').createToken('Desktop', { userId: owner }));
+    });
+
+    it('/api/me names the owning account', async () => {
+      const me = await getJson('/api/me', auth(ownerToken));
+      assert.equal(me.status, 200);
+      assert.deepEqual(me.body, { name: 'Deejay', user: { id: owner, name: 'Deejay' }, token: { label: 'Desktop', legacy: false } });
+    });
+
+    it("an upload records the owner's account and display name", async () => {
+      const r = await upload(fx.e, { title: 'Owned', artist: 'Owner' }, { headers: auth(ownerToken) });
+      assert.equal(r.status, 201);
+      assert.equal(r.body.song.uploaded_by, 'Deejay', 'the UI keeps showing a name');
+      const row = (await db.query('SELECT uploaded_by, uploaded_by_user_id FROM library_songs WHERE id = $1', [r.body.song.id])).rows[0];
+      assert.equal(row.uploaded_by_user_id, owner);
+      assert.equal(row.uploaded_by, 'Deejay');
+    });
+
+    it("a token stops working when its owner is no longer approved, and again when re-approved", async () => {
+      for (const status of ['pending', 'denied', 'rejected']) {
+        await db.query('UPDATE users SET status = $1 WHERE id = $2', [status, owner]);
+        assert.equal((await getJson('/api/me', auth(ownerToken))).status, 401, status);
+      }
+      await db.query("UPDATE users SET status = 'approved' WHERE id = $1", [owner]);
+      assert.equal((await getJson('/api/me', auth(ownerToken))).status, 200);
     });
   });
 
@@ -318,7 +359,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       assert.deepEqual((await getJson('/api/admin/status')).body, { enabled: false, authenticated: false });
     });
 
-    it('logs in with the password and manages tokens', async () => {
+    it('logs in with the password, lists every token with its owner and revokes any of them', async () => {
       process.env.ADMIN_PASSWORD = 'pw-test';
       const post = (url, body, cookie) => fetch(base + url, {
         method: 'POST', headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: JSON.stringify(body || {}),
@@ -331,17 +372,30 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       assert.equal(login.status, 200);
       const cookie = login.headers.get('set-cookie').split(';')[0];
 
-      const created = await post('/api/admin/tokens', { name: 'Hana' }, cookie);
-      assert.equal(created.status, 201);
-      const { token: t, record } = await created.json();
+      // Creating tokens moved to the profile page.
+      assert.equal((await post('/api/admin/tokens', { name: 'Hana' }, cookie)).status, 404);
+
+      const tokens = require('./tokens');
+      const u = (await db.query(
+        `INSERT INTO users (provider, provider_id, name, status, created_at) VALUES ('google', 'hana', 'Hana', 'approved', 1) RETURNING id`
+      )).rows[0].id;
+      const { token: t, record } = await tokens.createToken('Laptop', { userId: u });
       assert.equal((await getJson('/api/me', auth(t))).body.name, 'Hana');
 
       const listed = await getJson('/api/admin/tokens', { Cookie: cookie });
-      assert.ok(listed.body.tokens.some((x) => x.id === record.id && x.active));
+      const mine = listed.body.tokens.find((x) => x.id === record.id);
+      assert.ok(mine && mine.active);
+      assert.equal(mine.label, 'Laptop');
+      assert.deepEqual(mine.owner, { id: u, name: 'Hana' });
+      const legacy = listed.body.tokens.find((x) => x.id === tokenRecord.id);
+      assert.equal(legacy.owner, null, 'legacy token listed without an owner');
+      assert.equal(legacy.label, 'Alice');
       assert.ok(listed.body.tokens.every((x) => !('token_hash' in x)));
 
+      assert.equal((await post('/api/admin/tokens/not-a-uuid/revoke', {}, cookie)).status, 404);
       assert.equal((await post(`/api/admin/tokens/${record.id}/revoke`, {}, cookie)).status, 200);
       assert.equal((await getJson('/api/me', auth(t))).status, 401);
+      assert.equal((await getJson('/api/me')).status, 200, 'other tokens unaffected');
       delete process.env.ADMIN_PASSWORD;
     });
   });

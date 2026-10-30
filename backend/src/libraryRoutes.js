@@ -1,6 +1,6 @@
 /**
- * HTTP API for the music library, song requests, CLI tokens and the admin
- * page. Mounted by index.js; also mounted standalone in tests.
+ * HTTP API for the music library, song requests, the admin page (incl. the
+ * list of all CLI tokens). Mounted by index.js; also mounted standalone in tests.
  *
  * CLI endpoints authenticate with `Authorization: Bearer <token>`. Read-only
  * endpoints (library list/song/file, requests list) take a Bearer token (CLI,
@@ -124,8 +124,11 @@ function createLibraryRouter(hooks = {}) {
   };
 
   // --- CLI identity -------------------------------------------------------
+  // name: who uploads are credited to (the owner's display name, or a legacy
+  // token's name). user: the owning account, null for a legacy token.
   router.get('/api/me', tokens.requireToken, (req, res) => {
-    res.json({ name: req.apiUser.name });
+    const { name, label, user } = req.apiUser;
+    res.json({ name, user, token: { label, legacy: !user } });
   });
 
   // --- Library ------------------------------------------------------------
@@ -251,19 +254,14 @@ function createLibraryRouter(hooks = {}) {
     res.json({ tokens: await tokens.listTokens() });
   });
 
-  router.post('/api/admin/tokens', adminAuth.requireAdmin, requireDb, async (req, res) => {
-    const name = req.body && req.body.name;
-    if (!name || !String(name).trim()) return res.status(400).json({ error: 'name is required' });
-    const { token, record } = await tokens.createToken(name);
-    console.log(`[admin] created token ${record.prefix}… for "${record.name}"`);
-    res.status(201).json({ token, record });
-  });
+  // Tokens are created by their owners on the profile page (/api/tokens,
+  // tokenRoutes.js); the admin page only lists and revokes them.
 
   router.post('/api/admin/tokens/:id/revoke', adminAuth.requireAdmin, requireDb, async (req, res) => {
     if (!library.isUuid(req.params.id)) return res.status(404).json({ error: 'Token not found' });
     const record = await tokens.revokeToken(req.params.id);
     if (!record) return res.status(404).json({ error: 'Token not found' });
-    console.log(`[admin] revoked token ${record.prefix}… ("${record.name}")`);
+    console.log(`[admin] revoked token ${record.prefix}… ("${record.label}", owner ${record.owner ? record.owner.name || record.owner.id : 'legacy'})`);
     res.json({ record });
   });
 
