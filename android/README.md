@@ -1,31 +1,79 @@
 # Listen Along for Android
 
-Keeps songs from the listen-along music library on your phone as **plain,
-unencrypted, tagged audio files** that VLC or any other player can play. It
-has no player of its own. It downloads songs and hands them off.
+The listen-along music library on your phone: browse and search it, play it
+(streamed, or from downloaded files with no connection), manage playlists,
+and keep songs as **plain, unencrypted, tagged audio files** that VLC or any
+other player can open too.
 
-Kotlin + Jetpack Compose, with no cross-platform runtime. It uses the same
-stack, versions and conventions as the kitaplik reader app: one catalog in
-the cloud, download what you want, and an On device tab.
+Kotlin + Jetpack Compose + Media3, no cross-platform runtime. The look follows
+the web app (`DESIGN.md`, "Android" section): dark only, soft greys, one muted
+slate-blue accent.
+
+## Getting started
+
+The app talks to **https://music.etaylan.com** out of the box (change it in
+Settings). The library and playlists need an **API token**: on first launch
+the app opens Settings and walks you through it — open your profile on the
+web (**Open my profile**), create a token under "CLI tokens", copy it, tap
+**Paste**, then **Save and test**. The token is sent as
+`Authorization: Bearer …` and stored encrypted.
 
 ## What it does
 
-- **Library**: every song on the server. Search by title or artist, sort by
-  recent, title or artist, and scroll to load more pages. Each row shows the
-  title, artist, duration, who uploaded it, and whether it is already on the
-  device. Tap a row to download it. Tap a row that is downloading to cancel
-  it, or a saved row to play it. **Download all** fetches the whole current
-  search result: a dialog first shows how many songs that is and the rough
-  size (about 1 MB per minute), and skips what you already have.
-- **On device**: the saved songs, plus the download queue while it runs.
-  Tap a song to open it in your player (`ACTION_VIEW`, `audio/mp4` or
-  `audio/mpeg`, content URI). Long-press to delete it. Pull down to forget
-  songs whose files were deleted in another app. The app also does this every
-  time it comes to the foreground.
-- **Settings**: the server address, an API token (sent as
-  `Authorization: Bearer …` and stored encrypted; the server refuses library
-  requests without one, create it on `/admin`), a **Save and test** button
-  that checks `/api/library` and `/api/me`, and the Night/Paper theme.
+- **Library**: every song on the server. Search, sort (recent, title,
+  artist), scroll to load more. Tap a song to play the list from there; **Play**
+  / **Shuffle** play the whole result. The download button saves a song (tap
+  the ring again to cancel; a green check means it is on the phone). ⋮ → *Add
+  to playlist*, *Download*, *Open in another app*. The header's download
+  button fetches the whole current result after a confirm (count, rough size).
+- **Playlists**: every public playlist plus your private ones ("Private"
+  badge), yours first. Open one to see its songs; tap a song to play the
+  playlist from it, or Play / Shuffle. **Download playlist** queues every song
+  not yet on the phone. ⋮ on a playlist: *Rename*, and for its owner *Make
+  private/public* and *Delete* (who may do what comes from the server's
+  `canManage`; its error is shown if it refuses). ⋮ on a song: *Move up/down*,
+  *Remove from playlist*, *Add to another playlist*. **+** makes a new playlist
+  (name, Public/Private). Entries that are not in the library (old
+  YouTube-only queue entries) are listed but cannot be played.
+- **On device**: the downloaded songs (play, shuffle, add to playlist, open in
+  another app, delete) and the download queue while it runs.
+- **Settings**: server address, API token (Paste button), **Save and test**
+  (`/api/me` and `/api/library`), and storage stats.
+
+## Player
+
+`player/PlaybackService` is a Media3 `MediaSessionService` around one
+ExoPlayer; the UI only talks to it through a `MediaController`
+(`player/PlayerConnection`, one per process in `AppGraph`).
+
+- Plays in the background with the media notification, lock-screen and
+  headset/Bluetooth controls that Media3 builds from the session; tapping the
+  notification opens the full player.
+- Audio focus is handled by ExoPlayer (calls and other players pause it);
+  unplugging headphones pauses (`setHandleAudioBecomingNoisy`).
+- Each queued song is resolved once (`player/PlayQueue`): a downloaded song
+  plays from its MediaStore file, anything else streams from
+  `/api/library/:id/file` through an OkHttp client whose interceptor adds the
+  Bearer token, only for the configured server. Range requests make seeking
+  in a stream cheap.
+- A song that fails (deleted file, 404, connection lost) is skipped and a
+  toast says why.
+- UI: a mini player above the tabs (cover from the file's embedded art,
+  title, "artist · from", previous / play / next, progress line) and a full
+  player (seek bar, shuffle, repeat off/all/one).
+
+## Offline
+
+- Downloaded songs play with no connection; the player's queue then leaves out
+  songs that are not on the phone (and says how many it skipped).
+- **Library** falls back to the downloaded songs (searched and sorted
+  locally) with an "Offline" notice, and reloads when the connection returns.
+- **Playlists** keeps the last list and the last song list of every playlist
+  you opened (`playlists/PlaylistCache`, JSON files under the app's files
+  dir, per server). Offline, or when the server answers 5xx, those are shown
+  read-only with "Offline — saved copy from …"; editing actions are disabled.
+  A 4xx is not hidden behind the cache: a rejected token is shown, and a
+  playlist that answers 404 is forgotten.
 
 ### Where the files go
 
@@ -35,9 +83,8 @@ the files are public and every app sees them. The server's bytes are stored
 from the response `Content-Type`: legacy songs migrated from the old cache
 can be `.mp3` (`audio/mpeg`), `.ogg` (`audio/ogg`) or WebM (`audio/webm`),
 which is saved as `.mka` because MediaStore refuses `audio/webm`. Names are
-sanitised for FAT/exFAT (`\ / : * ? " < > |`, control characters, and
-leading/trailing dots are removed) and capped at 200 UTF-8 bytes. The
-server's placeholder artist `Unknown` is dropped.
+sanitised for FAT/exFAT and capped at 200 UTF-8 bytes. The server's
+placeholder artist `Unknown` is dropped.
 
 A small JSON index in SharedPreferences maps each song id to its MediaStore
 URI. That is how the app knows what is downloaded and avoids duplicates.
@@ -45,76 +92,91 @@ URI. That is how the app knows what is downloaded and avoids duplicates.
 ### Downloads
 
 A single WorkManager worker drains a persisted queue, **two songs at a time**,
-as a `dataSync` foreground service. It shows one progress notification with a
-**Cancel all** action and posts a summary when it finishes. Downloads keep
-going with the app closed. If the process dies, WorkManager restarts the
-worker and the unfinished songs are fetched again. The half-written files
-left behind are swept up first. A transient failure (a network error or a
-5xx) is retried twice. A 4xx (404, a bad token) fails at once, and the row
-offers a retry.
+as a `dataSync` foreground service, with one progress notification
+(**Cancel all**) and a summary when it finishes. Downloads keep going with the
+app closed; after a process death WorkManager restarts the worker and the
+unfinished songs are fetched again. A network error or a 5xx is retried twice;
+a 4xx fails at once and the row offers a retry. Song and playlist downloads
+use the same queue.
 
 ## Build and install
 
-You need JDK 17 and the Android SDK (compileSdk 37). Then:
+You need a JDK 17 or newer (21 works) and the Android SDK (compileSdk 37).
 
 ```bash
 cd android
-./gradlew :app:assembleDebug        # → app/build/outputs/apk/debug/app-debug.apk
+./dev.sh                            # build, install, launch on the connected phone
 ./gradlew :app:testDebugUnitTest    # unit tests (JVM, no device needed)
-./gradlew :app:installDebug         # install on the connected device
+./gradlew :app:assembleDebug        # → app/build/outputs/apk/debug/app-debug.apk
 ```
 
-The debug build installs as `com.erkantaylan.listenalong.debug`, next to a
-future release build. minSdk is 26 and targetSdk is 36, the same as kitaplik.
-The first time the app opens, it goes to Settings so you can enter the
-server address.
+`dev.sh` finds a JDK (JAVA_HOME if it is ≥ 17, else 17, else 21+ under
+`/usr/lib/jvm`) and the SDK (`ANDROID_HOME`, else `~/Android/Sdk`) by itself;
+call `./gradlew` with `JAVA_HOME` and `ANDROID_HOME` set yourself. The debug
+build installs as `com.erkantaylan.listenalong.debug`. minSdk 26, targetSdk 36.
 
 ## Dev loop
 
 ```bash
 ./dev.sh                 # build, install, launch on the connected device
-./dev.sh --stub          # ...plus a local stub library over an adb reverse tunnel
+./dev.sh --stub          # ...against tools/stub_server.py, for this run only
 ./dev.sh --logs          # ...then tail logcat
 ANDROID_SERIAL=emulator-5554 ./dev.sh --stub   # pick the device explicitly
 ./shot.sh out.png        # screenshot, refused unless the app is focused
 ```
 
-The real server needs PostgreSQL. `tools/stub_server.py` (Python standard
-library only) stands in for it. It serves every `.m4a`/`.mp3` in a folder
-through the same API: search, paging, sort, `Range`, and `/api/me` with a
-token. `--samples` uses ffmpeg to make five short test songs, including an
-mp3 and names with awkward characters. `--throttle KBPS` slows transfers
-down so you can watch progress and test cancelling. With `./dev.sh --stub`,
-set the server in the app to `localhost:8091` and the token to `devtoken`.
+`tools/stub_server.py` (Python standard library only) stands in for the real
+server, which needs PostgreSQL. It serves every `.m4a`/`.mp3` in a folder
+through the same API — search, paging, sort, `Range`, `/api/me` — plus
+in-memory playlists seeded with one private playlist of yours and one public
+playlist of someone else's (with a YouTube-only entry), with the server's
+owner rules and error answers. `--samples` makes five short test songs with
+ffmpeg; `--throttle KBPS` slows transfers down.
+
+`./dev.sh --stub` starts it, tunnels it to the phone's `localhost:8091` with
+`adb reverse`, and launches the app with `--es server http://localhost:8091
+--es token devtoken`. Debug builds take those intent extras as an
+**in-memory** override for that process (Settings shows a notice): the server
+and token saved on the phone are never touched. Restart the app normally to
+go back to them.
 
 Cleartext HTTP is allowed only for `localhost`, `127.0.0.1` and `10.0.2.2`
 (see `res/xml/network_security_config.xml`). A real server must use HTTPS,
 because the token travels with every request.
 
+Compose test tags are exposed as resource ids (`tab:playlists`,
+`song:<id>`, `playlist:<id>`, `mini-player`, `player:toggle`, …), so
+`uiautomator dump` can find and tap them from scripts.
+
 ## Layout
 
 ```
 app/src/main/java/com/erkantaylan/listenalong/
-├── api/         LibraryClient (OkHttp), models, base-URL normalising
-├── settings/    server URL + encrypted token
+├── api/         LibraryClient (OkHttp): library, /api/me, playlists; models
+├── settings/    server URL (default music.etaylan.com) + encrypted token
+├── playlists/   PlaylistRepository + PlaylistCache (offline copies)
+├── player/      PlaybackService (Media3), PlayerConnection, PlayQueue
+├── net/         connectivity hint
 ├── storage/     MediaStore sink, filenames, the song-id → URI index
 ├── download/    queue, state, the drain loop, WorkManager worker + notification
 ├── open/        hand-off to an external player
-└── ui/          Library, On device, Settings, tab bar, theme
+└── ui/          Library, Playlists, On device, Settings, player bars, theme
 ```
 
-`Downloads` is the one place that downloading logic lives. The UI enqueues
-and cancels there, and the worker calls `drain()`. It depends on an
-`AudioSink` interface rather than on MediaStore directly, so the whole
-download path runs in JVM unit tests against MockWebServer.
+`Downloads` and `PlaylistRepository` hold the logic and depend on interfaces
+(`AudioSink`, `TextStore`, a client provider), so downloads, playlist
+caching/fallback, the API parsing and queue building all run in JVM unit
+tests against MockWebServer.
 
 ## Known limits
 
 - The download index lives in app storage. After a reinstall or a data
-  clear, the app no longer knows about files it saved earlier, and on
-  Android 10+ it cannot see them without a media permission it does not
-  request. Downloading those songs again produces `Name (1).m4a`.
+  clear, the app no longer knows about files it saved earlier. Downloading
+  those songs again produces `Name (1).m4a`.
+- The play queue is not restored after the app process is killed.
+- Reordering is one step at a time (⋮ → Move up / Move down), not drag and drop.
+- Cover art comes from the audio file's embedded picture (shown once the
+  player has read it); list rows use the placeholder.
 - Android 8–9 writes the file directly and needs the storage permission. That
   path has not been run on a device.
-- A failed or cancelled transfer starts over from zero. There is no `Range`
-  resume, because songs are a few MB each.
+- A failed or cancelled download starts over from zero (no `Range` resume).
