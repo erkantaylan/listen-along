@@ -1,6 +1,7 @@
 // Lobby creation, joining, leaving, sharing, and related handlers
 import { state, elements, socket, STORAGE_KEYS, viewActivators, storageSet, storageRemove, setSuppressJoinToasts, setLobbiesInterval } from './state.js';
 import { showView, showToast, escapeHtml, formatAge, copyToClipboard, t } from './ui.js';
+import { parseRoute } from './router.js';
 
 // Register landing view activator
 viewActivators.landing = () => {
@@ -21,7 +22,8 @@ export function joinLobby(lobbyId) {
   socket.emit('lobby:join', { lobbyId, username: state.username, emoji: state.emoji, userId: state.userId });
 }
 
-export function leaveLobby(resetLobbyUI, resetChat) {
+// updateUrl: false when the address bar already moved (Back/Forward).
+export function leaveLobby(resetLobbyUI, resetChat, { updateUrl = true } = {}) {
   socket.emit('lobby:leave', { lobbyId: state.lobbyId });
   storageRemove(STORAGE_KEYS.LAST_LOBBY);
   hideRejoinPrompt();
@@ -37,7 +39,7 @@ export function leaveLobby(resetLobbyUI, resetChat) {
   state.queueCurrentIndex = -1;
   elements.audioPlayer.pause();
   elements.audioPlayer.src = '';
-  window.history.pushState({}, '', '/');
+  if (updateUrl) window.history.pushState({}, '', '/');
   showView('landing');
   resetLobbyUI();
   resetChat();
@@ -72,7 +74,7 @@ export function handleLobbyCreated(data, requestChatHistory, updateListeningMode
   elements.createLobbyBtn.disabled = false;
   elements.createLobbyBtn.textContent = 'Create Lobby';
   if (elements.lobbyNameInput) elements.lobbyNameInput.value = '';
-  window.history.pushState({ lobbyId: data.lobbyId }, '', `/lobby/${data.lobbyId}`);
+  pushLobbyUrl(data.lobbyId);
   elements.lobbyName.textContent = data.name || `Lobby ${data.lobbyId}`;
   updateListeningModeBadge();
   updatePinButton();
@@ -199,14 +201,14 @@ export function handleLobbyClosed(data, resetLobbyUI) {
   resetLobbyUI();
 }
 
-export function checkUrlForLobby() {
-  const path = window.location.pathname;
-  const match = path.match(/^\/lobby\/([a-zA-Z0-9-]+)$/);
-  if (match) { state.lobbyId = match[1]; joinLobby(match[1]); }
-  else { checkForLastLobby(); }
+// Adds a history entry for the lobby unless the address bar is already on it
+// (e.g. /lobby/<id> was opened directly and the lobby was created from there).
+function pushLobbyUrl(lobbyId) {
+  if (parseRoute(window.location.pathname).lobbyId === lobbyId) return;
+  window.history.pushState({ lobbyId }, '', `/lobby/${lobbyId}`);
 }
 
-function checkForLastLobby() {
+export function checkForLastLobby() {
   const lastLobby = storageGet_internal(STORAGE_KEYS.LAST_LOBBY);
   if (!lastLobby) return;
   showRejoinPrompt(lastLobby);
@@ -226,7 +228,7 @@ function showRejoinPrompt(lobbyId) {
   if (elements.landingView) elements.landingView.appendChild(prompt);
   document.getElementById('rejoin-yes').addEventListener('click', () => {
     hideRejoinPrompt();
-    window.history.pushState({ lobbyId }, '', `/lobby/${lobbyId}`);
+    pushLobbyUrl(lobbyId);
     state.lobbyId = lobbyId;
     joinLobby(lobbyId);
   });
@@ -242,7 +244,7 @@ export function hideRejoinPrompt() {
 }
 
 export function joinLobbyFromCard(lobbyId) {
-  window.history.pushState({ lobbyId }, '', `/lobby/${lobbyId}`);
+  pushLobbyUrl(lobbyId);
   state.lobbyId = lobbyId;
   joinLobby(lobbyId);
 }

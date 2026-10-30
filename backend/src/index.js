@@ -596,8 +596,31 @@ async function upsertOAuthUser(provider, profile) {
   return newUser;
 }
 
-// Set auth cookie and redirect
-function setAuthCookieAndRedirect(res, user) {
+// Post-login destination: the SPA sends the page the user asked for as
+// /auth/<provider>?next=<path>; it rides through the OAuth round trip in a
+// short-lived cookie. Only same-origin relative paths are accepted.
+const NEXT_COOKIE = 'listen_next';
+function isSafeNextPath(next) {
+  return typeof next === 'string' && /^\/(?![\/\\])[^\\\s\x00-\x1f]*$/.test(next);
+}
+function rememberNextPath(req, res) {
+  if (isSafeNextPath(req.query.next) && req.query.next !== '/') {
+    res.cookie(NEXT_COOKIE, req.query.next, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 10 * 60 * 1000, path: '/' });
+  } else {
+    res.clearCookie(NEXT_COOKIE, { path: '/' });
+  }
+}
+function takeNextPath(req, res) {
+  const raw = parseCookie(req.headers.cookie, NEXT_COOKIE);
+  if (!raw) return '/';
+  res.clearCookie(NEXT_COOKIE, { path: '/' });
+  let next;
+  try { next = decodeURIComponent(raw); } catch { return '/'; }
+  return isSafeNextPath(next) ? next : '/';
+}
+
+// Set auth cookie and redirect (back to the page that asked for the login)
+function setAuthCookieAndRedirect(req, res, user) {
   const token = createAuthToken(user.id);
   res.cookie('listen_auth', token, {
     httpOnly: true,
@@ -606,7 +629,7 @@ function setAuthCookieAndRedirect(res, user) {
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     path: '/'
   });
-  res.redirect('/');
+  res.redirect(takeNextPath(req, res));
 }
 
 // Google OAuth
@@ -614,6 +637,7 @@ app.get('/auth/google', (req, res) => {
   if (!GOOGLE_CLIENT_ID) {
     return res.status(503).json({ error: 'Google OAuth not configured' });
   }
+  rememberNextPath(req, res);
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
     redirect_uri: `${BASE_URL}/auth/google/callback`,
@@ -655,7 +679,7 @@ app.get('/auth/google/callback', async (req, res) => {
       avatar: profile.picture
     });
     if (!user) return res.redirect('/?error=db_unavailable');
-    setAuthCookieAndRedirect(res, user);
+    setAuthCookieAndRedirect(req, res, user);
   } catch (err) {
     console.error('Google OAuth error:', err.message);
     res.redirect('/?error=oauth_failed');
@@ -667,6 +691,7 @@ app.get('/auth/github', (req, res) => {
   if (!GITHUB_CLIENT_ID) {
     return res.status(503).json({ error: 'GitHub OAuth not configured' });
   }
+  rememberNextPath(req, res);
   const params = new URLSearchParams({
     client_id: GITHUB_CLIENT_ID,
     redirect_uri: `${BASE_URL}/auth/github/callback`,
@@ -723,7 +748,7 @@ app.get('/auth/github/callback', async (req, res) => {
       avatar: profile.avatar_url
     });
     if (!user) return res.redirect('/?error=db_unavailable');
-    setAuthCookieAndRedirect(res, user);
+    setAuthCookieAndRedirect(req, res, user);
   } catch (err) {
     console.error('GitHub OAuth error:', err.message);
     res.redirect('/?error=oauth_failed');
@@ -1144,7 +1169,7 @@ app.get('/auth/google/link/callback', async (req, res) => {
     await linkProviderToUser(userId, 'google', {
       id: profile.id, email: profile.email, name: profile.name, avatar: profile.picture
     });
-    res.redirect('/#profile');
+    res.redirect('/profile');
   } catch (err) {
     console.error('Google link error:', err.message);
     res.redirect('/?error=link_failed');
@@ -1202,7 +1227,7 @@ app.get('/auth/github/link/callback', async (req, res) => {
     await linkProviderToUser(userId, 'github', {
       id: String(profile.id), email, name: profile.name || profile.login, avatar: profile.avatar_url
     });
-    res.redirect('/#profile');
+    res.redirect('/profile');
   } catch (err) {
     console.error('GitHub link error:', err.message);
     res.redirect('/?error=link_failed');
@@ -1371,8 +1396,8 @@ app.delete('/api/dashboard/lobbies/:id', adminAuth.requireAdmin, async (req, res
   res.json({ success: true });
 });
 
-// Serve lobby page (auth guard applied above)
-app.get('/lobby/:id', (req, res) => {
+// SPA views (auth guard applied above; the client routes them, see frontend/router.js)
+app.get(['/lobby/:id', '/lobby/:id/library', '/library', '/profile'], (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 

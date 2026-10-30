@@ -3,6 +3,7 @@
 // current lobby's queue from here.
 import { state, socket } from './state.js';
 import { showToast, formatDuration } from './ui.js';
+import { libraryPath, basePath } from './router.js';
 
 // Escapes for both text and attribute contexts (ui.js escapeHtml leaves quotes).
 function escapeHtml(value) {
@@ -256,6 +257,7 @@ function renderPager() {
 function goToPage(page) {
   if (page < 0 || page >= pageCount() || page === lib.page) return;
   loadSongs({ page });
+  syncUrl('push');
   const list = $('libpage-list');
   if (list) list.scrollTop = 0;
 }
@@ -283,6 +285,7 @@ async function loadSongs({ page = 0, refresh = false } = {}) {
     // The page can vanish under us (songs deleted, narrower search): step back.
     if (!lib.songs.length && page > 0 && page >= pageCount()) {
       loadSongs({ page: pageCount() - 1, refresh });
+      if (lib.open) syncUrl('replace');
       return;
     }
   } catch (err) {
@@ -359,6 +362,69 @@ async function refreshRequestCount() {
   } catch {}
 }
 
+// --- URL ------------------------------------------------------------------
+// The address bar follows the library state (frontend/router.js has the
+// scheme): tabs and pages push a history entry, search/sort/filter replace it.
+// history.state.libDepth counts the library entries pushed since it was opened
+// in-app, so closing it can step back past them instead of adding another.
+
+function syncUrl(mode) {
+  const url = libraryPath(state.lobbyId, lib);
+  if (window.location.pathname + window.location.search === url) return;
+  if (mode === 'push') {
+    const depth = history.state && history.state.libDepth;
+    history.pushState(depth ? { libDepth: depth + 1 } : null, '', url);
+  } else {
+    history.replaceState(history.state, '', url);
+  }
+}
+
+function syncControls() {
+  const search = $('libpage-search');
+  if (search && search.value.trim() !== lib.query) search.value = lib.query;
+  const sort = $('libpage-sort');
+  if (sort) sort.value = lib.sort;
+  const status = $('libpage-request-status');
+  if (status) status.value = lib.requestStatus;
+}
+
+export function isLibraryOpen() {
+  return lib.open;
+}
+
+// Show the library in the state a URL asks for (direct load, Back/Forward).
+// Leaves the address bar alone; it already says this.
+export function showLibraryRoute(route) {
+  const page = $('library-page');
+  if (!page) return;
+  const wasOpen = lib.open;
+  const songsChanged = !wasOpen || route.query !== lib.query || route.sort !== lib.sort || route.page !== lib.page;
+  const requestsChanged = route.requestStatus !== lib.requestStatus;
+  clearTimeout(lib.searchTimer);
+  lib.query = route.query;
+  lib.sort = route.sort;
+  lib.requestStatus = route.requestStatus;
+  syncControls();
+  if (!wasOpen) {
+    lib.open = true;
+    page.hidden = false;
+    document.body.classList.add('libpage-open');
+    refreshRequestCount();
+  }
+  updateContext();
+  if (!wasOpen || route.tab !== lib.tab || (route.tab === 'requests' && requestsChanged)) switchTab(route.tab);
+  if (songsChanged) loadSongs({ page: route.page });
+}
+
+// Close button / Escape: step back to the page the library was opened from,
+// or (opened from a link) go to the view underneath it.
+function requestCloseLibrary() {
+  const depth = history.state && history.state.libDepth;
+  closeLibraryPage();
+  if (depth) history.go(-depth);
+  else history.pushState(null, '', basePath({ view: state.lobbyId ? 'lobby' : 'landing', lobbyId: state.lobbyId }));
+}
+
 // --- Page -----------------------------------------------------------------
 
 function switchTab(tab) {
@@ -379,6 +445,8 @@ export function openLibraryPage(tab = 'library') {
   switchTab(tab);
   loadSongs();
   refreshRequestCount();
+  syncControls();
+  history.pushState({ libDepth: 1 }, '', libraryPath(state.lobbyId, lib));
   const search = $('libpage-search');
   if (search && tab === 'library' && window.matchMedia('(pointer: fine)').matches) search.focus();
 }
@@ -405,19 +473,23 @@ export function handleRequestsUpdated() {
 export function setupLibraryPage() {
   const page = $('library-page');
   if (!page) return;
-  $('libpage-close').addEventListener('click', closeLibraryPage);
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && lib.open) closeLibraryPage(); });
-  page.querySelectorAll('.libpage-tab').forEach((b) => b.addEventListener('click', () => switchTab(b.dataset.libtab)));
+  $('libpage-close').addEventListener('click', requestCloseLibrary);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && lib.open) requestCloseLibrary(); });
+  page.querySelectorAll('.libpage-tab').forEach((b) => b.addEventListener('click', () => {
+    if (b.dataset.libtab === lib.tab) return;
+    switchTab(b.dataset.libtab);
+    syncUrl('push');
+  }));
   $('libpage-search').addEventListener('input', (e) => {
     clearTimeout(lib.searchTimer);
-    lib.searchTimer = setTimeout(() => { lib.query = e.target.value.trim(); loadSongs(); }, 250);
+    lib.searchTimer = setTimeout(() => { lib.query = e.target.value.trim(); loadSongs(); syncUrl('replace'); }, 250);
   });
-  $('libpage-sort').addEventListener('change', (e) => { lib.sort = e.target.value; loadSongs(); });
+  $('libpage-sort').addEventListener('change', (e) => { lib.sort = e.target.value; loadSongs(); syncUrl('replace'); });
   $('libpage-pager').addEventListener('click', (e) => {
     const btn = e.target.closest('.libpage-page');
     if (btn && !btn.disabled) goToPage(Number(btn.dataset.page));
   });
-  $('libpage-request-status').addEventListener('change', (e) => { lib.requestStatus = e.target.value; loadRequests(); });
+  $('libpage-request-status').addEventListener('change', (e) => { lib.requestStatus = e.target.value; loadRequests(); syncUrl('replace'); });
   $('libpage-list').addEventListener('click', (e) => {
     const play = e.target.closest('.libpage-preview');
     if (play) { togglePreview(play.dataset.id); return; }

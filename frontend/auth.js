@@ -47,6 +47,12 @@ export async function checkAuth() {
   }
 }
 
+// After signing in, come back to the page that was asked for (/library?q=…).
+function loginNextQuery() {
+  const next = window.location.pathname + window.location.search;
+  return next === '/' || window.location.pathname === '/login' ? '' : `?next=${encodeURIComponent(next)}`;
+}
+
 export async function setupLoginView() {
   try {
     const res = await fetch('/api/auth/providers');
@@ -56,18 +62,18 @@ export async function setupLoginView() {
     const noProviders = document.getElementById('login-no-providers');
     if (providers.google && googleBtn) {
       googleBtn.hidden = false;
-      googleBtn.addEventListener('click', () => { window.location.href = '/auth/google'; });
+      googleBtn.addEventListener('click', () => { window.location.href = '/auth/google' + loginNextQuery(); });
     }
     if (providers.github && githubBtn) {
       githubBtn.hidden = false;
-      githubBtn.addEventListener('click', () => { window.location.href = '/auth/github'; });
+      githubBtn.addEventListener('click', () => { window.location.href = '/auth/github' + loginNextQuery(); });
     }
     if (!providers.google && !providers.github && noProviders) noProviders.hidden = false;
   } catch {
     const googleBtn = document.getElementById('google-login-btn');
     const githubBtn = document.getElementById('github-login-btn');
-    if (googleBtn) { googleBtn.hidden = false; googleBtn.addEventListener('click', () => { window.location.href = '/auth/google'; }); }
-    if (githubBtn) { githubBtn.hidden = false; githubBtn.addEventListener('click', () => { window.location.href = '/auth/github'; }); }
+    if (googleBtn) { googleBtn.hidden = false; googleBtn.addEventListener('click', () => { window.location.href = '/auth/google' + loginNextQuery(); }); }
+    if (githubBtn) { githubBtn.hidden = false; githubBtn.addEventListener('click', () => { window.location.href = '/auth/github' + loginNextQuery(); }); }
   }
 
   const logoutBtn = document.getElementById('login-logout-btn');
@@ -169,8 +175,8 @@ export function setupProfilePage() {
   const profileBtn = document.getElementById('landing-profile-btn');
   const logoutBtn = document.getElementById('profile-logout-btn');
 
-  if (profileBtn) profileBtn.addEventListener('click', () => showView('profile'));
-  if (backBtn) backBtn.addEventListener('click', () => showView('landing'));
+  if (profileBtn) profileBtn.addEventListener('click', () => { window.history.pushState({}, '', '/profile'); showView('profile'); });
+  if (backBtn) backBtn.addEventListener('click', () => { window.history.pushState({}, '', '/'); showView('landing'); });
   if (logoutBtn) {
     logoutBtn.addEventListener('click', async () => {
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
