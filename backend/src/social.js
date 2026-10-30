@@ -26,7 +26,10 @@
  *   people:user   { user: person }          name/avatar changed, or a new account
  *   people:removed { userId }               account denied / rejected
  *
- * person = { id, name, emoji, avatarUrl, pending, online, lastSeen, nowPlaying }
+ *   people:listeners { userId, count }       how many listen along (listenAlong.js)
+ *
+ * person = { id, name, emoji, avatarUrl, pending, online, lastSeen, nowPlaying, listeners }
+ * listeners = how many people listen along with them (a count, no names).
  */
 
 const chat = require('./chat');
@@ -58,8 +61,9 @@ function safeAvatar(url) {
  * @param getLobby  (lobbyId) -> lobby | undefined (in-memory lookup, sync)
  * @param isAdmin   (headers) -> boolean (admin cookie)
  * @param limiter   chat rate limiter (createRateLimiter)
+ * @param listenerCount (userId) -> how many listen along with them
  */
-function createSocial({ io, db, presence, store, getLobby, isAdmin, limiter = chat.createRateLimiter() }) {
+function createSocial({ io, db, presence, store, getLobby, isAdmin, limiter = chat.createRateLimiter(), listenerCount = () => 0 }) {
   // userId -> { id, name, emoji, avatarUrl, status }
   const profiles = new Map();
 
@@ -113,6 +117,7 @@ function createSocial({ io, db, presence, store, getLobby, isAdmin, limiter = ch
       online: presence.isOnline(p.id),
       lastSeen: presence.lastSeen(p.id),
       nowPlaying: viewNowPlaying(presence.getNowPlaying(p.id), lobbyForViewer(viewerId)),
+      listeners: listenerCount(p.id),
     };
   }
 

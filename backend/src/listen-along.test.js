@@ -140,6 +140,7 @@ describe('listen along against a running server', { timeout: 60_000 }, () => {
 
   it('B listens along with C: gets the song and position anchor, never the private playlist', async () => {
     const atC = next(s.C, 'listen:followers', d => d.count === 1);
+    const atD = next(s.D, 'people:listeners', d => d.userId === U.C);
     const res = await ask(s.B, 'listen:follow', { userId: U.C });
     assert.equal(res.ok, true);
     assert.deepEqual(res.leader, { id: U.C, name: 'Cem' });
@@ -152,6 +153,13 @@ describe('listen along against a running server', { timeout: 60_000 }, () => {
     assert.ok(!json.includes('Secret'), 'no private playlist name');
     assert.ok(!json.includes('"context"'));
     assert.deepEqual(await atC, { count: 1, names: ['Ben'] });
+    // Everyone else sees a count (the people card), no names.
+    assert.deepEqual(await atD, { userId: U.C, count: 1 });
+    const list = await ask(s.D, 'people:list');
+    const cem = list.people.find(p => p.id === U.C);
+    assert.equal(cem.listeners, 1);
+    assert.equal(cem.nowPlaying.context, null, 'private playlist dropped for others');
+    assert.ok(!JSON.stringify(cem).includes('Secret'));
   });
 
   it('follows the leader live: seek, pause, track change', async () => {

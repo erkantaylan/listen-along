@@ -9,8 +9,13 @@
 //           disabled?, onSelect() }] plus { header: 'text' }, { divider: true }
 //           and { text: 'plain line', muted? } (non-interactive).
 // options.kind 'popover' renders the same floating box as role="dialog"
-// (details, not actions: e.g. who reported a song) with the same placement
-// and closing rules.
+// (details, not actions: e.g. who reported a song, a person's card) with the
+// same placement and closing rules; Tab cycles inside it instead of closing.
+// A popover item may be { html, onAction(action) }: trusted markup (the
+// caller escapes it) whose [data-ctx-action] buttons call onAction and close.
+// options.sheet: below 576px the box becomes a bottom sheet (phones).
+// updateContextMenu(items) re-renders the open box in place (live data),
+// keeping focus on the same control.
 //
 // bindContextMenu wires a list: right-click (contextmenu) on a row, a ~500ms
 // long-press on touch, the keyboard context-menu key / Shift+F10 on a focused
@@ -22,7 +27,8 @@ const LONG_PRESS_MS = 500;
 const MOVE_TOLERANCE = 10;
 
 let menuEl = null;
-let current = null; // { trigger, returnFocus }
+let current = null; // { trigger, returnFocus, kind, items }
+const SHEET_MQ = '(max-width: 575.98px)';
 
 function itemButtons() {
   return menuEl ? [...menuEl.querySelectorAll('[role="menuitem"]:not([aria-disabled="true"])')] : [];
@@ -35,6 +41,19 @@ function focusItem(index) {
   items[i].focus();
 }
 
+function focusables() {
+  return menuEl ? [...menuEl.querySelectorAll('button:not([disabled]), [href], [tabindex="0"]')] : [];
+}
+
+function trapTab(e) {
+  e.preventDefault();
+  const f = focusables();
+  if (!f.length) return;
+  const at = f.indexOf(document.activeElement);
+  const next = e.shiftKey ? (at <= 0 ? f.length - 1 : at - 1) : (at + 1) % f.length;
+  f[next].focus();
+}
+
 function onMenuKeydown(e) {
   const items = itemButtons();
   const at = items.indexOf(document.activeElement);
@@ -44,7 +63,9 @@ function onMenuKeydown(e) {
     case 'Home': e.preventDefault(); focusItem(0); break;
     case 'End': e.preventDefault(); focusItem(-1); break;
     case 'Escape': e.preventDefault(); e.stopPropagation(); closeContextMenu({ restoreFocus: true }); break;
-    case 'Tab': e.preventDefault(); closeContextMenu({ restoreFocus: true }); break;
+    case 'Tab':
+      if (current && current.kind === 'popover') { trapTab(e); break; }
+      e.preventDefault(); closeContextMenu({ restoreFocus: true }); break;
     default: break;
   }
 }
@@ -79,7 +100,8 @@ export function isContextMenuOpen() {
 
 export function closeContextMenu({ restoreFocus = false } = {}) {
   if (!menuEl) return;
-  const { trigger, returnFocus } = current || {};
+  const { trigger, returnFocus: back } = current || {};
+  const returnFocus = typeof back === 'function' ? back() : back;
   menuEl.remove();
   menuEl = null;
   current = null;
@@ -109,22 +131,19 @@ function place(x, y, alignRight = false) {
   menuEl.style.top = `${Math.round(top)}px`;
 }
 
-/**
- * Open the menu at a point ({ x, y }, viewport coordinates) or under an
- * element ({ anchor }: below it, right-aligned).
- * options.trigger: a button that gets aria-expanded; options.returnFocus:
- * where focus goes back after Escape / a selection; options.focusFirst:
- * focus the first item (keyboard), else the menu itself.
- */
-export function openContextMenu(at, items, { label = 'Actions', trigger = null, returnFocus = null, focusFirst = false, kind = 'menu' } = {}) {
-  closeContextMenu();
-  if (!items || !items.length) return null;
-  const el = document.createElement('div');
-  el.className = `menu app-ctx-menu${kind === 'popover' ? ' app-ctx-popover' : ''}`;
-  el.setAttribute('role', kind === 'popover' ? 'dialog' : 'menu');
-  el.setAttribute('aria-label', label);
-  el.tabIndex = -1;
-  el.innerHTML = items.map((item, i) => {
+function positionMenu(at, asSheet) {
+  if (asSheet) return; // CSS pins it to the bottom edge.
+  if (at && at.anchor && document.contains(at.anchor)) {
+    const r = at.anchor.getBoundingClientRect();
+    place(at.alignLeft ? r.left : r.right, r.bottom + 2, !at.alignLeft);
+  } else if (at && !at.anchor) {
+    place(at.x || 0, at.y || 0);
+  }
+}
+
+function itemsHtml(items) {
+  return items.map((item, i) => {
+    if (item.html !== undefined) return `<div class="app-ctx-html" data-ctx-html="${i}">${item.html}</div>`;
     if (item.divider) return '<div class="menu-divider" role="separator"></div>';
     if (item.text !== undefined) return `<div class="menu-text app-ctx-text${item.muted ? ' fg-3 fs-xs' : ''}">${escapeHtml(item.text)}</div>`;
     if (item.header) return `<div class="menu-header text-truncate app-ctx-header" role="presentation" title="${escapeHtml(item.header)}">${escapeHtml(item.header)}</div>`;
@@ -136,28 +155,70 @@ export function openContextMenu(at, items, { label = 'Actions', trigger = null, 
       : `<span class="menu-item-content">${escapeHtml(item.label)}</span>`;
     return `<button type="button" class="menu-item${theme}" role="menuitem" tabindex="-1" data-ctx-index="${i}"${disabled}>${icon}${body}</button>`;
   }).join('');
+}
+
+/** Re-render the open box with new items (live updates), keeping focus. */
+export function updateContextMenu(items) {
+  if (!menuEl || !current || !items || !items.length) return;
+  const a = document.activeElement;
+  const key = a && menuEl.contains(a) ? (a.dataset.ctxAction ? `[data-ctx-action="${a.dataset.ctxAction}"]` : a.dataset.ctxIndex ? `[data-ctx-index="${a.dataset.ctxIndex}"]` : null) : null;
+  const hadFocus = a && menuEl.contains(a);
+  current.items = items;
+  menuEl.innerHTML = itemsHtml(items);
+  positionMenu(current.at, current.asSheet);
+  if (hadFocus) {
+    const again = key && menuEl.querySelector(key);
+    if (again && !again.disabled) again.focus({ preventScroll: true }); else menuEl.focus({ preventScroll: true });
+  }
+}
+
+/**
+ * Open the menu at a point ({ x, y }, viewport coordinates) or under an
+ * element ({ anchor }: below it, right-aligned).
+ * options.trigger: a button that gets aria-expanded; options.returnFocus:
+ * where focus goes back after Escape / a selection; options.focusFirst:
+ * focus the first item (keyboard), else the menu itself.
+ */
+export function openContextMenu(at, items, { label = 'Actions', trigger = null, returnFocus = null, focusFirst = false, kind = 'menu', sheet = false, className = '' } = {}) {
+  closeContextMenu();
+  if (!items || !items.length) return null;
+  const el = document.createElement('div');
+  const asSheet = sheet && window.matchMedia(SHEET_MQ).matches;
+  el.className = `menu app-ctx-menu${kind === 'popover' ? ' app-ctx-popover' : ''}${asSheet ? ' app-ctx-sheet' : ''}${className ? ` ${className}` : ''}`;
+  el.setAttribute('role', kind === 'popover' ? 'dialog' : 'menu');
+  el.setAttribute('aria-label', label);
+  el.tabIndex = -1;
+  el.innerHTML = itemsHtml(items);
   el.addEventListener('keydown', onMenuKeydown);
   el.addEventListener('contextmenu', (e) => e.preventDefault());
   el.addEventListener('click', (e) => {
+    const list = (current && current.items) || items;
+    const act = e.target.closest('[data-ctx-action]');
+    if (act) {
+      if (act.disabled) return;
+      const holder = act.closest('[data-ctx-html]');
+      const item = holder ? list[Number(holder.dataset.ctxHtml)] : null;
+      closeContextMenu({ restoreFocus: true });
+      if (item && typeof item.onAction === 'function') item.onAction(act.dataset.ctxAction);
+      return;
+    }
     const btn = e.target.closest('[data-ctx-index]');
     if (!btn || btn.disabled) return;
-    const item = items[Number(btn.dataset.ctxIndex)];
+    const item = list[Number(btn.dataset.ctxIndex)];
     closeContextMenu({ restoreFocus: true });
     if (item && typeof item.onSelect === 'function') item.onSelect();
   });
   document.body.appendChild(el);
   menuEl = el;
-  current = { trigger, returnFocus: returnFocus || trigger || null };
+  current = { trigger, returnFocus: returnFocus || trigger || null, kind, items, at, asSheet };
   if (trigger) trigger.setAttribute('aria-expanded', 'true');
   el.classList.add('show');
-  if (at && at.anchor) {
-    const r = at.anchor.getBoundingClientRect();
-    place(r.right, r.bottom + 2, true);
-  } else {
-    place(at ? at.x : 0, at ? at.y : 0);
-  }
+  positionMenu(at, asSheet);
   addGlobalListeners();
-  if (focusFirst) focusItem(0); else el.focus({ preventScroll: true });
+  if (focusFirst && kind === 'popover') {
+    const f = focusables()[0];
+    (f || el).focus({ preventScroll: true });
+  } else if (focusFirst) focusItem(0); else el.focus({ preventScroll: true });
   return el;
 }
 

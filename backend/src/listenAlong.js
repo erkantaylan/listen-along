@@ -38,6 +38,7 @@
  *   listen:sync      { leaderId, track, playing, position, duration, updatedAt, serverNow }
  *   listen:end       { reason: 'offline', leader }                   follower's socket
  *   listen:followers { count, names }                                every socket of a root
+ *   people:listeners { userId, count }                               the 'social' room (people card)
  *
  * track (sync) = { title, artist, thumbnail, libraryId, src } | null; src is
  * null when the song cannot be resolved to a library file (the follower
@@ -46,6 +47,7 @@
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_NAMES = 3;
+const SOCIAL_ROOM = 'social'; // social.js ROOM
 
 /** Pure follow graph (unit tested on its own). */
 function createListenGraph() {
@@ -180,6 +182,13 @@ function createListenAlong({ io, presence, nameOf = () => 'User', isApproved = a
     };
   }
 
+  // The root's own sockets get names; everyone in the people panel a count.
+  function emitFollowers(r) {
+    const payload = followersPayload(r);
+    io.to(userRoom(r)).emit('listen:followers', payload);
+    io.to(SOCIAL_ROOM).emit('people:listeners', { userId: r, count: payload.count });
+  }
+
   function emitTo(userId, event, payload) {
     const s = graph.socketOf(userId);
     if (s) io.to(s).emit(event, payload);
@@ -210,7 +219,7 @@ function createListenAlong({ io, presence, nameOf = () => 'User', isApproved = a
       }
     }
     for (const [f, r] of before) if (!after.has(f)) roots.add(r);
-    for (const r of roots) io.to(userRoom(r)).emit('listen:followers', followersPayload(r));
+    for (const r of roots) emitFollowers(r);
   }
 
   presence.on('now-playing', (userId, entry) => {
@@ -234,7 +243,7 @@ function createListenAlong({ io, presence, nameOf = () => 'User', isApproved = a
       if (socketId) io.to(socketId).emit('listen:end', { reason: 'offline', leader: person(userId) });
       lastSockets.delete(f);
     }
-    io.to(userRoom(userId)).emit('listen:followers', followersPayload(userId));
+    emitFollowers(userId);
   });
 
   function attach(socket) {

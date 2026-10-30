@@ -139,7 +139,6 @@ export const elements = {
   backBtn: document.getElementById('back-btn'),
   shareBtn: document.getElementById('share-btn'),
   lobbyName: document.getElementById('lobby-name'),
-  renameBtn: document.getElementById('rename-btn'),
   pinBtn: document.getElementById('pin-btn'),
   userCount: document.getElementById('user-count'),
   albumArt: document.getElementById('album-art'),
@@ -189,7 +188,7 @@ export const elements = {
   usersSearch: document.getElementById('users-search'),
   usersFilter: document.getElementById('users-filter'),
   visibilityBadge: document.getElementById('playlist-visibility-badge'),
-  visibilityBtn: document.getElementById('playlist-visibility-btn'),
+  playlistMenuBtn: document.getElementById('playlist-menu-btn'),
   playlistOwner: document.getElementById('playlist-owner')
 };
 

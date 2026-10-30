@@ -12,6 +12,7 @@ import { formatMessageHtml, formatLastSeen, formatMessageTime, groupPeople, merg
 import { player } from './player.js';
 import { storageGet, storageSet } from './state.js';
 import { navigateTo, showToast, t } from './ui.js';
+import { openContextMenu, closeContextMenu, updateContextMenu } from './context-menu.js';
 
 const DESKTOP = '(min-width: 1024px)';
 const COLLAPSED_KEY = 'listen-socialCollapsed';
@@ -31,6 +32,7 @@ const S = {
   route: false,
   unread: 0,
   cameFromApp: false,
+  cardId: null, // person whose card is open
   hooks: { listenAlong: null, isListeningWith: () => false, stopListening: null },
 };
 
@@ -237,8 +239,26 @@ async function deleteMessage(id) {
 }
 
 // ---------------------------------------------------------------- people
+//
+// Rows are Discord-like: avatar + presence dot, name, and one activity line
+// (an animated equaliser + "Title — Artist" while playing, muted "Paused ·
+// Title" when paused, "Last seen …" offline). Clicking a row (or Enter /
+// Space on it) opens the person's card, a context-menu.js popover anchored
+// to the row (a bottom sheet on phones): avatar, presence, the current song
+// with its cover, "N listening along", and the Listen along / Stop button.
+// The card re-renders live while open. A private playlist never shows: the
+// server sends no context for it, so only the song is shown.
 
-const LISTEN_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg>';
+const MUSIC_PATH = '<path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>';
+const PAUSE_PATH = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
+const HEADPHONES_PATH = '<path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/>';
+const svg = (path, cls = 'icon-sm') => `<svg class="${cls}" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${path}</svg>`;
+const EQ_HTML = '<span class="person-eq" aria-hidden="true"><i></i><i></i><i></i></span>';
+const CARD_CLASS = 'person-card-pop';
+
+function songText(np) {
+  return [np.track.title, np.track.artist].filter(Boolean).join(' — ');
+}
 
 function contextLabel(np) {
   const c = np && np.context;
@@ -247,34 +267,121 @@ function contextLabel(np) {
   return c.name || t('social.aPlaylist', 'a playlist');
 }
 
-function personHtml(p) {
-  const np = p.online ? p.nowPlaying : null;
-  const isMe = p.id === S.me;
-  let line = '';
-  if (np) {
-    const song = [np.track.title, np.track.artist].filter(Boolean).join(' — ');
-    const where = contextLabel(np);
-    line = `<span class="d-block fs-xs text-truncate person-playing${np.playing ? '' : ' is-paused'}" title="${escapeText(song + (where ? ` · ${where}` : ''))}">`
-      + `<svg class="icon-sm" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${np.playing ? '<path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>' : '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>'}</svg> `
-      + `${escapeText(song)}${where ? `<span class="fg-4"> · ${escapeText(where)}</span>` : ''}</span>`;
-  } else if (!p.online) {
-    const seen = formatLastSeen(p.lastSeen);
-    line = `<span class="d-block fs-xs fg-4 text-truncate">${escapeText(seen ? tf('social.lastSeen', 'Last seen {when}', { when: seen }) : t('social.offline', 'Offline'))}</span>`;
-  }
-  // Listen along with anyone online who is playing something (whatever it
-  // is played from; a private playlist stays hidden, only the song shows).
-  let listen = '';
-  if (!isMe && np && S.hooks.listenAlong) {
-    const on = S.hooks.isListeningWith(p);
-    const label = on ? t('listen.stop', 'Stop listening along') : t('listen.listenAlong', 'Listen along');
-    listen = `<button class="btn-text theme-secondary btn-icon btn-sm person-listen${on ? ' active' : ''}" type="button" data-listen-id="${escapeText(p.id)}" aria-pressed="${on}" aria-label="${escapeText(on ? label : tf('listen.listenAlongWith', 'Listen along with {name}', { name: p.name || 'User' }))}" title="${escapeText(label)}">${LISTEN_SVG}</button>`;
-  }
-  const badges = (isMe ? `<span class="badge badge-subtle theme-secondary">${escapeText(t('social.you', 'you'))}</span>` : '')
+function presenceText(p) {
+  if (p.online) return t('social.online', 'Online');
+  const seen = formatLastSeen(p.lastSeen);
+  return seen ? tf('social.lastSeen', 'Last seen {when}', { when: seen }) : t('social.offline', 'Offline');
+}
+
+function badgesHtml(p) {
+  return (p.id === S.me ? `<span class="badge badge-subtle theme-secondary">${escapeText(t('social.you', 'you'))}</span>` : '')
     + (p.pending ? `<span class="badge badge-subtle theme-warning">${escapeText(t('social.pending', 'pending'))}</span>` : '');
-  return `<li class="list-group-item person${p.online ? ' is-online' : ''}" data-person-id="${escapeText(p.id)}">`
+}
+
+function activityHtml(p) {
+  const np = p.online ? p.nowPlaying : null;
+  if (np) {
+    const song = songText(np);
+    if (np.playing) {
+      return `<span class="d-flex align-items-center gap-1 fs-xs min-w-0 person-activity" title="${escapeText(song)}">${EQ_HTML}`
+        + `<span class="visually-hidden">${escapeText(t('social.listeningTo', 'Listening to'))} </span><span class="text-truncate">${escapeText(song)}</span></span>`;
+    }
+    return `<span class="d-flex align-items-center gap-1 fs-xs fg-3 min-w-0 person-activity is-paused" title="${escapeText(song)}">${svg(PAUSE_PATH)}`
+      + `<span class="text-truncate">${escapeText(t('social.paused', 'Paused'))} · ${escapeText(song)}</span></span>`;
+  }
+  if (!p.online) return `<span class="d-block fs-xs fg-4 text-truncate">${escapeText(presenceText(p))}</span>`;
+  return '';
+}
+
+function personHtml(p) {
+  const name = p.name || 'User';
+  return `<li class="list-group-item list-group-item-action person${p.online ? ' is-online' : ''}" data-person-id="${escapeText(p.id)}" tabindex="0" role="button" aria-haspopup="dialog" aria-expanded="${S.cardId === p.id ? 'true' : 'false'}" aria-label="${escapeText(name)}">`
     + `<span class="person-avatar-wrap">${avatarHtml(p, 'person-avatar')}<span class="person-dot" aria-hidden="true"></span></span>`
-    + `<span class="min-w-0 flex-grow-1"><span class="d-flex align-items-center gap-1 min-w-0"><span class="text-truncate fw-medium person-name">${escapeText(p.name || 'User')}</span>${badges}</span>${line}</span>`
-    + `${listen}</li>`;
+    + `<span class="min-w-0 flex-grow-1"><span class="d-flex align-items-center gap-1 min-w-0"><span class="text-truncate fw-medium person-name">${escapeText(name)}</span>${badgesHtml(p)}</span>${activityHtml(p)}</span></li>`;
+}
+
+function coverHtml(np) {
+  const url = np && np.track && np.track.thumbnail;
+  if (url && (/^https:\/\//i.test(url) || /^\/[^/]/.test(url))) {
+    return `<span class="person-card-cover"><img src="${escapeText(url)}" alt="" loading="lazy" referrerpolicy="no-referrer"></span>`;
+  }
+  return `<span class="person-card-cover is-empty">${svg(MUSIC_PATH, '')}</span>`;
+}
+
+// The card's markup (escaped here; context-menu.js inserts it as is).
+function cardHtml(p) {
+  const name = p.name || 'User';
+  const isMe = p.id === S.me;
+  const np = p.online ? p.nowPlaying : null;
+  const following = !isMe && S.hooks.isListeningWith(p);
+  let html = `<div class="person-card" aria-live="polite">`
+    + `<div class="d-flex align-items-center gap-3 min-w-0">`
+    + `<span class="person-avatar-wrap${p.online ? ' is-online' : ''}">${avatarHtml(p, 'person-card-avatar')}<span class="person-dot" aria-hidden="true"></span></span>`
+    + `<span class="min-w-0"><span class="d-flex align-items-center gap-1 min-w-0"><span class="fw-semibold text-truncate person-card-name">${escapeText(name)}</span>${badgesHtml(p)}</span>`
+    + `<span class="d-block fs-xs ${p.online ? 'person-card-online' : 'fg-3'}">${escapeText(presenceText(p))}</span></span></div>`;
+  if (np) {
+    const where = contextLabel(np);
+    html += `<div class="d-flex align-items-center gap-3 min-w-0 person-card-song">${coverHtml(np)}<span class="min-w-0">`
+      + `<span class="d-flex align-items-center gap-1 fs-xs ${np.playing ? 'person-card-label' : 'fg-3'}">${np.playing ? EQ_HTML : svg(PAUSE_PATH)}${escapeText(np.playing ? t('social.listeningTo', 'Listening to') : t('social.paused', 'Paused'))}</span>`
+      + `<span class="d-block fw-medium text-truncate" title="${escapeText(np.track.title)}">${escapeText(np.track.title)}</span>`
+      + (np.track.artist ? `<span class="d-block fs-sm fg-3 text-truncate">${escapeText(np.track.artist)}</span>` : '')
+      + (where ? `<span class="d-block fs-xs fg-4 text-truncate">${escapeText(tf('social.from', 'from {where}', { where }))}</span>` : '')
+      + `</span></div>`;
+  }
+  const count = Number(p.listeners) || 0;
+  if (count > 0) {
+    html += `<div class="d-flex align-items-center gap-2 fs-sm fg-3 person-card-listeners">${svg(HEADPHONES_PATH)}${escapeText(count === 1 ? t('social.oneListening', '1 listening along') : tf('social.nListening', '{count} listening along', { count }))}</div>`;
+  }
+  // The action: Listen along / Stop listening along, or why it is off.
+  let hint = '';
+  if (isMe) hint = t('social.cardSelf', 'This is you.');
+  else if (!S.hooks.listenAlong) hint = t('social.cardNeedsApproval', 'Listening along needs an approved account.');
+  else if (!p.online) hint = t('social.cardOffline', 'They are offline.');
+  else if (!np && !following) hint = t('social.cardIdle', 'They are not playing anything right now.');
+  const label = following ? t('listen.stop', 'Stop listening along') : t('listen.listenAlong', 'Listen along');
+  const cls = following ? 'btn' : 'btn-solid theme-primary';
+  html += `<button type="button" class="${cls} w-100 person-card-action" data-ctx-action="${following ? 'stop' : 'listen'}"${hint ? ' disabled aria-describedby="person-card-hint"' : ''}>${svg(HEADPHONES_PATH, '')}${escapeText(label)}</button>`;
+  if (hint) html += `<p id="person-card-hint" class="fs-xs fg-3 mb-0 text-center">${escapeText(hint)}</p>`;
+  return `${html}</div>`;
+}
+
+function cardItems(p) {
+  return [{
+    html: cardHtml(p),
+    onAction: (action) => {
+      const cur = S.people.get(p.id) || p;
+      if (action === 'stop') { if (S.hooks.stopListening) S.hooks.stopListening(); }
+      else if (action === 'listen' && S.hooks.listenAlong) S.hooks.listenAlong(cur);
+    },
+  }];
+}
+
+const rowOf = (id) => document.querySelector(`#social-people [data-person-id="${CSS.escape(id)}"]`);
+const cardOpen = () => !!document.querySelector(`.${CARD_CLASS}`);
+
+function openCard(id, { fromKeyboard = false } = {}) {
+  const p = S.people.get(id);
+  const row = rowOf(id);
+  if (!p || !row) return;
+  if (S.cardId === id && cardOpen()) { closeContextMenu({ restoreFocus: true }); return; }
+  S.cardId = id;
+  openContextMenu({ anchor: row, alignLeft: true }, cardItems(p), {
+    kind: 'popover',
+    sheet: true,
+    className: CARD_CLASS,
+    label: p.name || 'User',
+    trigger: row,
+    returnFocus: () => rowOf(id),
+    focusFirst: fromKeyboard,
+  });
+}
+
+// Keep the open card in step with the data.
+function refreshCard() {
+  if (!S.cardId) return;
+  if (!cardOpen()) { S.cardId = null; return; }
+  const p = S.people.get(S.cardId);
+  if (p) updateContextMenu(cardItems(p));
 }
 
 function renderPeople() {
@@ -282,11 +389,17 @@ function renderPeople() {
   const on = $('people-online');
   const off = $('people-offline');
   if (!on || !off) return;
+  if (S.cardId && !cardOpen()) S.cardId = null;
+  // Rows are re-rendered: keep keyboard focus on the same person.
+  const focused = document.activeElement && document.activeElement.closest && document.activeElement.closest('#social-people [data-person-id]');
+  const focusId = focused ? focused.dataset.personId : null;
   on.innerHTML = online.length ? online.map(personHtml).join('') : `<li class="list-group-item app-empty">${escapeText(t('social.nobodyOnline', 'Nobody is online'))}</li>`;
   off.innerHTML = offline.length ? offline.map(personHtml).join('') : `<li class="list-group-item app-empty">${escapeText(t('social.nobodyOffline', 'Everyone is online'))}</li>`;
   $('people-online-count').textContent = String(online.length);
   $('people-offline-count').textContent = String(offline.length);
   for (const el of document.querySelectorAll('[data-online-count]')) el.textContent = String(online.length);
+  if (focusId) rowOf(focusId)?.focus({ preventScroll: true });
+  refreshCard();
 }
 
 // Re-render (e.g. the listen-along state changed).
@@ -384,6 +497,12 @@ export function setupSocial(socket, opts = {}) {
     S.people.set(userId, { ...p, nowPlaying: nowPlaying || null });
     renderPeople();
   });
+  socket.on('people:listeners', ({ userId, count }) => {
+    const p = S.people.get(userId);
+    if (!p) return;
+    S.people.set(userId, { ...p, listeners: Number(count) || 0 });
+    renderPeople();
+  });
 
   if (opts.reportPlayback) {
     player.on('track', reportNowPlaying);
@@ -403,13 +522,17 @@ export function setupSocial(socket, opts = {}) {
     const btn = e.target.closest('[data-delete-id]');
     if (btn) deleteMessage(Number(btn.dataset.deleteId));
   });
+  // A row opens the person's card (click, or Enter / Space on the row).
   $('social-people').addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-listen-id]');
-    if (!btn) return;
-    const p = S.people.get(btn.dataset.listenId);
-    if (!p) return;
-    if (S.hooks.isListeningWith(p)) { if (S.hooks.stopListening) S.hooks.stopListening(); }
-    else if (S.hooks.listenAlong) S.hooks.listenAlong(p);
+    const row = e.target.closest('[data-person-id]');
+    if (row) openCard(row.dataset.personId, { fromKeyboard: e.detail === 0 });
+  });
+  $('social-people').addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const row = e.target.closest('[data-person-id]');
+    if (!row || e.target !== row) return;
+    e.preventDefault();
+    openCard(row.dataset.personId, { fromKeyboard: true });
   });
   const scroller = chatScroller();
   scroller.addEventListener('scroll', () => { if (scroller.scrollTop < 120) loadOlder(); }, { passive: true });

@@ -1,7 +1,7 @@
 {
   "app": {
     "title": "listen-along",
-    "tagline": "Arkadaşlarınla senkronize müzik dinle.",
+    "tagline": "Senin çalma listelerin ve herkesin herkese açık olanları.",
     "description": "Arkadaşlarınla senkronize müzik dinle"
   },
   "landing": {
@@ -109,7 +109,9 @@
     "profileSaved": "Profil kaydedildi!",
     "songAdded": "Şarkı eklendi!",
     "songRemoved": "Şarkı kaldırıldı",
-    "playlistDeleted": "Çalma listesi silindi"
+    "playlistDeleted": "Çalma listesi silindi",
+    "nowPublic": "Çalma listesi artık herkese açık.",
+    "nowPrivate": "Çalma listesi artık gizli. Yalnızca sen görebilirsin."
   },
   "error": {
     "tooManyRequests": "Çok fazla istek, lütfen yavaşla",
@@ -130,7 +132,17 @@
     "you": "sen",
     "pending": "onay bekliyor",
     "nobodyOnline": "Kimse çevrimiçi değil",
-    "nobodyOffline": "Herkes çevrimiçi"
+    "nobodyOffline": "Herkes çevrimiçi",
+    "online": "Çevrimiçi",
+    "listeningTo": "Dinliyor",
+    "paused": "Duraklatıldı",
+    "from": "{where} üzerinden",
+    "oneListening": "1 kişi birlikte dinliyor",
+    "nListening": "{count} kişi birlikte dinliyor",
+    "cardSelf": "Bu sensin.",
+    "cardNeedsApproval": "Birlikte dinlemek için onaylı bir hesap gerekir.",
+    "cardOffline": "Çevrimdışı.",
+    "cardIdle": "Şu anda bir şey çalmıyor."
   },
   "chat": {
     "delete": "Mesajı sil",
@@ -160,5 +172,18 @@
     "oneFollower": "{name} birlikte dinliyor",
     "twoFollowers": "{name} ve {other} birlikte dinliyor",
     "manyFollowers": "{name} ve {count} kişi daha birlikte dinliyor"
+  },
+  "playlistMenu": {
+    "label": "Çalma listesi işlemleri",
+    "labelFor": "{name} için işlemler",
+    "play": "Çal",
+    "copyLink": "Bağlantıyı kopyala",
+    "publicHint": "Giriş yapan herkes görebilir ve düzenleyebilir.",
+    "privateHint": "Yalnızca sen görebilirsin.",
+    "save": "Kaydet",
+    "saving": "Kaydediliyor…",
+    "delete": "Sil",
+    "deleting": "Siliniyor…",
+    "confirmDelete": "“{name}” silinsin mi? Herkes için kalıcı olarak kaldırılır."
   }
 }

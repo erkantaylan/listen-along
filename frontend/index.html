@@ -89,12 +89,18 @@
       <div class="d-flex align-items-center gap-3 mb-5 landing-header">
         <div class="min-w-0 me-auto">
           <h1 class="h4 mb-1" data-i18n="landing.playlists">Playlists</h1>
-          <p class="fs-sm fg-3 mb-0 tagline" data-i18n="app.tagline">Listen to music with friends, in sync.</p>
+          <p class="fs-sm fg-3 mb-0 tagline" data-i18n="app.tagline">Your playlists and everyone's public ones.</p>
         </div>
-        <button id="new-playlist-btn" class="btn-solid theme-primary flex-shrink-0 new-playlist-btn" type="button" aria-haspopup="dialog">
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-          <span data-i18n="landing.newPlaylist">New playlist</span>
-        </button>
+        <div class="d-flex flex-wrap justify-content-end gap-2 flex-shrink-0 landing-actions">
+          <button id="landing-library-btn" class="btn-outline theme-secondary landing-library-btn" type="button" aria-label="Music library &amp; requests" title="Music library &amp; requests" data-i18n-aria-label="landing.library" data-i18n-title="landing.library">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 5h-3v5.5a2.5 2.5 0 1 1-1-2V5h4v2z"/></svg>
+            <span class="landing-library-label" data-i18n="landing.library">Music library &amp; requests</span>
+          </button>
+          <button id="new-playlist-btn" class="btn-solid theme-primary flex-shrink-0 new-playlist-btn" type="button" aria-haspopup="dialog">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+            <span data-i18n="landing.newPlaylist">New playlist</span>
+          </button>
+        </div>
       </div>
 
       <!-- Your playlists (public + private), then other people's public ones -->
@@ -110,10 +116,6 @@
       </section>
 
       <div class="d-flex flex-column align-items-center gap-3 landing-secondary">
-        <button id="landing-library-btn" class="btn-outline theme-secondary landing-library-btn" type="button">
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 5h-3v5.5a2.5 2.5 0 1 1-1-2V5h4v2z"/></svg>
-          <span data-i18n="landing.library">Music library &amp; requests</span>
-        </button>
         <p class="fs-sm fg-3 text-center mb-0 join-section" data-i18n="landing.joinHint">Have a link? Just paste it in your browser.</p>
       </div>
     </main>
@@ -139,24 +141,23 @@
         <div class="lobby-info min-w-0 me-auto">
           <div class="d-flex align-items-center gap-1 min-w-0">
             <h1 id="lobby-name" class="lobby-name h6 mb-0 text-truncate">Playlist</h1>
-            <button id="rename-btn" class="btn-text theme-secondary btn-icon btn-xs" type="button" aria-label="Rename playlist" title="Rename playlist" data-i18n-aria-label="lobby.renamePlaylist" data-i18n-title="lobby.renamePlaylist">
-              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 17.25V21h3.75L17.81 9.940l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
-            </button>
           </div>
           <div class="d-flex align-items-center gap-2 fs-xs fg-3 min-w-0 playlist-meta">
-            <span id="playlist-visibility-badge" class="badge badge-subtle theme-secondary playlist-visibility-badge" hidden>Private</span>
+            <span id="playlist-visibility-badge" class="badge badge-subtle theme-secondary playlist-visibility-badge playlist-private-badge" hidden>Private</span>
             <span id="playlist-owner" class="text-truncate playlist-owner" hidden></span>
             <span id="user-count" class="user-count">0 listeners</span>
           </div>
         </div>
         <div class="d-flex align-items-center gap-1 flex-shrink-0">
           <button id="edit-queue-btn" class="btn btn-sm me-1 edit-queue-btn" type="button" aria-pressed="false" title="Reorder or remove songs" hidden>Edit</button>
-          <button id="playlist-visibility-btn" class="btn-text theme-secondary btn-icon playlist-visibility-btn" type="button" aria-label="Make private" title="Make private" hidden></button>
           <button id="pin-btn" class="btn-text theme-secondary btn-icon" type="button" aria-label="Pin playlist" title="Pin playlist" data-i18n-aria-label="lobby.pinPlaylist" data-i18n-title="lobby.pinPlaylist">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>
           </button>
           <button id="share-btn" class="btn-text theme-secondary btn-icon" type="button" aria-label="Share playlist" title="Share playlist" data-i18n-aria-label="lobby.sharePlaylist" data-i18n-title="lobby.sharePlaylist">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>
+          </button>
+          <button id="playlist-menu-btn" class="btn-text theme-secondary btn-icon playlist-menu-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Playlist actions" title="Playlist actions" data-i18n-aria-label="playlistMenu.label" data-i18n-title="playlistMenu.label" hidden>
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
           </button>
         </div>
       </div>

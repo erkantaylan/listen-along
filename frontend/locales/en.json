@@ -1,7 +1,7 @@
 {
   "app": {
     "title": "listen-along",
-    "tagline": "Listen to music with friends, in sync.",
+    "tagline": "Your playlists and everyone's public ones.",
     "description": "Listen to music with friends in sync"
   },
   "landing": {
@@ -109,7 +109,9 @@
     "profileSaved": "Profile saved!",
     "songAdded": "Song added!",
     "songRemoved": "Song removed",
-    "playlistDeleted": "Playlist deleted"
+    "playlistDeleted": "Playlist deleted",
+    "nowPublic": "Playlist is now public.",
+    "nowPrivate": "Playlist is now private. Only you can see it."
   },
   "error": {
     "tooManyRequests": "Too many requests, please slow down",
@@ -130,7 +132,17 @@
     "you": "you",
     "pending": "pending",
     "nobodyOnline": "Nobody is online",
-    "nobodyOffline": "Everyone is online"
+    "nobodyOffline": "Everyone is online",
+    "online": "Online",
+    "listeningTo": "Listening to",
+    "paused": "Paused",
+    "from": "from {where}",
+    "oneListening": "1 listening along",
+    "nListening": "{count} listening along",
+    "cardSelf": "This is you.",
+    "cardNeedsApproval": "Listening along needs an approved account.",
+    "cardOffline": "They are offline.",
+    "cardIdle": "They are not playing anything right now."
   },
   "chat": {
     "delete": "Delete message",
@@ -160,5 +172,18 @@
     "oneFollower": "{name} is listening along",
     "twoFollowers": "{name} and {other} are listening along",
     "manyFollowers": "{name} and {count} others are listening along"
+  },
+  "playlistMenu": {
+    "label": "Playlist actions",
+    "labelFor": "Actions for {name}",
+    "play": "Play",
+    "copyLink": "Copy link",
+    "publicHint": "Every signed-in user can see and edit it.",
+    "privateHint": "Only you can see it.",
+    "save": "Save",
+    "saving": "Saving…",
+    "delete": "Delete",
+    "deleting": "Deleting…",
+    "confirmDelete": "Delete “{name}”? It is removed for everyone, permanently."
   }
 }

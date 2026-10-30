@@ -2530,6 +2530,7 @@ async function start() {
     store: dbAvailable ? chat.createPgStore(db) : chat.createMemoryStore(),
     getLobby: (id) => lobby.getLobby(id),
     isAdmin: (headers) => adminAuth.isAdmin({ headers }),
+    listenerCount: (id) => (listenAlong ? listenAlong.graph.followersOf(id).length : 0),
   });
 
   listenAlong = createListenAlong({

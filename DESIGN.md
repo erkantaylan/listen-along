@@ -207,20 +207,25 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 
 - **Login / pending**: navbar + one centred card (`.app-center`, `.login-card` 26rem).
 - **Landing** (`/`, the view after login): navbar (brand, profile), narrow column. A
-  header row: `h1.h4` "Playlists" + muted tagline on the left, the view's one primary
-  button **"New playlist"** (plus icon) on the right. Then the "Your playlists" card (every
+  header row: `h1.h4` "Playlists" + muted tagline ("Your playlists and everyone's public
+  ones.") on the left; on the right the outline secondary **"Music library & requests"**
+  (folds to its icon below 480px) next to the view's one primary button **"New playlist"**
+  (plus icon). Then the "Your playlists" card (every
   playlist you own, public and private) and the "Public playlists" card (other people's
   public ones and ownerless shared ones; hidden when there are none). Both are flush list
   groups, pinned first, then newest. Each row (click / Enter / Space opens `/playlist/<id>`):
-  name, a subtle "Private" badge with a lock icon on private ones, then a muted line
+  name, a subtle "Private" badge with a lock icon on private ones (the current **state**;
+  public ones show no badge — never an icon of the action that would happen), then a muted line
   "by you / by <owner> / shared", song and listener counts, age. On the right: a ghost
   **quick play** icon button when the playlist has songs (shown on row hover / focus, always
   on touch; opens the playlist and starts it from the first song in the app-wide player, or
-  resumes it if it is already the one playing), and on your own playlists lock/globe (make
-  private / public) and a danger trash (delete). No playlists of your own: the "Your
+  resumes it if it is already the one playing), and a ⋮ menu (`playlist-actions.js` items in
+  `context-menu.js`; also right-click / long-press on the row): Play, Copy link for everyone,
+  plus — owner only — Rename (dialog), Make private / Make public (with a one-line hint) and a
+  danger Delete that opens a confirm dialog (grey Cancel focused first, `.btn-solid.theme-danger`
+  Delete). No playlists of your own: the "Your
   playlists" card shows an empty state ("No playlists yet", a muted hint, a grey "New
-  playlist" button). Below the cards, secondary: the outline "Music library & requests"
-  button and the "Have a link?" hint. Footer (version, language, GitHub). On load, a "Back
+  playlist" button). Below the cards: the "Have a link?" hint. Footer (version, language, GitHub). On load, a "Back
   to your last playlist?" prompt names the last playlist you opened (looked up first; not
   shown if it is gone or no longer visible to you).
   **New playlist dialog** (`new-playlist.js`, an `.app-modal`, see "Modal dialogs"): Playlist
@@ -230,8 +235,9 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   the name ("A playlist with that name already exists") shows in red under the field. On
   success it closes and the new playlist opens.
 - **Playlist** (`/playlist/<id>`; internally the "lobby" view): full-height column —
-  navbar (back, name/rename, a muted line with the "Private" badge, owner and listener
-  count; owner-only lock/globe visibility button, pin, share), scrolling body (56rem)
+  navbar (back, name, a muted line with the "Private" badge (lock + text, same as the
+  landing rows; nothing for public), owner and listener count; pin, share, and the owner's
+  ⋮ menu: Copy link, Rename, Make private / public, Delete), scrolling body (56rem)
   with the queue (no tabs: who is listening and what they play is the global people
   panel, your name/avatar is on the profile page). There is no per-playlist chat; there
   is one global chat (see "Chat and people panel"). Playback is the app-wide player bar, like
@@ -355,12 +361,16 @@ leaving the page always ends it; `queue-edit.js`):
 One reusable component, `frontend/context-menu.js` (styles: "Context menu" in `app.css`),
 Bootstrap 6 `.menu` / `.menu-item` / `.menu-header` / `.menu-divider` markup, no Bootstrap JS.
 
-- `openContextMenu({ x, y } | { anchor }, items, { label, trigger, returnFocus, focusFirst, kind })`
+- `openContextMenu({ x, y } | { anchor, alignLeft? }, items, { label, trigger, returnFocus, focusFirst, kind, sheet, className })`
   opens one fixed `.menu.app-ctx-menu` (z-index `--bs-z-popover`, above the player bar and the
   library overlay) at the pointer, or under an element right-aligned; it flips and clamps to stay
   inside the viewport (8px margin). Items: `{ label, description?, icon?, theme?, disabled?, onSelect }`,
   `{ header }`, `{ divider: true }`, `{ text, muted? }`. `kind: 'popover'` renders the same box as
-  `role="dialog"` for read-only details (e.g. a song's reports).
+  `role="dialog"` for details (a song's reports, a person's card); Tab cycles inside it.
+  A popover item can be `{ html, onAction }` (trusted markup the caller escaped; its
+  `[data-ctx-action]` buttons call `onAction` and close). `sheet: true` makes it a bottom
+  sheet below 576px; `updateContextMenu(items)` re-renders the open box (live data) keeping
+  focus; `returnFocus` may be a function (rows that re-render).
 - `bindContextMenu(root, { rowSelector, triggerSelector, getItems, label })` wires a list
   (delegated, rows may re-render): right-click, a 500ms long-press on touch/pen (cancelled by
   >10px movement; swallows the click that follows), the keyboard context-menu key / Shift+F10
@@ -441,15 +451,24 @@ never by `[hidden]`: `has-social` (signed in, socket up), `social-collapsed`
   Admins (admin cookie) get a small danger trash button per message (on hover; always on
   touch screens), with a confirm.
 - **People**: two flush list groups under small uppercase headings, "Online — n" and
-  "Offline — n". Row: round avatar (photo, emoji or initials) with a presence dot
-  (success = online, grey = offline), name (+ subtle "you" / warning "pending" badges),
-  and one muted line: the song playing (accent; muted with a pause icon when paused)
-  "Title — Artist · context", or "Last seen 5m ago" when offline. Offline rows are
-  dimmed. Anyone else online who is playing something (from any playlist or the
-  library) gets a headphones icon button "Listen along with <name>" (`.person-listen`,
-  `.active` + `aria-pressed` while you listen along with them or with whomever they
-  listen along with; pressing it again stops). A private playlist's name is never
-  shown to anyone but its owner: others see only the song.
+  "Offline — n". Row (Discord-like, no buttons in it): round avatar (photo, emoji or
+  initials) with a presence dot (success = online, grey = offline), name (+ subtle "you" /
+  warning "pending" badges), and one activity line: an animated three-bar equaliser
+  (`.person-eq`, still under reduced motion) + "Title — Artist" in accent while playing,
+  muted pause icon + "Paused · Title" when paused, nothing when idle, "Last seen 5m ago"
+  when offline. Offline rows are dimmed.
+- **Person card**: the whole row is a `role="button"` (`aria-haspopup="dialog"`); click or
+  Enter / Space opens a `context-menu.js` popover (`kind: 'popover'`, `{ html }` item)
+  anchored under the row — a **bottom sheet** below 576px (`sheet: true`, page dimmed).
+  It shows a big avatar + presence ("Online" in green / "Last seen …"), the current song
+  (cover thumbnail or a music placeholder, "Listening to" with the equaliser or "Paused",
+  title, artist, "from <playlist / Music Library>" only when the viewer may see it),
+  "N listening along" when they have followers (a count from `people:listeners`, no
+  names), and one full-width action: primary **Listen along**, or tonal **Stop listening
+  along** while you follow them (or whomever they follow). Disabled with a muted hint for
+  yourself, offline / idle people and unapproved accounts. Escape closes and focus returns
+  to the row; Tab stays inside; it re-renders live while open. A private playlist's name
+  or id is never sent to anyone but its owner, so the card shows only the song.
 - **Unread**: messages from others that arrive while the chat is not on screen (panel
   collapsed or hidden, People tab, or the browser tab in the background) count up on
   every `[data-social-unread]` badge (player-bar chat button, Chat tab, pending card) and

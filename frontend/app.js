@@ -13,7 +13,7 @@ import { handleJobUpdate, handleWorkersUpdate } from './jobs.js';
 import { loadReports } from './song-reports.js';
 import { parseRoute, legacyRedirect } from './router.js';
 import { openNewPlaylistDialog } from './new-playlist.js';
-import { shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyUpdated, handleLobbyPinned, toggleCurrentVisibility, handleUserJoined, handleUserLeft, handleLobbyClosed, checkForLastLobby, joinLobbyFromCard, updatePinButton, togglePin, promptRenameLobby, toggleLobbyVisibility, deleteLobbyCard, quickPlayLobby, openLobbyPage, closeLobbyPage, syncMembership, resyncMembership, reportNowPlaying } from './lobby.js';
+import { shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyUpdated, handleLobbyPinned, openPlaylistHeaderMenu, setupLandingMenus, handleUserJoined, handleUserLeft, handleLobbyClosed, checkForLastLobby, joinLobbyFromCard, updatePinButton, togglePin, quickPlayLobby, openLobbyPage, closeLobbyPage, syncMembership, resyncMembership, reportNowPlaying } from './lobby.js';
 import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, updatePlayButton, updatePlaybackModeUI, updateNowPlaying, _setQueueFns } from './playback.js';
 import { handleQueueUpdated, handleSongAdded, addSong, removeSong, clearQueue, downloadPlaylist, cancelPlaylistDownload, moveSongUp, moveSongDown, playSongAt, setupQueueInteractions, setupQueueSearch, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './queue.js';
 
@@ -93,12 +93,12 @@ function setupSocket() {
 // Event Listeners Setup
 function setupEventListeners() {
   elements.newPlaylistBtn.addEventListener('click', () => openNewPlaylistDialog(elements.newPlaylistBtn));
-  if (elements.visibilityBtn) elements.visibilityBtn.addEventListener('click', toggleCurrentVisibility);
+  if (elements.playlistMenuBtn) elements.playlistMenuBtn.addEventListener('click', openPlaylistHeaderMenu);
+  setupLandingMenus();
 
   // Back only navigates: playback and the playback context are untouched.
   elements.backBtn.addEventListener('click', () => navigateTo('/'));
   elements.shareBtn.addEventListener('click', shareLobby);
-  if (elements.renameBtn) elements.renameBtn.addEventListener('click', promptRenameLobby);
   if (elements.pinBtn) elements.pinBtn.addEventListener('click', togglePin);
 
   // Playback Controls
@@ -249,7 +249,7 @@ function initAuthenticatedApp() {
 window.app = {
   removeSong, moveSongUp, moveSongDown, playSongAt,
   openSource, copySourceUrl, joinLobbyFromCard,
-  toggleLobbyVisibility, deleteLobbyCard, quickPlayLobby,
+  quickPlayLobby,
   newPlaylist: (btn) => openNewPlaylistDialog(btn)
 };
 window.dashboardJoinLobby = dashboardJoinLobby;

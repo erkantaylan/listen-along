@@ -70,6 +70,13 @@
   .lobby-quick-play:focus-visible { opacity: 1; }
   @media (hover: none) { .lobby-quick-play { opacity: 1; } }
   .lobbies-empty { padding-block: 2rem; text-align: center; }
+  /* Header actions: "Music library & requests" (secondary) next to the
+     primary "New playlist"; the library label folds to its icon on phones. */
+  @media (max-width: 479.98px) {
+    .landing-library-label { display: none; }
+    .landing-library-btn { padding-inline: 0.625rem; }
+  }
+  .playlist-private-badge { display: inline-flex; gap: 0.25rem; align-items: center; }
 
   /* New playlist dialog (new-playlist.js) */
   .new-playlist-field-error { color: var(--app-danger); }
@@ -626,10 +633,56 @@
     border-radius: 50%;
   }
   .person.is-online .person-dot { background-color: var(--app-success); }
-  .person-playing { color: var(--bs-primary-fg); }
-  .person-playing.is-paused { color: var(--bs-fg-3); }
-  .person-playing .icon-sm { vertical-align: -2px; }
-  .person-listen { flex-shrink: 0; }
+  .person { cursor: pointer; }
+  .person:focus-visible { outline: 2px solid var(--app-focus); outline-offset: -2px; }
+  .person[aria-expanded="true"] { background-color: var(--bs-bg-1); }
+  .person-activity { color: var(--bs-primary-fg); }
+  .person-activity.is-paused { color: var(--bs-fg-3); }
+  .person-activity .icon-sm { flex-shrink: 0; }
+
+  /* Equaliser: three bars bouncing while someone plays (still when reduced motion). */
+  .person-eq { display: inline-flex; flex-shrink: 0; gap: 2px; align-items: flex-end; width: 0.75rem; height: 0.75rem; }
+  .person-eq i { flex: 1; height: 40%; background-color: currentColor; border-radius: 1px; animation: person-eq 0.9s ease-in-out infinite; }
+  .person-eq i:nth-child(2) { animation-delay: -0.3s; }
+  .person-eq i:nth-child(3) { animation-delay: -0.6s; }
+  @keyframes person-eq { 0%, 100% { height: 30%; } 50% { height: 100%; } }
+  @media (prefers-reduced-motion: reduce) {
+    .person-eq i { animation: none; }
+    .person-eq i:nth-child(1) { height: 60%; }
+    .person-eq i:nth-child(2) { height: 100%; }
+    .person-eq i:nth-child(3) { height: 45%; }
+  }
+
+  /* Person card (social.js, a context-menu.js popover; a bottom sheet on phones). */
+  .person-card-pop { width: 18rem; padding: 0; }
+  .person-card { display: flex; flex-direction: column; gap: 0.75rem; width: 100%; padding: 0.875rem; }
+  .person-card .person-dot { border-color: var(--app-overlay); }
+  .person-card .is-online .person-dot { background-color: var(--app-success); }
+  .person-card-avatar { width: 3rem; height: 3rem; font-size: var(--bs-font-size-sm); }
+  .person-card-avatar.is-emoji { font-size: 1.5rem; }
+  .person-card-online { color: var(--app-success); }
+  .person-card-song { padding: 0.5rem; background-color: var(--bs-bg-1); border: 1px solid var(--app-border); border-radius: var(--bs-border-radius); }
+  .person-card-label { color: var(--bs-primary-fg); }
+  .person-card-cover {
+    display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center;
+    width: 3rem; height: 3rem; overflow: hidden; color: var(--bs-fg-3);
+    background-color: var(--bs-bg-2); border-radius: calc(var(--bs-border-radius) - 2px);
+  }
+  .person-card-cover img { width: 100%; height: 100%; object-fit: cover; }
+  .person-card-cover svg { width: 1.5rem; height: 1.5rem; }
+  .person-card-action { gap: 0.5rem; }
+  .person-card-action svg { width: 1.125rem; height: 1.125rem; }
+  /* Phones: the popover becomes a bottom sheet over a dimmed page. */
+  .app-ctx-sheet {
+    inset: auto 0 0 0;
+    width: auto;
+    max-width: none;
+    border-bottom: 0;
+    border-radius: var(--bs-border-radius-lg) var(--bs-border-radius-lg) 0 0;
+    box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.5), var(--bs-box-shadow-lg);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .app-ctx-sheet .person-card { padding: 1rem 1rem 1.25rem; }
 
   /* Chat button in the player bar, with the unread badge on its corner. */
   .social-toggle { position: relative; }
