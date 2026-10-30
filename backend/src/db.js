@@ -260,8 +260,9 @@ async function createTables() {
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at BIGINT`).catch(() => {});
   await pool.query(`ALTER TABLE users ALTER COLUMN provider SET DEFAULT 'local'`).catch(() => {});
   await pool.query(`ALTER TABLE users ALTER COLUMN status SET DEFAULT 'approved'`).catch(() => {});
-  // Approval gating removed — promote anyone still waiting (leave explicit 'denied' alone)
-  await pool.query(`UPDATE users SET status = 'approved' WHERE status = 'pending'`).catch(() => {});
+  // Never touch existing accounts' status here: this runs on every boot, and
+  // an admin's pending / denied / rejected decision must survive a restart.
+  // (An old "promote every pending user" line did exactly that.)
   // Drop old last_login NOT NULL constraint (replaced by updated_at). Guarded so
   // it only runs when the column exists — otherwise Postgres logs a (caught but
   // noisy) ERROR on every boot for newer schemas that have no last_login column.
