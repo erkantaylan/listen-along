@@ -5,20 +5,33 @@
     "description": "Arkadaşlarınla senkronize müzik dinle"
   },
   "landing": {
-    "lobbyNamePlaceholder": "Lobi adı (isteğe bağlı)",
-    "createLobby": "Lobi Oluştur",
+    "newPlaylist": "Yeni çalma listesi",
+    "playlistName": "Çalma listesi adı",
+    "playlistNamePlaceholder": "Çalma listesi adı (isteğe bağlı)",
+    "visibility": "Görünürlük",
+    "public": "Herkese açık",
+    "private": "Gizli",
+    "publicHint": "Herkese açık: giriş yapan herkes görebilir ve düzenleyebilir.",
+    "privateHint": "Gizli: yalnızca sen görebilirsin.",
+    "createPlaylist": "Çalma listesi oluştur",
     "joinHint": "Bir linkin var mı? Tarayıcına yapıştır.",
-    "activeLobbies": "Aktif Lobiler",
-    "noActiveLobbies": "Aktif lobi yok"
+    "playlists": "Çalma listeleri",
+    "noPlaylists": "Henüz çalma listesi yok",
+    "byOwner": "{name} tarafından",
+    "byYou": "senin",
+    "noOwner": "ortak"
   },
   "lobby": {
-    "lobby": "Lobi",
+    "playlist": "Çalma listesi",
     "listeners": "dinleyici",
     "listener": "dinleyici",
-    "leaveLobby": "Lobiden ayrıl",
-    "renameLobby": "Lobiyi yeniden adlandır",
-    "pinLobby": "Lobiyi sabitle",
-    "shareLobby": "Lobiyi paylaş"
+    "renamePlaylist": "Çalma listesini yeniden adlandır",
+    "pinPlaylist": "Çalma listesini sabitle",
+    "sharePlaylist": "Çalma listesini paylaş",
+    "makePrivate": "Gizli yap",
+    "makePublic": "Herkese aç",
+    "deletePlaylist": "Çalma listesini sil",
+    "notFound": "Çalma listesi bulunamadı"
   },
   "player": {
     "noTrackPlaying": "Şarkı çalmıyor",
@@ -30,11 +43,11 @@
     "mute": "Sesi kapat",
     "unmute": "Sesi aç",
     "nothingPlaying": "Hiçbir şey çalmıyor",
-    "pickSong": "Bir lobiden ya da kütüphaneden şarkı seç",
+    "pickSong": "Bir çalma listesinden ya da kütüphaneden şarkı seç",
     "openContext": "{name} aç",
     "fromLibrary": "Müzik Kütüphanesi",
     "playingElsewhere": "Başka bir sekmede çalıyor",
-    "contextClosed": "Çaldığın lobi kapatıldı"
+    "contextClosed": "Çaldığın çalma listesi artık yok"
   },
   "playbackMode": {
     "replayAll": "Listeyi tekrarla",
@@ -44,9 +57,7 @@
   },
   "nav": {
     "queue": "Sıra",
-    "chat": "Sohbet",
-    "listeners": "Dinleyiciler",
-    "social": "Sosyal"
+    "listeners": "Dinleyiciler"
   },
   "queue": {
     "searchPlaceholder": "YouTube URL yapıştır veya ara...",
@@ -61,25 +72,19 @@
     "clearQueue": "Sırayı temizle",
     "downloadPlaylist": "Tüm şarkıları cihazına indir"
   },
-  "chat": {
-    "noMessages": "Henüz mesaj yok",
-    "beFirst": "İlk mesajı sen at!",
-    "placeholder": "Bir mesaj yaz...",
-    "send": "Mesaj gönder"
-  },
   "listeners": {
     "noListeners": "Henüz kimse yok",
-    "shareHint": "Arkadaşlarını davet etmek için lobi linkini paylaş",
+    "shareHint": "Arkadaşlarını davet etmek için çalma listesi linkini paylaş",
     "yourName": "Adın",
     "changeAvatar": "Avatar emojisini değiştir",
     "save": "Kaydet"
   },
   "dashboard": {
     "title": "Kontrol Paneli",
-    "activeLobbies": "Aktif Lobiler",
+    "activeLobbies": "Çalma listeleri",
     "connectedUsers": "Bağlı Kullanıcılar",
     "memory": "Bellek (MB)",
-    "noActiveLobbies": "Aktif lobi yok",
+    "noActiveLobbies": "Herkese açık çalma listesi yok",
     "songCache": "Şarkı Önbelleği",
     "clearAll": "Hepsini Temizle",
     "ready": "Hazır",
@@ -89,29 +94,22 @@
     "totalDuration": "Toplam Süre",
     "noCachedSongs": "Önbellekte şarkı yok"
   },
-  "modal": {
-    "createLobby": "Lobi Oluştur",
-    "createPrompt": "Bu lobi henüz yok. Oluşturulsun mu?",
-    "create": "Lobi Oluştur",
-    "cancel": "İptal"
-  },
   "toast": {
     "connectionLost": "Bağlantı kesildi. Yeniden bağlanılıyor...",
     "reconnected": "Yeniden bağlandı!",
     "linkCopied": "Link panoya kopyalandı!",
     "copyFailed": "Link kopyalanamadı",
     "enterSongUrl": "Lütfen şarkı URL'si veya arama terimi gir",
-    "lobbyClosed": "Bu lobi kapatıldı",
     "profileSaved": "Profil kaydedildi!",
     "songAdded": "Şarkı eklendi!",
-    "songRemoved": "Şarkı kaldırıldı"
+    "songRemoved": "Şarkı kaldırıldı",
+    "playlistDeleted": "Çalma listesi silindi"
   },
   "error": {
-    "notInLobby": "Bu lobinin üyesi değilsin",
     "tooManyRequests": "Çok fazla istek, lütfen yavaşla",
     "failedToFetch": "Getirilemedi",
-    "lobbyNotFound": "Lobi bulunamadı",
-    "invalidUrl": "Geçersiz URL"
+    "invalidUrl": "Geçersiz URL",
+    "playlistNotFound": "Çalma listesi bulunamadı"
   },
   "language": {
     "select": "Dil",

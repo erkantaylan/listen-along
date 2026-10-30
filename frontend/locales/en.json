@@ -5,20 +5,33 @@
     "description": "Listen to music with friends in sync"
   },
   "landing": {
-    "lobbyNamePlaceholder": "Lobby name (optional)",
-    "createLobby": "Create Lobby",
+    "newPlaylist": "New playlist",
+    "playlistName": "Playlist name",
+    "playlistNamePlaceholder": "Playlist name (optional)",
+    "visibility": "Visibility",
+    "public": "Public",
+    "private": "Private",
+    "publicHint": "Public: every signed-in user can see and edit it.",
+    "privateHint": "Private: only you can see it.",
+    "createPlaylist": "Create playlist",
     "joinHint": "Have a link? Just paste it in your browser.",
-    "activeLobbies": "Active Lobbies",
-    "noActiveLobbies": "No active lobbies"
+    "playlists": "Playlists",
+    "noPlaylists": "No playlists yet",
+    "byOwner": "by {name}",
+    "byYou": "by you",
+    "noOwner": "shared"
   },
   "lobby": {
-    "lobby": "Lobby",
+    "playlist": "Playlist",
     "listeners": "listeners",
     "listener": "listener",
-    "leaveLobby": "Leave lobby",
-    "renameLobby": "Rename lobby",
-    "pinLobby": "Pin lobby to prevent cleanup",
-    "shareLobby": "Share lobby"
+    "renamePlaylist": "Rename playlist",
+    "pinPlaylist": "Pin playlist",
+    "sharePlaylist": "Share playlist",
+    "makePrivate": "Make private",
+    "makePublic": "Make public",
+    "deletePlaylist": "Delete playlist",
+    "notFound": "Playlist not found"
   },
   "player": {
     "noTrackPlaying": "No track playing",
@@ -30,11 +43,11 @@
     "mute": "Mute",
     "unmute": "Unmute",
     "nothingPlaying": "Nothing playing",
-    "pickSong": "Pick a song in a lobby or the library",
+    "pickSong": "Pick a song in a playlist or the library",
     "openContext": "Open {name}",
     "fromLibrary": "Music Library",
     "playingElsewhere": "Playing in another tab",
-    "contextClosed": "The lobby you were playing from was closed"
+    "contextClosed": "The playlist you were playing from is no longer available"
   },
   "playbackMode": {
     "replayAll": "Replay list",
@@ -44,9 +57,7 @@
   },
   "nav": {
     "queue": "Queue",
-    "chat": "Chat",
-    "listeners": "Listeners",
-    "social": "Social"
+    "listeners": "Listeners"
   },
   "queue": {
     "searchPlaceholder": "Paste YouTube URL or search...",
@@ -61,25 +72,19 @@
     "clearQueue": "Clear queue",
     "downloadPlaylist": "Download all songs to your device"
   },
-  "chat": {
-    "noMessages": "No messages yet",
-    "beFirst": "Be the first to say something!",
-    "placeholder": "Type a message...",
-    "send": "Send message"
-  },
   "listeners": {
     "noListeners": "No one else is here yet",
-    "shareHint": "Share the lobby link to invite friends",
+    "shareHint": "Share the playlist link to invite friends",
     "yourName": "Your name",
     "changeAvatar": "Change avatar emoji",
     "save": "Save"
   },
   "dashboard": {
     "title": "Dashboard",
-    "activeLobbies": "Active Lobbies",
+    "activeLobbies": "Playlists",
     "connectedUsers": "Connected Users",
     "memory": "Memory (MB)",
-    "noActiveLobbies": "No active lobbies",
+    "noActiveLobbies": "No public playlists",
     "songCache": "Song Cache",
     "clearAll": "Clear All",
     "ready": "Ready",
@@ -89,29 +94,22 @@
     "totalDuration": "Total Duration",
     "noCachedSongs": "No cached songs"
   },
-  "modal": {
-    "createLobby": "Create Lobby",
-    "createPrompt": "This lobby doesn't exist yet. Create it?",
-    "create": "Create Lobby",
-    "cancel": "Cancel"
-  },
   "toast": {
     "connectionLost": "Connection lost. Reconnecting...",
     "reconnected": "Reconnected!",
     "linkCopied": "Link copied to clipboard!",
     "copyFailed": "Failed to copy link",
     "enterSongUrl": "Please enter a song URL or search term",
-    "lobbyClosed": "This lobby has been closed",
     "profileSaved": "Profile saved!",
     "songAdded": "Song added!",
-    "songRemoved": "Song removed"
+    "songRemoved": "Song removed",
+    "playlistDeleted": "Playlist deleted"
   },
   "error": {
-    "notInLobby": "Not a member of this lobby",
     "tooManyRequests": "Too many requests, please slow down",
     "failedToFetch": "Failed to fetch",
-    "lobbyNotFound": "Lobby not found",
-    "invalidUrl": "Invalid URL"
+    "invalidUrl": "Invalid URL",
+    "playlistNotFound": "Playlist not found"
   },
   "language": {
     "select": "Language",

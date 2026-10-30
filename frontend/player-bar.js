@@ -2,10 +2,11 @@
 // page, Spotify-style. Shows an empty state with disabled controls until
 // something is loaded. Track title/art/times are drawn by playback.js; this
 // module handles visibility, page padding, the empty state, the "from" line
-// and opening the context (lobby page or library).
+// and opening the context (playlist page or library).
 import { state, elements } from './state.js';
 import { navigateTo, t } from './ui.js';
 import { player } from './player.js';
+import { playlistPath } from './router.js';
 
 const $ = (id) => document.getElementById(id);
 const CONTROL_IDS = ['repeat-btn', 'shuffle-btn', 'prev-btn', 'next-btn', 'progress-bar'];
@@ -24,13 +25,13 @@ function refreshVisibility() {
 export function contextLabel(ctx) {
   if (!ctx) return '';
   if (ctx.type === 'library') return t('player.fromLibrary', 'Music Library');
-  return ctx.name || `Lobby ${ctx.lobbyId}`;
+  return ctx.name || `Playlist ${ctx.lobbyId}`;
 }
 
 function contextPath(ctx) {
   if (!ctx) return null;
   if (ctx.type === 'library') return '/library';
-  return `/lobby/${ctx.lobbyId}`;
+  return playlistPath(ctx.lobbyId);
 }
 
 // Empty state, enabled controls and the "artist · from" line.
@@ -40,7 +41,7 @@ export function refreshPlayerBar() {
   const track = player.track;
   bar.classList.toggle('is-empty', !track);
   for (const id of CONTROL_IDS) { const el = $(id); if (el) el.disabled = !track; }
-  // With nothing loaded, Play starts the lobby on screen if it has songs.
+  // With nothing loaded, Play starts the playlist on screen if it has songs.
   const play = $('play-btn');
   if (play) play.disabled = !track && !(state.lobbyId && state.queue.length);
   const open = $('player-open');
@@ -52,7 +53,7 @@ export function refreshPlayerBar() {
   }
   if (!track) {
     elements.trackTitle.textContent = t('player.nothingPlaying', 'Nothing playing');
-    elements.trackArtist.textContent = t('player.pickSong', 'Pick a song in a lobby or the library');
+    elements.trackArtist.textContent = t('player.pickSong', 'Pick a song in a playlist or the library');
     return;
   }
   elements.trackArtist.textContent = [track.artist, contextLabel(ctx)].filter(Boolean).join(' · ');

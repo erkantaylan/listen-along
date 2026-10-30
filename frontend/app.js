@@ -7,11 +7,10 @@ import { setupPlayerBar, setupPlayerBarControls, refreshPlayerBar } from './play
 import { checkAuth, setupLoginView, showPendingCard, setupProfileEditor, setupProfilePage, loadProfilePage } from './auth.js';
 import { checkUrlForDashboard, dashboardJoinLobby, dashboardRemoveLobby, dashboardApproveUser, dashboardRejectUser } from './dashboard.js';
 import { setupLibraryPage, openLibraryPage, closeLibraryPage, isLibraryOpen, showLibraryRoute, handleLibraryUpdated, handleRequestsUpdated } from './library.js';
-import { parseRoute } from './router.js';
-import { createLobby, shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyPinned, handleUserJoined, handleUserLeft, handleLobbyClosed, checkForLastLobby, joinLobbyFromCard, updatePinButton, togglePin, promptRenameLobby, toggleLobbyVisibility, deleteLobbyCard, openLobbyPage, closeLobbyPage, syncMembership, resyncMembership, reportNowPlaying } from './lobby.js';
+import { parseRoute, legacyRedirect } from './router.js';
+import { createLobby, shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyUpdated, handleLobbyPinned, updateVisibilityHint, toggleCurrentVisibility, handleUserJoined, handleUserLeft, handleLobbyClosed, checkForLastLobby, joinLobbyFromCard, updatePinButton, togglePin, promptRenameLobby, toggleLobbyVisibility, deleteLobbyCard, openLobbyPage, closeLobbyPage, syncMembership, resyncMembership, reportNowPlaying } from './lobby.js';
 import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, handleFollowSync, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, updatePlayButton, updatePlaybackModeUI, updateNowPlaying, _setQueueFns } from './playback.js';
 import { handleQueueUpdated, handleSongAdded, addSong, removeSong, clearQueue, downloadPlaylist, cancelPlaylistDownload, moveSongUp, moveSongDown, playSongAt, setupQueueDragAndDrop, setupQueueSearch, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './queue.js';
-import { toggleSongMention, clearSongMention, sendChatMessage, handleChatMessage, handleChatHistory, requestChatHistory, resetChat } from './chat.js';
 
 // Wire up cross-module dependencies
 _setQueueFns(updateQueue, updateListeners);
@@ -38,14 +37,15 @@ function setupSocket() {
     s.on('disconnect', () => { console.log('Disconnected from server'); showToast(t('toast.connectionLost', 'Connection lost. Reconnecting...'), 'error'); });
 
     // Lobby Events
-    s.on('lobby:created', (data) => handleLobbyCreated(data, requestChatHistory, updatePinButton));
-    s.on('lobby:joined', (data) => handleLobbyJoined(data, requestChatHistory, updatePinButton, updateListeners, updateQueue));
+    s.on('lobby:created', (data) => handleLobbyCreated(data, updatePinButton));
+    s.on('lobby:joined', (data) => handleLobbyJoined(data, updatePinButton, updateListeners, updateQueue));
     s.on('lobby:not-found', handleLobbyNotFound);
     s.on('lobby:error', handleLobbyError);
     s.on('lobby:user-joined', (data) => handleUserJoined(data, updateListeners));
     s.on('lobby:user-left', (data) => handleUserLeft(data, updateListeners));
     s.on('lobby:closed', (data) => { if ((data.lobbyId || state.lobbyId) === state.lobbyId) closeLibraryPage(); handleLobbyClosed(data, resetLobbyPage); });
     s.on('lobby:renamed', handleLobbyRenamed);
+    s.on('lobby:updated', handleLobbyUpdated);
     s.on('lobby:pinned', (data) => handleLobbyPinned(data, updatePinButton));
 
     // Queue Events
@@ -67,11 +67,6 @@ function setupSocket() {
     // Mode Events
     s.on('users:updated', handleUsersUpdated);
 
-    // Chat Events
-    s.on('chat:message', handleChatMessage);
-    s.on('chat:history', handleChatHistory);
-    s.on('chat:error', (data) => showToast(data.message, 'error'));
-
     // Follow Events
     s.on('follow:sync', handleFollowSync);
     s.on('follow:error', (data) => showToast(data.message, 'error'));
@@ -82,24 +77,8 @@ function setupSocket() {
 function setupEventListeners() {
   elements.createLobbyBtn.addEventListener('click', createLobby);
 
-  if (elements.roomTypeCreateBtn) {
-    elements.roomTypeCreateBtn.addEventListener('click', () => {
-      if (elements.roomTypeModal) elements.roomTypeModal.hidden = true;
-      const lobbyId = state.pendingLobbyId; // cleared below, before the import resolves
-      import('./state.js').then(mod => {
-        mod.socket.emit('lobby:create', { username: state.username, emoji: state.emoji, lobbyId, userId: state.userId, asViewer: !!player.context });
-      });
-      state.pendingLobbyId = null;
-    });
-  }
-  if (elements.roomTypeCancelBtn) {
-    elements.roomTypeCancelBtn.addEventListener('click', () => {
-      if (elements.roomTypeModal) elements.roomTypeModal.hidden = true;
-      state.pendingLobbyId = null;
-      closeLibraryPage();
-      navigateTo('/');
-    });
-  }
+  if (elements.visibilitySelect) elements.visibilitySelect.addEventListener('change', updateVisibilityHint);
+  if (elements.visibilityBtn) elements.visibilityBtn.addEventListener('click', toggleCurrentVisibility);
 
   // Back only navigates: playback and the playback context are untouched.
   elements.backBtn.addEventListener('click', () => navigateTo('/'));
@@ -124,12 +103,6 @@ function setupEventListeners() {
   if (landingLibBtn) landingLibBtn.addEventListener('click', () => openLibraryPage('library'));
   setupLibraryPage();
 
-  // Chat
-  if (elements.chatSendBtn) elements.chatSendBtn.addEventListener('click', sendChatMessage);
-  if (elements.chatInput) elements.chatInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendChatMessage(); });
-  if (elements.chatMentionSongBtn) elements.chatMentionSongBtn.addEventListener('click', toggleSongMention);
-  if (elements.chatSongPreviewRemove) elements.chatSongPreviewRemove.addEventListener('click', clearSongMention);
-
   setupQueueDragAndDrop();
   setupQueueSearch();
 
@@ -152,10 +125,9 @@ function setupEventListeners() {
   window.addEventListener('popstate', applyRoute);
 }
 
-// Switching or leaving a lobby page: clear its lists and chat.
+// Switching or leaving a playlist page: clear its lists.
 function resetLobbyPage() {
   resetLobbyUI();
-  resetChat();
 }
 
 const routeViews = { landing: 'landingView', lobby: 'lobbyView', profile: 'profileView' };
@@ -167,12 +139,11 @@ function isViewActive(view) {
 // Make the UI match the address bar (see router.js for the URL scheme). Runs
 // on load and on Back/Forward; in-app navigation pushes the URL itself.
 function applyRoute() {
+  // Old /lobby/<id> links (bookmarks, history entries) become /playlist/<id>.
+  const moved = legacyRedirect(window.location.pathname, window.location.search);
+  if (moved) history.replaceState(history.state, '', moved);
   const route = parseRoute(window.location.pathname, window.location.search);
   if (route.view === 'dashboard') { window.location.reload(); return; }
-  if (elements.roomTypeModal && !elements.roomTypeModal.hidden && route.lobbyId !== state.pendingLobbyId) {
-    elements.roomTypeModal.hidden = true;
-    state.pendingLobbyId = null;
-  }
   if (route.lobbyId) {
     // The lobby view shows once lobby:joined arrives.
     if (route.lobbyId !== state.lobbyId) openLobbyPage(route.lobbyId, resetLobbyPage);
@@ -209,6 +180,8 @@ async function init() {
 function initAuthenticatedApp() {
   // Old account-link redirects land on /#profile.
   if (window.location.hash === '#profile') history.replaceState(null, '', '/profile');
+  const moved = legacyRedirect(window.location.pathname, window.location.search);
+  if (moved) history.replaceState(null, '', moved);
   const route = parseRoute(window.location.pathname, window.location.search);
   showView(route.view === 'profile' ? 'profile' : 'landing');
   setupSocket();
@@ -228,7 +201,7 @@ function initAuthenticatedApp() {
     updateQueue();
     reportNowPlaying();
   });
-  // Starting a song in another lobby moves the server membership there.
+  // Starting a song in another playlist moves the server membership there.
   player.on('context', () => syncMembership());
   fetchVersion();
 

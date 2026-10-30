@@ -1,4 +1,4 @@
-// Dashboard admin panel (lobbies, users). Library/token management is on /admin.
+// Dashboard admin panel (public playlists, users). Library/token management is on /admin.
 import { state, elements, viewActivators, setDashboardInterval } from './state.js';
 import { showView, showToast, escapeHtml, formatUptime, formatAge, formatDuration, formatFileSize, toLower } from './ui.js';
 
@@ -60,7 +60,7 @@ export function fetchDashboardStats() {
       return res.json();
     })
     .then(data => {
-      if (elements.statLobbies) elements.statLobbies.textContent = data.totalLobbies;
+      if (elements.statLobbies) elements.statLobbies.textContent = data.privateLobbies ? `${data.totalLobbies} (${data.privateLobbies} private)` : data.totalLobbies;
       if (elements.statUsers) elements.statUsers.textContent = data.totalUsers;
       if (elements.statMemory) elements.statMemory.textContent = Math.round(data.memoryUsage.heapUsed / 1024 / 1024);
       if (elements.statDisk) {
@@ -78,7 +78,7 @@ export function fetchDashboardStats() {
 
 function updateDashboardLobbies(lobbies) {
   if (!lobbies || lobbies.length === 0) {
-    elements.dashboardLobbyList.innerHTML = '<li class="list-group-item app-empty dashboard-empty">No active lobbies</li>';
+    elements.dashboardLobbyList.innerHTML = '<li class="list-group-item app-empty dashboard-empty">No public playlists</li>';
     return;
   }
   elements.dashboardLobbyList.innerHTML = lobbies.map(lobby => {
@@ -90,8 +90,8 @@ function updateDashboardLobbies(lobbies) {
         <span class="dashboard-lobby-queue">${lobby.queueLength} in queue</span>
       </div>
       <div class="d-flex gap-2 dashboard-lobby-actions">
-        <button class="btn btn-sm" type="button" onclick="window.dashboardJoinLobby(${escapeHtml(JSON.stringify(lobby.id))})">Join</button>
-        <button class="btn-outline theme-danger btn-sm" type="button" onclick="window.dashboardRemoveLobby(${escapeHtml(JSON.stringify(lobby.id))})">Remove</button>
+        <button class="btn btn-sm" type="button" onclick="window.dashboardJoinLobby(${escapeHtml(JSON.stringify(lobby.id))})">Open</button>
+        <button class="btn-outline theme-danger btn-sm" type="button" onclick="window.dashboardRemoveLobby(${escapeHtml(JSON.stringify(lobby.id))})">Delete</button>
       </div>
       <div class="fs-xs fg-3 dashboard-lobby-age">${age}</div>
     </li>`;
@@ -145,13 +145,13 @@ export function renderDashboardUserList() {
   }).join('');
 }
 
-export function dashboardJoinLobby(lobbyId) { window.location.href = `/lobby/${lobbyId}`; }
+export function dashboardJoinLobby(lobbyId) { window.location.href = `/playlist/${encodeURIComponent(lobbyId)}`; }
 
 export function dashboardRemoveLobby(lobbyId) {
-  if (!confirm(`Remove lobby ${lobbyId}? This will disconnect all users.`)) return;
-  fetch(`/api/dashboard/lobbies/${lobbyId}`, { method: 'DELETE' })
-    .then(res => { if (res.ok) fetchDashboardStats(); else alert('Failed to remove lobby'); })
-    .catch(() => alert('Failed to remove lobby'));
+  if (!confirm(`Delete playlist ${lobbyId}? Everyone who has it open loses it.`)) return;
+  fetch(`/api/dashboard/lobbies/${encodeURIComponent(lobbyId)}`, { method: 'DELETE' })
+    .then(res => { if (res.ok) fetchDashboardStats(); else alert('Failed to delete playlist'); })
+    .catch(() => alert('Failed to delete playlist'));
 }
 
 export function dashboardApproveUser(userId) {

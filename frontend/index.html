@@ -83,12 +83,18 @@
     <main class="app-main container app-narrow">
       <div class="card mb-5">
         <div class="card-body">
-          <h1 class="h4 mb-1">Start listening</h1>
+          <h1 class="h4 mb-1" data-i18n="landing.newPlaylist">New playlist</h1>
           <p class="fg-3 mb-5 tagline" data-i18n="app.tagline">Listen to music with friends, in sync.</p>
-          <label for="lobby-name-input" class="form-label fs-sm fw-medium">Lobby name</label>
-          <input type="text" id="lobby-name-input" class="form-control mb-5" placeholder="Lobby name (optional)" data-i18n-placeholder="landing.lobbyNamePlaceholder" maxlength="50" autocomplete="off">
+          <label for="lobby-name-input" class="form-label fs-sm fw-medium" data-i18n="landing.playlistName">Playlist name</label>
+          <input type="text" id="lobby-name-input" class="form-control mb-4" placeholder="Playlist name (optional)" data-i18n-placeholder="landing.playlistNamePlaceholder" maxlength="50" autocomplete="off">
+          <label for="playlist-visibility-select" class="form-label fs-sm fw-medium" data-i18n="landing.visibility">Visibility</label>
+          <select id="playlist-visibility-select" class="form-control mb-2" aria-describedby="playlist-visibility-hint">
+            <option value="public" data-i18n="landing.public">Public</option>
+            <option value="private" data-i18n="landing.private">Private</option>
+          </select>
+          <p id="playlist-visibility-hint" class="fs-sm fg-3 mb-5" data-i18n="landing.publicHint">Public: every signed-in user can see and edit it.</p>
           <div class="vstack gap-3">
-            <button id="create-lobby-btn" class="btn-solid theme-primary btn-lg w-100" type="button" data-i18n="landing.createLobby">Create Lobby</button>
+            <button id="create-lobby-btn" class="btn-solid theme-primary btn-lg w-100" type="button" data-i18n="landing.createPlaylist">Create playlist</button>
             <button id="landing-library-btn" class="btn-outline theme-secondary w-100 landing-library-btn" type="button">
               <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 5h-3v5.5a2.5 2.5 0 1 1-1-2V5h4v2z"/></svg>
               Music library &amp; requests
@@ -98,11 +104,11 @@
         </div>
       </div>
 
-      <!-- Active Lobbies Section -->
+      <!-- Playlists: every public one plus your own private ones -->
       <section id="lobbies-section" class="card lobbies-section" hidden>
-        <div class="card-header"><h2 class="h6 mb-0" data-i18n="landing.activeLobbies">Active Lobbies</h2></div>
+        <div class="card-header"><h2 class="h6 mb-0" data-i18n="landing.playlists">Playlists</h2></div>
         <ul id="lobbies-list" class="list-group list-group-flush lobbies-list">
-          <li class="list-group-item app-empty lobbies-empty" data-i18n="landing.noActiveLobbies">No active lobbies</li>
+          <li class="list-group-item app-empty lobbies-empty" data-i18n="landing.noPlaylists">No playlists yet</li>
         </ul>
       </section>
     </main>
@@ -118,7 +124,7 @@
     </footer>
   </div>
 
-  <!-- Lobby View -->
+  <!-- Playlist View (internally "lobby") -->
   <div id="lobby-view" class="view">
     <nav class="navbar app-navbar lobby-header">
       <div class="container">
@@ -127,42 +133,40 @@
         </button>
         <div class="lobby-info min-w-0 me-auto">
           <div class="d-flex align-items-center gap-1 min-w-0">
-            <h1 id="lobby-name" class="lobby-name h6 mb-0 text-truncate" data-i18n="lobby.lobby">Lobby</h1>
-            <button id="rename-btn" class="btn-text theme-secondary btn-icon btn-xs" type="button" aria-label="Rename lobby" title="Rename lobby" data-i18n-aria-label="lobby.renameLobby" data-i18n-title="lobby.renameLobby">
+            <h1 id="lobby-name" class="lobby-name h6 mb-0 text-truncate">Playlist</h1>
+            <button id="rename-btn" class="btn-text theme-secondary btn-icon btn-xs" type="button" aria-label="Rename playlist" title="Rename playlist" data-i18n-aria-label="lobby.renamePlaylist" data-i18n-title="lobby.renamePlaylist">
               <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 17.25V21h3.75L17.81 9.940l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
             </button>
           </div>
-          <div class="d-flex align-items-center gap-2 fs-xs fg-3">
+          <div class="d-flex align-items-center gap-2 fs-xs fg-3 min-w-0 playlist-meta">
+            <span id="playlist-visibility-badge" class="badge badge-subtle theme-secondary playlist-visibility-badge" hidden>Private</span>
+            <span id="playlist-owner" class="text-truncate playlist-owner" hidden></span>
             <span id="user-count" class="user-count">0 listeners</span>
           </div>
         </div>
         <div class="d-flex align-items-center gap-1 flex-shrink-0">
-          <button id="pin-btn" class="btn-text theme-secondary btn-icon" type="button" aria-label="Pin lobby" title="Pin lobby to prevent cleanup" data-i18n-aria-label="lobby.pinLobby" data-i18n-title="lobby.pinLobby">
+          <button id="playlist-visibility-btn" class="btn-text theme-secondary btn-icon playlist-visibility-btn" type="button" aria-label="Make private" title="Make private" hidden></button>
+          <button id="pin-btn" class="btn-text theme-secondary btn-icon" type="button" aria-label="Pin playlist" title="Pin playlist" data-i18n-aria-label="lobby.pinPlaylist" data-i18n-title="lobby.pinPlaylist">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>
           </button>
-          <button id="share-btn" class="btn-text theme-secondary btn-icon" type="button" aria-label="Share lobby" title="Share lobby" data-i18n-aria-label="lobby.shareLobby">
+          <button id="share-btn" class="btn-text theme-secondary btn-icon" type="button" aria-label="Share playlist" title="Share playlist" data-i18n-aria-label="lobby.sharePlaylist" data-i18n-title="lobby.sharePlaylist">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>
           </button>
         </div>
       </div>
     </nav>
 
-    <!-- Marquee Ticker Strip -->
-    <div id="chat-ticker" class="chat-ticker" hidden>
-      <div class="chat-ticker-content" id="chat-ticker-content"></div>
-    </div>
-
     <div class="lobby-body">
       <div class="container lobby-container">
         <!-- Tabs -->
-        <nav class="nav nav-underline lobby-tabs" aria-label="Lobby sections">
+        <nav class="nav nav-underline lobby-tabs" aria-label="Playlist sections">
           <button class="nav-link nav-item active" data-tab="queue" type="button">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
             <span data-i18n="nav.queue">Queue</span>
           </button>
           <button class="nav-link nav-item" data-tab="social" type="button">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
-            <span data-i18n="nav.social">Social</span>
+            <span data-i18n="nav.listeners">Listeners</span>
           </button>
         </nav>
 
@@ -213,8 +217,9 @@
             </ul>
           </section>
 
-          <!-- Social Tab (Combined Chat + Listeners) -->
-          <section id="social-tab" class="tab-panel" aria-label="Social">
+          <!-- Listeners Tab: who has this playlist open and what they play.
+               Interim: a global people panel replaces it. -->
+          <section id="social-tab" class="tab-panel" aria-label="Listeners">
             <div id="profile-editor" class="card card-body p-4 mb-3 profile-editor">
               <div class="d-flex align-items-center gap-2">
                 <button id="profile-emoji-btn" class="btn btn-icon emoji-btn" type="button" aria-label="Change avatar emoji" data-i18n-aria-label="listeners.changeAvatar"></button>
@@ -224,42 +229,12 @@
               <div id="emoji-picker" class="emoji-picker mt-3" hidden></div>
             </div>
             <div class="social-content">
-              <!-- Listeners -->
-              <div class="card mb-3 social-listeners-strip">
+              <div class="card social-listeners-strip">
                 <ul id="listeners-list" class="list-group list-group-flush listeners-list">
                   <li class="list-group-item app-empty listener-empty">
                     <p class="mb-0" data-i18n="listeners.noListeners">No one else here</p>
                   </li>
                 </ul>
-              </div>
-              <!-- Chat -->
-              <div class="card social-chat">
-                <div class="chat-messages" id="chat-messages" aria-live="polite">
-                  <div class="app-empty chat-empty">
-                    <p class="mb-1" data-i18n="chat.noMessages">No messages yet</p>
-                    <p class="fs-sm mb-0 hint" data-i18n="chat.beFirst">Be the first to say something!</p>
-                  </div>
-                </div>
-                <div id="chat-song-preview" class="chat-song-preview" hidden>
-                  <div class="min-w-0 fs-sm text-truncate">
-                    <span class="fg-3 chat-song-preview-label">Sharing song:</span>
-                    <span id="chat-song-preview-title" class="fw-medium chat-song-preview-title"></span>
-                  </div>
-                  <button id="chat-song-preview-remove" class="btn-text theme-secondary btn-icon btn-xs" type="button" aria-label="Remove song mention">
-                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-                  </button>
-                </div>
-                <div class="card-footer chat-input-bar">
-                  <div class="input-group">
-                    <button id="chat-mention-song-btn" class="btn-outline theme-secondary btn-icon chat-mention-song-btn" type="button" aria-label="Mention a song" data-i18n-aria-label="chat.mentionSong" title="Mention a song">
-                      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
-                    </button>
-                    <input type="text" id="chat-input" class="form-control" placeholder="Type a message..." aria-label="Message" data-i18n-placeholder="chat.placeholder" maxlength="500" autocomplete="off">
-                    <button id="chat-send-btn" class="btn-solid theme-primary btn-icon" type="button" aria-label="Send message" title="Send" data-i18n-aria-label="chat.send">
-                      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-                    </button>
-                  </div>
-                </div>
               </div>
             </div>
           </section>
@@ -281,7 +256,7 @@
         <div class="card-body text-center">
           <div id="pending-icon" class="pending-icon fs-3xl mb-3" aria-hidden="true">&#x23F3;</div>
           <h1 id="pending-title" class="h5">Waiting for Approval</h1>
-          <p id="pending-message" class="fg-3 pending-message">Your account is pending admin approval. You'll be able to access lobbies once approved.</p>
+          <p id="pending-message" class="fg-3 pending-message">Your account is pending admin approval. You'll be able to access playlists once approved.</p>
           <button id="pending-retry-btn" class="btn-solid theme-primary" type="button">Check Status</button>
         </div>
       </div>
@@ -315,7 +290,7 @@
           </a>
           <a href="#" class="list-group-item list-group-item-action sidebar-link" data-section="lobbies">
             <svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
-            Lobbies
+            Playlists
           </a>
           <a href="#" class="list-group-item list-group-item-action sidebar-link" data-section="users">
             <svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
@@ -340,7 +315,7 @@
               <span class="fs-lg fw-semibold stat-value" id="stat-disk">-</span>
             </div>
             <div class="card card-body stat-card">
-              <span class="fs-sm fg-3 stat-label" data-i18n="dashboard.activeLobbies">Lobbies</span>
+              <span class="fs-sm fg-3 stat-label" data-i18n="dashboard.activeLobbies">Playlists</span>
               <span class="fs-2xl fw-semibold stat-value" id="stat-lobbies">0</span>
             </div>
             <div class="card card-body stat-card">
@@ -355,9 +330,9 @@
         </section>
 
         <section class="dashboard-section" data-section="lobbies">
-          <h2 class="h5 mb-4 section-heading" data-i18n="dashboard.activeLobbies">Active Lobbies</h2>
+          <h2 class="h5 mb-4 section-heading" data-i18n="dashboard.activeLobbies">Playlists</h2>
           <ul id="dashboard-lobby-list" class="list-group dashboard-lobby-list">
-            <li class="list-group-item app-empty dashboard-empty" data-i18n="dashboard.noActiveLobbies">No active lobbies</li>
+            <li class="list-group-item app-empty dashboard-empty" data-i18n="dashboard.noActiveLobbies">No public playlists</li>
           </ul>
         </section>
 
@@ -408,7 +383,7 @@
             <input type="text" id="profile-page-name-input" class="form-control profile-name-input" maxlength="30" placeholder="Your display name" autocomplete="off">
             <button id="profile-page-save-btn" class="btn-solid theme-primary" type="button">Save</button>
           </div>
-          <p class="form-text fs-sm fg-3 mt-2 mb-0">This name appears in chat and listener lists</p>
+          <p class="form-text fs-sm fg-3 mt-2 mb-0">This name appears in listener lists</p>
         </div>
       </div>
       <div class="card mb-4">
@@ -431,7 +406,7 @@
   <!-- Toast Container -->
   <div id="toast-container" class="toast-container app-toasts" aria-live="polite"></div>
 
-  <!-- Player bar: one app-wide player at the bottom of every page (lobby,
+  <!-- Player bar: one app-wide player at the bottom of every page (playlist,
        landing, library, profile, dashboard), empty when nothing is loaded.
        player.js plays; player-bar.js / playback.js render it. -->
   <section id="player-bar" class="sticky-player player-bar is-empty" aria-label="Player" hidden>
@@ -443,7 +418,7 @@
           </span>
           <span class="track-info min-w-0">
             <span id="track-title" class="d-block track-title text-truncate">Nothing playing</span>
-            <span id="track-artist" class="d-block track-artist text-truncate">Pick a song in a lobby or the library</span>
+            <span id="track-artist" class="d-block track-artist text-truncate">Pick a song in a playlist or the library</span>
           </span>
         </button>
           <div class="sticky-player-controls">
@@ -490,25 +465,7 @@
   <!-- playsinline is required for iOS Safari to play inline instead of fullscreen -->
   <audio id="audio-player" preload="auto" playsinline></audio>
 
-  <!-- Room Type Selection Modal (shown when navigating to non-existent lobby URL) -->
-  <div id="room-type-modal" class="app-modal room-type-overlay" role="dialog" aria-modal="true" aria-labelledby="room-type-title" hidden>
-    <div class="card app-modal-card">
-      <div class="card-header d-flex flex-row align-items-center gap-2">
-        <svg class="icon fg-primary" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
-        <h2 id="room-type-title" class="h6 mb-0" data-i18n="modal.createLobby">Create Lobby</h2>
-      </div>
-      <div class="card-body">
-        <p class="fw-semibold mb-1 text-break room-type-lobby-name" id="room-type-lobby-name"></p>
-        <p class="fs-sm fg-3 mb-0 room-type-prompt" data-i18n="modal.createPrompt">This lobby doesn't exist yet. Create it?</p>
-      </div>
-      <div class="card-footer d-flex justify-content-end gap-2 room-type-actions">
-        <button id="room-type-cancel-btn" class="btn" type="button" data-i18n="modal.cancel">Cancel</button>
-        <button id="room-type-create-btn" class="btn-solid theme-primary" type="button" data-i18n="modal.create">Create Lobby</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Music Library page (full-screen overlay; works over landing and lobby) -->
+  <!-- Music Library page (full-screen overlay; works over landing and a playlist) -->
   <div id="library-page" class="library-page" role="dialog" aria-modal="true" aria-labelledby="libpage-heading" hidden>
     <nav class="navbar app-navbar libpage-header">
       <div class="container">
@@ -542,7 +499,7 @@
         </section>
         <section id="libpage-requests-panel" class="libpage-panel" hidden>
           <div class="d-flex flex-wrap align-items-start gap-3 mb-4 libpage-toolbar">
-            <p class="fs-sm fg-3 mb-0 flex-grow-1 libpage-hint">Songs someone queued that are not in the library yet. When one is uploaded it is added to the requester's lobby queue automatically.</p>
+            <p class="fs-sm fg-3 mb-0 flex-grow-1 libpage-hint">Songs someone queued that are not in the library yet. When one is uploaded it is added to the playlist it was requested from automatically.</p>
             <select id="libpage-request-status" class="form-control w-auto libpage-select" aria-label="Request status">
               <option value="pending">Waiting</option>
               <option value="fulfilled">Uploaded</option>

@@ -265,7 +265,7 @@ export function updateListeners() {
   const listenerWord = state.listeners.length !== 1 ? t('lobby.listeners', 'listeners') : t('lobby.listener', 'listener');
   elements.userCount.textContent = `${state.listeners.length} ${listenerWord}`;
   if (state.listeners.length === 0) {
-    elements.listenersList.innerHTML = `<li class="list-group-item app-empty listener-empty"><p class="mb-1">${t('listeners.noListeners', 'No one else is here yet')}</p><p class="fs-sm mb-0 hint">${t('listeners.shareHint', 'Share the lobby link to invite friends')}</p></li>`;
+    elements.listenersList.innerHTML = `<li class="list-group-item app-empty listener-empty"><p class="mb-1">${t('listeners.noListeners', 'No one else is here yet')}</p><p class="fs-sm mb-0 hint">${t('listeners.shareHint', 'Share the playlist link to invite friends')}</p></li>`;
     return;
   }
   elements.listenersList.innerHTML = state.listeners.map(user => {

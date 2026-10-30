@@ -111,36 +111,6 @@
   .tab-panel { display: none; }
   .tab-panel.active { display: block; }
 
-  /* Scrolling chat ticker under the navbar */
-  .chat-ticker {
-    display: flex;
-    flex-shrink: 0;
-    align-items: center;
-    height: 1.75rem;
-    overflow: hidden;
-    font-size: var(--bs-font-size-sm);
-    color: var(--bs-fg-2);
-    white-space: nowrap;
-    background-color: var(--bs-bg-1);
-    border-bottom: var(--bs-border-width) solid var(--bs-border-color);
-  }
-  .chat-ticker-content {
-    display: inline-block;
-    padding-left: 100%;
-    animation: ticker-scroll 20s linear infinite;
-  }
-  .ticker-msg { margin-right: 3rem; }
-  .ticker-user { font-weight: var(--bs-font-weight-semibold); color: var(--bs-primary-fg); }
-  .ticker-song-badge {
-    padding: 0 0.375rem;
-    font-size: var(--bs-font-size-xs);
-    background-color: var(--bs-bg-3);
-    border-radius: var(--bs-radius-pill);
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .chat-ticker-content { padding-left: 0.75rem; animation: none; }
-  }
-
   /* Queue list */
   .queue-item {
     display: flex;
@@ -232,8 +202,7 @@
   /* Listeners */
   .listeners-list { max-height: 15rem; overflow-y: auto; }
   .listener-item { display: flex; align-items: center; gap: 0.75rem; }
-  .listener-avatar,
-  .chat-msg-avatar {
+  .listener-avatar {
     display: flex;
     flex-shrink: 0;
     align-items: center;
@@ -253,61 +222,7 @@
   .listener-name { font-weight: var(--bs-font-weight-medium); }
   .listener-track { font-size: var(--bs-font-size-xs); color: var(--bs-fg-3); }
 
-  /* Chat */
-  .social-chat { overflow: hidden; }
-  .chat-messages {
-    display: flex;
-    flex-direction: column;
-    gap: 0.875rem;
-    height: clamp(14rem, 45vh, 30rem);
-    padding: 1rem;
-    overflow-y: auto;
-  }
-  .chat-msg { display: flex; gap: 0.625rem; align-items: flex-start; }
-  .chat-msg-avatar { width: 2rem; height: 2rem; font-size: 1rem; }
-  .chat-msg-body { flex: 1; min-width: 0; }
-  .chat-msg-header { display: flex; gap: 0.5rem; align-items: baseline; }
-  .chat-msg-user { font-size: var(--bs-font-size-sm); font-weight: var(--bs-font-weight-semibold); }
-  .chat-msg-time { font-size: var(--bs-font-size-xs); color: var(--bs-fg-4); }
-  .chat-msg-text { overflow-wrap: anywhere; }
-  .chat-song-mention {
-    display: inline-flex;
-    gap: 0.5rem;
-    align-items: center;
-    max-width: 100%;
-    padding: 0.25rem 0.625rem 0.25rem 0.25rem;
-    margin-top: 0.375rem;
-    font-size: var(--bs-font-size-sm);
-    background-color: var(--bs-bg-1);
-    border: var(--bs-border-width) solid var(--bs-border-color);
-    border-radius: var(--bs-radius-5);
-  }
-  .chat-song-mention-thumb {
-    display: flex;
-    flex-shrink: 0;
-    align-items: center;
-    justify-content: center;
-    width: 2rem;
-    height: 2rem;
-    color: var(--bs-fg-4);
-    object-fit: cover;
-    background-color: var(--bs-bg-2);
-    border-radius: var(--bs-radius-3);
-  }
-  .chat-song-mention-thumb svg { width: 1rem; height: 1rem; }
-  .chat-song-mention-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .chat-song-preview {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.375rem 1rem;
-    background-color: var(--bs-primary-bg-subtle);
-    border-top: var(--bs-border-width) solid var(--bs-border-color);
-  }
-  .chat-input-bar { padding: 0.75rem; }
-
-  /* Avatar emoji buttons and picker (lobby social tab and profile page) */
+  /* Avatar emoji buttons and picker (playlist listeners tab and profile page) */
   .emoji-btn { flex-shrink: 0; font-size: 1.25rem; }
   .profile-page-emoji-btn {
     --bs-btn-padding-x: 0;
@@ -584,7 +499,3 @@
   .dashboard-user-avatar-img { width: 2.5rem; height: 2.5rem; }
 }
 
-@keyframes ticker-scroll {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-100%); }
-}

@@ -189,9 +189,6 @@ export function switchTab(tabName) {
   });
   elements.queueTab.classList.toggle('active', tabName === 'queue');
   if (elements.socialTab) elements.socialTab.classList.toggle('active', tabName === 'social');
-  if (tabName === 'social' && elements.chatInput) {
-    setTimeout(() => elements.chatInput.focus(), 100);
-  }
 }
 
 export function setupLanguageSelector(updateQueue, updateListeners) {

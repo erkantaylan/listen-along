@@ -94,7 +94,7 @@ export const auth = {
 // App State
 export const state = {
   lobbyId: null,
-  isHost: false,
+  ownerId: null,
   isPlaying: false,
   isShuffleEnabled: getStoredShuffleEnabled(),
   currentTrack: null,
@@ -108,7 +108,9 @@ export const state = {
   pendingPlay: null,
   downloadStatus: {},
   pinned: false,
-  pendingLobbyId: null,
+  visibility: 'public',
+  isOwner: false,
+  ownerName: null,
   volume: storageGet(STORAGE_KEYS.VOLUME) !== null ? parseFloat(storageGet(STORAGE_KEYS.VOLUME)) : 1,
   isMuted: false,
   volumeBeforeMute: 1,
@@ -164,15 +166,6 @@ export const elements = {
   pdlLabel: document.getElementById('pdl-label'),
   pdlBarFill: document.getElementById('pdl-bar-fill'),
   pdlCancel: document.getElementById('pdl-cancel'),
-  chatMessages: document.getElementById('chat-messages'),
-  chatInput: document.getElementById('chat-input'),
-  chatSendBtn: document.getElementById('chat-send-btn'),
-  chatMentionSongBtn: document.getElementById('chat-mention-song-btn'),
-  chatSongPreview: document.getElementById('chat-song-preview'),
-  chatSongPreviewTitle: document.getElementById('chat-song-preview-title'),
-  chatSongPreviewRemove: document.getElementById('chat-song-preview-remove'),
-  chatTicker: document.getElementById('chat-ticker'),
-  chatTickerContent: document.getElementById('chat-ticker-content'),
   listenersList: document.getElementById('listeners-list'),
   profileEditor: document.getElementById('profile-editor'),
   profileEmojiBtn: document.getElementById('profile-emoji-btn'),
@@ -199,10 +192,11 @@ export const elements = {
   usersRejected: document.getElementById('users-rejected'),
   usersSearch: document.getElementById('users-search'),
   usersFilter: document.getElementById('users-filter'),
-  roomTypeModal: document.getElementById('room-type-modal'),
-  roomTypeLobbyName: document.getElementById('room-type-lobby-name'),
-  roomTypeCreateBtn: document.getElementById('room-type-create-btn'),
-  roomTypeCancelBtn: document.getElementById('room-type-cancel-btn')
+  visibilitySelect: document.getElementById('playlist-visibility-select'),
+  visibilityHint: document.getElementById('playlist-visibility-hint'),
+  visibilityBadge: document.getElementById('playlist-visibility-badge'),
+  visibilityBtn: document.getElementById('playlist-visibility-btn'),
+  playlistOwner: document.getElementById('playlist-owner')
 };
 
 // Mutable globals (exported as let for live bindings)

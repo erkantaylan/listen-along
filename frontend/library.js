@@ -130,7 +130,7 @@ function updateContext() {
     el.textContent = `Adding to: ${state.lobbyName || state.lobbyId}`;
     el.classList.remove('muted');
   } else {
-    el.textContent = 'Join a lobby to add songs to its queue';
+    el.textContent = 'Open a playlist to add songs to it';
     el.classList.add('muted');
   }
 }
@@ -168,7 +168,7 @@ function setAddButton(btn, song, keys) {
   btn.disabled = !state.lobbyId || queued;
   btn.classList.toggle('added', queued);
   btn.textContent = queued ? 'Added' : 'Add';
-  if (!state.lobbyId) btn.title = 'Join a lobby first';
+  if (!state.lobbyId) btn.title = 'Open a playlist first';
   else if (queued) btn.title = 'Already in the queue';
   else btn.removeAttribute('title');
 }
@@ -315,7 +315,7 @@ async function loadSongs({ page = 0, refresh = false } = {}) {
 }
 
 function addToQueue(songId, btn) {
-  if (!state.lobbyId) { showToast('Join a lobby first', 'error'); return; }
+  if (!state.lobbyId) { showToast('Open a playlist first', 'error'); return; }
   socket.emit('queue:add', { lobbyId: state.lobbyId, libraryId: songId, addedBy: state.username, userId: state.userId });
   // Stays "Added": the queue:update that follows keeps it that way, and a
   // rejected duplicate means it was already queued anyway.
