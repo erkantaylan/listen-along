@@ -9,13 +9,14 @@ function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-const PAGE_SIZE = 200;
+const PAGE_SIZE = 50;
 
 const lib = {
   open: false,
   tab: 'library',
   songs: [],
   total: 0,
+  page: 0,
   loading: false,
   query: '',
   sort: 'recent',
@@ -160,27 +161,81 @@ function renderSongs() {
       </li>`;
     }).join('');
   }
-  const more = $('libpage-more');
-  if (more) more.hidden = lib.songs.length >= lib.total;
+  renderPager();
 }
 
-async function loadSongs({ append = false } = {}) {
+function pageCount() {
+  return Math.max(1, Math.ceil(lib.total / PAGE_SIZE));
+}
+
+// Page numbers to show: first, last, and two (one on phones) either side of
+// the current page, with null for each gap ("…").
+function pageItems(current, count) {
+  const around = window.matchMedia('(max-width: 480px)').matches ? 1 : 2;
+  const keep = new Set([0, count - 1]);
+  for (let i = current - around; i <= current + around; i++) if (i >= 0 && i < count) keep.add(i);
+  const items = [];
+  let prev = -1;
+  for (const i of [...keep].sort((a, b) => a - b)) {
+    if (i - prev > 1) items.push(null);
+    items.push(i);
+    prev = i;
+  }
+  return items;
+}
+
+function renderPager() {
+  const pager = $('libpage-pager');
+  if (!pager) return;
+  const count = pageCount();
+  if (lib.total <= PAGE_SIZE) { pager.hidden = true; pager.innerHTML = ''; return; }
+  pager.hidden = false;
+  const p = lib.page;
+  const from = p * PAGE_SIZE + 1;
+  const to = Math.min(lib.total, (p + 1) * PAGE_SIZE);
+  const btn = (page, label, { current = false, disabled = false, aria = '' } = {}) =>
+    `<button class="libpage-page${current ? ' current' : ''}" type="button" data-page="${page}"${disabled ? ' disabled' : ''}${current ? ' aria-current="page"' : ''}${aria ? ` aria-label="${aria}"` : ''}>${label}</button>`;
+  pager.innerHTML = `
+    <div class="libpage-pages">
+      ${btn(p - 1, '‹', { disabled: p === 0, aria: 'Previous page' })}
+      ${pageItems(p, count).map((i) => (i === null ? '<span class="libpage-gap">…</span>' : btn(i, i + 1, { current: i === p, aria: `Page ${i + 1}` }))).join('')}
+      ${btn(p + 1, '›', { disabled: p >= count - 1, aria: 'Next page' })}
+    </div>
+    <span class="libpage-range">${from.toLocaleString()}–${to.toLocaleString()} of ${lib.total.toLocaleString()}</span>`;
+}
+
+function goToPage(page) {
+  if (page < 0 || page >= pageCount() || page === lib.page) return;
+  loadSongs({ page });
+  const list = $('libpage-list');
+  if (list) list.scrollTop = 0;
+}
+
+// refresh: reload the current page in place (library:updated) instead of
+// blanking the list while it loads.
+async function loadSongs({ page = 0, refresh = false } = {}) {
   const seq = ++lib.loadSeq;
   lib.loading = true;
-  if (!append) { lib.songs = []; renderSongs(); }
+  lib.page = page;
+  if (!refresh) { lib.songs = []; renderSongs(); }
   const params = new URLSearchParams({
     q: lib.query,
     sort: lib.sort,
     limit: String(PAGE_SIZE),
-    offset: String(append ? lib.songs.length : 0),
+    offset: String(page * PAGE_SIZE),
   });
   try {
     const res = await fetch(`/api/library?${params}`);
     const data = await res.json();
     if (seq !== lib.loadSeq) return; // a newer search superseded this one
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-    lib.songs = append ? lib.songs.concat(data.songs) : data.songs;
+    lib.songs = data.songs;
     lib.total = data.total;
+    // The page can vanish under us (songs deleted, narrower search): step back.
+    if (!lib.songs.length && page > 0 && page >= pageCount()) {
+      loadSongs({ page: pageCount() - 1, refresh });
+      return;
+    }
   } catch (err) {
     if (seq !== lib.loadSeq) return;
     showToast(`Could not load the library: ${err.message}`, 'error');
@@ -286,7 +341,7 @@ export function closeLibraryPage() {
 }
 
 export function handleLibraryUpdated() {
-  if (lib.open) loadSongs();
+  if (lib.open) loadSongs({ page: lib.page, refresh: true });
 }
 
 export function handleRequestsUpdated() {
@@ -306,7 +361,10 @@ export function setupLibraryPage() {
     lib.searchTimer = setTimeout(() => { lib.query = e.target.value.trim(); loadSongs(); }, 250);
   });
   $('libpage-sort').addEventListener('change', (e) => { lib.sort = e.target.value; loadSongs(); });
-  $('libpage-more').addEventListener('click', () => loadSongs({ append: true }));
+  $('libpage-pager').addEventListener('click', (e) => {
+    const btn = e.target.closest('.libpage-page');
+    if (btn && !btn.disabled) goToPage(Number(btn.dataset.page));
+  });
   $('libpage-request-status').addEventListener('change', (e) => { lib.requestStatus = e.target.value; loadRequests(); });
   $('libpage-list').addEventListener('click', (e) => {
     const play = e.target.closest('.libpage-preview');
