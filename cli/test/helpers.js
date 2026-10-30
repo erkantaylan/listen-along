@@ -259,7 +259,7 @@ async function startServer(overrides = {}) {
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const url = `http://127.0.0.1:${server.address().port}`;
-  return { url, state, close: () => new Promise((r) => server.close(r)) };
+  return { url, state, server, close: () => new Promise((r) => { server.closeAllConnections?.(); server.close(r); }) };
 }
 
 function tmpDir(prefix = 'la-test-') {
@@ -298,7 +298,7 @@ async function run(argv, { env = {}, deps = {}, server } = {}) {
  * `searches` maps query -> [entries]; `playlists` maps listId -> [ids].
  * download() writes a small fake m4a whose content is "AUDIO:<id>".
  */
-function fakeYtdlp({ videos = {}, searches = {}, playlists = {}, missing = false } = {}) {
+function fakeYtdlp({ videos = {}, searches = {}, playlists = {}, missing = false, version = '2026.01.01', gate = null } = {}) {
   const calls = { download: [], search: [], playlist: [], extraArgs: null };
   const factory = (opts) => {
     calls.extraArgs = opts.extraArgs;
@@ -308,7 +308,7 @@ function fakeYtdlp({ videos = {}, searches = {}, playlists = {}, missing = false
           const { missingDependency } = require('../src/proc');
           throw missingDependency('yt-dlp', 'yt-dlp');
         }
-        return '2026.01.01';
+        return version;
       },
       async search(query) {
         calls.search.push(query);
@@ -322,6 +322,7 @@ function fakeYtdlp({ videos = {}, searches = {}, playlists = {}, missing = false
       async download(url, { outDir }) {
         const id = new URL(url).searchParams.get('v');
         calls.download.push(id);
+        if (gate) await gate(id);
         const v = videos[id];
         if (!v || v.fail) {
           const { CliError } = require('../src/errors');

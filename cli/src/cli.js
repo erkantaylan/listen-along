@@ -8,6 +8,7 @@ const { ApiClient } = require('./api');
 const { YtDlp } = require('./ytdlp');
 const { Media } = require('./media');
 const { splitArgs } = require('./proc');
+const { resolveYtdlpBin } = require('./tools');
 const pkg = require('../package.json');
 
 /** Options accepted by every command. */
@@ -29,6 +30,7 @@ const COMMANDS = [
   require('./commands/library'),
   require('./commands/playlist'),
   require('./commands/pull'),
+  require('./commands/worker'),
 ];
 
 const EXIT_CODES_TEXT = `Exit codes:
@@ -40,7 +42,8 @@ const EXIT_CODES_TEXT = `Exit codes:
   3  not configured (server or token missing)
   4  authentication failed (server returned 401/403)
   5  server error or server unreachable
-  6  missing dependency (yt-dlp, ffmpeg or ffprobe not installed)`;
+  6  missing dependency (yt-dlp, ffmpeg or ffprobe not installed)
+  130 la worker stopped by a second Ctrl+C (its running job was given back)`;
 
 function rootHelp() {
   const width = Math.max(...COMMANDS.map((c) => c.name.length));
@@ -49,7 +52,8 @@ function rootHelp() {
 Downloads songs from YouTube with yt-dlp on this machine (as AAC m4a, no
 re-encoding, with title/artist/cover tags) and uploads them to the server's
 library; uploads local audio files; fulfills listeners' song requests;
-manages server playlists; pulls library songs down to this computer.
+manages server playlists; pulls library songs down to this computer; runs
+as a downloader (\`la worker\`) that takes download jobs from the server.
 
 Usage:
   la <command> [options] [arguments]
@@ -70,6 +74,7 @@ Configuration (precedence: flag > environment > config file):
   LA_YTDLP_ARGS         extra yt-dlp arguments
   LA_CONFIG             config file path (default ~/.config/listen-along/config.json)
   LA_YTDLP_BIN, LA_FFMPEG_BIN, LA_FFPROBE_BIN   tool paths
+  LA_TOOLS_DIR          where \`la worker --install-ytdlp\` puts yt-dlp (used when present)
 
 Output: results go to stdout, progress/warnings/errors to stderr. With
 --json, stdout is exactly one JSON document.
@@ -89,6 +94,7 @@ Examples:
   la download --playlist "Road trip" "Justice - D.A.N.C.E."
   la playlist show "Road trip"
   la pull --playlist "Road trip"
+  la worker --name "home-pc"
 `;
 }
 
@@ -154,12 +160,16 @@ function makeContext({ env, values, out, deps }) {
     ytdlpArgs(extra) {
       return [...splitArgs(ctx.cfg.values['ytdlp-args']), ...splitArgs(extra || [])];
     },
-    makeYtdlp(extra) {
-      const opts = { extraArgs: ctx.ytdlpArgs(extra), env, onStderr: out.verbose ? (d) => out.stderr.write(d) : undefined };
+    // proc: optional process runner (la worker runs tools detached + tracked).
+    makeYtdlp(extra, { run: procRun, out: o = out } = {}) {
+      const opts = { bin: resolveYtdlpBin(env), extraArgs: ctx.ytdlpArgs(extra), env, onStderr: o.verbose ? (d) => o.stderr.write(d) : undefined };
+      if (procRun) opts.run = procRun;
       return deps.ytdlp ? deps.ytdlp(opts) : new YtDlp(opts);
     },
-    makeMedia() {
-      return deps.media ? deps.media({ env }) : new Media({ env });
+    makeMedia({ run: procRun } = {}) {
+      const opts = { env };
+      if (procRun) opts.run = procRun;
+      return deps.media ? deps.media(opts) : new Media(opts);
     },
     sleep: deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms))),
   };

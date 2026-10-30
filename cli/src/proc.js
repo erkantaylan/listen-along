@@ -3,17 +3,31 @@
 const { spawn } = require('child_process');
 const { CliError, EXIT } = require('./errors');
 
-const INSTALL_HINTS = {
-  'yt-dlp': 'Install yt-dlp: `pipx install yt-dlp` (recommended, then `pipx upgrade yt-dlp` regularly), or `python3 -m pip install --user -U yt-dlp`, or download the binary from https://github.com/yt-dlp/yt-dlp/releases. Override the path with LA_YTDLP_BIN.',
-  ffmpeg: 'Install ffmpeg (provides ffmpeg and ffprobe): `sudo apt install ffmpeg` (Debian/Ubuntu), `sudo dnf install ffmpeg` (Fedora), `sudo pacman -S ffmpeg` (Arch). Override paths with LA_FFMPEG_BIN / LA_FFPROBE_BIN.',
-  ffprobe: 'ffprobe ships with ffmpeg: `sudo apt install ffmpeg` (Debian/Ubuntu), `sudo dnf install ffmpeg` (Fedora), `sudo pacman -S ffmpeg` (Arch). Override the path with LA_FFPROBE_BIN.',
-};
+/** ffmpeg install command per OS (ffprobe ships with it). */
+function ffmpegInstall(platform = process.platform) {
+  if (platform === 'win32') return '`winget install --id Gyan.FFmpeg` (or `choco install ffmpeg` / `scoop install ffmpeg`), then open a new terminal';
+  if (platform === 'darwin') return '`brew install ffmpeg`';
+  return '`sudo apt install ffmpeg` (Debian/Ubuntu), `sudo dnf install ffmpeg` (Fedora), `sudo pacman -S ffmpeg` (Arch)';
+}
+
+/** How to install each external program, for this OS. */
+function installHints(platform = process.platform) {
+  return {
+    'yt-dlp': platform === 'linux'
+      ? 'Install yt-dlp: `pipx install yt-dlp` (recommended, then `pipx upgrade yt-dlp` regularly), or `python3 -m pip install --user -U yt-dlp`, or download the binary from https://github.com/yt-dlp/yt-dlp/releases. Override the path with LA_YTDLP_BIN.'
+      : `Install yt-dlp: run \`la worker --install-ytdlp\` (downloads the official standalone binary for this computer), or ${platform === 'win32' ? '`winget install yt-dlp.yt-dlp`' : '`brew install yt-dlp`'}, or download it from https://github.com/yt-dlp/yt-dlp/releases. Override the path with LA_YTDLP_BIN.`,
+    ffmpeg: `Install ffmpeg (provides ffmpeg and ffprobe): ${ffmpegInstall(platform)}. Override paths with LA_FFMPEG_BIN / LA_FFPROBE_BIN.`,
+    ffprobe: `ffprobe ships with ffmpeg: ${ffmpegInstall(platform)}. Override the path with LA_FFPROBE_BIN.`,
+  };
+}
+
+const INSTALL_HINTS = installHints();
 
 function missingDependency(name, bin) {
   return new CliError(`Required program not found: ${name}${bin && bin !== name ? ` (${bin})` : ''}`, {
     exitCode: EXIT.DEPENDENCY,
     code: 'MISSING_DEPENDENCY',
-    hint: INSTALL_HINTS[name],
+    hint: installHints()[name],
   });
 }
 
@@ -24,13 +38,20 @@ function missingDependency(name, bin) {
  * @param {object} [opts]
  * @param {string} [opts.name] - logical name for dependency errors ('yt-dlp', 'ffmpeg', ...)
  * @param {(chunk: string) => void} [opts.onStderr] - live stderr callback
+ * @param {boolean} [opts.detached] - own process group / console (see above)
+ * @param {(child) => void} [opts.onSpawn] - called with the ChildProcess (to kill it later)
  * @returns {Promise<{ code: number, stdout: string, stderr: string }>}
  */
-function run(bin, args, { name = bin, onStderr, env } = {}) {
+function run(bin, args, { name = bin, onStderr, env, detached = false, onSpawn } = {}) {
   return new Promise((resolve, reject) => {
     let child;
     try {
-      child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], env: env || process.env });
+      // detached (la worker): the child gets its own process group (POSIX) /
+      // console (Windows), so a Ctrl+C in the terminal reaches only la, which
+      // can then let the current download finish. windowsHide: no console
+      // window pops up on Windows.
+      child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], env: env || process.env, detached, windowsHide: true });
+      if (onSpawn) onSpawn(child);
     } catch (err) {
       reject(err.code === 'ENOENT' ? missingDependency(name, bin) : err);
       return;
@@ -77,4 +98,19 @@ function splitArgs(str) {
   return out;
 }
 
-module.exports = { run, splitArgs, missingDependency, INSTALL_HINTS };
+/**
+ * Kill a child and whatever it started (yt-dlp runs ffmpeg): the process
+ * group on POSIX (needs detached), `taskkill /T /F` on Windows.
+ */
+function killTree(child) {
+  if (!child || child.exitCode !== null || child.signalCode !== null || !child.pid) return;
+  try {
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }).on('error', () => child.kill());
+    } else {
+      try { process.kill(-child.pid, 'SIGTERM'); } catch { child.kill('SIGTERM'); }
+    }
+  } catch { /* already gone */ }
+}
+
+module.exports = { run, splitArgs, missingDependency, killTree, installHints, ffmpegInstall, INSTALL_HINTS };

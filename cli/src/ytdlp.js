@@ -76,11 +76,14 @@ function parseError(stderr, exitCode) {
 }
 
 /** Does `bin` resolve to an executable on PATH? */
-function onPath(bin, env = process.env) {
-  if (bin.includes('/')) return fs.existsSync(bin);
-  return (env.PATH || '').split(path.delimiter).some((dir) => {
-    try { fs.accessSync(path.join(dir, bin), fs.constants.X_OK); return true; } catch { return false; }
-  });
+function onPath(bin, env = process.env, platform = process.platform) {
+  if (bin.includes('/') || (platform === 'win32' && bin.includes('\\'))) return fs.existsSync(bin);
+  // Windows: PATH may be spelled "Path", and programs carry an extension.
+  const pathVar = env.PATH || env.Path || '';
+  const exts = platform === 'win32' ? ['', ...(env.PATHEXT || '.EXE;.CMD;.BAT;.COM').split(';').filter(Boolean)] : [''];
+  return pathVar.split(path.delimiter).filter(Boolean).some((dir) => exts.some((ext) => {
+    try { fs.accessSync(path.join(dir, bin + ext), platform === 'win32' ? fs.constants.F_OK : fs.constants.X_OK); return true; } catch { return false; }
+  }));
 }
 
 /**
@@ -205,4 +208,4 @@ class YtDlp {
   }
 }
 
-module.exports = { YtDlp, parseError, FORMAT, METADATA_ARGS, jsRuntimeArgs };
+module.exports = { YtDlp, parseError, FORMAT, METADATA_ARGS, jsRuntimeArgs, onPath };
