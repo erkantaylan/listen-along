@@ -205,6 +205,17 @@ describe('presence: now playing', () => {
     assert.equal(p.getNowPlaying(ALICE).position, 42);
   });
 
+  it('a tab pausing never overrides another tab that is playing', () => {
+    const p = createPresence({ graceMs: 0 });
+    p.connect(ALICE, 's1');
+    p.connect(ALICE, 's2');
+    p.setNowPlaying(ALICE, 's1', report('Old'));
+    p.setNowPlaying(ALICE, 's2', report('New'));
+    assert.equal(p.setNowPlaying(ALICE, 's1', report('Old', { playing: false })), undefined);
+    assert.equal(p.getNowPlaying(ALICE).track.title, 'New');
+    assert.equal(p.getNowPlaying(ALICE).playing, true);
+  });
+
   it('ignores reports from sockets that are not connected', () => {
     const p = createPresence({ graceMs: 0 });
     assert.equal(p.setNowPlaying(ALICE, 'ghost', report('X')), undefined);

@@ -9,7 +9,8 @@
  * offline and gets a lastSeen time. graceMs = 0 means immediately.
  *
  * Now playing: one entry per user, whatever the number of tabs. The last
- * report wins; it remembers which socket sent it. The entry is dropped when
+ * report wins (except that a paused tab never overrides another tab that is
+ * playing); it remembers which socket sent it. The entry is dropped when
  * that socket disconnects (that tab was the player) or the report says
  * nothing is loaded.
  *
@@ -139,6 +140,10 @@ function createPresence({ graceMs = 5000, now = Date.now } = {}) {
         events.emit('now-playing', userId, null);
         return null;
       }
+      // A tab pausing because another tab took over playback (one player per
+      // browser) must not override the tab that is now playing.
+      const current = playing.get(userId);
+      if (current && current.socketId !== socketId && current.playing && !r.playing) return undefined;
       const entry = { socketId, ...r, updatedAt: now() };
       playing.set(userId, entry);
       events.emit('now-playing', userId, entry);
