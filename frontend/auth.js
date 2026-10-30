@@ -1,6 +1,7 @@
 // Authentication, registration, and profile management
 import { state, elements, socket, auth, STORAGE_KEYS, AVATAR_EMOJIS, storageSet } from './state.js';
 import { showView, showToast, escapeHtml, navigateTo } from './ui.js';
+import { announceProfile } from './social.js';
 
 export async function registerUser() {
   try {
@@ -125,52 +126,6 @@ export function showPendingCard() {
   }
 }
 
-export function setupProfileEditor() {
-  if (!elements.profileEmojiBtn || !elements.profileNameInput) return;
-  elements.profileEmojiBtn.textContent = state.emoji;
-  elements.profileNameInput.value = state.username;
-  elements.emojiPicker.innerHTML = AVATAR_EMOJIS.map(e =>
-    `<button class="btn btn-icon emoji-option${e === state.emoji ? ' selected active' : ''}" type="button" aria-label="Avatar ${e}" data-emoji="${e}">${e}</button>`
-  ).join('');
-  elements.profileEmojiBtn.addEventListener('click', () => {
-    elements.emojiPicker.hidden = !elements.emojiPicker.hidden;
-  });
-  elements.emojiPicker.addEventListener('click', (e) => {
-    const btn = e.target.closest('.emoji-option');
-    if (!btn) return;
-    const emoji = btn.dataset.emoji;
-    state.emoji = emoji;
-    storageSet(STORAGE_KEYS.EMOJI, emoji);
-    elements.profileEmojiBtn.textContent = emoji;
-    elements.emojiPicker.querySelectorAll('.emoji-option').forEach(b => b.classList.remove('selected', 'active'));
-    btn.classList.add('selected', 'active');
-    elements.emojiPicker.hidden = true;
-  });
-  elements.profileSaveBtn.addEventListener('click', saveProfile);
-  elements.profileNameInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') saveProfile(); });
-}
-
-export function saveProfile() {
-  const newName = elements.profileNameInput.value.trim();
-  if (!newName) return;
-  state.username = newName;
-  storageSet(STORAGE_KEYS.USERNAME, newName);
-  storageSet(STORAGE_KEYS.EMOJI, state.emoji);
-  if (socket) {
-    // No lobbyId: the server updates the lobby this socket is listed in.
-    socket.emit('user:update', { username: state.username, emoji: state.emoji });
-  }
-  if (auth.authenticated) {
-    fetch('/api/profile', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
-      body: JSON.stringify({ displayName: newName, emoji: state.emoji })
-    }).catch(() => {});
-  }
-  showToast('Profile updated', 'success');
-}
-
 export function setupProfilePage() {
   const backBtn = document.getElementById('profile-back-btn');
   const profileBtn = document.getElementById('landing-profile-btn');
@@ -205,7 +160,6 @@ export function setupProfilePage() {
       emojiPicker.querySelectorAll('.emoji-option').forEach(b => b.classList.remove('selected', 'active'));
       btn.classList.add('selected', 'active');
       emojiPicker.hidden = true;
-      if (elements.profileEmojiBtn) elements.profileEmojiBtn.textContent = emoji;
     });
   }
 
@@ -224,7 +178,6 @@ async function saveProfilePage() {
   state.username = newName;
   storageSet(STORAGE_KEYS.USERNAME, newName);
   storageSet(STORAGE_KEYS.EMOJI, state.emoji);
-  if (elements.profileNameInput) elements.profileNameInput.value = newName;
   try {
     await fetch('/api/profile', {
       method: 'PUT',
@@ -237,6 +190,9 @@ async function saveProfilePage() {
     // No lobbyId: the server updates the lobby this socket is listed in.
     socket.emit('user:update', { username: state.username, emoji: state.emoji });
   }
+  // The people panel and chat pick the new name up from the server; without a
+  // database the server only knows what we tell it.
+  announceProfile(state.username, state.emoji);
   showToast('Profile saved', 'success');
 }
 
@@ -259,7 +215,6 @@ export async function loadProfilePage() {
         state.emoji = profile.emoji;
         storageSet(STORAGE_KEYS.EMOJI, profile.emoji);
         if (emojiBtn) emojiBtn.textContent = profile.emoji;
-        if (elements.profileEmojiBtn) elements.profileEmojiBtn.textContent = profile.emoji;
       }
       renderProvidersList(providersList, profile.providers || []);
     } else { renderProvidersList(providersList, []); }

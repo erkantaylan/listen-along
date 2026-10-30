@@ -56,8 +56,7 @@
     "playRandom": "Play random"
   },
   "nav": {
-    "queue": "Queue",
-    "listeners": "Listeners"
+    "queue": "Queue"
   },
   "queue": {
     "searchPlaceholder": "Paste YouTube URL or search...",
@@ -71,13 +70,6 @@
     "error": "Error",
     "clearQueue": "Clear queue",
     "downloadPlaylist": "Download all songs to your device"
-  },
-  "listeners": {
-    "noListeners": "No one else is here yet",
-    "shareHint": "Share the playlist link to invite friends",
-    "yourName": "Your name",
-    "changeAvatar": "Change avatar emoji",
-    "save": "Save"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -115,5 +107,32 @@
     "select": "Language",
     "en": "English",
     "tr": "Turkish"
+  },
+  "social": {
+    "open": "Chat and people",
+    "aPlaylist": "a playlist",
+    "lastSeen": "Last seen {when}",
+    "offline": "Offline",
+    "you": "you",
+    "pending": "pending",
+    "nobodyOnline": "Nobody is online",
+    "nobodyOffline": "Everyone is online"
+  },
+  "chat": {
+    "delete": "Delete message",
+    "confirmDelete": "Delete this message for everyone?",
+    "empty": "No messages yet. Say hi!",
+    "loading": "Loading…",
+    "loadingOlder": "Loading older messages…",
+    "olderHint": "Scroll up for older messages",
+    "sendFailed": "Could not send the message"
+  },
+  "follow": {
+    "followUser": "Follow",
+    "stopFollowing": "Stop following",
+    "started": "Following {name}",
+    "stopped": "Stopped following",
+    "following": "Following",
+    "leaderLeft": "The user you were following has left"
   }
 }

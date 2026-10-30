@@ -188,7 +188,6 @@ export function switchTab(tabName) {
     item.classList.toggle('active', item.dataset.tab === tabName);
   });
   elements.queueTab.classList.toggle('active', tabName === 'queue');
-  if (elements.socialTab) elements.socialTab.classList.toggle('active', tabName === 'social');
 }
 
 export function setupLanguageSelector(updateQueue, updateListeners) {

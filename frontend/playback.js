@@ -6,6 +6,7 @@ import { showToast, escapeHtml, getCoverUrl, sanitizeUrl, t, syncRangeFill } fro
 import { player } from './player.js';
 import { getMemberLobby } from './lobby.js';
 import { refreshPlayerBar } from './player-bar.js';
+import { refreshPeople } from './social.js';
 
 // These are imported lazily to avoid circular deps with queue.js
 let _updateQueue, _updateListeners;
@@ -62,22 +63,49 @@ export function handleFollowSync(data) {
 function clearFollowing() {
   state.followingSocketId = null;
   state.followingUsername = null;
+  pendingFollow = null;
   if (player.driver && player.driver.name === 'follow') player.setDriver(null);
   if (_updateListeners) _updateListeners();
+  refreshPeople();
 }
 
-// Following is done inside the member lobby, so only from its page.
-export function startFollowing(targetSocketId) {
-  if (state.lobbyId !== getMemberLobby()) return;
-  const target = state.listeners.find(u => u.socketId === targetSocketId);
-  if (!target) return;
-  state.followingSocketId = targetSocketId;
-  state.followingUsername = target.username;
+// Follow someone from the people panel (social.js): play what they play.
+// Interim: following works through the playlist they play from (it becomes
+// the playback context and the member lobby), as before; listen-along will
+// rework this. `person.nowPlaying.context` carries { lobbyId, name, socketId }
+// only when that playlist is visible to us.
+let pendingFollow = null;
+
+export function followPerson(person) {
+  const ctx = person && person.nowPlaying && person.nowPlaying.context;
+  if (!ctx || ctx.type !== 'lobby' || !ctx.socketId || ctx.socketId === socket.id) return;
+  if (state.followingSocketId) clearFollowing();
+  state.followingSocketId = ctx.socketId;
+  state.followingUsername = person.name;
   // A manual skip / pick / context change ends following.
   player.setDriver({ name: 'follow', onTakeover: () => stopFollowing() });
-  socket.emit('follow:start', { lobbyId: state.lobbyId, targetSocketId });
-  if (_updateListeners) _updateListeners();
-  showToast(t('follow.started', 'Following {name}', { name: target.username }), 'info');
+  if (getMemberLobby() === ctx.lobbyId) {
+    socket.emit('follow:start', { lobbyId: ctx.lobbyId, targetSocketId: ctx.socketId });
+  } else {
+    // Make their playlist the context; membership follows it (lobby.js), and
+    // follow:start goes out once the server confirms the join.
+    pendingFollow = { lobbyId: ctx.lobbyId, socketId: ctx.socketId };
+    player.setContext({ type: 'lobby', lobbyId: ctx.lobbyId, name: ctx.name }, [], { keepDriver: true });
+  }
+  refreshPeople();
+  showToast(t('follow.started', 'Following {name}', { name: person.name }), 'info');
+}
+
+// lobby:joined: send a follow that was waiting for this membership.
+export function flushPendingFollow(data) {
+  if (!pendingFollow || !data || data.viewing || data.lobbyId !== pendingFollow.lobbyId) return;
+  socket.emit('follow:start', { lobbyId: pendingFollow.lobbyId, targetSocketId: pendingFollow.socketId });
+  pendingFollow = null;
+}
+
+export function isFollowingPerson(person) {
+  const ctx = person && person.nowPlaying && person.nowPlaying.context;
+  return !!state.followingSocketId && !!ctx && ctx.socketId === state.followingSocketId;
 }
 
 export function stopFollowing() {

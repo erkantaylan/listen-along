@@ -4,12 +4,13 @@ import { showView, showToast, switchTab, setupLanguageSelector, fetchVersion, t,
 import { setupAudioPlayer } from './audio.js';
 import { player, setupPlayer } from './player.js';
 import { setupPlayerBar, setupPlayerBarControls, refreshPlayerBar } from './player-bar.js';
-import { checkAuth, setupLoginView, showPendingCard, setupProfileEditor, setupProfilePage, loadProfilePage } from './auth.js';
+import { checkAuth, setupLoginView, showPendingCard, setupProfilePage, loadProfilePage } from './auth.js';
+import { setupSocial, applySocialRoute, toggleSocial } from './social.js';
 import { checkUrlForDashboard, dashboardJoinLobby, dashboardRemoveLobby, dashboardApproveUser, dashboardRejectUser } from './dashboard.js';
 import { setupLibraryPage, openLibraryPage, closeLibraryPage, isLibraryOpen, showLibraryRoute, handleLibraryUpdated, handleRequestsUpdated } from './library.js';
 import { parseRoute, legacyRedirect } from './router.js';
 import { createLobby, shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyUpdated, handleLobbyPinned, updateVisibilityHint, toggleCurrentVisibility, handleUserJoined, handleUserLeft, handleLobbyClosed, checkForLastLobby, joinLobbyFromCard, updatePinButton, togglePin, promptRenameLobby, toggleLobbyVisibility, deleteLobbyCard, openLobbyPage, closeLobbyPage, syncMembership, resyncMembership, reportNowPlaying } from './lobby.js';
-import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, handleFollowSync, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, updatePlayButton, updatePlaybackModeUI, updateNowPlaying, _setQueueFns } from './playback.js';
+import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, handleFollowSync, followPerson, flushPendingFollow, isFollowingPerson, stopFollowing, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, updatePlayButton, updatePlaybackModeUI, updateNowPlaying, _setQueueFns } from './playback.js';
 import { handleQueueUpdated, handleSongAdded, addSong, removeSong, clearQueue, downloadPlaylist, cancelPlaylistDownload, moveSongUp, moveSongDown, playSongAt, setupQueueDragAndDrop, setupQueueSearch, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './queue.js';
 
 // Wire up cross-module dependencies
@@ -20,7 +21,17 @@ viewActivators.profile = () => { loadProfilePage(); };
 
 // Socket.IO Setup
 function setupSocket() {
-  setSocket(io({ reconnection: true, reconnectionAttempts: 5, reconnectionDelay: 1000 }));
+  const sock = io({ reconnection: true, reconnectionAttempts: 5, reconnectionDelay: 1000 });
+  setSocket(sock);
+  // Global chat + people panel, and now-playing reports from the player.
+  setupSocial(sock, {
+    name: auth.user && auth.user.name,
+    emoji: auth.user && auth.user.emoji,
+    reportPlayback: true,
+    follow: followPerson,
+    isFollowing: isFollowingPerson,
+    stopFollowing,
+  });
 
   // We need to re-import socket after setSocket to get the live binding
   import('./state.js').then(mod => {
@@ -38,7 +49,7 @@ function setupSocket() {
 
     // Lobby Events
     s.on('lobby:created', (data) => handleLobbyCreated(data, updatePinButton));
-    s.on('lobby:joined', (data) => handleLobbyJoined(data, updatePinButton, updateListeners, updateQueue));
+    s.on('lobby:joined', (data) => { handleLobbyJoined(data, updatePinButton, updateListeners, updateQueue); flushPendingFollow(data); });
     s.on('lobby:not-found', handleLobbyNotFound);
     s.on('lobby:error', handleLobbyError);
     s.on('lobby:user-joined', (data) => handleUserJoined(data, updateListeners));
@@ -144,7 +155,13 @@ function applyRoute() {
   if (moved) history.replaceState(history.state, '', moved);
   const route = parseRoute(window.location.pathname, window.location.search);
   if (route.view === 'dashboard') { window.location.reload(); return; }
-  if (route.lobbyId) {
+  applySocialRoute(route.view === 'social');
+  if (route.view === 'social') {
+    // Phones: the Social view covers the page; desktop: the sidebar over the
+    // landing page (a playlist page under it would be left anyway).
+    closeLobbyPage(resetLobbyPage);
+    if (!isViewActive('landing') && !isViewActive('profile')) showView('landing');
+  } else if (route.lobbyId) {
     // The lobby view shows once lobby:joined arrives.
     if (route.lobbyId !== state.lobbyId) openLobbyPage(route.lobbyId, resetLobbyPage);
   } else {
@@ -164,7 +181,7 @@ async function init() {
   await setupLoginView();
   const authData = await checkAuth();
   if (!authData.authenticated) { showView('login'); return; }
-  if (authData.user && authData.user.status === 'pending') { showPendingCard(); showView('login'); return; }
+  if (authData.user && authData.user.status === 'pending') { showPendingCard(); showView('login'); initPendingSocial(); return; }
   if (authData.user && authData.user.status === 'denied') {
     showPendingCard();
     const pendingTitle = document.querySelector('.pending-title');
@@ -177,6 +194,18 @@ async function init() {
   initAuthenticatedApp();
 }
 
+// Pending users can already use the global chat (and see who is around),
+// nothing else: a socket for the social panel only.
+function initPendingSocial() {
+  const sock = io({ reconnection: true, reconnectionAttempts: 5, reconnectionDelay: 1000 });
+  setupSocial(sock, { name: auth.user && auth.user.name, emoji: auth.user && auth.user.emoji });
+  const btn = document.getElementById('pending-chat-btn');
+  if (btn) { btn.hidden = false; btn.addEventListener('click', toggleSocial); }
+  const sync = () => applySocialRoute(parseRoute(window.location.pathname).view === 'social');
+  window.addEventListener('popstate', sync);
+  sync();
+}
+
 function initAuthenticatedApp() {
   // Old account-link redirects land on /#profile.
   if (window.location.hash === '#profile') history.replaceState(null, '', '/profile');
@@ -186,7 +215,6 @@ function initAuthenticatedApp() {
   showView(route.view === 'profile' ? 'profile' : 'landing');
   setupSocket();
   setupEventListeners();
-  setupProfileEditor();
   setupProfilePage();
   applyRoute();
   if (!route.lobbyId) checkForLastLobby();
@@ -206,8 +234,8 @@ function initAuthenticatedApp() {
   fetchVersion();
 
   if (auth.authenticated && auth.user) {
-    if (auth.user.name) { state.username = auth.user.name; storageSet(STORAGE_KEYS.USERNAME, auth.user.name); if (elements.profileNameInput) elements.profileNameInput.value = auth.user.name; }
-    if (auth.user.emoji) { state.emoji = auth.user.emoji; storageSet(STORAGE_KEYS.EMOJI, auth.user.emoji); if (elements.profileEmojiBtn) elements.profileEmojiBtn.textContent = auth.user.emoji; }
+    if (auth.user.name) { state.username = auth.user.name; storageSet(STORAGE_KEYS.USERNAME, auth.user.name); }
+    if (auth.user.emoji) { state.emoji = auth.user.emoji; storageSet(STORAGE_KEYS.EMOJI, auth.user.emoji); }
   }
 }
 

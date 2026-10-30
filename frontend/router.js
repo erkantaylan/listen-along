@@ -6,6 +6,8 @@
 //   /library                   music library (no playlist; Add is disabled)
 //   /playlist/<id>/library     music library over a playlist (Add targets it)
 //   /profile                   own profile
+//   /social                    chat + people (full-screen on phones; on
+//                              desktop the sidebar, over the landing page)
 //   /dashboard                 admin dashboard
 //
 // Old /lobby/<id>[/library] URLs map to /playlist/... (legacyRedirect; the
@@ -52,6 +54,8 @@ export function parseRoute(pathname, search = '') {
     withLibrary = true;
   } else if (/^\/profile\/?$/.test(pathname)) {
     view = 'profile';
+  } else if (/^\/social\/?$/.test(pathname)) {
+    view = 'social';
   } else if (/^\/dashboard\/?$/.test(pathname)) {
     view = 'dashboard';
   }
@@ -77,6 +81,7 @@ function parseLibraryParams(params) {
 export function basePath({ view, lobbyId }) {
   if (view === 'lobby' && lobbyId) return playlistPath(lobbyId);
   if (view === 'profile') return '/profile';
+  if (view === 'social') return '/social';
   if (view === 'dashboard') return '/dashboard';
   return '/';
 }

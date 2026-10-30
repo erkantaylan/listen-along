@@ -17,6 +17,7 @@ describe('frontend router: parseRoute', () => {
     assert.deepEqual(parseRoute('/'), { view: 'landing', lobbyId: null, library: null });
     assert.deepEqual(parseRoute('/profile'), { view: 'profile', lobbyId: null, library: null });
     assert.deepEqual(parseRoute('/dashboard'), { view: 'dashboard', lobbyId: null, library: null });
+    assert.deepEqual(parseRoute('/social'), { view: 'social', lobbyId: null, library: null });
     assert.deepEqual(parseRoute('/playlist/abc-123'), { view: 'lobby', lobbyId: 'abc-123', library: null });
   });
 

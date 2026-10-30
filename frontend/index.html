@@ -59,7 +59,12 @@
           <h2 class="h5 pending-title">Waiting for approval</h2>
           <p class="fg-3 pending-message">Your account is pending approval by an administrator. You'll be able to use listen-along once approved.</p>
           <div id="pending-user-info" class="pending-user-info"></div>
-          <button id="login-logout-btn" class="btn mt-4 login-logout-btn" type="button">Sign out</button>
+          <div class="d-flex flex-wrap justify-content-center gap-2 mt-4">
+            <button id="pending-chat-btn" class="btn-solid theme-primary pending-chat-btn" type="button" hidden>
+              Open chat <span class="badge badge-subtle theme-secondary" data-social-unread hidden></span>
+            </button>
+            <button id="login-logout-btn" class="btn login-logout-btn" type="button">Sign out</button>
+          </div>
         </div>
       </div>
     </main>
@@ -158,18 +163,6 @@
 
     <div class="lobby-body">
       <div class="container lobby-container">
-        <!-- Tabs -->
-        <nav class="nav nav-underline lobby-tabs" aria-label="Playlist sections">
-          <button class="nav-link nav-item active" data-tab="queue" type="button">
-            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
-            <span data-i18n="nav.queue">Queue</span>
-          </button>
-          <button class="nav-link nav-item" data-tab="social" type="button">
-            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
-            <span data-i18n="nav.listeners">Listeners</span>
-          </button>
-        </nav>
-
         <div class="lobby-panels">
           <!-- Queue Tab -->
           <section id="queue-tab" class="tab-panel active" aria-label="Queue">
@@ -215,28 +208,6 @@
                 <p class="fs-sm mb-0 hint" data-i18n="queue.emptyHint">Add a song to get started</p>
               </li>
             </ul>
-          </section>
-
-          <!-- Listeners Tab: who has this playlist open and what they play.
-               Interim: a global people panel replaces it. -->
-          <section id="social-tab" class="tab-panel" aria-label="Listeners">
-            <div id="profile-editor" class="card card-body p-4 mb-3 profile-editor">
-              <div class="d-flex align-items-center gap-2">
-                <button id="profile-emoji-btn" class="btn btn-icon emoji-btn" type="button" aria-label="Change avatar emoji" data-i18n-aria-label="listeners.changeAvatar"></button>
-                <input type="text" id="profile-name-input" class="form-control profile-name-input" maxlength="30" placeholder="Your name" aria-label="Your name" data-i18n-placeholder="listeners.yourName" autocomplete="off">
-                <button id="profile-save-btn" class="btn-solid theme-primary profile-save-btn" type="button" data-i18n="listeners.save">Save</button>
-              </div>
-              <div id="emoji-picker" class="emoji-picker mt-3" hidden></div>
-            </div>
-            <div class="social-content">
-              <div class="card social-listeners-strip">
-                <ul id="listeners-list" class="list-group list-group-flush listeners-list">
-                  <li class="list-group-item app-empty listener-empty">
-                    <p class="mb-0" data-i18n="listeners.noListeners">No one else here</p>
-                  </li>
-                </ul>
-              </div>
-            </div>
           </section>
         </div>
       </div>
@@ -403,6 +374,46 @@
     </main>
   </div>
 
+  <!-- Chat and people (social.js): right-hand sidebar on desktop (>= 1024px,
+       collapsible), the full-screen /social view on phones. Shown by body
+       classes (has-social, social-collapsed, social-route), not [hidden]. -->
+  <aside id="social-panel" class="social-panel" aria-label="Chat and people">
+    <div class="social-header">
+      <button id="social-back" class="btn-text theme-secondary btn-icon social-back" type="button" aria-label="Back" title="Back">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+      </button>
+      <nav class="nav nav-underline social-tabs" role="tablist" aria-label="Chat and people">
+        <button class="nav-link social-tab active" type="button" role="tab" aria-selected="true" aria-controls="social-chat" data-social-tab="chat">
+          Chat <span class="badge badge-subtle theme-primary" data-social-unread hidden></span>
+        </button>
+        <button class="nav-link social-tab" type="button" role="tab" aria-selected="false" aria-controls="social-people" data-social-tab="people">
+          People <span class="badge badge-subtle theme-secondary" data-online-count title="Online">0</span>
+        </button>
+      </nav>
+      <button id="social-collapse" class="btn-text theme-secondary btn-icon social-collapse" type="button" aria-label="Hide chat and people" title="Hide chat and people" aria-controls="social-panel">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+      </button>
+    </div>
+    <section id="social-chat" class="social-chat" role="tabpanel" aria-label="Chat">
+      <div id="chat-scroll" class="chat-scroll" tabindex="0" aria-label="Messages">
+        <div id="chat-older" class="fs-xs fg-4 text-center chat-older" hidden></div>
+        <ul id="chat-list" class="list-unstyled mb-0 chat-list" aria-live="polite"></ul>
+      </div>
+      <form id="chat-form" class="input-group chat-form" autocomplete="off">
+        <input id="chat-input" class="form-control" type="text" maxlength="1000" placeholder="Message everyone" aria-label="Message everyone" enterkeyhint="send">
+        <button id="chat-send" class="btn-solid theme-primary btn-icon" type="submit" aria-label="Send" title="Send">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+        </button>
+      </form>
+    </section>
+    <section id="social-people" class="social-people" role="tabpanel" aria-label="People" hidden>
+      <h2 class="fs-xs fw-semibold fg-3 text-uppercase people-heading">Online — <span id="people-online-count">0</span></h2>
+      <ul id="people-online" class="list-group list-group-flush people-list"></ul>
+      <h2 class="fs-xs fw-semibold fg-3 text-uppercase people-heading">Offline — <span id="people-offline-count">0</span></h2>
+      <ul id="people-offline" class="list-group list-group-flush people-list"></ul>
+    </section>
+  </aside>
+
   <!-- Toast Container -->
   <div id="toast-container" class="toast-container app-toasts" aria-live="polite"></div>
 
@@ -436,6 +447,10 @@
             </button>
             <button id="next-btn" disabled class="btn-text theme-secondary btn-icon btn-control" type="button" aria-label="Next" title="Next" data-i18n-aria-label="player.next">
               <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+            </button>
+            <button id="social-toggle" class="btn-text theme-secondary btn-icon btn-control social-toggle" type="button" aria-label="Chat and people" title="Chat and people" hidden>
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/></svg>
+              <span class="badge social-toggle-badge" data-social-unread hidden></span>
             </button>
             <button id="volume-btn" class="btn-text theme-secondary btn-icon btn-control player-extra" type="button" aria-label="Mute" title="Mute" data-i18n-aria-label="player.mute">
               <svg viewBox="0 0 24 24" fill="currentColor" id="volume-icon" aria-hidden="true"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>

@@ -56,8 +56,7 @@
     "playRandom": "Rastgele çal"
   },
   "nav": {
-    "queue": "Sıra",
-    "listeners": "Dinleyiciler"
+    "queue": "Sıra"
   },
   "queue": {
     "searchPlaceholder": "YouTube URL yapıştır veya ara...",
@@ -71,13 +70,6 @@
     "error": "Hata",
     "clearQueue": "Sırayı temizle",
     "downloadPlaylist": "Tüm şarkıları cihazına indir"
-  },
-  "listeners": {
-    "noListeners": "Henüz kimse yok",
-    "shareHint": "Arkadaşlarını davet etmek için çalma listesi linkini paylaş",
-    "yourName": "Adın",
-    "changeAvatar": "Avatar emojisini değiştir",
-    "save": "Kaydet"
   },
   "dashboard": {
     "title": "Kontrol Paneli",
@@ -115,5 +107,32 @@
     "select": "Dil",
     "en": "İngilizce",
     "tr": "Türkçe"
+  },
+  "social": {
+    "open": "Sohbet ve kişiler",
+    "aPlaylist": "bir çalma listesi",
+    "lastSeen": "Son görülme {when}",
+    "offline": "Çevrimdışı",
+    "you": "sen",
+    "pending": "onay bekliyor",
+    "nobodyOnline": "Kimse çevrimiçi değil",
+    "nobodyOffline": "Herkes çevrimiçi"
+  },
+  "chat": {
+    "delete": "Mesajı sil",
+    "confirmDelete": "Bu mesaj herkes için silinsin mi?",
+    "empty": "Henüz mesaj yok. Merhaba de!",
+    "loading": "Yükleniyor…",
+    "loadingOlder": "Eski mesajlar yükleniyor…",
+    "olderHint": "Eski mesajlar için yukarı kaydır",
+    "sendFailed": "Mesaj gönderilemedi"
+  },
+  "follow": {
+    "followUser": "Takip et",
+    "stopFollowing": "Takibi bırak",
+    "started": "{name} takip ediliyor",
+    "stopped": "Takip bırakıldı",
+    "following": "Takip ediliyor",
+    "leaderLeft": "Takip ettiğin kullanıcı ayrıldı"
   }
 }

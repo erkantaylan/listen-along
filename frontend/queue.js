@@ -1,10 +1,9 @@
 // Queue management, drag-drop reordering, and queue display
 import { state, elements, socket, STORAGE_KEYS, storageSet } from './state.js';
 import { showToast, escapeHtml, sanitizeUrl, getCoverUrl, getInitials, formatDuration, t, toLower, syncRangeFill } from './ui.js';
-import { stopFollowing, startFollowing, viewedContext } from './playback.js';
+import { viewedContext } from './playback.js';
 import { refreshLibraryAddButtons } from './library.js';
 import { player } from './player.js';
-import { getMemberLobby } from './lobby.js';
 import { refreshPlayerBar } from './player-bar.js';
 
 // queue:update arrives for the lobby on screen and for the lobby being played
@@ -261,36 +260,11 @@ export function setupQueueSearch() {
   });
 }
 
+// The playlist header's listener count. Who is listening and what they play
+// is the global people panel (social.js).
 export function updateListeners() {
   const listenerWord = state.listeners.length !== 1 ? t('lobby.listeners', 'listeners') : t('lobby.listener', 'listener');
   elements.userCount.textContent = `${state.listeners.length} ${listenerWord}`;
-  if (state.listeners.length === 0) {
-    elements.listenersList.innerHTML = `<li class="list-group-item app-empty listener-empty"><p class="mb-1">${t('listeners.noListeners', 'No one else is here yet')}</p><p class="fs-sm mb-0 hint">${t('listeners.shareHint', 'Share the playlist link to invite friends')}</p></li>`;
-    return;
-  }
-  elements.listenersList.innerHTML = state.listeners.map(user => {
-    const avatar = user.emoji || getInitials(user.username);
-    const track = user.currentTrack;
-    const nowListening = track && track.title ? `<span class="listener-track">${escapeHtml(track.title)}</span>` : '';
-    let followBtn = '';
-    // Following happens in the lobby being played from (the member lobby).
-    if (user.socketId !== socket.id && state.lobbyId === getMemberLobby()) {
-      const isFollowing = state.followingSocketId === user.socketId;
-      followBtn = isFollowing
-        ? `<button class="btn-text theme-secondary btn-icon btn-sm active follow-btn following" type="button" aria-label="${t('follow.stopFollowing', 'Stop following')}" data-socket-id="${user.socketId}" title="${t('follow.stopFollowing', 'Stop following')}"><svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg></button>`
-        : `<button class="btn-text theme-secondary btn-icon btn-sm follow-btn" type="button" aria-label="${t('follow.followUser', 'Follow')}" data-socket-id="${user.socketId}" title="${t('follow.followUser', 'Follow')}"><svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M12 1c-4.97 0-9 4.03-9 9v7c0 1.66 1.34 3 3 3h3v-8H5v-2c0-3.87 3.13-7 7-7s7 3.13 7 7v2h-4v8h3c1.66 0 3-1.34 3-3v-7c0-4.97-4.03-9-9-9z"/></svg></button>`;
-    }
-    const followingBadge = (state.followingSocketId === user.socketId) ? `<span class="badge badge-subtle theme-primary listener-badge following">${t('follow.following', 'Following')}</span>` : '';
-    return `<li class="list-group-item listener-item"><div class="listener-avatar${user.emoji ? ' emoji' : ''}">${escapeHtml(avatar)}</div><div class="listener-info"><span class="listener-name">${escapeHtml(user.username)}</span>${nowListening}</div>${followBtn}${followingBadge}${user.isHost ? '<span class="badge badge-subtle theme-secondary listener-badge">Host</span>' : ''}</li>`;
-  }).join('');
-  elements.listenersList.querySelectorAll('.follow-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const targetSocketId = btn.dataset.socketId;
-      if (state.followingSocketId === targetSocketId) stopFollowing();
-      else startFollowing(targetSocketId);
-    });
-  });
 }
 
 // Clear the lobby page's lists (switching or leaving a lobby page). The full
