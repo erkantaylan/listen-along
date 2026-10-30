@@ -16,6 +16,15 @@ class Batch {
   constructor(out) {
     this.out = out;
     this.results = [];
+    // Optional async follow-up per result (e.g. add to a playlist); runBatch
+    // waits for all of them before reporting.
+    this.onAdd = null;
+    this.pending = [];
+  }
+
+  /** Wait for every onAdd follow-up started so far. */
+  async settle() {
+    while (this.pending.length) await Promise.allSettled(this.pending.splice(0));
   }
 
   add(result) {
@@ -26,6 +35,10 @@ class Batch {
     if (result.status === 'failed') line += ` — ${result.error}`;
     else if (result.reason) line += ` (${result.reason})`;
     this.out.info(line);
+    if (this.onAdd) {
+      const p = this.onAdd(result);
+      if (p) this.pending.push(p);
+    }
     return result;
   }
 
@@ -37,15 +50,17 @@ class Batch {
   }
 
   get exitCode() {
-    return this.results.some((r) => r.status === 'failed') ? EXIT.FAILURE : EXIT.OK;
+    return this.results.some((r) => r.status === 'failed' || r.playlist_status === 'failed') ? EXIT.FAILURE : EXIT.OK;
   }
 
   /** Print final summary (human) or the full JSON document. */
   finish(extra = {}) {
     const summary = this.summary();
-    this.out.result({ ...extra, summary, results: this.results.map(({ label, ...r }) => r) }, () => {
+    const { playlistLine, ...doc } = extra;
+    this.out.result({ ...doc, summary, results: this.results.map(({ label, ...r }) => r) }, () => {
       const parts = Object.entries(summary).filter(([k, v]) => k !== 'total' && v).map(([k, v]) => `${v} ${k.replace('_', ' ')}`);
       this.out.print(`\nSummary: ${summary.total} item(s)${parts.length ? ': ' + parts.join(', ') : ''}`);
+      if (extra.playlistLine) this.out.print(extra.playlistLine());
       const failed = this.results.filter((r) => r.status === 'failed');
       if (failed.length) {
         this.out.print('Failed:');
@@ -64,7 +79,9 @@ class Batch {
 async function runBatch(out, batch, body, extra = {}) {
   try {
     await body();
+    await batch.settle();
   } catch (err) {
+    await batch.settle();
     if (!err.exitCode || batch.results.length === 0) throw err;
     out.error(err);
     const aborted = { code: err.code, message: err.message };

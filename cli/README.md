@@ -61,6 +61,15 @@ Every command has detailed `--help` with examples (`la <command> --help`).
 | `la requests fulfill (--all \| <id>...)` | download + upload each requested song with `request_id` |
 | `la requests dismiss <id>...` | dismiss requests |
 | `la library [search]` | list/search library songs (`--limit`, `--offset`, `--all`) |
+| `la playlist [list]` | playlists you can see (public ones + your private ones) |
+| `la playlist create <name> [--private]` | new playlist owned by you (public by default) |
+| `la playlist rename <id-or-name> <new name>` | rename |
+| `la playlist visibility <id-or-name> public\|private` | share / unshare (owner only) |
+| `la playlist delete <id-or-name> --yes` | delete (owner only; songs stay in the library) |
+| `la playlist show <id-or-name>` | the playlist's songs (position, library id, YouTube id, entry id) |
+| `la playlist add <playlist> <library-id\|yt:ID\|url\|search...>` | add library songs (`--first`, `--allow-duplicates`) |
+| `la playlist remove <playlist> <song>...` | remove by position, entry id, library id or `yt:<id>` |
+| `la playlist move <playlist> <song> <position>` | reorder |
 | `la whoami` | whose token this is (your account name) |
 | `la config set\|get\|unset\|list\|path` | configuration |
 
@@ -74,7 +83,34 @@ la upload ~/Music/listen-along          # bulk-upload earlier --no-upload downlo
 la upload live.m4a --source-url https://www.youtube.com/watch?v=dQw4w9WgXcQ
 la requests fulfill --all
 la library daft punk --json
+la playlist create "Road trip" --private
+la download --playlist "Road trip" "Justice - D.A.N.C.E." "Daft Punk - Digital Love"
+la upload ~/Music/SomeAlbum/ --playlist "Some Album" --create-playlist
+la playlist show "Road trip" --json
 ```
+
+### Playlists
+
+`la playlist` acts as the token's owner with the web app's rules: a public
+playlist is seen and edited (songs, rename) by every user; a private one only
+by its owner — to anyone else it does not exist ("not found"). Only the owner
+changes visibility or deletes. A **legacy token** (created before tokens had
+owners; `la whoami --json` shows `"legacy": true`) sees public playlists only,
+creates only public playlists (they have no owner, so every user can edit them
+and only an admin can delete them) and can never change visibility or delete.
+
+Playlists are named by **id or exact case-insensitive name** among those you
+can see; an ambiguous name fails (exit 1, `AMBIGUOUS`) listing the ids.
+
+`--playlist <id-or-name>` on `la download` / `la upload` adds every song that
+ends up in the library — uploaded now, or skipped because it was already there
+— to that playlist, one request per song as the batch goes (open web app tabs
+update live). Songs already in the playlist are not added twice. A missing
+playlist is an error (exit 1, `PLAYLIST_NOT_FOUND`, before anything is
+downloaded) unless `--create-playlist` is given, which creates it **public**
+(the web app's default) or private with `--private`. Not with `--no-upload`;
+with `--dry-run` nothing is created or added. Without `--playlist`, output and
+behaviour are exactly as before.
 
 ### How downloads work
 
@@ -132,11 +168,23 @@ link for a single file. Check first with `la upload --dry-run --json <dir>`.
   `{ "summary": {total, uploaded, skipped, failed, ...}, "results": [{input|file, status, youtube_id, source_url?, title, artist, reason?, error?, code?, song?}], "aborted"? }`.
   Statuses: `uploaded`, `skipped`, `failed`, `would_download`/`would_upload`
   (`--dry-run`), `downloaded` (`--no-upload`), `dismissed`.
+  With `--playlist`, the document also has `"playlist": {id, name, visibility,
+  created, added, already_in_playlist, failed}` and each uploaded/skipped result
+  `playlist_status` (`added` | `already_in_playlist` | `failed`, + `playlist_error`);
+  a failed playlist add makes the exit code 1.
+- `la playlist` subcommands with `--json`: `list` → `{playlists: [{id, name,
+  visibility, owner, is_owner, song_count, created_at}]}`; `create` / `rename` /
+  `visibility` → `{playlist}`; `delete` → `{deleted: {id, name}}`; `show` →
+  `{playlist, songs: [{position, entry_id, library_id, youtube_id, title, artist,
+  duration_sec, url, added_by, added_at, available}]}`; `add` → `{playlist,
+  summary, results: [{input, status: added|already_in_playlist|not_in_library|invalid,
+  song?, error?}], song_count}`; `remove` → `{playlist, summary: {total, removed,
+  failed}, results, song_count}`; `move` → `{playlist, songs}`.
 
 | exit | meaning |
 |---|---|
 | 0 | success (batch: nothing failed) |
-| 1 | failure (batch: at least one item failed) |
+| 1 | failure (batch: at least one item failed; playlist: not found / ambiguous name / not allowed (`FORBIDDEN`) / name taken (`CONFLICT`) / bad value) |
 | 2 | usage error |
 | 3 | not configured (server/token missing) |
 | 4 | authentication failed (401/403) |
@@ -158,6 +206,17 @@ All requests send `Authorization: Bearer <token>`.
   `409 {error, song}` duplicate, `400` bad input
 - `GET /api/requests?status=pending|fulfilled|all` → `{ requests: [...] }`
 - `POST /api/requests/:id/dismiss`
+- Playlists (also at `/api/lobbies/...`; errors are `{error, code}` with code
+  `NOT_FOUND`, `FORBIDDEN`, `CONFLICT`, `BAD_REQUEST`, `SONG_NOT_FOUND`):
+  - `GET /api/playlists` → `{ playlists: [{id, name, visibility, ownerId, ownerName, isOwner, canManage, songCount, ...}] }`
+  - `POST /api/playlists {name, visibility}` → `201` playlist
+  - `PATCH /api/playlists/:id {name?, visibility?}` → playlist (visibility: owner only, else `403 FORBIDDEN`)
+  - `DELETE /api/playlists/:id` (owner only)
+  - `GET /api/playlists/:id/songs` → `{ playlist, songs: [...] }`
+  - `POST /api/playlists/:id/songs {songs: ["<library uuid>" | "yt:<id>", ...], allow_duplicates?}`
+    (max 200) → `{ summary, results, song_count }` (200 even if some are not in the library)
+  - `DELETE /api/playlists/:id/songs/:ref` (entry id, library id or `yt:<id>`) → `{ removed, song_count }`
+  - `POST /api/playlists/:id/songs/:entryId/move {position}` → `{ songs }`
 
 ## Development
 
@@ -172,4 +231,4 @@ and is skipped when ffmpeg is not installed.
 
 Layout: `bin/la.js` (entry), `src/cli.js` (dispatch, help, global options),
 `src/commands/*` (one file per command), `src/pipeline.js` (download/upload
-batch logic), `src/api.js`, `src/ytdlp.js`, `src/media.js`, `src/config.js`.
+batch logic), `src/playlists.js` (playlist lookup, `--playlist` hook), `src/api.js`, `src/ytdlp.js`, `src/media.js`, `src/config.js`.

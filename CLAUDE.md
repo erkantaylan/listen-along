@@ -50,7 +50,13 @@ where lobby persistence broke entirely on deployed instances.
   (`lobby:*`) and `lobbyId` fields keep the old name. URLs are `/playlist/<id>`
   and `/playlist/<id>/library`; old `/lobby/...` URLs 301 to them (and the SPA
   rewrites them, `legacyRedirect` in `frontend/router.js`). HTTP API:
-  `/api/playlists` (`/api/lobbies` is an alias).
+  `/api/playlists` (`/api/lobbies` is an alias). It also takes a CLI Bearer
+  token (auth guard in index.js → `requireViewer`): the token acts as its
+  owner; a legacy ownerless token sees/edits public playlists only, creates
+  only ownerless (public) ones and manages nothing (`viewerCan*` in
+  playlistAccess.js). Song endpoints (`/:id/songs`, used by `la playlist` and
+  `la download/upload --playlist`) go through `addLibrarySongToLobby` / the
+  Queue and emit `queue:update` like the socket handlers.
 - Each playlist has an owner (`host_id` = `users.id`, JS `ownerId`) and
   `visibility` 'public' | 'private'. Rules live in `backend/src/playlistAccess.js`:
   public = every logged-in user can see and edit (songs, rename, pin); private =

@@ -47,9 +47,20 @@ class ApiClient {
     return u.toString();
   }
 
-  async request(method, p, { query, body, timeoutMs = this.timeoutMs, okStatuses = [] } = {}) {
+  /**
+   * @param {object} [opts]
+   * @param {object} [opts.json] - JSON request body (sets Content-Type)
+   * @param {boolean} [opts.clientErrors] - a 4xx the request itself caused
+   *   (400/403 FORBIDDEN/404/409/422) is a plain failure (exit 1, code from the
+   *   server's `code`), not exit 5. 401 and account 403s stay exit 4.
+   */
+  async request(method, p, { query, body, json, timeoutMs = this.timeoutMs, okStatuses = [], clientErrors = false } = {}) {
     const url = this.url(p, query);
     const headers = { Authorization: `Bearer ${this.token}`, Accept: 'application/json' };
+    if (json !== undefined) {
+      headers['Content-Type'] = 'application/json';
+      body = JSON.stringify(json);
+    }
     let res;
     try {
       res = await this.fetch(url, {
@@ -70,6 +81,12 @@ class ApiClient {
     if (res.ok || okStatuses.includes(res.status)) return { status: res.status, data };
 
     const serverMsg = (data && (data.error || data.message)) || res.statusText || 'request failed';
+    const notAllowed = res.status === 403 && data?.code === 'FORBIDDEN'; // e.g. not the owner (not an auth problem)
+    if (clientErrors && ([400, 404, 409, 422].includes(res.status) || notAllowed)) {
+      throw new ApiError(serverMsg, {
+        status: res.status, body: data, exitCode: EXIT.FAILURE, code: data?.code || `HTTP_${res.status}`,
+      });
+    }
     if (res.status === 401 || res.status === 403) {
       throw new ApiError(`Authentication failed (${res.status}): ${serverMsg}`, {
         status: res.status, body: data, exitCode: EXIT.AUTH, code: 'AUTH',
@@ -127,6 +144,48 @@ class ApiClient {
     });
     if (status === 409) return { status: 'duplicate', song: data?.song || null, message: data?.error };
     return { status: 'uploaded', song: data?.song || data };
+  }
+
+  // --- Playlists (GET/POST/PATCH/DELETE /api/playlists...) ----------------
+
+  /** Playlists the token's user can see. */
+  async playlists() {
+    const { data } = await this.request('GET', '/api/playlists', { clientErrors: true });
+    return data?.playlists || [];
+  }
+
+  async createPlaylist({ name, visibility }) {
+    return (await this.request('POST', '/api/playlists', { json: { name, visibility }, clientErrors: true })).data;
+  }
+
+  /** Rename and/or change visibility: { name?, visibility? }. */
+  async updatePlaylist(id, changes) {
+    return (await this.request('PATCH', `/api/playlists/${encodeURIComponent(id)}`, { json: changes, clientErrors: true })).data;
+  }
+
+  async deletePlaylist(id) {
+    return (await this.request('DELETE', `/api/playlists/${encodeURIComponent(id)}`, { clientErrors: true })).data;
+  }
+
+  /** { playlist, songs: [{ position, entry_id, library_id, youtube_id, title, ... }] } */
+  async playlistSongs(id) {
+    return (await this.request('GET', `/api/playlists/${encodeURIComponent(id)}/songs`, { clientErrors: true })).data;
+  }
+
+  /** refs: library ids or "yt:<id>". { summary, results, song_count } */
+  async addPlaylistSongs(id, refs, { allowDuplicates = false } = {}) {
+    const json = { songs: refs };
+    if (allowDuplicates) json.allow_duplicates = true;
+    return (await this.request('POST', `/api/playlists/${encodeURIComponent(id)}/songs`, { json, clientErrors: true })).data;
+  }
+
+  /** ref: entry id, library id or "yt:<id>". { removed, song_count } */
+  async removePlaylistSong(id, ref) {
+    return (await this.request('DELETE', `/api/playlists/${encodeURIComponent(id)}/songs/${encodeURIComponent(ref)}`, { clientErrors: true })).data;
+  }
+
+  async movePlaylistSong(id, entryId, position) {
+    return (await this.request('POST', `/api/playlists/${encodeURIComponent(id)}/songs/${encodeURIComponent(entryId)}/move`, { json: { position }, clientErrors: true })).data;
   }
 
   async requests({ status } = {}) {

@@ -22,7 +22,21 @@ async function startServer(overrides = {}) {
     dismissed: [],
     nextId: 1,
     failUpload: null, // (fields) => { status, body } | null
+    // Playlists: [{ id, name, visibility, ownerId, songs: [{ entry_id, library_id, youtube_id, title }] }].
+    // `me.userId` is the caller (null = legacy token). Same rules as the server.
+    playlists: [],
+    nextPlaylist: 1,
+    nextEntry: 1,
     ...overrides,
+  };
+  const legacy = () => !state.me.userId;
+  const canSee = (p) => p.visibility === 'public' || (!legacy() && p.ownerId === state.me.userId);
+  const isOwner = (p) => !legacy() && !!p.ownerId && p.ownerId === state.me.userId;
+  const info = (p) => ({ id: p.id, name: p.name, visibility: p.visibility, ownerId: p.ownerId || null, ownerName: p.ownerName || null, isOwner: isOwner(p), canManage: isOwner(p), songCount: p.songs.length, createdAt: 1 });
+  const songView = (p) => p.songs.map((x, i) => ({ position: i + 1, entry_id: x.entry_id, library_id: x.library_id, youtube_id: x.youtube_id, title: x.title, duration_sec: 200, added_by: 'owner', available: true }));
+  const findSong = (ref) => {
+    const yt = /^yt:(.+)$/.exec(ref);
+    return state.songs.find((s) => (yt ? s.youtube_id === yt[1] : String(s.id) === String(ref)));
   };
 
   const server = http.createServer(async (req, res) => {
@@ -87,6 +101,67 @@ async function startServer(overrides = {}) {
       state.dismissed.push(r.id);
       return send(200, { ok: true });
     }
+    if (url.pathname === '/api/playlists' || url.pathname.startsWith('/api/playlists/')) {
+      const json = body.length ? JSON.parse(body.toString()) : {};
+      const parts = url.pathname.split('/').slice(3).map(decodeURIComponent); // [id, 'songs', ref, 'move']
+      if (!parts.length) {
+        if (req.method === 'GET') return send(200, { playlists: state.playlists.filter(canSee).map(info) });
+        if (req.method === 'POST') {
+          if (legacy() && json.visibility === 'private') return send(403, { error: 'legacy token: public only', code: 'FORBIDDEN' });
+          if (state.playlists.some((p) => canSee(p) && p.name && p.name.toLowerCase() === String(json.name).toLowerCase())) return send(409, { error: 'A playlist with that name already exists', code: 'CONFLICT' });
+          const p = { id: `pl${String(state.nextPlaylist++).padStart(6, '0')}`, name: json.name, visibility: json.visibility || 'public', ownerId: state.me.userId || null, songs: [] };
+          state.playlists.push(p);
+          return send(201, info(p));
+        }
+      }
+      const p = state.playlists.find((x) => x.id === parts[0]);
+      if (!p || !canSee(p)) return send(404, { error: 'Playlist not found', code: 'NOT_FOUND' });
+      if (parts.length === 1) {
+        if (req.method === 'PATCH') {
+          if (json.visibility !== undefined && !isOwner(p)) return send(403, { error: 'Only the owner can change visibility', code: 'FORBIDDEN' });
+          if (json.name !== undefined) p.name = json.name;
+          if (json.visibility !== undefined) p.visibility = json.visibility;
+          return send(200, info(p));
+        }
+        if (req.method === 'DELETE') {
+          if (!isOwner(p)) return send(403, { error: 'Only the owner can delete this playlist', code: 'FORBIDDEN' });
+          state.playlists = state.playlists.filter((x) => x !== p);
+          return send(200, { success: true });
+        }
+      }
+      if (parts[1] === 'songs' && parts.length === 2) {
+        if (req.method === 'GET') return send(200, { playlist: info(p), songs: songView(p) });
+        if (req.method === 'POST') {
+          if (state.failPlaylistAdd) return send(state.failPlaylistAdd.status, state.failPlaylistAdd.body);
+          const results = json.songs.map((ref) => {
+            const s = findSong(ref);
+            if (!s) return { input: ref, status: 'not_in_library', code: 'NOT_IN_LIBRARY', error: 'Not in the library' };
+            if (!json.allow_duplicates && p.songs.some((x) => String(x.library_id) === String(s.id))) return { input: ref, status: 'already_in_playlist', song: s };
+            const entry = { entry_id: `e${state.nextEntry++}`, library_id: s.id, youtube_id: s.youtube_id, title: `${s.title} - ${s.artist}` };
+            p.songs.push(entry);
+            return { input: ref, status: 'added', song: s, entry_id: entry.entry_id };
+          });
+          const count = (st) => results.filter((r) => r.status === st).length;
+          return send(200, { playlist_id: p.id, summary: { total: results.length, added: count('added'), already_in_playlist: count('already_in_playlist'), not_in_library: count('not_in_library'), invalid: 0 }, results, song_count: p.songs.length });
+        }
+      }
+      if (parts[1] === 'songs' && parts.length === 3 && req.method === 'DELETE') {
+        const s = findSong(parts[2]);
+        const hit = p.songs.filter((x) => x.entry_id === parts[2] || (s && String(x.library_id) === String(s.id)));
+        if (!hit.length) return send(404, { error: 'That song is not in this playlist', code: 'SONG_NOT_FOUND' });
+        p.songs = p.songs.filter((x) => !hit.includes(x));
+        return send(200, { playlist_id: p.id, removed: hit.map((x) => ({ entry_id: x.entry_id, title: x.title })), song_count: p.songs.length });
+      }
+      if (parts[1] === 'songs' && parts[3] === 'move' && req.method === 'POST') {
+        const i = p.songs.findIndex((x) => x.entry_id === parts[2]);
+        if (i < 0) return send(404, { error: 'That song is not in this playlist', code: 'SONG_NOT_FOUND' });
+        if (json.position < 1 || json.position > p.songs.length) return send(400, { error: 'bad position', code: 'BAD_REQUEST' });
+        const [e] = p.songs.splice(i, 1);
+        p.songs.splice(json.position - 1, 0, e);
+        return send(200, { playlist_id: p.id, songs: songView(p) });
+      }
+    }
+
     send(404, { error: 'not found' });
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));

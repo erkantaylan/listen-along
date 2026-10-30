@@ -27,11 +27,13 @@ const COMMANDS = [
   require('./commands/upload'),
   require('./commands/requests'),
   require('./commands/library'),
+  require('./commands/playlist'),
 ];
 
 const EXIT_CODES_TEXT = `Exit codes:
   0  success (batch: every item uploaded/skipped/dismissed)
-  1  failure (batch: at least one item failed; see summary)
+  1  failure (batch: at least one item failed; see summary; also a request the
+     server refused: playlist not found / ambiguous name / not allowed / name taken)
   2  usage error (unknown command/option, bad argument)
   3  not configured (server or token missing)
   4  authentication failed (server returned 401/403)
@@ -44,7 +46,8 @@ function rootHelp() {
 
 Downloads songs from YouTube with yt-dlp on this machine (as AAC m4a, no
 re-encoding, with title/artist/cover tags) and uploads them to the server's
-library; uploads local audio files; fulfills listeners' song requests.
+library; uploads local audio files; fulfills listeners' song requests;
+manages server playlists.
 
 Usage:
   la <command> [options] [arguments]
@@ -79,6 +82,9 @@ Examples:
   la upload ~/Music/album/ --artist "Some Band"
   la requests fulfill --all --json
   la library "daft punk"
+  la playlist create "Road trip" --private
+  la download --playlist "Road trip" "Justice - D.A.N.C.E."
+  la playlist show "Road trip"
 `;
 }
 

@@ -5,6 +5,7 @@ const { Batch, runBatch } = require('../batch');
 const { uploadFiles } = require('../pipeline');
 const { expandInputs, AUDIO_EXTS } = require('../media');
 const { ID_RE, isHttpUrl } = require('../youtube');
+const { PLAYLIST_OPTIONS, preparePlaylistTarget, attachPlaylist, playlistSummaryLine } = require('../playlists');
 
 module.exports = {
   name: 'upload',
@@ -32,7 +33,11 @@ both and need no flags:
               a different video than youtube_id), else
               https://www.youtube.com/watch?v=<youtube_id>
 Files whose youtube_id is already in the library are skipped. Server-side
-duplicates (409) are reported as skipped.`,
+duplicates (409) are reported as skipped.
+
+--playlist <id|name> also adds every uploaded or skipped (already in the library)
+song to that server playlist; see \`la download --help\` for the lookup rules,
+--create-playlist (public by default) and --private.`,
   options: {
     title: { type: 'string', value: 'TEXT', desc: 'Override title (only with a single file)' },
     artist: { type: 'string', value: 'TEXT', desc: 'Override artist for all files' },
@@ -42,13 +47,16 @@ duplicates (409) are reported as skipped.`,
     'request-id': { type: 'string', value: 'ID', desc: 'Mark this upload as fulfilling a song request (single file)' },
     bitrate: { type: 'string', value: 'RATE', desc: 'AAC bitrate when converting', default: '192k' },
     'dry-run': { type: 'boolean', desc: 'Read tags and report what would be uploaded; upload nothing' },
+    ...PLAYLIST_OPTIONS,
   },
   output: `Progress on stderr. stdout: a summary (or --json document):
 { "summary": { "total", "uploaded", "skipped", "failed", ["would_upload"] },
   "results": [ { "file", "status": "uploaded|skipped|failed|would_upload", "title", "artist",
                  "youtube_id"?, "source_url"?, "converted": bool, "song"?, "fields"? (dry-run), "reason"?,
-                 "error"?, "code"? } ] }
-Exit 0 if nothing failed, 1 if any file failed, 2 for bad arguments (e.g. missing path).`,
+                 "error"?, "code"?, "playlist_status"?, "playlist_error"? } ],
+  "playlist"?: { "id", "name", "visibility", "created", "added", "already_in_playlist", "failed" } }
+Exit 0 if nothing failed, 1 if any file (or playlist add) failed or the --playlist
+is missing/ambiguous, 2 for bad arguments (e.g. missing path).`,
   examples: [
     'la upload song.m4a',
     'la upload ~/Music/Album/ --artist "Some Band" --album "Some Album"',
@@ -57,6 +65,7 @@ Exit 0 if nothing failed, 1 if any file failed, 2 for bad arguments (e.g. missin
     'la upload ~/Music/listen-along              # bulk upload of `la download --no-upload` files',
     'la upload live.m4a --source-url https://www.youtube.com/watch?v=dQw4w9WgXcQ',
     'la upload --dry-run --json ~/Music/',
+    'la upload ~/Music/Album/ --playlist "Some Album" --create-playlist',
   ],
   async run(ctx, values, positionals) {
     if (!positionals.length) throw new UsageError('Give at least one file or directory', 'See `la upload --help`');
@@ -81,7 +90,11 @@ Exit 0 if nothing failed, 1 if any file failed, 2 for bad arguments (e.g. missin
       requestId: values['request-id'],
       bitrate: values.bitrate || '192k',
     };
+    const target = await preparePlaylistTarget(ctx, values, { dryRun: opts.dryRun });
     const batch = new Batch(ctx.out);
-    return runBatch(ctx.out, batch, () => uploadFiles(deps, files, opts, batch), { dry_run: opts.dryRun || undefined });
+    if (target && !opts.dryRun) attachPlaylist(batch, ctx.getApi(), target, ctx.out);
+    const extra = { dry_run: opts.dryRun || undefined };
+    if (target) Object.assign(extra, { playlist: target, playlistLine: () => playlistSummaryLine(target) });
+    return runBatch(ctx.out, batch, () => uploadFiles(deps, files, opts, batch), extra);
   },
 };
