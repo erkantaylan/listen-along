@@ -39,6 +39,8 @@ data class LibraryUiState(
     val hasToken: Boolean = false,
     val query: String = "",
     val sort: SortOrder = SortOrder.RECENT,
+    /** The "Broken" filter: only songs someone marked as needing replacement. */
+    val brokenOnly: Boolean = false,
     val songs: List<Song> = emptyList(),
     val total: Int = 0,
     val loading: Boolean = false,
@@ -64,9 +66,15 @@ fun LocalSong.toSong(): Song = Song(
 )
 
 /** The offline library: what is on the device, searched and sorted like the server would. */
-internal fun offlineLibrary(local: Collection<LocalSong>, query: String, sort: SortOrder): List<Song> {
+internal fun offlineLibrary(
+    local: Collection<LocalSong>,
+    query: String,
+    sort: SortOrder,
+    /** Only these song ids (the Broken filter offline: the saved report list). */
+    only: Set<String>? = null,
+): List<Song> {
     val words = query.lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
-    val hits = local.filter { song ->
+    val hits = local.filter { song -> only == null || song.songId in only }.filter { song ->
         val hay = "${song.title} ${song.artist} ${song.displayName}".lowercase()
         words.all { it in hay }
     }
@@ -119,11 +127,20 @@ class LibraryViewModel(private val graph: AppGraph) : ViewModel() {
         graph.index.entries
             .drop(1)
             .filter { _state.value.offline }
-            .onEach { local -> _state.update { it.copy(songs = offlineLibrary(local.values, it.query, it.sort)).withTotal() } }
+            .onEach { local -> _state.update { it.copy(songs = offlineLibrary(local.values, it.query, it.sort, brokenIds(it))).withTotal() } }
             .launchIn(viewModelScope)
     }
 
     private fun LibraryUiState.withTotal() = copy(total = songs.size)
+
+    private fun brokenIds(state: LibraryUiState): Set<String>? =
+        if (state.brokenOnly) graph.reports.reports.value.keys else null
+
+    fun onBrokenOnlyChange(brokenOnly: Boolean) {
+        if (brokenOnly == _state.value.brokenOnly) return
+        _state.update { it.copy(brokenOnly = brokenOnly, songs = emptyList(), total = 0) }
+        reload(initial = true)
+    }
 
     fun onQueryChange(query: String) {
         _state.update { it.copy(query = query) }
@@ -152,8 +169,9 @@ class LibraryViewModel(private val graph: AppGraph) : ViewModel() {
         _state.update { it.copy(loadingMore = true) }
         viewModelScope.launch {
             try {
-                val page = client.list(current.query, LibraryClient.PAGE_SIZE, current.songs.size, current.sort)
+                val page = client.list(current.query, LibraryClient.PAGE_SIZE, current.songs.size, current.sort, current.brokenOnly)
                 if (gen != generation) return@launch
+                graph.reports.absorb(page.songs)
                 _state.update {
                     it.copy(
                         songs = (it.songs + page.songs).distinctBy { s -> s.id },
@@ -189,7 +207,7 @@ class LibraryViewModel(private val graph: AppGraph) : ViewModel() {
         _state.update { it.copy(bulk = BulkUi.Preparing) }
         bulkJob = viewModelScope.launch {
             try {
-                val all = client.listAll(current.query, current.sort)
+                val all = client.listAll(current.query, current.sort, reported = current.brokenOnly)
                 val plan = BulkPlan.of(all, graph.downloads.snapshot())
                 _state.update { it.copy(bulk = BulkUi.Ready(plan)) }
             } catch (c: CancellationException) {
@@ -230,10 +248,14 @@ class LibraryViewModel(private val graph: AppGraph) : ViewModel() {
                     loadingMore = false, error = null)
         }
         val (query, sort) = _state.value.let { it.query to it.sort }
+        val brokenOnly = _state.value.brokenOnly
+        // The broken-song list behind the icons in every tab, refreshed with the library.
+        viewModelScope.launch { runCatching { graph.reports.refresh() } }
         loadJob = viewModelScope.launch {
             try {
-                val page = client.list(query, LibraryClient.PAGE_SIZE, 0, sort)
+                val page = client.list(query, LibraryClient.PAGE_SIZE, 0, sort, brokenOnly)
                 if (gen != generation) return@launch
+                graph.reports.absorb(page.songs)
                 _state.update {
                     it.copy(songs = page.songs, total = page.total, loading = false, refreshing = false, offline = false)
                 }
@@ -242,7 +264,7 @@ class LibraryViewModel(private val graph: AppGraph) : ViewModel() {
             } catch (t: Throwable) {
                 if (gen != generation) return@launch
                 if (t is IOException && PlaylistRepository.canFallBack(t)) {
-                    val local = offlineLibrary(graph.index.entries.value.values, query, sort)
+                    val local = offlineLibrary(graph.index.entries.value.values, query, sort, brokenIds(_state.value))
                     _state.update {
                         it.copy(songs = local, total = local.size, loading = false, refreshing = false,
                                 offline = true, error = null)

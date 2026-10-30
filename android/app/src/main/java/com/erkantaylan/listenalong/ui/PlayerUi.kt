@@ -4,6 +4,7 @@ import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -144,6 +145,11 @@ fun FullPlayer(now: NowPlaying, player: PlayerConnection, onClose: () -> Unit) {
     val position = rememberPosition(player, now)
     var dragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableFloatStateOf(0f) }
+    var sheet by remember { mutableStateOf(false) }
+    val song = remember(now.songId, now.title, now.artist) {
+        now.songId?.let { com.erkantaylan.listenalong.api.Song(id = it, title = now.title, artist = now.artist) }
+    }
+    val reports = song?.let { LocalReports.current[it.id] }.orEmpty()
 
     Column(
         Modifier.fillMaxSize().background(Palette.page).testTag("full-player"),
@@ -153,13 +159,20 @@ fun FullPlayer(now: NowPlaying, player: PlayerConnection, onClose: () -> Unit) {
             title = "Now playing",
             subtitle = now.context?.let { { Text("from $it", color = Palette.fg3, fontSize = 12.sp, maxLines = 1) } },
             onBack = onClose,
-        )
+        ) {
+            if (song != null) IconAction(AppIcons.More, "Song actions", tag = "player:menu") { sheet = true }
+        }
         Column(
             Modifier.weight(1f).widthIn(max = 520.dp).padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Box(Modifier.fillMaxWidth(0.86f).aspectRatio(1f), contentAlignment = Alignment.Center) {
+            Box(
+                Modifier.fillMaxWidth(0.86f).aspectRatio(1f)
+                    .combinedClickable(onClick = {}, onLongClick = { if (song != null) sheet = true },
+                                       onLongClickLabel = "Song actions"),
+                contentAlignment = Alignment.Center,
+            ) {
                 val art = rememberArtwork(now.artwork)
                 if (art != null) {
                     Image(art, contentDescription = null, contentScale = ContentScale.Crop,
@@ -172,9 +185,14 @@ fun FullPlayer(now: NowPlaying, player: PlayerConnection, onClose: () -> Unit) {
                 }
             }
             Spacer(Modifier.height(28.dp))
-            Text(now.title.ifBlank { "Untitled" }, color = Palette.fg, fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
-                 textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                 modifier = Modifier.testTag("player:title"))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(now.title.ifBlank { "Untitled" }, color = Palette.fg, fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
+                     textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                     modifier = Modifier.weight(1f, fill = false).testTag("player:title")
+                         .combinedClickable(onClick = {}, onLongClick = { if (song != null) sheet = true },
+                                            onLongClickLabel = "Song actions"))
+                if (song != null) ReportIcon(song, reports, size = 32.dp)
+            }
             if (now.artist.isNotBlank()) {
                 Text(now.artist, color = Palette.fg3, fontSize = 15.sp, textAlign = TextAlign.Center, maxLines = 1,
                      overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
@@ -239,6 +257,11 @@ fun FullPlayer(now: NowPlaying, player: PlayerConnection, onClose: () -> Unit) {
                 )
             }
             Spacer(Modifier.height(24.dp))
+        }
+    }
+    if (sheet && song != null) {
+        SongActionsSheet(now.title, now.artist.takeIf { it.isNotBlank() }, onDismiss = { sheet = false }) { dismiss ->
+            ReportMenuEntries(song, dismiss)
         }
     }
 }

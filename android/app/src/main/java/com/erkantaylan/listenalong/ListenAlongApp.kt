@@ -10,6 +10,7 @@ import com.erkantaylan.listenalong.net.Connectivity
 import com.erkantaylan.listenalong.player.PlayerConnection
 import com.erkantaylan.listenalong.playlists.PlaylistCache
 import com.erkantaylan.listenalong.playlists.PlaylistRepository
+import com.erkantaylan.listenalong.reports.ReportStore
 import com.erkantaylan.listenalong.settings.ServerConfig
 import com.erkantaylan.listenalong.settings.SettingsStore
 import com.erkantaylan.listenalong.storage.DownloadIndex
@@ -74,6 +75,12 @@ class AppGraph(context: Context) {
             songsStore = { id -> FileTextStore(File(cacheDir, "songs-$id.json")) },
             forget = { id -> File(cacheDir, "songs-$id.json").delete() },
         ),
+    )
+
+    /** Songs marked as broken, for the warning icons everywhere (saved for offline). */
+    val reports = ReportStore(
+        clientProvider = ::client,
+        store = FileTextStore(File(app.filesDir, "reports/reported.json")),
     )
 
     /**

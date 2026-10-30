@@ -4,7 +4,13 @@ without the real server (which needs PostgreSQL).
 
 Serves every .m4a / .mp3 under --music as a library song:
 
-  GET /api/library?q=&limit=&offset=&sort=   search, paging, sort
+  GET /api/library?q=&limit=&offset=&sort=&reported=1
+                                             search, paging, sort, broken only;
+                                             every song carries reports +
+                                             report_count
+  POST/DELETE /api/library/<id>/report       mark as broken (reason <= 200) /
+                                             withdraw your own report (seeded
+                                             with one report by "Ayşe")
   GET /api/library/<id>/file                 the bytes, with Range support
   GET /api/me                                needs --token; 401 otherwise
   /api/playlists...                          list, songs, create, rename,
@@ -125,11 +131,25 @@ def seed_playlists(songs):
     return {p["id"]: p for p in (mine, theirs)}
 
 
+def now_iso():
+    return time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+
+
+def seed_reports(songs):
+    """One open report by someone else, so the warning icon shows from the start."""
+    if len(songs) < 2:
+        return {}
+    return {songs[1]["id"]: [{"id": "1", "reason": "Bad audio", "reported_by": "Ayşe", "_user": "u-ayse",
+                              "created_at": "2026-10-30T09:00:00.000Z", "updated_at": "2026-10-30T09:00:00.000Z"}]}
+
+
 class Handler(BaseHTTPRequestHandler):
     songs = []
     token = None
     throttle_kbps = 0
     playlists = {}
+    reports = {}  # song id -> [report]
+    next_report = 100
 
     def log_message(self, fmt, *args):
         sys.stderr.write("stub: " + fmt % args + "\n")
@@ -182,15 +202,16 @@ class Handler(BaseHTTPRequestHandler):
             limit = max(1, min(int(qs.get("limit", ["100"])[0]), 1000))
             offset = max(0, int(qs.get("offset", ["0"])[0]))
             sort = qs.get("sort", ["recent"])[0]
+            reported = qs.get("reported", [""])[0] in ("1", "true")
             hits = [s for s in self.songs
-                    if all(w in f"{s['title']} {s['artist']}".lower() for w in q)]
+                    if all(w in f"{s['title']} {s['artist']}".lower() for w in q)
+                    and (not reported or self.reports.get(s["id"]))]
             key = {
                 "title": lambda s: (s["title"].lower(), s["artist"].lower()),
                 "artist": lambda s: (s["artist"].lower(), s["title"].lower()),
             }.get(sort)
             hits = sorted(hits, key=key) if key else sorted(hits, key=lambda s: -s["_mtime"])
-            page = [{k: v for k, v in s.items() if not k.startswith("_")}
-                    for s in hits[offset:offset + limit]]
+            page = [self.song_view(s) for s in hits[offset:offset + limit]]
             return self.send_json(200, {"songs": page, "total": len(hits)})
 
         if len(parts) == 4 and parts[:2] == ["api", "library"] and parts[3] == "file":
@@ -201,12 +222,60 @@ class Handler(BaseHTTPRequestHandler):
 
         self.send_json(404, {"error": "Not found"})
 
+    # --- reports ("mark as broken") -----------------------------------------
+
+    def report_views(self, song_id):
+        return [{k: v for k, v in dict(r, mine=r["_user"] == "u-me").items() if not k.startswith("_")}
+                for r in self.reports.get(song_id, [])]
+
+    def song_view(self, s):
+        view = {k: v for k, v in s.items() if not k.startswith("_")}
+        view["reports"] = self.report_views(s["id"])
+        view["report_count"] = len(view["reports"])
+        return view
+
+    def report_write(self, method, song_id):
+        if self.auth() is not True:
+            return self.send_json(401, {"error": "Authentication required"})
+        song = next((x for x in self.songs if x["id"] == song_id), None)
+        if song is None:
+            return self.send_json(404, {"error": "Song not found", "code": "NOT_FOUND"})
+        mine = [r for r in self.reports.get(song_id, []) if r["_user"] == "u-me"]
+        if method == "DELETE":
+            if not mine:
+                return self.send_json(404, {"error": "You have not marked this song as broken", "code": "NOT_FOUND"})
+            self.reports[song_id] = [r for r in self.reports[song_id] if r["_user"] != "u-me"]
+            if not self.reports[song_id]:
+                del self.reports[song_id]
+            return self.send_json(200, {"ok": True})
+        body = self.read_body()
+        if body is None:
+            return self.send_json(400, {"error": "Bad JSON"})
+        reason = body.get("reason")
+        if reason is not None and not isinstance(reason, str):
+            return self.send_json(400, {"error": "reason must be a string", "code": "BAD_REQUEST"})
+        reason = re.sub(r"\s+", " ", reason or "").strip() or None
+        if reason and len(reason) > 200:
+            return self.send_json(400, {"error": "reason is too long (max 200 characters)", "code": "BAD_REQUEST"})
+        if mine:
+            mine[0].update(reason=reason, updated_at=now_iso())
+            report, code = mine[0], 200
+        else:
+            Handler.next_report += 1
+            report = {"id": str(Handler.next_report), "reason": reason, "reported_by": ME, "_user": "u-me",
+                      "created_at": now_iso(), "updated_at": now_iso()}
+            self.reports.setdefault(song_id, []).append(report)
+            code = 201
+        view = {k: v for k, v in dict(report, mine=True).items() if not k.startswith("_")}
+        return self.send_json(code, {"report": view, "song": self.song_view(song)})
+
     # --- playlists -----------------------------------------------------------
 
     def playlist_info(self, p):
         mine = p["ownerId"] == "u-me"
         return {"id": p["id"], "name": p["name"], "visibility": p["visibility"], "ownerId": p["ownerId"],
-                "ownerName": p["ownerName"], "isOwner": mine, "canManage": mine, "pinned": False,
+                "ownerName": p["ownerName"], "isOwner": mine, "canManage": mine,
+                "canEdit": mine or p["visibility"] == "public", "pinned": False,
                 "userCount": 0, "songCount": len(p["entries"]), "createdAt": 1761800000000}
 
     def entry_views(self, p):
@@ -229,6 +298,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def playlist_write(self, method):
         parts = [p for p in urlparse(self.path).path.split("/") if p]
+        if len(parts) == 4 and parts[:2] == ["api", "library"] and parts[3] == "report" and method in ("POST", "DELETE"):
+            return self.report_write(method, parts[2])
         authed = self.auth()
         if authed is False:
             return self.send_json(401, {"error": "Invalid or revoked token"})
@@ -385,6 +456,7 @@ def main():
 
     Handler.songs = scan(music)
     Handler.playlists = seed_playlists(Handler.songs)
+    Handler.reports = seed_reports(Handler.songs)
     Handler.token = args.token
     Handler.throttle_kbps = args.throttle
     print(f"stub: {len(Handler.songs)} songs from {music} on http://{args.bind}:{args.port}", flush=True)

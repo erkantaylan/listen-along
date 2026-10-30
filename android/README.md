@@ -26,13 +26,34 @@ web (**Open my profile**), create a token under "CLI tokens", copy it, tap
   the ring again to cancel; a green check means it is on the phone). ⋮ → *Add
   to playlist*, *Download*, *Open in another app*. The header's download
   button fetches the whole current result after a confirm (count, rough size).
+  **All songs / Broken** switches to the songs someone marked as broken
+  (`?reported=1`), each with its reasons, who and when.
+- **Song menu**: ⋮ on a row opens it as a dropdown, a **long-press** on the
+  row (Library, a playlist, On device; the cover or title in the full player)
+  as a bottom sheet with the same items.
+- **Mark as broken** (as on the web): from the song menu, with an optional
+  reason (chips *Wrong song*, *Bad audio*, *Cut off*, *Too quiet / too loud*,
+  or free text up to 200 characters). Your own report offers *Edit broken
+  report…* and *Unmark broken*. A reported song shows a small muted warning
+  icon after its title everywhere (TalkBack: "Needs replacement — marked as
+  broken by n people"); tapping it lists the reasons, reporters and times.
+  Replacing the audio on the server clears the reports.
 - **Playlists**: every public playlist plus your private ones ("Private"
   badge), yours first. Open one to see its songs; tap a song to play the
-  playlist from it, or Play / Shuffle. **Download playlist** queues every song
-  not yet on the phone. ⋮ on a playlist: *Rename*, and for its owner *Make
-  private/public* and *Delete* (who may do what comes from the server's
-  `canManage`; its error is shown if it refuses). ⋮ on a song: *Move up/down*,
-  *Remove from playlist*, *Add to another playlist*. **+** makes a new playlist
+  playlist from it at once, or Play / Shuffle; rows have no reorder or delete
+  controls. **Download playlist** queues every song not yet on the phone.
+  **Edit** in the top bar (shown when you may change the list: the server's
+  `canEdit` — a public playlist is anyone's, a private one its owner's)
+  switches to edit mode: a drag handle per row (drag it, or long-press-drag
+  the row; the list scrolls at the edges), a remove button with an **Undo**
+  snackbar, and tapping does not play; **Done** or Back leaves. A finished
+  drag sends one move; a removal is sent when the snackbar times out (or on
+  Done / the next removal / leaving the playlist). TalkBack gets *Move up* /
+  *Move down* actions on each row. ⋮ on a playlist: *Rename*, and for its
+  owner *Make private/public* and *Delete* (who may do what comes from the
+  server's `canManage`; its error is shown if it refuses). ⋮ on a song:
+  *Add to another playlist*, *Remove from playlist* (with Undo), and the
+  report entries. **+** makes a new playlist
   (name, Public/Private). Entries that are not in the library (old
   YouTube-only queue entries) are listed but cannot be played.
 - **On device**: the downloaded songs (play, shuffle, add to playlist, open in
@@ -74,6 +95,12 @@ ExoPlayer; the UI only talks to it through a `MediaController`
   read-only with "Offline — saved copy from …"; editing actions are disabled.
   A 4xx is not hidden behind the cache: a rejected token is shown, and a
   playlist that answers 404 is forgotten.
+- **Broken songs**: the list of reported songs (`reports/ReportStore`) is
+  saved per server, so the warning icons and the Broken filter (over the
+  downloaded songs) still work offline. Marking, editing and unmarking need
+  the server: offline those menu entries are **disabled** ("Needs a
+  connection"), not queued. The list is refreshed at start, on resume, when
+  the connection returns and with every library load.
 
 ### Where the files go
 
@@ -130,7 +157,9 @@ server, which needs PostgreSQL. It serves every `.m4a`/`.mp3` in a folder
 through the same API — search, paging, sort, `Range`, `/api/me` — plus
 in-memory playlists seeded with one private playlist of yours and one public
 playlist of someone else's (with a YouTube-only entry), with the server's
-owner rules and error answers. `--samples` makes five short test songs with
+owner rules (`canEdit` too) and error answers, and broken-song reports
+(`?reported=1`, `POST`/`DELETE /api/library/:id/report`, seeded with one
+report by someone else). `--samples` makes five short test songs with
 ffmpeg; `--throttle KBPS` slows transfers down.
 
 `./dev.sh --stub` starts it, tunnels it to the phone's `localhost:8091` with
@@ -154,7 +183,9 @@ Compose test tags are exposed as resource ids (`tab:playlists`,
 app/src/main/java/com/erkantaylan/listenalong/
 ├── api/         LibraryClient (OkHttp): library, /api/me, playlists; models
 ├── settings/    server URL (default music.etaylan.com) + encrypted token
-├── playlists/   PlaylistRepository + PlaylistCache (offline copies)
+├── playlists/   PlaylistRepository + PlaylistCache (offline copies),
+│                PlaylistEdits (edit mode: drag reorder, remove + Undo)
+├── reports/     ReportStore (broken-song reports, saved per server), ReportReasons
 ├── player/      PlaybackService (Media3), PlayerConnection, PlayQueue
 ├── net/         connectivity hint
 ├── storage/     MediaStore sink, filenames, the song-id → URI index
@@ -174,7 +205,10 @@ tests against MockWebServer.
   clear, the app no longer knows about files it saved earlier. Downloading
   those songs again produces `Name (1).m4a`.
 - The play queue is not restored after the app process is killed.
-- Reordering is one step at a time (⋮ → Move up / Move down), not drag and drop.
+- There is no live socket: reports made elsewhere show up on the next
+  refresh (resume, pull-to-refresh, reconnect), not instantly.
+- Edit mode assumes nobody else edits the same playlist at the same time;
+  if a move or removal fails, the playlist is reloaded from the server.
 - Cover art comes from the audio file's embedded picture (shown once the
   player has read it); list rows use the placeholder.
 - Android 8–9 writes the file directly and needs the storage permission. That

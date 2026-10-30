@@ -143,6 +143,7 @@ fun OnDeviceScreen(
                         current = nowPlaying.songId == song.songId,
                         extraMeta = "${song.displayName.substringAfterLast('.', "").uppercase()} · ${formatBytes(song.bytes)}",
                         onClick = { actions.play(asSongs, i, "On device", false) },
+                        reportSong = asSongs[i],
                     ) { dismiss ->
                         MenuEntry("Add to playlist", AppIcons.PlaylistAdd, "menu-add-to-playlist", enabled = online) {
                             dismiss(); actions.addToPlaylist(listOf(song.toSong()))

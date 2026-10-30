@@ -56,6 +56,15 @@ import com.erkantaylan.listenalong.ui.PlaylistsViewModel
 import com.erkantaylan.listenalong.ui.SettingsScreen
 import com.erkantaylan.listenalong.ui.Tab
 import com.erkantaylan.listenalong.ui.theme.ListenAlongTheme
+import com.erkantaylan.listenalong.api.SongReport
+import com.erkantaylan.listenalong.playlists.PlaylistRepository
+import com.erkantaylan.listenalong.ui.LocalOnline
+import com.erkantaylan.listenalong.ui.LocalReportActions
+import com.erkantaylan.listenalong.ui.LocalReports
+import com.erkantaylan.listenalong.ui.ReportActions
+import com.erkantaylan.listenalong.ui.ReportDetailsDialog
+import com.erkantaylan.listenalong.ui.ReportDialog
+import androidx.compose.runtime.CompositionLocalProvider
 import com.erkantaylan.listenalong.ui.theme.Palette
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -125,6 +134,12 @@ class MainActivity : ComponentActivity() {
         var tab by rememberSaveable { mutableStateOf(firstTab) }
         var showPlayer by rememberSaveable { mutableStateOf(false) }
         var addingToPlaylist by remember { mutableStateOf<List<Song>?>(null) }
+        // "Mark as broken": the dialog being shown (song + your report when editing), and the details popup.
+        var reporting by remember { mutableStateOf<Pair<Song, SongReport?>?>(null) }
+        var reportBusy by remember { mutableStateOf(false) }
+        var reportError by remember { mutableStateOf<String?>(null) }
+        var reportDetails by remember { mutableStateOf<Pair<Song, List<SongReport>>?>(null) }
+        val reports by graph.reports.reports.collectAsStateWithLifecycle()
 
         val snapshot by graph.downloads.snapshots.collectAsStateWithLifecycle(graph.downloads.snapshot())
         val nowPlaying by graph.player.state.collectAsStateWithLifecycle()
@@ -145,8 +160,18 @@ class MainActivity : ComponentActivity() {
 
         // Files deleted in a file manager or another player while we were
         // away disappear from On device on return.
+        // The broken-song list: the saved copy for this server at once, then the server's.
+        LaunchedEffect(config) {
+            graph.reports.loadSaved()
+            if (config.hasToken) runCatching { graph.reports.refresh() }
+        }
+        LaunchedEffect(online) {
+            if (online && config.hasToken) runCatching { graph.reports.refresh() }
+        }
+
         LifecycleResumeEffect(Unit) {
             scope.launch { graph.downloads.reconcile() }
+            if (graph.settings.config.value.hasToken) scope.launch { runCatching { graph.reports.refresh() } }
             onPauseOrDispose { }
         }
 
@@ -229,8 +254,33 @@ class MainActivity : ComponentActivity() {
             )
         }
 
+        val reportActions = remember {
+            ReportActions(
+                mark = { song -> reportError = null; reportBusy = false; reporting = song to null },
+                edit = { song, mine -> reportError = null; reportBusy = false; reporting = song to mine },
+                unmark = { song ->
+                    scope.launch {
+                        try {
+                            graph.reports.unmark(song.id)
+                            toast("Unmarked: no longer reported by you")
+                        } catch (c: kotlinx.coroutines.CancellationException) {
+                            throw c
+                        } catch (t: Throwable) {
+                            toast("Could not unmark: ${PlaylistRepository.describe(t)}")
+                        }
+                    }
+                },
+                details = { song, list -> reportDetails = song to list },
+            )
+        }
+
         BackHandler(enabled = !showPlayer && tab != Tab.LIBRARY) { tab = Tab.LIBRARY }
 
+        CompositionLocalProvider(
+            LocalReports provides reports,
+            LocalOnline provides online,
+            LocalReportActions provides reportActions,
+        ) {
         Box(Modifier.fillMaxSize()) {
             AppShell(
                 selected = tab,
@@ -260,6 +310,39 @@ class MainActivity : ComponentActivity() {
 
         addingToPlaylist?.let { songs ->
             AddToPlaylistDialog(songs, playlistsVm, onDismiss = { addingToPlaylist = null })
+        }
+
+        reporting?.let { (song, current) ->
+            ReportDialog(
+                song = song,
+                current = current,
+                busy = reportBusy,
+                error = reportError,
+                onSubmit = { reason ->
+                    reportBusy = true
+                    reportError = null
+                    scope.launch {
+                        try {
+                            val updated = graph.reports.mark(song.id, reason)
+                            reporting = null
+                            toast(if (updated) "Report updated" else "Marked \u201c${song.title.ifBlank { "song" }}\u201d as broken")
+                        } catch (c: kotlinx.coroutines.CancellationException) {
+                            throw c
+                        } catch (t: Throwable) {
+                            reportError = "Could not mark it: ${PlaylistRepository.describe(t)}"
+                        } finally {
+                            reportBusy = false
+                        }
+                    }
+                },
+                onDismiss = { reporting = null },
+            )
+        }
+        reportDetails?.let { (song, list) ->
+            // Live: if a report is withdrawn while it is open, show what is left.
+            val live = reports[song.id] ?: list
+            ReportDetailsDialog(song, live, onDismiss = { reportDetails = null })
+        }
         }
     }
 

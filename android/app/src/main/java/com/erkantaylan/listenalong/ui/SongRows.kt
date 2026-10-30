@@ -24,14 +24,18 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.erkantaylan.listenalong.api.Song
 import com.erkantaylan.listenalong.api.formatDuration
 import com.erkantaylan.listenalong.download.DownloadState
 import com.erkantaylan.listenalong.ui.theme.Palette
 
 /**
- * A song in any list: cover placeholder, title, a muted line (artist ·
- * duration · download status), then the download button and a ⋮ menu.
- * Tapping the row plays; the current song gets the `.is-playing` treatment.
+ * A song in any list: cover placeholder, title (plus the broken-song icon),
+ * a muted line (artist · duration · download status), then the download
+ * button and a ⋮ menu. Tapping the row plays; the current song gets the
+ * `.is-playing` treatment. A long-press opens the same menu as a bottom
+ * sheet. [reportSong] is the library song behind the row, for the report
+ * icon and the menu's report entries (null: an entry not in the library).
  */
 @Composable
 fun SongRow(
@@ -48,9 +52,25 @@ fun SongRow(
     onClick: (() -> Unit)?,
     onDownload: (() -> Unit)? = null,
     onCancelDownload: (() -> Unit)? = null,
+    reportSong: Song? = null,
+    /** Offer the report entries even with no [reportSong] (a playlist entry not in the library). */
+    reportable: Boolean = reportSong != null,
+    /** Extra muted lines under the row (the Broken list's reasons). */
+    detail: String? = null,
     menu: (@Composable ColumnScope.(dismiss: () -> Unit) -> Unit)? = null,
 ) {
-    ListGroupItem(index, count, modifier = Modifier.testTag(tag), current = current, onClick = onClick) {
+    var sheet by remember { mutableStateOf(false) }
+    val reports = reportSong?.let { LocalReports.current[it.id] }.orEmpty()
+    val fullMenu: (@Composable ColumnScope.(dismiss: () -> Unit) -> Unit)? =
+        if (menu == null && !reportable) null
+        else { dismiss ->
+            menu?.invoke(this, dismiss)
+            if (reportable) ReportMenuEntries(reportSong, dismiss)
+        }
+    ListGroupItem(
+        index, count, modifier = Modifier.testTag(tag), current = current, onClick = onClick,
+        onLongClick = if (fullMenu != null) { { sheet = true } } else null,
+    ) {
         Thumb(playing = current)
         val meta = listOfNotNull(
             artist.takeIf { it.isNotBlank() && it != "Unknown" },
@@ -65,10 +85,23 @@ fun SongRow(
                 current -> Palette.accentFg
                 else -> Palette.fg
             },
-            extra = download?.let { state -> { DownloadLine(state) } },
+            extra = if (download != null || detail != null) {
+                {
+                    download?.let { DownloadLine(it) }
+                    detail?.let { Text(it, color = Palette.fg3, fontSize = 12.sp, lineHeight = 16.sp, maxLines = 3, overflow = TextOverflow.Ellipsis) }
+                }
+            } else null,
+            titleTrailing = if (reports.isNotEmpty()) { { ReportIcon(reportSong!!, reports, size = 26.dp) } } else null,
         )
         if (download != null) DownloadButton(download, onDownload, onCancelDownload)
-        if (menu != null) RowMenu(tag, menu)
+        if (fullMenu != null) RowMenu(tag, fullMenu)
+    }
+    if (sheet && fullMenu != null) {
+        SongActionsSheet(
+            title = title,
+            subtitle = artist.takeIf { it.isNotBlank() && it != "Unknown" },
+            onDismiss = { sheet = false },
+        ) { dismiss -> fullMenu(dismiss) }
     }
 }
 
@@ -144,11 +177,20 @@ fun MenuEntry(
     tag: String,
     destructive: Boolean = false,
     enabled: Boolean = true,
+    /** A muted second line (e.g. your current report reason). */
+    description: String? = null,
     onClick: () -> Unit,
 ) {
     val color = if (destructive) Palette.danger else Palette.fg
     DropdownMenuItem(
-        text = { Text(text, fontSize = 15.sp) },
+        text = {
+            if (description == null) Text(text, fontSize = 15.sp)
+            else androidx.compose.foundation.layout.Column {
+                Text(text, fontSize = 15.sp)
+                Text(description, fontSize = 12.sp, color = if (enabled) Palette.fg3 else Palette.fg4,
+                     maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        },
         leadingIcon = { Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp)) },
         onClick = onClick,
         enabled = enabled,

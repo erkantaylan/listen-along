@@ -8,6 +8,7 @@ import com.erkantaylan.listenalong.api.PlaylistEntry
 import com.erkantaylan.listenalong.api.Song
 import com.erkantaylan.listenalong.api.Visibility
 import com.erkantaylan.listenalong.playlists.Loaded
+import com.erkantaylan.listenalong.playlists.PlaylistEdits
 import com.erkantaylan.listenalong.playlists.PlaylistRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -25,6 +26,8 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 data class PlaylistsUi(
     val hasToken: Boolean = false,
@@ -50,8 +53,15 @@ data class PlaylistDetailUi(
     val busy: Boolean = false,
     /** The playlist is gone (deleted, or made private by someone else). */
     val gone: Boolean = false,
+    /** Edit mode: drag handles and remove buttons; tapping a row does not play. */
+    val editing: Boolean = false,
+    /** Removed, not yet sent: the Undo snackbar is showing. Not in [entries]. */
+    val pending: PlaylistEdits.PendingRemoval? = null,
+    /** A drag in progress (edit mode). */
+    val drag: PlaylistEdits.Drag? = null,
 ) {
     val songs: List<Song> get() = entries.mapNotNull { it.toSong() }
+    val edits: PlaylistEdits get() = PlaylistEdits(entries, pending, drag)
 }
 
 /**
@@ -76,6 +86,10 @@ class PlaylistsViewModel(private val graph: AppGraph) : ViewModel() {
 
     private var listJob: Job? = null
     private var detailJob: Job? = null
+
+    /** Song-list edits reach the server one at a time, in order. */
+    private val editLock = Mutex()
+    private var editsInFlight = 0
 
     init {
         refresh(initial = true)
@@ -118,6 +132,7 @@ class PlaylistsViewModel(private val graph: AppGraph) : ViewModel() {
     }
 
     fun open(id: String) {
+        commitPendingRemoval()
         val known = _list.value.playlists.firstOrNull { it.id == id }
         val cached = repo.cachedSongs(id)
         _detail.value = PlaylistDetailUi(
@@ -130,12 +145,16 @@ class PlaylistsViewModel(private val graph: AppGraph) : ViewModel() {
     }
 
     fun close() {
+        commitPendingRemoval()
         detailJob?.cancel()
         _detail.value = null
     }
 
     fun refreshDetail() {
-        val id = _detail.value?.id ?: return
+        val current = _detail.value ?: return
+        // Mid-edit, the local list is the truth; Done syncs with the server.
+        if (current.editing || editsInFlight > 0) return
+        val id = current.id
         detailJob?.cancel()
         _detail.update { it?.copy(refreshing = it.entries.isNotEmpty(), error = null) }
         detailJob = viewModelScope.launch {
@@ -209,28 +228,113 @@ class PlaylistsViewModel(private val graph: AppGraph) : ViewModel() {
         if (_detail.value?.id == playlist.id) refreshDetail()
     }
 
+    // --- Editing the song list ------------------------------------------------
+    // Local first (PlaylistEdits), then the server, one call at a time. While
+    // editing, the server's answers are not applied (the list on screen is
+    // ahead of them); leaving edit mode reloads the playlist.
+
+    fun startEditing() {
+        val d = _detail.value ?: return
+        if (d.playlist?.editable != true || d.fromCache) return
+        _detail.update { it?.copy(editing = true) }
+    }
+
+    fun finishEditing() {
+        commitPendingRemoval()
+        _detail.update { it?.copy(editing = false, drag = null) }
+        if (editsInFlight == 0) refreshDetail()
+    }
+
+    /** Removes an entry at once; the Undo snackbar can bring it back until it is committed. */
     fun remove(entry: PlaylistEntry) {
-        val id = _detail.value?.id ?: return
-        // Gone from the screen at once; the server's answer replaces the list.
-        _detail.update { it?.copy(entries = it.entries.filterNot { e -> e.entryId == entry.entryId }, busy = true) }
-        mutate("remove the song", onError = { refreshDetail() }) {
-            applyDetail(id, repo.remove(id, entry.entryId))
-            _list.value.playlists.firstOrNull { it.id == id }?.let { replaceInList(it.copy(songCount = it.songCount - 1)) }
+        val d = _detail.value ?: return
+        val (next, previous) = d.edits.remove(entry.entryId)
+        _detail.update { it?.copy(entries = next.entries, pending = next.pending) }
+        previous?.let(::sendRemoval)
+    }
+
+    fun undoRemove() {
+        val d = _detail.value ?: return
+        val next = d.edits.undo()
+        _detail.update { it?.copy(entries = next.entries, pending = null) }
+    }
+
+    /** The Undo snackbar timed out (or editing ended): send the pending removal. */
+    fun commitPendingRemoval(entryId: String? = null) {
+        val d = _detail.value ?: return
+        if (d.pending == null || (entryId != null && d.pending.entry.entryId != entryId)) return
+        val (next, pending) = d.edits.commitPending()
+        _detail.update { it?.copy(pending = next.pending) }
+        pending?.let(::sendRemoval)
+    }
+
+    fun startDrag(entryId: String) {
+        commitPendingRemoval()
+        _detail.update { it?.let { d -> d.copy(drag = d.edits.startDrag(entryId).drag) } }
+    }
+
+    fun dragOver(targetId: String) {
+        _detail.update { it?.let { d -> d.copy(entries = d.edits.dragOver(targetId).entries) } }
+    }
+
+    fun endDrag() {
+        val d = _detail.value ?: return
+        val (next, move) = d.edits.endDrag()
+        _detail.update { it?.copy(drag = next.drag) }
+        if (move != null) {
+            sendEdit(d.id, "move the song") { repo.move(d.id, move.entryId, move.position) }
         }
     }
 
-    /** Moves an entry one place up ([delta] = -1) or down (+1). */
-    fun move(entry: PlaylistEntry, delta: Int) {
-        val current = _detail.value ?: return
-        if (current.busy) return
-        val from = current.entries.indexOfFirst { it.entryId == entry.entryId }
-        val to = from + delta
-        if (from < 0 || to !in current.entries.indices) return
-        val reordered = current.entries.toMutableList().apply { add(to, removeAt(from)) }
-        _detail.update { it?.copy(entries = reordered, busy = true) }
-        mutate("move the song", onError = { refreshDetail() }) {
-            applyDetail(current.id, repo.move(current.id, entry.entryId, to + 1))
+    /** One step up (-1) or down (+1): TalkBack's "Move up" / "Move down" in edit mode. */
+    fun moveBy(entry: PlaylistEntry, delta: Int) {
+        val d = _detail.value ?: return
+        val from = d.entries.indexOfFirst { it.entryId == entry.entryId }
+        val target = d.entries.getOrNull(from + delta) ?: return
+        startDrag(entry.entryId)
+        dragOver(target.entryId)
+        endDrag()
+    }
+
+    private fun sendRemoval(p: PlaylistEdits.PendingRemoval) {
+        val id = _detail.value?.id ?: return
+        sendEdit(id, "remove the song") {
+            repo.remove(id, p.entry.entryId)
+            _list.value.playlists.firstOrNull { it.id == id }?.let { replaceInList(it.copy(songCount = (it.songCount - 1).coerceAtLeast(0))) }
         }
+    }
+
+    private fun sendEdit(id: String, what: String, block: suspend () -> Unit) {
+        editsInFlight++
+        viewModelScope.launch {
+            var failed = false
+            try {
+                editLock.withLock { block() }
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                failed = true
+                say("Could not $what: ${PlaylistRepository.describe(t)}")
+            } finally {
+                editsInFlight--
+            }
+            val d = _detail.value
+            if (d?.id != id) return@launch
+            if (failed) {
+                // The list on screen is wrong now: start over from the server's.
+                _detail.update { it?.copy(pending = null, drag = null) }
+                forceRefreshDetail()
+            } else if (editsInFlight == 0 && !d.editing && d.pending == null) {
+                refreshDetail()
+            }
+        }
+    }
+
+    private fun forceRefreshDetail() {
+        val wasEditing = _detail.value?.editing == true
+        _detail.update { it?.copy(editing = false) }
+        if (editsInFlight == 0) refreshDetail()
+        if (wasEditing) _detail.update { it?.copy(editing = true) }
     }
 
     private fun mutate(what: String, onError: () -> Unit = {}, block: suspend () -> Unit) {

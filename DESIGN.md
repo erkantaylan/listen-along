@@ -409,3 +409,10 @@ Radii 8dp (buttons, inputs) and 12dp (cards, list groups). Icons are Material pa
 tinted `fg3` by default. The player is one persistent mini bar above the tabs (cover, title,
 "artist · context", previous / solid accent play pill / next, thin progress line) plus a
 full-screen player; never add a second one.
+
+Song menus: ⋮ on a row opens a `DropdownMenu`; a long-press on the row (or on the full player's
+cover/title) opens the same items in a `ModalBottomSheet` (`SongActionsSheet`), headed by the song's
+title and artist. A song marked as broken shows `ReportIcon` (warning glyph in a muted
+`Palette.warning`, a real button with a TalkBack label) right after its title. Playlist edit mode
+swaps the top bar's "Edit" for "Done" and gives rows a drag handle and a danger-tinted remove
+button; removals confirm with an Undo `Snackbar` (`bg2`, accent action) rather than a dialog.

@@ -300,14 +300,24 @@ fun ListGroupItem(
 
 @Composable
 private fun Modifier.combinedClickableCompat(onClick: () -> Unit, onLongClick: (() -> Unit)?): Modifier =
-    combinedClickable(onClick = onClick, onLongClick = onLongClick)
+    combinedClickable(onClick = onClick, onLongClick = onLongClick, onLongClickLabel = if (onLongClick != null) "Song actions" else null)
 
 /** Title and a muted line under it, truncated, filling the row's free width. */
 @Composable
-fun RowScope.TitleAndMeta(title: String, meta: String, titleColor: Color = Palette.fg, extra: (@Composable () -> Unit)? = null) {
+fun RowScope.TitleAndMeta(
+    title: String,
+    meta: String,
+    titleColor: Color = Palette.fg,
+    extra: (@Composable () -> Unit)? = null,
+    /** Right after the title (the broken-song icon). */
+    titleTrailing: (@Composable () -> Unit)? = null,
+) {
     Column(Modifier.weight(1f).padding(start = 12.dp, end = 4.dp)) {
-        Text(title, color = titleColor, fontSize = 15.sp, lineHeight = 20.sp, maxLines = 1,
-             overflow = TextOverflow.Ellipsis)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(title, color = titleColor, fontSize = 15.sp, lineHeight = 20.sp, maxLines = 1,
+                 overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+            titleTrailing?.invoke()
+        }
         if (meta.isNotEmpty()) {
             Text(meta, color = Palette.fg3, fontSize = 13.sp, lineHeight = 18.sp, maxLines = 1,
                  overflow = TextOverflow.Ellipsis)

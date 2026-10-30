@@ -2,7 +2,16 @@ package com.erkantaylan.listenalong.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import com.erkantaylan.listenalong.reports.ReportReasons
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -65,9 +74,14 @@ fun LibraryScreen(
         if (nearEnd && state.canLoadMore) viewModel.loadMore()
     }
     // A new search starts at the top.
-    LaunchedEffect(state.query, state.sort) { listState.scrollToItem(0) }
+    LaunchedEffect(state.query, state.sort, state.brokenOnly) { listState.scrollToItem(0) }
 
     val label = if (state.offline) "On device" else "Library"
+    val reports = LocalReports.current
+    // In the Broken list, a song leaves as soon as its last report is withdrawn.
+    val shown = remember(state.songs, state.brokenOnly, reports) {
+        if (state.brokenOnly) state.songs.filter { reports[it.id].orEmpty().isNotEmpty() } else state.songs
+    }
 
     Column(Modifier.fillMaxSize().background(Palette.page).semantics { testTagsAsResourceId = true }) {
         AppTopBar(
@@ -104,6 +118,7 @@ fun LibraryScreen(
                 { IconAction(AppIcons.Close, "Clear search", size = 36.dp, iconSize = 18.dp) { viewModel.clearQuery() } }
             } else null,
         )
+        BrokenFilter(state.brokenOnly, LocalReports.current.size, viewModel::onBrokenOnlyChange)
         if (state.offline) {
             Alert(
                 "Offline — showing the ${state.songs.size} songs on this device.",
@@ -124,10 +139,16 @@ fun LibraryScreen(
             state.songs.isEmpty() -> EmptyState(
                 title = when {
                     state.query.isNotBlank() -> "Nothing matches."
+                    state.brokenOnly && state.offline -> "None of the songs on this device are marked as broken."
+                    state.brokenOnly -> "No songs are marked as broken."
                     state.offline -> "No songs on this device yet."
                     else -> "The library is empty."
                 },
-                icon = if (state.query.isNotBlank()) AppIcons.Search else AppIcons.MusicNote,
+                icon = when {
+                    state.query.isNotBlank() -> AppIcons.Search
+                    state.brokenOnly -> AppIcons.Warning
+                    else -> AppIcons.MusicNote
+                },
             )
 
             else -> PullToRefreshBox(
@@ -142,28 +163,30 @@ fun LibraryScreen(
                 ) {
                     item(key = "play-all") {
                         PlayAllBar(
-                            playEnabled = true,
-                            onPlay = { actions.play(viewModel.currentSongs(), 0, label, false) },
-                            onShuffle = { actions.play(viewModel.currentSongs(), 0, label, true) },
+                            playEnabled = shown.isNotEmpty(),
+                            onPlay = { actions.play(shown, 0, label, false) },
+                            onShuffle = { actions.play(shown, 0, label, true) },
                         )
                     }
-                    itemsIndexed(state.songs, key = { _, song -> song.id }) { i, song ->
+                    itemsIndexed(shown, key = { _, song -> song.id }) { i, song ->
                         val download = downloads.stateOf(song.id)
                         SongRow(
                             index = i,
-                            count = state.songs.size,
+                            count = shown.size,
                             tag = "song:${song.id}",
                             title = song.title,
                             artist = song.artist,
                             durationSec = song.durationSec,
                             download = download,
                             current = nowPlaying.songId == song.id,
-                            onClick = { actions.play(state.songs, i, label, false) },
+                            onClick = { actions.play(shown, i, label, false) },
                             onDownload = {
                                 actions.beforeDownload()
                                 viewModel.download(song)
                             },
                             onCancelDownload = { viewModel.cancel(song) },
+                            reportSong = song,
+                            detail = if (state.brokenOnly) reports[song.id]?.let { ReportReasons.lines(it).joinToString("\n") } else null,
                         ) { dismiss ->
                             MenuEntry("Add to playlist", AppIcons.PlaylistAdd, "menu-add-to-playlist",
                                       enabled = !state.offline) {
@@ -254,6 +277,41 @@ fun LibraryScreen(
                 )
             }
         }
+    }
+}
+
+/** "All songs" / "Broken · n": the web library's Broken tab, as two toggle chips. */
+@Composable
+private fun BrokenFilter(brokenOnly: Boolean, count: Int, onChange: (Boolean) -> Unit) {
+    androidx.compose.foundation.layout.Row(
+        Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp),
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+    ) {
+        FilterToggle("All songs", null, !brokenOnly, "filter:all") { onChange(false) }
+        FilterToggle(if (count > 0) "Broken · $count" else "Broken", AppIcons.Warning, brokenOnly, "filter:broken") { onChange(true) }
+    }
+}
+
+@Composable
+private fun FilterToggle(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector?, selected: Boolean, tag: String, onClick: () -> Unit) {
+    androidx.compose.foundation.layout.Row(
+        Modifier
+            .clip(ButtonShape)
+            .background(if (selected) Palette.accentSubtle else Palette.surface)
+            .border(1.dp, if (selected) Palette.accent else Palette.border, ButtonShape)
+            .clickable(onClick = onClick)
+            .semantics { this.selected = selected; role = androidx.compose.ui.semantics.Role.Tab }
+            .heightIn(min = 34.dp)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .testTag(tag),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (icon != null) {
+            androidx.compose.material3.Icon(icon, contentDescription = null,
+                tint = if (selected) Palette.accentFg else Palette.fg3, modifier = Modifier.size(16.dp))
+            androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
+        }
+        Text(text, color = if (selected) Palette.accentFg else Palette.fg2, fontSize = 14.sp)
     }
 }
 

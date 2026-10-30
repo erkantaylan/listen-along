@@ -24,9 +24,32 @@ data class Song(
     @SerialName("uploaded_by") val uploadedBy: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("source_url") val sourceUrl: String? = null,
+    /** Open "needs replacement" reports (oldest first); the server sends them with every song. */
+    val reports: List<SongReport> = emptyList(),
+    @SerialName("report_count") val reportCount: Int = reports.size,
 ) {
     val durationSec: Int? get() = durationRaw?.roundToInt()
 }
+
+/**
+ * One open "Mark as broken — needs replacement" report on a song
+ * (backend/src/songReports.js `toView`). [mine] is true for the token
+ * owner's own report, the only one they can edit or withdraw. No user ids
+ * of other people are ever sent, only the reporter's display name.
+ */
+@Serializable
+data class SongReport(
+    val id: String,
+    val reason: String? = null,
+    @SerialName("reported_by") val reportedBy: String = "someone",
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("updated_at") val updatedAt: String? = null,
+    val mine: Boolean = false,
+)
+
+/** `POST /api/library/:id/report` → `{ report, song }` (the song with every open report). */
+@Serializable
+data class ReportResult(val report: SongReport, val song: Song? = null)
 
 @Serializable
 data class LibraryPage(
@@ -62,12 +85,19 @@ data class Playlist(
     val isOwner: Boolean = false,
     /** Owner-only actions: visibility and delete. */
     val canManage: Boolean = false,
+    /**
+     * May change the song list (add, remove, reorder): public → anyone signed
+     * in, private → the owner. Older servers do not send it; see [editable].
+     */
+    val canEdit: Boolean? = null,
     val pinned: Boolean = false,
     val userCount: Int = 0,
     val songCount: Int = 0,
     val createdAt: Long? = null,
 ) {
     val isPrivate: Boolean get() = Visibility.of(visibility) == Visibility.PRIVATE
+    /** The server's `canEdit`, else its rule: a public playlist is anyone's, a private one its owner's. */
+    val editable: Boolean get() = canEdit ?: (!isPrivate || isOwner)
     val displayName: String get() = name?.takeIf { it.isNotBlank() } ?: "Untitled playlist"
 
     /** The web's muted line: "by you", "by Ayşe", or "shared" for an ownerless legacy playlist. */

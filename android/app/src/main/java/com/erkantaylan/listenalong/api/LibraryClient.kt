@@ -51,9 +51,12 @@ class LibraryClient(
         limit: Int = PAGE_SIZE,
         offset: Int = 0,
         sort: SortOrder = SortOrder.RECENT,
+        /** Only songs someone marked as broken (`?reported=1`). */
+        reported: Boolean = false,
     ): LibraryPage = withContext(Dispatchers.IO) {
         val url = endpoint("api/library").newBuilder()
             .apply { if (query.isNotBlank()) addQueryParameter("q", query.trim()) }
+            .apply { if (reported) addQueryParameter("reported", "1") }
             .addQueryParameter("limit", limit.coerceIn(1, MAX_LIMIT).toString())
             .addQueryParameter("offset", offset.coerceAtLeast(0).toString())
             .addQueryParameter("sort", sort.param)
@@ -70,10 +73,11 @@ class LibraryClient(
         query: String = "",
         sort: SortOrder = SortOrder.RECENT,
         pageSize: Int = MAX_LIMIT,
+        reported: Boolean = false,
     ): List<Song> {
         val all = ArrayList<Song>()
         while (true) {
-            val page = list(query, pageSize, all.size, sort)
+            val page = list(query, pageSize, all.size, sort, reported)
             all += page.songs
             if (page.songs.isEmpty() || all.size >= page.total) return all
         }
@@ -83,6 +87,24 @@ class LibraryClient(
     suspend fun me(): Me = withContext(Dispatchers.IO) {
         getJson(endpoint("api/me")) { apiJson.decodeFromString<Me>(it) }
     }
+
+    // --- "Mark as broken — needs replacement" --------------------------------
+    // backend/src/libraryRoutes.js: one open report per user per song;
+    // reporting again updates the reason. Only your own report can be withdrawn.
+
+    /** Marks [songId] as broken, or updates the reason of your report. [reason] may be blank. */
+    suspend fun report(songId: String, reason: String?): ReportResult = withContext(Dispatchers.IO) {
+        val body = buildJsonObject { reason?.trim()?.takeIf { it.isNotEmpty() }?.let { put("reason", it) } }
+        sendJson("POST", reportUrl(songId), body) { apiJson.decodeFromString<ReportResult>(it) }
+    }
+
+    /** Withdraws your own report. A 404 [ApiException] when you had none. */
+    suspend fun unmark(songId: String) = withContext(Dispatchers.IO) {
+        sendJson("DELETE", reportUrl(songId), null) { }
+    }
+
+    private fun reportUrl(songId: String): HttpUrl =
+        endpoint("api/library").newBuilder().addPathSegment(songId).addPathSegment("report").build()
 
     // --- Playlists -----------------------------------------------------------
     // Server side: the playlist routes in backend/src/index.js. A playlist the
