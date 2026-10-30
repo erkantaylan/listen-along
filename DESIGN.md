@@ -130,6 +130,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Cover art | `.app-thumb` (3rem square, grey placeholder with a music-note SVG). |
 | Chat / people | The one `#social-panel` (see "Chat and people panel"). Never add a second chat or people list. |
 | Player | The one app-wide `#player-bar` (`section.sticky-player.player-bar` in `index.html`, outside the views): see "Player bar" below. Never add a second player or a per-page `<audio>`. |
+| Context menu / small popover | `context-menu.js` (see "Context menu" below). Never a second menu implementation. |
 | Icons | Inline SVG (Material paths), `fill="currentColor"`, `aria-hidden="true"`. Inside buttons they are sized automatically (1.25rem, 1rem in `.btn-sm`); elsewhere add `.icon` or `.icon-sm`. |
 
 ## Page layouts
@@ -154,9 +155,9 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   A playlist you cannot see (missing, deleted, someone else's private one) shows a
   "Playlist not found" toast and returns to the landing page.
 - **Music library**: fixed full-screen layer over landing or a playlist: navbar (back, title, "adding
-  to" context), tabs Songs/Requested with count badges, search + sort toolbar, list group of
+  to" context), tabs Songs/Requested/Download/Broken with count badges, search + sort toolbar, list group of
   songs (play button — plays in the app-wide player, shows pause on the song that is playing —, a grey
-  icon button "Replace audio…" (swap arrows), Add / disabled "Added" button), 20 per page: a compact
+  icon button "Replace audio…" (swap arrows), Add / disabled "Added" button, ⋮ song menu), 20 per page: a compact
   "‹ Page n of m ›" pager above the list and the full numbered pagination + range below it
   (both follow `?page=`, both hidden when there is one page).
   "Replace audio…" opens an `.app-modal` card (any approved user): a one-line muted
@@ -197,11 +198,48 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 - **Dashboard**: navbar (hamburger below 1024px), 15rem sidebar list group, main area with
   stat cards grid, public playlists and users list groups (private playlists are only counted, never listed).
 - **/admin, /youtube-playlist, /changelog**: navbar + narrow column of cards; Bootstrap and
-  utilities only. `/admin` starts with **Downloaders** (every `la worker` ever connected:
+  utilities only. `/admin` starts with **Downloaders**, then **Broken songs** (see "Context menu"), (every `la worker` ever connected:
   name · owner, host / platform / OS, IP and versions in muted lines, online / busy /
   offline badge, Refresh button — the only place machine details appear) and **Download
   jobs** (status filter select, counts in the header, rows with requester, playlist,
   worker, error code, status badge and Cancel / Retry); both refresh every 10s.
+
+### Context menu
+
+One reusable component, `frontend/context-menu.js` (styles: "Context menu" in `app.css`),
+Bootstrap 6 `.menu` / `.menu-item` / `.menu-header` / `.menu-divider` markup, no Bootstrap JS.
+
+- `openContextMenu({ x, y } | { anchor }, items, { label, trigger, returnFocus, focusFirst, kind })`
+  opens one fixed `.menu.app-ctx-menu` (z-index `--bs-z-popover`, above the player bar and the
+  library overlay) at the pointer, or under an element right-aligned; it flips and clamps to stay
+  inside the viewport (8px margin). Items: `{ label, description?, icon?, theme?, disabled?, onSelect }`,
+  `{ header }`, `{ divider: true }`, `{ text, muted? }`. `kind: 'popover'` renders the same box as
+  `role="dialog"` for read-only details (e.g. a song's reports).
+- `bindContextMenu(root, { rowSelector, triggerSelector, getItems, label })` wires a list
+  (delegated, rows may re-render): right-click, a 500ms long-press on touch/pen (cancelled by
+  >10px movement; swallows the click that follows), the keyboard context-menu key / Shift+F10
+  on a focused row (anchored to the row), and a visible ⋮ trigger in each row
+  (`.btn-text.theme-secondary.btn-icon.btn-sm`, `aria-haspopup="menu"`, `aria-expanded`).
+  The browser's own menu is suppressed **only on rows**, and kept on links/inputs and with Shift held.
+- ARIA and keys: `role="menu"` + `role="menuitem"` buttons; ↑/↓ (wrapping), Home/End, Enter/Space;
+  Escape and Tab close and return focus to the trigger/row; outside click, any scroll, resize and
+  window blur close it. Opened from the keyboard, focus goes to the first item. Coarse pointers get
+  2.75rem items.
+- Song rows use it through `song-reports.js` (`bindSongMenu`, `songMenuItems`): library rows,
+  playlist queue rows and the player bar's current song (right-click / long-press on the song,
+  plus `#player-menu-btn`, hidden in the slim phone bar where long-press is the way in). Add new
+  song actions to `songMenuItems` — keep labels short ("Mark as broken", "Unmark broken").
+
+**Broken songs ("needs replacement").** A reported song shows a small muted-warning icon button
+(`.song-broken-btn`, warning triangle, `aria-label` + `title` "Needs replacement — marked as broken
+by n people") right after its title in library rows, queue rows and the player bar — never a text
+badge on rows. Clicking it opens the details popover (count, each reason, reporter, time). The
+"Mark as broken" dialog is an `.app-modal` card: preset reason buttons (Wrong song, Bad audio,
+Cut off, …; `.active` when chosen), a free-text input (max 200, counter), Cancel + primary
+"Mark as broken" / "Update". The library's fourth tab **Broken** (`?tab=broken`, warning count
+badge) is the Songs list filtered to reported songs with every report listed under the row; `/admin`
+has a **Broken songs** card (reasons, reporters, per-report Dismiss, Dismiss all). Short labels
+("Broken") are fine on tabs, cards and badges there.
 
 ### Player bar
 

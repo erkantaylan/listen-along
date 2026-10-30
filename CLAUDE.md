@@ -55,6 +55,16 @@ where lobby persistence broke entirely on deployed instances.
   `library:updated { replaced }` (players reload the new file). Audio
   responses are `no-cache` unless the url has `?v=<file_version>`: never mark
   song urls immutable again, a song's file can change under the same url.
+- Broken songs ("needs replacement", `songReports.js`, table
+  `library_song_reports`): approved users / owned tokens `POST|DELETE
+  /api/library/:id/report` (one open report per user per song, partial unique
+  index; only your own can be withdrawn); songs carry `reports` +
+  `report_count`; `GET /api/library?reported=1` lists them (CLI/worker can use
+  it); `library.replaceSong` resolves open reports in its transaction
+  ('replaced'); admins dismiss via `/api/admin/library/reports/:id/dismiss` or
+  `/api/admin/library/:songId/reports/dismiss`. Changes emit
+  `library:updated { reports }`. Frontend: `song-reports.js` +
+  the reusable `context-menu.js` (DESIGN.md "Context menu").
 - **Downloaders ("workers") and download jobs.** `la worker` (cli/src/worker.js,
   commands/worker.js) runs on users' machines and connects OUT over a
   WebSocket to `/api/workers/connect` (raw `ws` server on the HTTP server's
