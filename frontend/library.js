@@ -26,6 +26,66 @@ const lib = {
 
 const $ = (id) => document.getElementById(id);
 
+// --- Preview ----------------------------------------------------------------
+// One shared <audio> for listening to a library song without a lobby; starting
+// another preview replaces the current one.
+
+const PLAY_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+const PAUSE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
+
+const preview = { audio: null, songId: null };
+
+function previewPlaying(songId) {
+  return preview.songId === songId && preview.audio && !preview.audio.paused;
+}
+
+function previewButtonHtml(songId) {
+  const playing = previewPlaying(songId);
+  return `<button class="btn-icon libpage-preview${playing ? ' playing' : ''}" data-id="${escapeHtml(songId)}" type="button" aria-label="${playing ? 'Pause preview' : 'Play preview'}" title="${playing ? 'Pause' : 'Preview'}">${playing ? PAUSE_ICON : PLAY_ICON}</button>`;
+}
+
+function updatePreviewButtons() {
+  document.querySelectorAll('.libpage-preview').forEach((btn) => {
+    const playing = previewPlaying(btn.dataset.id);
+    btn.classList.toggle('playing', playing);
+    btn.innerHTML = playing ? PAUSE_ICON : PLAY_ICON;
+    btn.setAttribute('aria-label', playing ? 'Pause preview' : 'Play preview');
+    btn.title = playing ? 'Pause' : 'Preview';
+  });
+}
+
+function togglePreview(songId) {
+  if (!preview.audio) {
+    preview.audio = new Audio();
+    preview.audio.preload = 'none';
+    ['play', 'pause', 'ended'].forEach((ev) => preview.audio.addEventListener(ev, updatePreviewButtons));
+    preview.audio.addEventListener('error', () => {
+      if (!preview.songId) return;
+      showToast('Could not play this song', 'error');
+      preview.songId = null;
+      updatePreviewButtons();
+    });
+  }
+  if (preview.songId === songId) {
+    if (preview.audio.paused) preview.audio.play().catch(() => {});
+    else preview.audio.pause();
+    return;
+  }
+  preview.songId = songId;
+  preview.audio.src = `/api/library/${encodeURIComponent(songId)}/file`;
+  preview.audio.play().catch(() => {});
+  updatePreviewButtons();
+}
+
+function stopPreview() {
+  if (!preview.audio) return;
+  preview.songId = null;
+  preview.audio.pause();
+  preview.audio.removeAttribute('src');
+  preview.audio.load();
+  updatePreviewButtons();
+}
+
 function relativeDate(value) {
   const ts = typeof value === 'number' ? value : Date.parse(value);
   if (!Number.isFinite(ts)) return '';
@@ -95,6 +155,7 @@ function renderSongs() {
           <div class="libpage-sub">${sub}</div>
           <div class="libpage-meta">${meta}</div>
         </div>
+        ${previewButtonHtml(song.id)}
         <button class="btn btn-small btn-primary libpage-add" data-id="${escapeHtml(song.id)}" ${canAdd ? '' : 'disabled title="Join a lobby first"'}>Add</button>
       </li>`;
     }).join('');
@@ -219,6 +280,7 @@ export function closeLibraryPage() {
   const page = $('library-page');
   if (!page) return;
   lib.open = false;
+  stopPreview();
   page.hidden = true;
   document.body.classList.remove('libpage-open');
 }
@@ -247,6 +309,8 @@ export function setupLibraryPage() {
   $('libpage-more').addEventListener('click', () => loadSongs({ append: true }));
   $('libpage-request-status').addEventListener('change', (e) => { lib.requestStatus = e.target.value; loadRequests(); });
   $('libpage-list').addEventListener('click', (e) => {
+    const play = e.target.closest('.libpage-preview');
+    if (play) { togglePreview(play.dataset.id); return; }
     const btn = e.target.closest('.libpage-add');
     if (btn) addToQueue(btn.dataset.id, btn);
   });

@@ -213,6 +213,10 @@ body.libpage-open { overflow: hidden; }
 
 .libpage-add:disabled { opacity: 0.5; cursor: not-allowed; }
 
+.libpage-preview { flex-shrink: 0; }
+.libpage-preview svg { width: 20px; height: 20px; }
+.libpage-preview.playing { color: var(--primary); }
+
 .libpage-badge {
   flex-shrink: 0;
   font-size: 0.7rem;

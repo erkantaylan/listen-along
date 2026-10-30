@@ -143,6 +143,31 @@
 
   // --- library --------------------------------------------------------------
   let searchTimer = null;
+
+  // In-page preview: one shared <audio>, toggled by each song's Play button.
+  const previewAudio = new Audio();
+  previewAudio.preload = 'none';
+  let previewId = null;
+
+  function updatePlayButtons() {
+    document.querySelectorAll('[data-play]').forEach((btn) => {
+      btn.textContent = btn.dataset.play === previewId && !previewAudio.paused ? 'Pause' : 'Play';
+    });
+  }
+  ['play', 'pause', 'ended'].forEach((ev) => previewAudio.addEventListener(ev, updatePlayButtons));
+
+  function togglePreview(id) {
+    if (previewId === id) {
+      if (previewAudio.paused) previewAudio.play().catch(() => {});
+      else previewAudio.pause();
+      return;
+    }
+    previewId = id;
+    previewAudio.src = `/api/library/${encodeURIComponent(id)}/file`;
+    previewAudio.play().catch((err) => alert(`Could not play: ${err.message}`));
+    updatePlayButtons();
+  }
+
   async function loadLibrary() {
     const list = $('adm-library');
     const q = $('adm-library-search').value.trim();
@@ -156,7 +181,7 @@
             <div class="adm-item-title">${esc(s.title)} <span class="adm-muted">— ${esc(s.artist)}</span></div>
             <div class="adm-item-sub">${s.album ? esc(s.album) + ' · ' : ''}${s.youtube_id ? 'YouTube ' + esc(s.youtube_id) + ' · ' : ''}uploaded by ${esc(s.uploaded_by)} · ${esc(when(s.created_at))}</div>
           </div>
-          <a class="adm-btn adm-btn-ghost" href="/api/library/${encodeURIComponent(s.id)}/file" target="_blank" rel="noopener">Play</a>
+          <button class="adm-btn adm-btn-ghost" data-play="${esc(s.id)}" type="button">${previewId === s.id && !previewAudio.paused ? 'Pause' : 'Play'}</button>
           <button class="adm-btn adm-btn-danger" data-delete="${esc(s.id)}" data-title="${esc(s.title)}">Delete</button>
         </li>`).join('');
     } catch (err) {
@@ -169,6 +194,8 @@
     searchTimer = setTimeout(loadLibrary, 250);
   });
   $('adm-library').addEventListener('click', async (e) => {
+    const play = e.target.closest('[data-play]');
+    if (play) { togglePreview(play.dataset.play); return; }
     const btn = e.target.closest('[data-delete]');
     if (!btn) return;
     if (!confirm(`Delete "${btn.dataset.title}" from the library? The file is removed from the server.`)) return;
