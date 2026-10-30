@@ -86,8 +86,8 @@ function updateDashboardLobbies(lobbies) {
         ${lobby.currentTrack ? `<span class="dashboard-lobby-track ${lobby.isPlaying ? 'playing' : ''}">${escapeHtml(lobby.currentTrack)}</span>` : ''}
       </div>
       <div class="dashboard-lobby-actions">
-        <button class="btn btn-small" onclick="window.dashboardJoinLobby('${escapeHtml(lobby.id)}')">Join</button>
-        <button class="btn btn-small btn-danger" onclick="window.dashboardRemoveLobby('${escapeHtml(lobby.id)}')">Remove</button>
+        <button class="btn btn-small" onclick="window.dashboardJoinLobby(${escapeHtml(JSON.stringify(lobby.id))})">Join</button>
+        <button class="btn btn-small btn-danger" onclick="window.dashboardRemoveLobby(${escapeHtml(JSON.stringify(lobby.id))})">Remove</button>
       </div>
       <div class="dashboard-lobby-age">${age}</div>
     </li>`;
@@ -123,7 +123,7 @@ export function renderDashboardUserList() {
     const showReject = user.status !== 'rejected';
     const avatarHtml = user.avatar_url
       ? `<img class="dashboard-user-avatar-img" src="${escapeHtml(user.avatar_url)}" alt="" loading="lazy">`
-      : `<div class="dashboard-user-avatar">${user.emoji || '\uD83C\uDFB5'}</div>`;
+      : `<div class="dashboard-user-avatar">${escapeHtml(user.emoji || '\uD83C\uDFB5')}</div>`;
     const displayName = user.name || user.username;
     const subName = user.name && user.username && user.name !== user.username ? `<span class="dashboard-user-handle">@${escapeHtml(user.username)}</span>` : '';
     return `<li class="dashboard-user-item" data-user-id="${escapeHtml(user.id)}">
@@ -134,8 +134,8 @@ export function renderDashboardUserList() {
       </div>
       <span class="dashboard-user-status status-${user.status}">${user.status}</span>
       <div class="dashboard-user-actions">
-        ${showApprove ? `<button class="btn btn-small btn-approve" onclick="window.dashboardApproveUser('${escapeHtml(user.id)}')">Approve</button>` : ''}
-        ${showReject ? `<button class="btn btn-small btn-reject" onclick="window.dashboardRejectUser('${escapeHtml(user.id)}')">Reject</button>` : ''}
+        ${showApprove ? `<button class="btn btn-small btn-approve" onclick="window.dashboardApproveUser(${escapeHtml(JSON.stringify(user.id))})">Approve</button>` : ''}
+        ${showReject ? `<button class="btn btn-small btn-reject" onclick="window.dashboardRejectUser(${escapeHtml(JSON.stringify(user.id))})">Reject</button>` : ''}
       </div>
     </li>`;
   }).join('');
