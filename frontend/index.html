@@ -1,19 +1,17 @@
 <!DOCTYPE html>
-<html lang="en" data-default-lang="en">
+<html lang="en" data-bs-theme="dark" data-default-lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#fafbfc" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#2c2f33" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#2c2f33">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="description" content="Listen to music with friends in sync" data-i18n-content="app.description">
   <title>listen-along</title>
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/favicon.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <script src="/theme.js"></script>
   <link rel="stylesheet" href="/vendor/bootstrap-6.0.0-alpha.1/css/bootstrap.min.css">
   <link rel="stylesheet" href="/theme.css">
   <link rel="stylesheet" href="/app.css">
@@ -24,7 +22,6 @@
     <nav class="navbar app-navbar">
       <div class="container app-narrow">
         <span class="app-brand"><img src="/icon-192.png" alt="">listen-along</span>
-        <button type="button" class="btn-text theme-secondary btn-icon ms-auto" data-theme-toggle aria-label="Toggle colour mode"></button>
       </div>
     </nav>
     <main class="app-main container app-narrow app-center">
@@ -77,7 +74,6 @@
       <div class="container app-narrow">
         <span class="app-brand"><img src="/icon-192.png" alt="">listen-along</span>
         <div class="d-flex align-items-center gap-1 ms-auto">
-          <button type="button" class="btn-text theme-secondary btn-icon" data-theme-toggle aria-label="Toggle colour mode"></button>
           <button id="landing-profile-btn" class="btn-text theme-secondary btn-icon landing-profile-btn" type="button" aria-label="Profile" title="Profile">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
           </button>
@@ -168,7 +164,6 @@
           <button id="share-btn" class="btn-text theme-secondary btn-icon" type="button" aria-label="Share lobby" title="Share lobby" data-i18n-aria-label="lobby.shareLobby">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/></svg>
           </button>
-          <button type="button" class="btn-text theme-secondary btn-icon" data-theme-toggle aria-label="Toggle colour mode"></button>
         </div>
       </div>
     </nav>
@@ -350,7 +345,6 @@
     <nav class="navbar app-navbar">
       <div class="container app-narrow">
         <span class="app-brand"><img src="/icon-192.png" alt="">listen-along</span>
-        <button type="button" class="btn-text theme-secondary btn-icon ms-auto" data-theme-toggle aria-label="Toggle colour mode"></button>
       </div>
     </nav>
     <main class="app-main container app-narrow app-center">
@@ -375,7 +369,6 @@
         <span class="app-brand"><img src="/icon-192.png" alt=""><span class="d-none sm:d-inline">listen-along</span></span>
         <span class="fg-3 d-none sm:d-inline" aria-hidden="true">/</span>
         <h1 class="h6 mb-0 text-truncate dashboard-topbar-title" id="dashboard-section-title">Overview</h1>
-        <button type="button" class="btn-text theme-secondary btn-icon ms-auto" data-theme-toggle aria-label="Toggle colour mode"></button>
       </div>
     </nav>
     <div class="dashboard-layout">
@@ -472,7 +465,6 @@
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
         </button>
         <h1 class="h6 mb-0 me-auto">Profile</h1>
-        <button type="button" class="btn-text theme-secondary btn-icon" data-theme-toggle aria-label="Toggle colour mode"></button>
       </div>
     </nav>
     <main class="app-main container app-narrow">
@@ -557,7 +549,6 @@
           <h1 id="libpage-heading" class="h6 mb-0">Music Library</h1>
           <div id="libpage-context" class="fs-xs fg-3 text-truncate libpage-context"></div>
         </div>
-        <button type="button" class="btn-text theme-secondary btn-icon" data-theme-toggle aria-label="Toggle colour mode"></button>
       </div>
     </nav>
     <div class="libpage-body">

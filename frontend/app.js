@@ -1,6 +1,6 @@
 // Listen-Along Frontend — Entry point and orchestrator
 import { state, elements, auth, socket, STORAGE_KEYS, viewActivators, setSocket, storageSet } from './state.js';
-import { showView, showToast, switchTab, setupLanguageSelector, fetchVersion, t } from './ui.js';
+import { showView, showToast, switchTab, setupLanguageSelector, fetchVersion, t, setupRangeFill } from './ui.js';
 import { setupAudioPlayer, setupMediaSession, playAudioWithUnlock } from './audio.js';
 import { checkAuth, setupLoginView, showPendingCard, setupProfileEditor, setupProfilePage, loadProfilePage } from './auth.js';
 import { checkUrlForDashboard, dashboardJoinLobby, dashboardRemoveLobby, dashboardApproveUser, dashboardRejectUser } from './dashboard.js';
@@ -220,6 +220,7 @@ function initAuthenticatedApp() {
   setupProfilePage();
   applyRoute();
   if (!route.lobbyId) checkForLastLobby();
+  setupRangeFill();
   setupAudioPlayer(advanceLocalQueue);
   setupMediaSession(togglePlayback, playNext, playPrevious);
   fetchVersion();

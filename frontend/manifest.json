@@ -4,8 +4,8 @@
   "description": "Listen to music with friends in sync",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#eef0f2",
-  "theme_color": "#fafbfc",
+  "background_color": "#232528",
+  "theme_color": "#2c2f33",
   "orientation": "any",
   "icons": [
     {

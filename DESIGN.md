@@ -1,16 +1,15 @@
 # listen-along design guide
 
-The web frontend is **stock Bootstrap 6 with light theming on top**. It is not a
+The web frontend is **stock Bootstrap 6 with a dark-only theme on top**. It is not a
 custom design system: reach for a Bootstrap component or utility first, and add
-CSS only for what Bootstrap does not cover. The look is calm: soft greys, muted
-text, one restrained accent.
+CSS only for what Bootstrap does not cover. The look is calm: soft dark greys (never
+black), muted text, one restrained accent. There is no light mode and no colour-mode toggle.
 
 ## Files
 
 | File | Loaded by | What it holds |
 | --- | --- | --- |
 | `frontend/vendor/bootstrap-6.0.0-alpha.1/css/bootstrap.min.css` (+ `.map`, `LICENSE`) | every page | Bootstrap itself, vendored (no CDN). |
-| `frontend/theme.js` | every page, classic `<script>` in `<head>` before the CSS | Colour mode (light/dark) + toggle buttons + range-fill sync. |
 | `frontend/theme.css` | every page, after Bootstrap | Palette (token overrides) and shared rules (navbar, icons, thumbs, empty states). |
 | `frontend/app.css` | `index.html` only | Layout of the single-page app (views, lobby, player, library, dashboard). |
 
@@ -36,7 +35,7 @@ It is a pre-release, and its API differs from Bootstrap 5:
 - Text colour utilities are `fg-*` (`fg-3` = muted, `fg-primary`), font sizes `fs-xs|sm|md|lg|xl|2xl…`.
 - Checkbox: `<input type="checkbox" class="check">`. Select: `select.form-control` (no `.form-select`).
 - Range: `<div class="form-range"><input type="range" class="form-range-input"></div>`;
-  the filled track is painted from `--bs-range-fill` (0..1). `theme.js` keeps it in step
+  the filled track is painted from `--bs-range-fill` (0..1). `ui.js` keeps it in step
   on user input; after setting `.value` from code call `syncRangeFill(input)` from `ui.js`.
 - `.card-header` is `flex-direction: column`; add `flex-row` when you `d-flex` it.
 - Adjacent `.card-body` siblings get a divider line between them; use one body if you don't want it.
@@ -62,24 +61,26 @@ Bootstrap 6 ships its CSS in cascade layers:
 
 ## Palette
 
-All colours are `light-dark(light, dark)` pairs in `theme.css`, so one set of tokens serves
-both modes. Use the tokens, never literal colours (two documented exceptions: the white
-quiet zone behind the QR code, and the placeholder text on the black YouTube frame).
+There is one palette, dark, defined in `theme.css`. Every page sets `data-bs-theme="dark"`
+statically on `<html>` (so Bootstrap's own dark tokens and `color-scheme: dark` apply with no
+flash and no script), and `theme.css` overrides the tokens on top. Use the tokens, never literal
+colours (two documented exceptions: the white quiet zone behind the QR code, and the placeholder
+text on the black YouTube frame).
 
-| Role | Token | Light | Dark |
-| --- | --- | --- | --- |
-| Page background | `--app-page-bg` | `#eef0f2` | `#232528` |
-| Surface (cards, navbars, inputs, list groups) | `--bs-bg-body` | `#fafbfc` | `#2c2f33` |
-| Subtle fills / hover | `--bs-bg-1` … `--bs-bg-4` | `#f2f4f6` → `#d5dade` | `#33363a` → `#4c5056` |
-| Body text | `--bs-fg-body` | `#2f3439` | `#e3e6e9` |
-| Secondary text | `--bs-fg-2` | `#4f565d` | `#bfc4c9` |
-| Muted text | `--bs-fg-3` | `#646c74` | `#a1a8ae` |
-| Faint (icons, timestamps) | `--bs-fg-4` | `#8a9198` | `#7f868d` |
-| Borders | `--bs-border-color` | `#dde1e5` | `#3f4348` |
-| Accent (solid) | `--bs-primary-bg` | `#4f6d8f` | `#557799` |
-| Accent text/links | `--bs-primary-fg` | `#46617f` | `#9db8d6` |
-| Accent tint | `--bs-primary-bg-subtle` | `#e4eaf1` | `#34404d` |
-| Backdrop | `--app-backdrop` | grey 35% | near-black 55% |
+| Role | Token | Value |
+| --- | --- | --- |
+| Page background | `--app-page-bg` | `#232528` |
+| Surface (cards, navbars, inputs, list groups) | `--bs-bg-body` | `#2c2f33` |
+| Subtle fills / hover | `--bs-bg-1` … `--bs-bg-4` | `#33363a` → `#4c5056` |
+| Body text | `--bs-fg-body` | `#e3e6e9` |
+| Secondary text | `--bs-fg-2` | `#bfc4c9` |
+| Muted text | `--bs-fg-3` | `#a1a8ae` |
+| Faint (icons, timestamps) | `--bs-fg-4` | `#7f868d` |
+| Borders | `--bs-border-color` | `#3f4348` |
+| Accent (solid) | `--bs-primary-bg` | `#557799` |
+| Accent text/links | `--bs-primary-fg` | `#9db8d6` |
+| Accent tint | `--bs-primary-bg-subtle` | `#34404d` |
+| Backdrop | `--app-backdrop` | near-black 55% |
 
 The accent is a muted slate blue and is the **only** brand colour. Use it for the one primary
 action in a view, the current/playing item, active toggles, links and focus rings. Neutral
@@ -88,20 +89,11 @@ Success/danger/warning are Bootstrap's own (solid fills slightly calmed) and app
 status: subtle badges, destructive buttons (`.btn-outline.theme-danger`), toasts.
 
 The key idea: `--bs-bg-body` is the *surface*, not the page. Everything Bootstrap paints
-"body coloured" (cards, inputs, list groups, navbars, toasts) becomes the light surface, and
-`body` itself sits on the slightly darker `--app-page-bg`.
+"body coloured" (cards, inputs, list groups, navbars, toasts) becomes the raised grey surface,
+and `body` itself sits on the slightly darker `--app-page-bg`.
 
-## Light and dark
-
-- Default: no `data-bs-theme` on `<html>`; Bootstrap's `color-scheme: light dark` follows the
-  OS (`prefers-color-scheme`). Light grey for most people, soft dark grey (never black) otherwise.
-- Every navbar has a toggle: `<button type="button" class="btn-text theme-secondary btn-icon" data-theme-toggle aria-label="Toggle colour mode"></button>`.
-  `theme.js` fills in the sun/moon icon and label, and on click stores `'light'`/`'dark'` in
-  `localStorage['listen-theme']` (wrapped in try/catch) and sets `data-bs-theme` on `<html>`.
-  Removing the key returns to following the OS.
-- `theme.js` must stay a classic script in `<head>`, before the stylesheets, so there is no flash.
-- Because tokens are `light-dark()` pairs you normally write no dark-mode CSS at all. If you
-  need one, add a `light-dark()` token in `theme.css` rather than a `[data-bs-theme=dark]` rule.
+Do not reintroduce a light mode, `light-dark()` pairs, `[data-bs-theme=light]` rules or a
+toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 
 ## Typography and spacing
 
@@ -119,7 +111,7 @@ The key idea: `--bs-bg-body` is the *surface*, not the page. Everything Bootstra
 
 | Need | Use |
 | --- | --- |
-| Top bar | `nav.navbar.app-navbar > .container` (brand `.app-brand` or back button + `h1.h6`, actions on the right, theme toggle last). |
+| Top bar | `nav.navbar.app-navbar > .container` (brand `.app-brand` or back button + `h1.h6`, actions on the right). |
 | Grouped content | `.card` with `.card-header` (h6) / `.card-body` / `.card-footer`. |
 | Lists of items (songs, lobbies, users, tokens) | `ul.list-group` with `li.list-group-item` (flex row: `.app-thumb`, text block `min-w-0 flex-grow-1`, actions). Clickable rows: `.list-group-item-action` + `tabindex="0"` + Enter/Space handler. Empty state: `li.list-group-item.app-empty`. |
 | Playing / current row | `.is-playing` (shared) or `.queue-item.playing/.now-playing` (lobby): accent tint + 3px accent left edge. |
@@ -141,7 +133,7 @@ The key idea: `--bs-bg-body` is the *surface*, not the page. Everything Bootstra
 ## Page layouts
 
 - **Login / pending**: navbar + one centred card (`.app-center`, `.login-card` 26rem).
-- **Landing**: navbar (brand, theme, profile), narrow column: "Start listening" card
+- **Landing**: navbar (brand, profile), narrow column: "Start listening" card
   (mode tiles `.lobby-type-selector`, name input, primary Create button, library button),
   then "Active lobbies" card with a flush list group, footer (version, language, GitHub).
 - **Lobby**: full-height column — navbar (back, name/rename, mode badge, listener count,
@@ -173,12 +165,12 @@ All pages must work from 320px wide with no horizontal page scroll; check 320 an
 ## How to add something
 
 **A new view in the SPA**: add a `<div id="…-view" class="view">` to `index.html` with an
-`app-navbar` (include the theme toggle), a `main.app-main.container` (add `.app-narrow` for
+`app-navbar`, a `main.app-main.container` (add `.app-narrow` for
 forms), register it in `ui.js`'s `showView` and in `router.js`. Build the content from cards,
 list groups and utilities. Only if something is genuinely not expressible that way, add a
 small, named section to `app.css` inside `@layer custom`, using tokens only.
 
-**A new standalone page**: copy the `<head>` of `admin.html` (theme.js, Bootstrap, theme.css),
+**A new standalone page**: copy the `<html data-bs-theme="dark">` and `<head>` of `admin.html` (Bootstrap, theme.css),
 start the body with an `app-navbar`, and use only Bootstrap + `theme.css` classes. If a rule is
 needed by more than one page, put it in `theme.css` (`@layer custom`).
 
@@ -187,7 +179,7 @@ to a semantic hook class the JS uses (e.g. `class="list-group-item libpage-item"
 selectors in JS on ids, `data-*` attributes and hook classes, never on Bootstrap classes, so
 restyling never breaks behaviour.
 
-**A new colour**: you probably don't need one. If you do, add a `light-dark()` token to
+**A new colour**: you probably don't need one. If you do, add a token to
 `theme.css`, give it a role name (`--app-…`), and add it to the palette table above.
 
-Before finishing: check light and dark, 320px and desktop, keyboard focus, and the console.
+Before finishing: check 320px and desktop, keyboard focus, and the console.

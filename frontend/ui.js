@@ -56,13 +56,22 @@ export function showToast(message, type = 'info') {
 }
 
 // Bootstrap 6 range inputs paint their filled track from --bs-range-fill (0..1).
-// Call after setting .value from code; user input is handled in theme.js.
+// User input is handled by the listener below; call this after setting .value
+// from code.
 export function syncRangeFill(input) {
   if (!input) return;
   const min = Number(input.min) || 0;
   const max = Number(input.max) || 100;
   const fill = max > min ? (Number(input.value) - min) / (max - min) : 0;
   input.style.setProperty('--bs-range-fill', String(Math.min(1, Math.max(0, fill))));
+}
+
+// Keep every range's fill in step with user input; called once at start-up.
+export function setupRangeFill() {
+  document.addEventListener('input', (e) => {
+    if (e.target.matches?.('.form-range-input')) syncRangeFill(e.target);
+  });
+  document.querySelectorAll('.form-range-input').forEach(syncRangeFill);
 }
 
 export function t(key, fallback, replacements = {}) {
