@@ -1,0 +1,38 @@
+name: Backend tests
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22 # matches docker/Dockerfile (node:22-alpine)
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+
+      # Docker is preinstalled on ubuntu-latest; the testcontainers-based DB
+      # tests skip themselves silently without it, so fail loudly instead.
+      - name: Check Docker is available
+        run: docker info --format '{{.ServerVersion}}'
+
+      - run: npm test
