@@ -20,7 +20,8 @@ const YOUTUBE_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ALLOWED_UPLOAD_MIME = new Set(['audio/mp4', 'audio/x-m4a', 'audio/m4a', 'audio/aac', 'application/octet-stream']);
 
-const PUBLIC_COLUMNS = 'id, youtube_id, title, artist, album, duration_sec, uploaded_by, created_at';
+const PUBLIC_COLUMNS = 'id, youtube_id, title, artist, album, duration_sec, source_url, uploaded_by, created_at';
+const MAX_SOURCE_URL_LENGTH = 2048;
 
 function ensureDirs() {
   for (const dir of [SONGS_PATH, LIBRARY_DIR, UPLOAD_TMP_DIR]) {
@@ -65,6 +66,24 @@ function youtubeUrl(youtubeId) {
   return `https://www.youtube.com/watch?v=${youtubeId}`;
 }
 
+/**
+ * Validate/normalise a song's original source link (e.g. the YouTube watch
+ * URL it was downloaded from). Only absolute http(s) URLs up to
+ * MAX_SOURCE_URL_LENGTH chars are accepted.
+ * @returns {string|null} the normalised URL, or null when invalid
+ */
+function normalizeSourceUrl(input) {
+  if (typeof input !== 'string') return null;
+  const s = input.trim();
+  if (!s || s.length > MAX_SOURCE_URL_LENGTH) return null;
+  let u;
+  try { u = new URL(s); } catch { return null; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+  if (!u.hostname || u.username || u.password) return null;
+  const out = u.toString();
+  return out.length <= MAX_SOURCE_URL_LENGTH ? out : null;
+}
+
 function youtubeThumbnail(youtubeId) {
   return youtubeId ? `https://i.ytimg.com/vi/${youtubeId}/hqdefault.jpg` : null;
 }
@@ -88,6 +107,7 @@ function toPublic(row) {
     artist: row.artist,
     album: row.album || null,
     duration_sec: row.duration_sec === null || row.duration_sec === undefined ? null : Number(row.duration_sec),
+    source_url: row.source_url || (row.youtube_id ? youtubeUrl(row.youtube_id) : null),
     uploaded_by: row.uploaded_by,
     created_at: row.created_at,
   };
@@ -336,7 +356,9 @@ function cleanText(value, max) {
 
 /**
  * Validate the multipart text fields of an upload.
- * @returns {{title, artist, album, youtube_id, duration_sec, request_id}}
+ * source_url is optional (http(s), <= 2048 chars); when absent it is derived
+ * from youtube_id.
+ * @returns {{title, artist, album, youtube_id, source_url, duration_sec, request_id}}
  * @throws {UploadError} 400 on invalid input
  */
 function validateUploadFields(body = {}) {
@@ -350,6 +372,16 @@ function validateUploadFields(body = {}) {
   if (body.youtube_id !== undefined && String(body.youtube_id).trim() !== '') {
     youtube_id = parseYoutubeId(String(body.youtube_id));
     if (!youtube_id) throw new UploadError(400, 'youtube_id must be an 11-character YouTube video id');
+  }
+
+  let source_url = null;
+  if (body.source_url !== undefined && body.source_url !== null && String(body.source_url).trim() !== '') {
+    source_url = normalizeSourceUrl(String(body.source_url));
+    if (!source_url) {
+      throw new UploadError(400, `source_url must be an http(s) URL of at most ${MAX_SOURCE_URL_LENGTH} characters`);
+    }
+  } else if (youtube_id) {
+    source_url = youtubeUrl(youtube_id);
   }
 
   let duration_sec = null;
@@ -366,7 +398,7 @@ function validateUploadFields(body = {}) {
     if (!isUuid(request_id)) throw new UploadError(400, 'request_id must be a UUID');
   }
 
-  return { title, artist, album, youtube_id, duration_sec, request_id };
+  return { title, artist, album, youtube_id, source_url, duration_sec, request_id };
 }
 
 function validateUploadFileMeta(file) {
@@ -419,7 +451,7 @@ async function ingestUpload(file, fields, uploader) {
         mime_type: 'audio/mp4',
         size_bytes: size,
         sha256: sha,
-        source_url: fields.youtube_id ? youtubeUrl(fields.youtube_id) : null,
+        source_url: fields.source_url || (fields.youtube_id ? youtubeUrl(fields.youtube_id) : null),
         uploaded_by: uploader.name,
         uploaded_by_token: uploader.id,
       });
@@ -495,7 +527,9 @@ async function migrateLegacyCache({ songsPath = SONGS_PATH } = {}) {
         mime_type: mimeForPath(filePath),
         size_bytes: stat.size,
         sha256: sha,
-        source_url: meta.source_url || null,
+        // Keep the old URL (existing queue entries resolve by it); fall back to
+        // the watch URL when it is missing/odd but a YouTube id is known.
+        source_url: normalizeSourceUrl(meta.source_url) || (meta.youtube_id ? youtubeUrl(meta.youtube_id) : null),
         uploaded_by: 'server',
       });
       knownPaths.add(filePath);
@@ -547,6 +581,8 @@ module.exports = {
   isYoutubeId,
   parseYoutubeId,
   youtubeUrl,
+  normalizeSourceUrl,
+  MAX_SOURCE_URL_LENGTH,
   youtubeThumbnail,
   queueUrlFor,
   toPublic,

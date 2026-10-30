@@ -4,12 +4,12 @@ const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
-const { classify, findVideoId, pickBest } = require('../src/youtube');
+const { classify, findVideoId, pickBest, isHttpUrl } = require('../src/youtube');
 const { splitArgs } = require('../src/proc');
 const config = require('../src/config');
 const { YtDlp, parseError, FORMAT } = require('../src/ytdlp');
 const { Media, expandInputs } = require('../src/media');
-const { safeName } = require('../src/pipeline');
+const { safeName, pickSourceUrl, uploadFields } = require('../src/pipeline');
 const { tmpDir } = require('./helpers');
 
 describe('youtube.classify', () => {
@@ -46,6 +46,37 @@ test('findVideoId reads URLs and yt-dlp style file names', () => {
   assert.equal(findVideoId('Rick - Never [dQw4w9WgXcQ].m4a'), 'dQw4w9WgXcQ');
   assert.equal(findVideoId('plain.m4a'), null);
   assert.equal(findVideoId(undefined), null);
+});
+
+test('isHttpUrl accepts only a bare http(s) URL', () => {
+  assert.ok(isHttpUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ'));
+  assert.ok(isHttpUrl(' http://example.com/x '));
+  for (const v of ['javascript:alert(1)', 'ftp://x.com/a', 'see https://x.com', 'https://', '', undefined, 42,
+    'https://x.com/' + 'a'.repeat(3000)]) {
+    assert.equal(isHttpUrl(v), false, String(v));
+  }
+});
+
+test('pickSourceUrl: override > fallback > matching tag URL > derived watch URL', () => {
+  const W = (id) => `https://www.youtube.com/watch?v=${id}`;
+  assert.equal(pickSourceUrl({ override: 'https://a.com/x', fallback: W('dQw4w9WgXcQ'), youtubeId: 'dQw4w9WgXcQ' }), 'https://a.com/x');
+  assert.equal(pickSourceUrl({ fallback: W('dQw4w9WgXcQ'), tags: { comment: 'https://b.com' } }), W('dQw4w9WgXcQ'));
+  // yt-dlp --embed-metadata: comment (and purl where supported) = webpage_url
+  assert.equal(pickSourceUrl({ tags: { comment: W('saHMo3zV_iA') }, youtubeId: 'saHMo3zV_iA' }), W('saHMo3zV_iA'));
+  assert.equal(pickSourceUrl({ tags: { purl: 'https://youtu.be/saHMo3zV_iA', comment: 'x' }, youtubeId: 'saHMo3zV_iA' }), 'https://youtu.be/saHMo3zV_iA');
+  // tag for a different video, or a non-YouTube URL for a YouTube id, is ignored
+  assert.equal(pickSourceUrl({ tags: { comment: W('aaaaaaaaaaa') }, youtubeId: 'dQw4w9WgXcQ' }), W('dQw4w9WgXcQ'));
+  assert.equal(pickSourceUrl({ tags: { comment: 'https://my-blog.example/post' }, youtubeId: 'dQw4w9WgXcQ' }), W('dQw4w9WgXcQ'));
+  // no id: a URL tag is the source; free text is not
+  assert.equal(pickSourceUrl({ tags: { comment: 'https://soundcloud.com/a/b' } }), 'https://soundcloud.com/a/b');
+  assert.equal(pickSourceUrl({ tags: { comment: 'ripped from CD' } }), null);
+  assert.equal(pickSourceUrl({}), null);
+});
+
+test('uploadFields includes source_url only when known', () => {
+  assert.deepEqual(uploadFields({ title: 't', artist: 'a', youtube_id: 'dQw4w9WgXcQ', source_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' }),
+    { title: 't', artist: 'a', youtube_id: 'dQw4w9WgXcQ', source_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' });
+  assert.deepEqual(uploadFields({ title: 't', artist: 'a' }), { title: 't', artist: 'a' });
 });
 
 test('pickBest prefers Topic channels / official audio and avoids live/cover', () => {

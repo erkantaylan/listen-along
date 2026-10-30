@@ -72,7 +72,8 @@ describe('library.validateUploadFields', () => {
       request_id: '0b6f3b7e-6b0e-4a59-9a43-6bd1ef3c1f00',
     });
     assert.deepEqual(f, {
-      title: 'Song', artist: 'Band', album: null, youtube_id: 'dQw4w9WgXcQ', duration_sec: 201.5,
+      title: 'Song', artist: 'Band', album: null, youtube_id: 'dQw4w9WgXcQ',
+      source_url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', duration_sec: 201.5,
       request_id: '0b6f3b7e-6b0e-4a59-9a43-6bd1ef3c1f00',
     });
   });
@@ -82,6 +83,46 @@ describe('library.validateUploadFields', () => {
     assert.throws(() => library.validateUploadFields({ title: 'x', artist: 'y', duration_sec: '-3' }), /duration_sec/);
     assert.throws(() => library.validateUploadFields({ title: 'x', artist: 'y', duration_sec: 'abc' }), /duration_sec/);
     assert.throws(() => library.validateUploadFields({ title: 'x', artist: 'y', request_id: '42' }), /request_id/);
+  });
+});
+
+describe('library source_url', () => {
+  it('normalizeSourceUrl accepts http(s) only, length-capped', () => {
+    assert.equal(library.normalizeSourceUrl(' https://www.youtube.com/watch?v=dQw4w9WgXcQ '), 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    assert.equal(library.normalizeSourceUrl('http://example.com/a b'), 'http://example.com/a%20b');
+    for (const bad of ['javascript:alert(1)', 'ftp://example.com/x', 'file:///etc/passwd', 'data:text/html,hi',
+      'not a url', '', '//example.com/x', 'https://user:pw@example.com/', null, 42]) {
+      assert.equal(library.normalizeSourceUrl(bad), null, String(bad));
+    }
+    const long = 'https://example.com/' + 'a'.repeat(library.MAX_SOURCE_URL_LENGTH);
+    assert.equal(library.normalizeSourceUrl(long), null);
+  });
+
+  it('validateUploadFields: explicit source_url wins over the derived one', () => {
+    const f = library.validateUploadFields({
+      title: 't', artist: 'a', youtube_id: 'dQw4w9WgXcQ', source_url: 'https://music.youtube.com/watch?v=dQw4w9WgXcQ',
+    });
+    assert.equal(f.source_url, 'https://music.youtube.com/watch?v=dQw4w9WgXcQ');
+  });
+
+  it('validateUploadFields: derives from youtube_id, null when neither given', () => {
+    assert.equal(library.validateUploadFields({ title: 't', artist: 'a', youtube_id: 'dQw4w9WgXcQ', source_url: '  ' }).source_url,
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    assert.equal(library.validateUploadFields({ title: 't', artist: 'a' }).source_url, null);
+    assert.equal(library.validateUploadFields({ title: 't', artist: 'a', source_url: 'https://soundcloud.com/x/y' }).source_url,
+      'https://soundcloud.com/x/y');
+  });
+
+  it('validateUploadFields: rejects non-http(s) and over-long source_url', () => {
+    assert.throws(() => library.validateUploadFields({ title: 't', artist: 'a', source_url: 'javascript:alert(1)' }), /source_url/);
+    assert.throws(() => library.validateUploadFields({ title: 't', artist: 'a', source_url: 'https://x.com/' + 'a'.repeat(3000) }), /source_url/);
+  });
+
+  it('toPublic exposes source_url, falling back to the YouTube watch URL', () => {
+    assert.equal(library.toPublic({ id: '1', youtube_id: null, source_url: 'https://x.com/s' }).source_url, 'https://x.com/s');
+    assert.equal(library.toPublic({ id: '1', youtube_id: 'dQw4w9WgXcQ', source_url: null }).source_url,
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    assert.equal(library.toPublic({ id: '1', youtube_id: null, source_url: null }).source_url, null);
   });
 });
 

@@ -61,6 +61,12 @@ search, and anything not found becomes a **song request**.
 - Max 50 MB (413 if larger).
 - Dedupe: same `youtube_id` → 409; identical bytes (sha256) → 409. The 409 body
   includes the existing `song`.
+- Optional `source_url`: the original link (http(s), max 2048 chars, else 400).
+  If omitted but `youtube_id` is given, it is set to
+  `https://www.youtube.com/watch?v=<id>`. Song objects return it and the web
+  library page shows it as a small source link. The CLI sends it for downloads
+  and detects it (and the `youtube_id`) from earlier `--no-upload` files, which
+  carry the watch URL in their `comment` tag.
 
 ## Tokens and admin
 
@@ -76,7 +82,9 @@ On every boot the server registers the old yt-dlp cache (`SONGS_PATH/*.mp3`,
 plus rows of the legacy `songs` table) into `library_songs` with
 `uploaded_by = "server"`, title/duration from the old DB row (artist
 "Unknown"), `youtube_id` parsed from the old URL and `source_url` = the old URL
-so existing queue entries keep playing. It is idempotent (skips known paths and
+(or the watch URL of the parsed id if the old URL is not a valid http(s) link)
+so existing queue entries keep playing. A boot-time migration also backfills
+`source_url` from `youtube_id` for any library row that has none. It is idempotent (skips known paths and
 known hashes). Files keep their format (mp3); tags are not rewritten. New
 uploads are stored in `SONGS_PATH/library/<id>.m4a`. Library songs are never
 expired (the old 7-day cache cleanup is gone).

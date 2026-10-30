@@ -147,7 +147,12 @@ describe('download', () => {
       assert.equal(r.code, 0, r.stderr);
       assert.deepEqual(r.json.summary, { total: 1, uploaded: 1, skipped: 0, failed: 0 });
       const up = server.state.uploads[0];
-      assert.deepEqual(up.fields, { title: 'Digital Love', artist: 'Daft Punk', album: 'Discovery', youtube_id: 'aaaaaaaaaa1', duration_sec: '301' });
+      assert.deepEqual(up.fields, {
+        title: 'Digital Love', artist: 'Daft Punk', album: 'Discovery', youtube_id: 'aaaaaaaaaa1',
+        source_url: 'https://www.youtube.com/watch?v=aaaaaaaaaa1', duration_sec: '301',
+      });
+      assert.equal(r.json.results[0].source_url, 'https://www.youtube.com/watch?v=aaaaaaaaaa1');
+      assert.equal(r.json.results[0].song.source_url, 'https://www.youtube.com/watch?v=aaaaaaaaaa1');
       assert.equal(up.fileContent, 'AUDIO:aaaaaaaaaa1');
       assert.equal(up.fileName, 'aaaaaaaaaa1.m4a');
       assert.equal(up.fileType, 'audio/mp4');
@@ -246,6 +251,26 @@ describe('download', () => {
     assert.ok(fs.existsSync(path.join(keepDir, 'Boards of Canada - Roygbiv [aaaaaaaaaa3].m4a')));
   });
 
+  test('--no-upload files bulk-upload later with youtube_id and source_url auto-detected', async () => {
+    const keepDir = tmpDir('la-keep-');
+    const d = deps();
+    const dl = await run(['download', '--no-upload', '--keep-dir', keepDir, 'yt:aaaaaaaaaa1', 'yt:aaaaaaaaaa3', '--json'], { deps: d.deps });
+    assert.equal(dl.code, 0, dl.stderr);
+    const server = await startServer();
+    try {
+      const r = await run(['upload', keepDir, '--json'], { server, deps: d.deps });
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal(r.json.summary.uploaded, 2);
+      const byId = Object.fromEntries(server.state.uploads.map((u) => [u.fields.youtube_id, u.fields]));
+      assert.equal(byId.aaaaaaaaaa1.source_url, 'https://www.youtube.com/watch?v=aaaaaaaaaa1');
+      assert.equal(byId.aaaaaaaaaa1.title, 'Digital Love');
+      assert.equal(byId.aaaaaaaaaa3.source_url, 'https://www.youtube.com/watch?v=aaaaaaaaaa3');
+      // a second run skips both by youtube_id (the dedupe the bulk upload relies on)
+      const again = await run(['upload', keepDir, '--json'], { server, deps: d.deps });
+      assert.deepEqual(again.json.summary, { total: 2, uploaded: 0, skipped: 2, failed: 0 });
+    } finally { await server.close(); }
+  });
+
   test('--ytdlp-args and config ytdlp-args reach the yt-dlp layer', async () => {
     const server = await startServer();
     const d = deps();
@@ -319,6 +344,67 @@ describe('upload', () => {
       const r2 = await run(['upload', path.join(dir, 'sub', 'untagged.mp3'), '--title', 'T', '--artist', 'A', '--request-id', '5', '--json'], { server, deps: d.deps });
       assert.equal(r2.code, 0, r2.stderr);
       assert.deepEqual(server.state.uploads.at(-1).fields, { title: 'T', artist: 'A', duration_sec: '10', request_id: '5' });
+    } finally { await server.close(); }
+  });
+
+  test('auto-detects youtube_id + source_url from CLI-named files and comment tags; --source-url override', async () => {
+    const server = await startServer();
+    const dir = tmpDir('la-files-');
+    const M4A = 'mov,mp4,m4a,3gp,3g2,mj2';
+    const write = (name, content) => { fs.writeFileSync(path.join(dir, name), content); return path.join(dir, name); };
+    // exactly what `la download --no-upload` leaves behind
+    write('2CELLOS - Misirlou [HOLIDAY VIDEO] [saHMo3zV_iA].m4a', 'CLI');
+    // name only, no comment tag (e.g. tags stripped) -> URL derived from the id
+    write('Band - Name Only [bbbbbbbbbb2].m4a', 'NAMEONLY');
+    // comment tag for a different video than the file name: the tag wins for the id
+    // (it is checked first) and its URL is used as source
+    write('Band - Other [cccccccccc3].m4a', 'OTHER');
+    // free-text comment, no id anywhere -> neither field
+    write('plain.m4a', 'PLAIN');
+    const files = {
+      CLI: { format: M4A, codec: 'aac', duration: 200, tags: { title: 'Misirlou', artist: '2CELLOS', comment: 'https://www.youtube.com/watch?v=saHMo3zV_iA' } },
+      NAMEONLY: { format: M4A, codec: 'aac', duration: 100, tags: { title: 'Name Only', artist: 'Band' } },
+      OTHER: { format: M4A, codec: 'aac', duration: 100, tags: { title: 'Other', artist: 'Band', comment: 'https://youtu.be/dddddddddd4' } },
+      PLAIN: { format: M4A, codec: 'aac', duration: 100, tags: { title: 'Plain', artist: 'Band', comment: 'ripped from my CD' } },
+      SINGLE: { format: M4A, codec: 'aac', duration: 100, tags: { title: 'Single', artist: 'Band' } },
+    };
+    const d = deps({ media: { files } });
+    try {
+      const r = await run(['upload', dir, '--json'], { server, deps: d.deps });
+      assert.equal(r.code, 0, r.stderr);
+      const by = Object.fromEntries(server.state.uploads.map((u) => [u.fields.title, u.fields]));
+      assert.equal(by.Misirlou.youtube_id, 'saHMo3zV_iA');
+      assert.equal(by.Misirlou.source_url, 'https://www.youtube.com/watch?v=saHMo3zV_iA');
+      assert.equal(by['Name Only'].youtube_id, 'bbbbbbbbbb2');
+      assert.equal(by['Name Only'].source_url, 'https://www.youtube.com/watch?v=bbbbbbbbbb2');
+      assert.equal(by.Other.youtube_id, 'dddddddddd4');
+      assert.equal(by.Other.source_url, 'https://youtu.be/dddddddddd4');
+      assert.equal(by.Plain.youtube_id, undefined);
+      assert.equal(by.Plain.source_url, undefined);
+      const res = r.json.results.find((x) => x.title === 'Misirlou');
+      assert.equal(res.source_url, 'https://www.youtube.com/watch?v=saHMo3zV_iA');
+
+      // --source-url overrides and, for a YouTube link, supplies the youtube_id
+      const single = write('single.m4a', 'SINGLE');
+      const r2 = await run(['upload', single, '--source-url', 'https://music.youtube.com/watch?v=eeeeeeeeee5', '--json'], { server, deps: d.deps });
+      assert.equal(r2.code, 0, r2.stderr);
+      assert.equal(server.state.uploads.at(-1).fields.source_url, 'https://music.youtube.com/watch?v=eeeeeeeeee5');
+      assert.equal(server.state.uploads.at(-1).fields.youtube_id, 'eeeeeeeeee5');
+
+      // a non-YouTube --source-url is sent as-is, without inventing a youtube_id
+      fs.writeFileSync(single, 'SINGLE');
+      server.state.songs.length = 0;
+      const r3 = await run(['upload', single, '--source-url', 'https://soundcloud.com/band/single', '--json'], { server, deps: d.deps });
+      assert.equal(r3.code, 0, r3.stderr);
+      assert.deepEqual(server.state.uploads.at(-1).fields, { title: 'Single', artist: 'Band', source_url: 'https://soundcloud.com/band/single', duration_sec: '100' });
+
+      // usage errors
+      const bad = await run(['upload', single, '--source-url', 'javascript:alert(1)'], { server, deps: d.deps });
+      assert.equal(bad.code, 2);
+      assert.match(bad.stderr, /--source-url must be an http\(s\) URL/);
+      const many = await run(['upload', dir, '--source-url', 'https://x.com/a'], { server, deps: d.deps });
+      assert.equal(many.code, 2);
+      assert.match(many.stderr, /single file/);
     } finally { await server.close(); }
   });
 

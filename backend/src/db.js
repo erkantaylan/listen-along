@@ -194,6 +194,16 @@ async function createTables() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `);
+  // Migration: source_url (the original link, e.g. the YouTube watch URL).
+  // Must run before createIndexes, which indexes this column.
+  await pool.query(`
+    ALTER TABLE library_songs ADD COLUMN IF NOT EXISTS source_url TEXT
+  `).catch(() => {});
+  // Backfill: songs with a YouTube id but no source link get the watch URL.
+  await pool.query(`
+    UPDATE library_songs SET source_url = 'https://www.youtube.com/watch?v=' || youtube_id
+    WHERE source_url IS NULL AND youtube_id IS NOT NULL
+  `).catch(() => {});
 
   // CLI upload tokens. Only the SHA-256 of the token is stored.
   await pool.query(`

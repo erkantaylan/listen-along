@@ -58,7 +58,10 @@ For every video: yt-dlp downloads the AAC audio stream as m4a WITHOUT re-encodin
 (format 140, fallback bestaudio[ext=m4a]), embeds title/artist (from the YouTube
 Music track/artist fields, else "Artist - Title" parsed from the video title, else
 the channel) and the thumbnail as cover art, then the file is uploaded with its
-youtube_id, duration and tags.
+youtube_id, source_url (the video's watch URL, shown as the song's source link
+in the web library), duration and tags. yt-dlp also writes the watch URL into the
+file's comment tag, so --keep / --no-upload copies can later be bulk-uploaded with
+\`la upload <dir>\` and keep both the youtube_id and the source link.
 
 Resumable: the library is listed once up front and every video whose youtube_id is
 already there is skipped (a 409 from the server also counts as "skipped"). With
@@ -76,7 +79,7 @@ yt-dlp needs through --ytdlp-args (e.g. cookies for age-restricted videos).`,
   output: `Progress on stderr. stdout: a summary (or --json document):
 { "summary": { "total", "uploaded", "skipped", "failed", ["would_download"|"downloaded"] },
   "results": [ { "input", "status": "uploaded|skipped|failed|would_download|downloaded",
-                 "youtube_id", "url", "title", "artist", "reason"?, "error"?, "code"?,
+                 "youtube_id", "url", "source_url"?, "title", "artist", "reason"?, "error"?, "code"?,
                  "song"?: <server song object>, "local_file"?, "matched"?: {title, channel} } ],
   "aborted"?: { "code", "message" } }
 Exit 0 if nothing failed, 1 if any item failed, 4/5/6 if the batch was aborted.

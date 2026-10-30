@@ -9,6 +9,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { Media } = require('../src/media');
 const { tmpDir } = require('./helpers');
+const { readMeta } = require('../src/pipeline');
 
 const ffmpeg = process.env.LA_FFMPEG_BIN || 'ffmpeg';
 const hasFfmpeg = spawnSync(ffmpeg, ['-version']).status === 0
@@ -47,4 +48,19 @@ test('real ffmpeg: probe tags, convert mp3 -> AAC m4a, embed cover', { skip: !ha
   assert.equal(withCover.tags.artist, 'Generator');
 
   await assert.rejects(media.probe(jpg), /no audio stream/i);
+});
+
+test('real ffmpeg: a `la download`-style m4a yields youtube_id + source_url from its comment tag', { skip: !hasFfmpeg && 'ffmpeg/ffprobe not installed' }, async () => {
+  const dir = tmpDir('la-ff-');
+  // Same shape as the files yt-dlp --embed-metadata + keep-dir naming produce:
+  // comment = webpage_url, name "<Artist> - <Title> [<id>].m4a".
+  const file = path.join(dir, '2CELLOS - Misirlou [HOLIDAY VIDEO] [saHMo3zV_iA].m4a');
+  const p = spawnSync(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-c:a', 'aac',
+    '-metadata', 'title=Misirlou', '-metadata', 'artist=2CELLOS',
+    '-metadata', 'comment=https://www.youtube.com/watch?v=saHMo3zV_iA', file]);
+  assert.equal(p.status, 0, String(p.stderr));
+  const meta = await readMeta(new Media(), file);
+  assert.equal(meta.youtube_id, 'saHMo3zV_iA');
+  assert.equal(meta.source_url, 'https://www.youtube.com/watch?v=saHMo3zV_iA');
+  assert.equal(meta.title, 'Misirlou');
 });

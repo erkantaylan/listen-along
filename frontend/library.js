@@ -44,6 +44,19 @@ function thumbHtml(youtubeId) {
   return '<div class="libpage-thumb libpage-thumb-placeholder"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div>';
 }
 
+// Small "source" link to where the song originally came from (e.g. YouTube).
+// Only http(s) links are rendered; anything else is dropped.
+function sourceLinkHtml(song) {
+  const url = song.source_url || (song.youtube_id ? `https://www.youtube.com/watch?v=${encodeURIComponent(song.youtube_id)}` : null);
+  if (!url || !/^https?:\/\//i.test(url)) return '';
+  let label = 'source';
+  try {
+    const host = new URL(url).hostname.replace(/^(www|m|music)\./, '');
+    label = host === 'youtube.com' || host === 'youtu.be' ? 'YouTube' : host;
+  } catch { return ''; }
+  return `<a class="libpage-source" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(url)}">${escapeHtml(label)} ↗</a>`;
+}
+
 function updateContext() {
   const el = $('libpage-context');
   if (!el) return;
@@ -73,6 +86,7 @@ function renderSongs() {
         song.duration_sec ? formatDuration(song.duration_sec) : '',
         `added by ${escapeHtml(song.uploaded_by || 'unknown')}`,
         relativeDate(song.created_at),
+        sourceLinkHtml(song),
       ].filter(Boolean).join(' · ');
       return `<li class="libpage-item" data-id="${escapeHtml(song.id)}">
         ${thumbHtml(song.youtube_id)}

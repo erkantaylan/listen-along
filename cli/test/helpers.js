@@ -63,7 +63,7 @@ async function startServer(overrides = {}) {
       if (dup) return send(409, { error: 'duplicate', song: dup });
       const song = {
         id: state.nextId++, youtube_id: fields.youtube_id || null, title: fields.title, artist: fields.artist,
-        album: fields.album || null, duration_sec: fields.duration_sec ? Number(fields.duration_sec) : null,
+        album: fields.album || null, source_url: fields.source_url || null, duration_sec: fields.duration_sec ? Number(fields.duration_sec) : null,
         uploaded_by: state.me.name, created_at: new Date().toISOString(),
       };
       state.songs.push(song);
@@ -163,7 +163,7 @@ function fakeYtdlp({ videos = {}, searches = {}, playlists = {}, missing = false
         fs.writeFileSync(file, `AUDIO:${id}`);
         const thumb = path.join(outDir, `${id}.jpg`);
         fs.writeFileSync(thumb, 'JPEG');
-        return { file, thumbnail: thumb, info: { id, title: v.title, track: v.title, artist: v.artist, album: v.album, duration: v.duration, filepath: file } };
+        return { file, thumbnail: thumb, info: { id, title: v.title, track: v.title, artist: v.artist, album: v.album, duration: v.duration, filepath: file, webpage_url: `https://www.youtube.com/watch?v=${id}` } };
       },
     };
   };

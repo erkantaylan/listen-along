@@ -3,7 +3,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { classify, pickBest, findVideoId } = require('./youtube');
+const { classify, pickBest, findVideoId, watchUrl, isHttpUrl } = require('./youtube');
 const { Media } = require('./media');
 const { ApiError } = require('./api');
 const { EXIT } = require('./errors');
@@ -36,8 +36,29 @@ function findKept(keepDir, id) {
 }
 
 /**
+ * Pick the song's original source link.
+ * Order: explicit override, caller fallback (e.g. yt-dlp's webpage_url), a
+ * URL tag (yt-dlp's --embed-metadata writes the watch URL into comment, and
+ * purl where the container supports it), else the watch URL of youtube_id.
+ * A tag URL pointing at a different YouTube video than youtube_id is ignored.
+ */
+function pickSourceUrl({ override, fallback, tags = {}, youtubeId }) {
+  if (isHttpUrl(override)) return override.trim();
+  if (isHttpUrl(fallback)) return fallback.trim();
+  for (const tag of [tags.purl, tags.comment]) {
+    if (!isHttpUrl(tag)) continue;
+    const url = tag.trim();
+    const tagId = findVideoId(url);
+    if (youtubeId && tagId && tagId !== youtubeId) continue;
+    if (youtubeId && !tagId) continue; // a non-YouTube URL can't be this video's source
+    return url;
+  }
+  return youtubeId ? watchUrl(youtubeId) : null;
+}
+
+/**
  * Read upload metadata from a file's tags, with overrides and fallbacks.
- * @returns {{ title, artist, album, duration_sec, youtube_id, probe }}
+ * @returns {{ title, artist, album, duration_sec, youtube_id, source_url, probe }}
  */
 async function readMeta(media, file, { overrides = {}, fallback = {} } = {}) {
   const probe = await media.probe(file);
@@ -48,9 +69,12 @@ async function readMeta(media, file, { overrides = {}, fallback = {} } = {}) {
     artist: pick(overrides.artist, t.artist, t.album_artist, t.albumartist, t.composer, fallback.artist),
     album: pick(overrides.album, t.album, fallback.album),
     duration_sec: probe.duration ? Math.round(probe.duration) : pick(fallback.duration_sec),
-    youtube_id: pick(overrides.youtube_id, fallback.youtube_id,
+    youtube_id: pick(overrides.youtube_id, findVideoId(overrides.source_url), fallback.youtube_id,
       findVideoId(t.comment), findVideoId(t.purl), findVideoId(t.description), findVideoId(path.basename(file))),
   };
+  meta.source_url = pickSourceUrl({
+    override: overrides.source_url, fallback: fallback.source_url, tags: t, youtubeId: meta.youtube_id,
+  });
   return { ...meta, probe };
 }
 
@@ -59,6 +83,7 @@ function uploadFields(meta, extra = {}) {
   const f = { title: meta.title, artist: meta.artist };
   if (meta.album) f.album = meta.album;
   if (meta.youtube_id) f.youtube_id = meta.youtube_id;
+  if (meta.source_url) f.source_url = meta.source_url;
   if (meta.duration_sec) f.duration_sec = meta.duration_sec;
   if (extra.request_id !== undefined && extra.request_id !== null) f.request_id = extra.request_id;
   return f;
@@ -197,6 +222,7 @@ async function downloadAndUpload(ctx, inputs, opts, batch) {
           album: info.album,
           duration_sec: info.duration,
           youtube_id: info.id || t.id,
+          source_url: info.webpage_url || (info.id || t.id ? watchUrl(info.id || t.id) : t.url),
         },
       });
       if (!Media.isAacM4a(meta.probe, file)) {
@@ -206,6 +232,7 @@ async function downloadAndUpload(ctx, inputs, opts, batch) {
         throw Object.assign(new Error('Could not determine title/artist from the video'), { code: 'MISSING_TAGS' });
       }
       base.youtube_id = meta.youtube_id || base.youtube_id;
+      if (meta.source_url) base.source_url = meta.source_url;
       base.title = meta.title;
       base.artist = meta.artist;
       base.label = `${meta.artist} - ${meta.title}`;
@@ -253,6 +280,7 @@ async function uploadFiles(ctx, files, opts, batch) {
     try {
       const meta = await readMeta(media, file, { overrides: opts.overrides });
       if (meta.youtube_id) base.youtube_id = meta.youtube_id;
+      if (meta.source_url) base.source_url = meta.source_url;
       const missing = ['title', 'artist'].filter((k) => !meta[k]);
       if (missing.length) {
         throw Object.assign(new Error(`Missing ${missing.join(' and ')} tag; pass ${missing.map((k) => `--${k}`).join('/')} or tag the file`), { code: 'MISSING_TAGS' });
@@ -293,4 +321,4 @@ async function uploadFiles(ctx, files, opts, batch) {
   }
 }
 
-module.exports = { downloadAndUpload, uploadFiles, resolveTargets, readMeta, uploadFields, safeName, findKept, isFatal };
+module.exports = { downloadAndUpload, uploadFiles, resolveTargets, readMeta, pickSourceUrl, uploadFields, safeName, findKept, isFatal };

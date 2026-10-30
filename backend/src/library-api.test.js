@@ -142,6 +142,10 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       assert.equal((await upload(fx.a, { artist: 'a' })).status, 400);
       assert.equal((await upload(fx.a, { title: 't' })).status, 400);
       assert.equal((await upload(fx.a, { title: 't', artist: 'a', youtube_id: 'bad' })).status, 400);
+      const badSrc = await upload(fx.a, { title: 't', artist: 'a', source_url: 'javascript:alert(1)' });
+      assert.equal(badSrc.status, 400);
+      assert.match(badSrc.body.error, /source_url/);
+      assert.equal((await upload(fx.a, { title: 't', artist: 'a', source_url: 'https://x.com/' + 'a'.repeat(3000) })).status, 400);
       assert.equal((await upload(fx.a, { title: 't', artist: 'a' }, { type: 'text/plain' })).status, 400);
       assert.equal(fs.readdirSync(library.UPLOAD_TMP_DIR).length, 0, 'temp files are cleaned up');
     });
@@ -158,10 +162,12 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       const r = await upload(fx.a, { title: 'Song A', artist: 'Artist', album: 'LP', youtube_id: 'AAAAAAAAAAA', duration_sec: 2 });
       assert.equal(r.status, 201);
       const s = r.body.song;
-      assert.deepEqual(Object.keys(s).sort(), ['album', 'artist', 'created_at', 'duration_sec', 'id', 'title', 'uploaded_by', 'youtube_id']);
+      assert.deepEqual(Object.keys(s).sort(), ['album', 'artist', 'created_at', 'duration_sec', 'id', 'source_url', 'title', 'uploaded_by', 'youtube_id']);
       assert.equal(s.uploaded_by, 'Alice');
       assert.equal(s.youtube_id, 'AAAAAAAAAAA');
+      assert.equal(s.source_url, 'https://www.youtube.com/watch?v=AAAAAAAAAAA', 'derived from youtube_id');
       assert.equal(s.duration_sec, 2);
+      assert.equal((await getJson(`/api/library/${s.id}`)).body.song.source_url, s.source_url);
 
       const full = await fetch(`${base}/api/library/${s.id}/file`);
       assert.equal(full.status, 200);
@@ -186,6 +192,21 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       assert.equal(r.status, 201);
       assert.ok(r.body.song.duration_sec > 1.5 && r.body.song.duration_sec < 2.5);
       assert.equal(r.body.song.youtube_id, null);
+      assert.equal(r.body.song.source_url, null);
+    });
+
+    it('stores an explicit source_url (with and without youtube_id) and lists it', async () => {
+      const r = await upload(fx.d, {
+        title: 'Song D', artist: 'Artist', youtube_id: 'DDDDDDDDDDD', source_url: 'https://music.youtube.com/watch?v=DDDDDDDDDDD',
+      });
+      assert.equal(r.status, 201);
+      assert.equal(r.body.song.source_url, 'https://music.youtube.com/watch?v=DDDDDDDDDDD');
+      const listed = (await getJson('/api/library?youtube_id=DDDDDDDDDDD')).body.songs[0];
+      assert.equal(listed.source_url, 'https://music.youtube.com/watch?v=DDDDDDDDDDD');
+      const row = (await db.query('SELECT source_url FROM library_songs WHERE id = $1', [r.body.song.id])).rows[0];
+      assert.equal(row.source_url, 'https://music.youtube.com/watch?v=DDDDDDDDDDD');
+      // clean up so later dedupe/request tests see the same library as before
+      await library.remove(r.body.song.id);
     });
   });
 
@@ -310,6 +331,24 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
     });
   });
 
+  describe('source_url schema migration', () => {
+    it('re-running init on a DB without source_url adds the column and backfills from youtube_id', async () => {
+      await db.query('DROP INDEX IF EXISTS idx_library_songs_source_url');
+      await db.query('ALTER TABLE library_songs DROP COLUMN source_url');
+      await db.close();
+      assert.ok(await db.init());
+      const cols = await db.query(
+        "SELECT 1 FROM information_schema.columns WHERE table_name = 'library_songs' AND column_name = 'source_url'"
+      );
+      assert.equal(cols.rows.length, 1);
+      const rows = (await db.query('SELECT youtube_id, source_url FROM library_songs')).rows;
+      assert.ok(rows.length > 0);
+      for (const row of rows) {
+        assert.equal(row.source_url, row.youtube_id ? `https://www.youtube.com/watch?v=${row.youtube_id}` : null);
+      }
+    });
+  });
+
   describe('legacy cache migration', () => {
     it('registers the old cache once (idempotent), keeping the format', async () => {
       const legacyFile = path.join(SONGS, 'aaaaaaaa-1111-4111-8111-111111111111.mp3');
@@ -333,10 +372,12 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       const legacy = rows.find((x) => x.file_path === legacyFile);
       assert.equal(legacy.title, 'Legacy Song');
       assert.equal(legacy.youtube_id, 'LLLLLLLLLLL');
+      assert.equal(legacy.source_url, 'https://www.youtube.com/watch?v=LLLLLLLLLLL');
       assert.equal(legacy.mime_type, 'audio/mpeg');
       const orphan = rows.find((x) => x.file_path === orphanFile);
       assert.equal(orphan.title, 'Tagged Title');
       assert.equal(orphan.artist, 'Tagged Artist');
+      assert.equal(orphan.source_url, null);
       assert.ok(fs.existsSync(legacyFile), 'files are left in place');
 
       // old queue entries keep resolving

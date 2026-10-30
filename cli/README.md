@@ -64,6 +64,8 @@ la download "https://www.youtube.com/playlist?list=PL..." --sleep 10
 la download --dry-run --json "Massive Attack - Teardrop"
 la download --no-upload --keep-dir /tmp/songs "Aphex Twin - Xtal"   # no server needed
 la upload ~/Music/SomeAlbum/ --artist "Some Band"
+la upload ~/Music/listen-along          # bulk-upload earlier --no-upload downloads
+la upload live.m4a --source-url https://www.youtube.com/watch?v=dQw4w9WgXcQ
 la requests fulfill --all
 la library daft punk --json
 ```
@@ -84,7 +86,27 @@ la library daft punk --json
   is skipped; a `409` from the server also counts as skipped. With `--keep`,
   a local copy `<Artist> - <Title> [<id>].m4a` is reused instead of
   re-downloading.
+- Every upload carries a `source_url`, the original link shown in the web
+  library: the video's watch URL for downloads.
 - `--sleep` seconds between downloads (default 3).
+
+### Uploading earlier downloads (`--no-upload` / `--keep` files)
+
+`la download --no-upload` (or `--keep`) leaves
+`<Artist> - <Title> [<11-char id>].m4a` in the keep dir, with the watch URL in
+the file's `comment` tag (yt-dlp's `--embed-metadata` writes `webpage_url`
+there; m4a has no `purl` tag). `la upload <dir>` detects both automatically,
+with no flags needed:
+
+- `youtube_id`: `--youtube-id`, else the id in `--source-url`, else a YouTube
+  URL in the comment/purl/description tags, else the `[<id>]` file-name suffix.
+- `source_url`: `--source-url`, else a URL in the purl/comment tag (ignored when
+  it points at a different video), else `https://www.youtube.com/watch?v=<id>`.
+
+So a bulk `la upload ~/Music/listen-along` dedupes by `youtube_id` (songs
+already in the library are skipped) and matches pending requests by
+`youtube_id`, just like a direct `la download`. `--source-url URL` overrides the
+link for a single file. Check first with `la upload --dry-run --json <dir>`.
 - yt-dlp's JS challenge solver needs a runtime: if `deno` isn't installed,
   `la` passes `--js-runtimes node:<this node>`. Anything else (cookies for
   age-restricted videos, rate limits) goes through
@@ -101,7 +123,7 @@ la library daft punk --json
   JSON object `{"error": {"code", "message", "hint"?}}` on stderr.
 - Batch commands (`download`, `upload`, `requests fulfill`, `requests dismiss`)
   print a summary and, with `--json`:
-  `{ "summary": {total, uploaded, skipped, failed, ...}, "results": [{input|file, status, youtube_id, title, artist, reason?, error?, code?, song?}], "aborted"? }`.
+  `{ "summary": {total, uploaded, skipped, failed, ...}, "results": [{input|file, status, youtube_id, source_url?, title, artist, reason?, error?, code?, song?}], "aborted"? }`.
   Statuses: `uploaded`, `skipped`, `failed`, `would_download`/`would_upload`
   (`--dry-run`), `downloaded` (`--no-upload`), `dismissed`.
 
@@ -125,7 +147,7 @@ All requests send `Authorization: Bearer <token>`.
 - `GET /api/me` → `{ name }`
 - `GET /api/library?q=&limit=&offset=` → `{ songs: [...], total }`
 - `POST /api/library/upload` (multipart: `file` m4a, `title`, `artist`,
-  `album`, `youtube_id`, `duration_sec`, `request_id`) → `201 {song}`,
+  `album`, `youtube_id`, `source_url`, `duration_sec`, `request_id`) → `201 {song}`,
   `409 {error, song}` duplicate, `400` bad input
 - `GET /api/requests?status=pending|fulfilled|all` → `{ requests: [...] }`
 - `POST /api/requests/:id/dismiss`

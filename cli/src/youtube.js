@@ -52,6 +52,14 @@ function watchUrl(id) {
   return `https://www.youtube.com/watch?v=${id}`;
 }
 
+/** True when `value` is (only) an absolute http(s) URL. */
+function isHttpUrl(value) {
+  if (typeof value !== 'string') return false;
+  const s = value.trim();
+  if (!/^https?:\/\/\S+$/i.test(s) || s.length > 2048) return false;
+  try { return !!new URL(s).hostname; } catch { return false; }
+}
+
 /** Find a YouTube video id inside arbitrary text (tags, file names). */
 function findVideoId(text) {
   if (!text) return null;
@@ -107,4 +115,4 @@ function pickBest(entries, query) {
   return best;
 }
 
-module.exports = { classify, videoIdFromUrl, watchUrl, findVideoId, scoreResult, pickBest, ID_RE };
+module.exports = { classify, videoIdFromUrl, watchUrl, findVideoId, isHttpUrl, scoreResult, pickBest, ID_RE };
