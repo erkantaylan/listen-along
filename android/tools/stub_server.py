@@ -7,6 +7,11 @@ Serves every .m4a / .mp3 under --music as a library song:
   GET /api/library?q=&limit=&offset=&sort=   search, paging, sort
   GET /api/library/<id>/file                 the bytes, with Range support
   GET /api/me                                needs --token; 401 otherwise
+  /api/playlists...                          list, songs, create, rename,
+                                             visibility, delete, add, remove,
+                                             move (in memory, seeded with two
+                                             playlists; owner rules like the
+                                             real server)
 
 Metadata comes from the file name, "Artist - Title.ext". Ids are stable
 UUIDs derived from the file path. Standard library only.
@@ -100,10 +105,31 @@ def make_samples(target):
     print(f"samples in {target}")
 
 
+ME = "stub-user"
+
+
+def seed_playlists(songs):
+    """Two playlists: one of ours (private), one of someone else's (public)."""
+    def entry(song):
+        return {"entry_id": str(uuid.uuid4()), "library_id": song["id"], "youtube_id": None,
+                "title": f"{song['title']} - {song['artist']}" if song["artist"] != "Unknown" else song["title"],
+                "artist": song["artist"], "duration_sec": song["duration_sec"], "url": f"library:{song['id']}",
+                "thumbnail": None, "added_by": ME, "added_at": 1761800000000}
+    mine = {"id": str(uuid.uuid4()), "name": "Stub mix", "visibility": "private", "ownerId": "u-me",
+            "ownerName": ME, "entries": [entry(s) for s in songs[:3]]}
+    theirs = {"id": str(uuid.uuid4()), "name": "Ayşe's road trip", "visibility": "public", "ownerId": "u-ayse",
+              "ownerName": "Ayşe", "entries": [entry(s) for s in songs[2:5]]}
+    theirs["entries"].append({"entry_id": str(uuid.uuid4()), "library_id": None, "youtube_id": "dQw4w9WgXcQ",
+                              "title": "An old YouTube-only entry", "artist": None, "duration_sec": 212,
+                              "url": "https://youtu.be/dQw4w9WgXcQ", "thumbnail": None, "added_by": "Ayşe"})
+    return {p["id"]: p for p in (mine, theirs)}
+
+
 class Handler(BaseHTTPRequestHandler):
     songs = []
     token = None
     throttle_kbps = 0
+    playlists = {}
 
     def log_message(self, fmt, *args):
         sys.stderr.write("stub: " + fmt % args + "\n")
@@ -133,7 +159,22 @@ class Handler(BaseHTTPRequestHandler):
         if parts == ["api", "me"]:
             if not authed:
                 return self.send_json(401, {"error": "Missing API token"})
-            return self.send_json(200, {"name": "stub-user"})
+            return self.send_json(200, {"name": ME, "user": {"id": "u-me", "name": ME},
+                                        "token": {"label": "stub", "legacy": False}})
+
+        if parts[:2] == ["api", "playlists"]:
+            if not authed:
+                return self.send_json(401, {"error": "Authentication required"})
+            if len(parts) == 2:
+                infos = [self.playlist_info(p) for p in self.playlists.values()
+                         if p["visibility"] == "public" or p["ownerId"] == "u-me"]
+                return self.send_json(200, {"playlists": infos, "lobbies": infos})
+            p = self.visible_playlist(parts[2])
+            if p is None:
+                return self.send_json(404, {"error": "Playlist not found", "code": "NOT_FOUND"})
+            if len(parts) == 4 and parts[3] == "songs":
+                return self.send_json(200, {"playlist": self.playlist_info(p), "songs": self.entry_views(p)})
+            return self.send_json(200, self.playlist_info(p))
 
         if parts == ["api", "library"]:
             qs = parse_qs(url.query)
@@ -159,6 +200,138 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_file(song)
 
         self.send_json(404, {"error": "Not found"})
+
+    # --- playlists -----------------------------------------------------------
+
+    def playlist_info(self, p):
+        mine = p["ownerId"] == "u-me"
+        return {"id": p["id"], "name": p["name"], "visibility": p["visibility"], "ownerId": p["ownerId"],
+                "ownerName": p["ownerName"], "isOwner": mine, "canManage": mine, "pinned": False,
+                "userCount": 0, "songCount": len(p["entries"]), "createdAt": 1761800000000}
+
+    def entry_views(self, p):
+        return [dict(e, position=i + 1, available=e["library_id"] is not None) for i, e in enumerate(p["entries"])]
+
+    def visible_playlist(self, pid):
+        p = self.playlists.get(pid)
+        if p is None or (p["visibility"] == "private" and p["ownerId"] != "u-me"):
+            return None
+        return p
+
+    def read_body(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        if not length:
+            return {}
+        try:
+            return json.loads(self.rfile.read(length) or b"{}")
+        except ValueError:
+            return None
+
+    def playlist_write(self, method):
+        parts = [p for p in urlparse(self.path).path.split("/") if p]
+        authed = self.auth()
+        if authed is False:
+            return self.send_json(401, {"error": "Invalid or revoked token"})
+        if parts[:2] != ["api", "playlists"]:
+            return self.send_json(404, {"error": "Not found"})
+        if not authed:
+            return self.send_json(401, {"error": "Authentication required"})
+        body = self.read_body()
+        if body is None:
+            return self.send_json(400, {"error": "Bad JSON"})
+
+        if method == "POST" and len(parts) == 2:
+            name = (body.get("name") or "").strip()
+            visibility = body.get("visibility", "public")
+            if visibility not in ("public", "private"):
+                return self.send_json(400, {"error": "visibility must be 'public' or 'private'", "code": "BAD_REQUEST"})
+            if len(name) > 50:
+                return self.send_json(400, {"error": "Name must be 50 characters or less", "code": "BAD_REQUEST"})
+            if name and any((q["name"] or "").lower() == name.lower() for q in self.playlists.values()):
+                return self.send_json(409, {"error": "A playlist with that name already exists", "code": "CONFLICT"})
+            p = {"id": str(uuid.uuid4()), "name": name or None, "visibility": visibility, "ownerId": "u-me",
+                 "ownerName": ME, "entries": []}
+            self.playlists[p["id"]] = p
+            return self.send_json(201, dict(self.playlist_info(p), link=f"/playlist/{p['id']}"))
+
+        p = self.visible_playlist(parts[2]) if len(parts) > 2 else None
+        if p is None:
+            return self.send_json(404, {"error": "Playlist not found", "code": "NOT_FOUND"})
+        mine = p["ownerId"] == "u-me"
+
+        if method == "PATCH" and len(parts) == 3:
+            if "visibility" in body:
+                if body["visibility"] not in ("public", "private"):
+                    return self.send_json(400, {"error": "visibility must be 'public' or 'private'", "code": "BAD_REQUEST"})
+                if not mine:
+                    return self.send_json(403, {"error": "Only the owner can change visibility", "code": "FORBIDDEN"})
+            if "name" in body:
+                name = (body["name"] or "").strip()
+                if not name or len(name) > 50:
+                    return self.send_json(400, {"error": "Name must be 1-50 characters", "code": "BAD_REQUEST"})
+                if any(q is not p and (q["name"] or "").lower() == name.lower() for q in self.playlists.values()):
+                    return self.send_json(409, {"error": "A playlist with that name already exists", "code": "CONFLICT"})
+                p["name"] = name
+            if "visibility" in body:
+                p["visibility"] = body["visibility"]
+            return self.send_json(200, self.playlist_info(p))
+
+        if method == "DELETE" and len(parts) == 3:
+            if not mine:
+                return self.send_json(403, {"error": "Only the owner can delete this playlist", "code": "FORBIDDEN"})
+            del self.playlists[p["id"]]
+            return self.send_json(200, {"success": True, "id": p["id"]})
+
+        if method == "POST" and len(parts) == 4 and parts[3] == "songs":
+            refs = body.get("songs")
+            if not isinstance(refs, list) or not refs:
+                return self.send_json(400, {"error": "songs must be a non-empty array", "code": "BAD_REQUEST"})
+            results, added = [], 0
+            for ref in refs:
+                song = next((x for x in self.songs if x["id"] == ref), None)
+                if song is None:
+                    results.append({"input": ref, "status": "not_in_library"})
+                elif any(e["library_id"] == ref for e in p["entries"]):
+                    results.append({"input": ref, "status": "already_in_playlist"})
+                else:
+                    e = seed_playlists([song])  # reuse the entry builder
+                    entry = next(iter(e.values()))["entries"][0]
+                    p["entries"].append(entry)
+                    added += 1
+                    results.append({"input": ref, "status": "added", "entry_id": entry["entry_id"]})
+            count = lambda st: sum(1 for r in results if r["status"] == st)
+            return self.send_json(200, {"playlist_id": p["id"], "results": results, "song_count": len(p["entries"]),
+                                        "summary": {"total": len(results), "added": added,
+                                                    "already_in_playlist": count("already_in_playlist"),
+                                                    "not_in_library": count("not_in_library"), "invalid": 0}})
+
+        if method == "DELETE" and len(parts) == 5 and parts[3] == "songs":
+            before = len(p["entries"])
+            p["entries"] = [e for e in p["entries"] if e["entry_id"] != parts[4] and e["library_id"] != parts[4]]
+            if len(p["entries"]) == before:
+                return self.send_json(404, {"error": "That song is not in this playlist", "code": "SONG_NOT_FOUND"})
+            return self.send_json(200, {"playlist_id": p["id"], "removed": [], "song_count": len(p["entries"])})
+
+        if method == "POST" and len(parts) == 6 and parts[3] == "songs" and parts[5] == "move":
+            idx = next((i for i, e in enumerate(p["entries"]) if e["entry_id"] == parts[4]), None)
+            if idx is None:
+                return self.send_json(404, {"error": "That song is not in this playlist", "code": "SONG_NOT_FOUND"})
+            pos = body.get("position")
+            if not isinstance(pos, int) or not 1 <= pos <= len(p["entries"]):
+                return self.send_json(400, {"error": f"position must be between 1 and {len(p['entries'])}", "code": "BAD_REQUEST"})
+            p["entries"].insert(pos - 1, p["entries"].pop(idx))
+            return self.send_json(200, {"playlist_id": p["id"], "songs": self.entry_views(p)})
+
+        return self.send_json(404, {"error": "Not found"})
+
+    def do_POST(self):
+        self.playlist_write("POST")
+
+    def do_PATCH(self):
+        self.playlist_write("PATCH")
+
+    def do_DELETE(self):
+        self.playlist_write("DELETE")
 
     def send_file(self, song):
         size = os.path.getsize(song["_path"])
@@ -211,6 +384,7 @@ def main():
         sys.exit(f"{music} does not exist (use --samples to create test songs)")
 
     Handler.songs = scan(music)
+    Handler.playlists = seed_playlists(Handler.songs)
     Handler.token = args.token
     Handler.throttle_kbps = args.throttle
     print(f"stub: {len(Handler.songs)} songs from {music} on http://{args.bind}:{args.port}", flush=True)

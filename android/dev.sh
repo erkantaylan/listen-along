@@ -2,8 +2,10 @@
 # One-command dev loop: build, install, launch (as kitaplik's dev.sh).
 #
 #   ./dev.sh              build, install and launch on the connected device
-#   ./dev.sh --stub       ...and serve sample songs from tools/stub_server.py,
-#                         tunnelled so the app reaches it at http://localhost:8091
+#   ./dev.sh --stub       ...and serve sample songs and playlists from
+#                         tools/stub_server.py, tunnelled to the phone's
+#                         localhost:8091, and launch the app pointed at it for
+#                         this run only (saved server/token are not touched)
 #   ./dev.sh --logs       ...then tail the app's logcat
 #
 # Target a specific device or emulator with ANDROID_SERIAL=emulator-5554 ./dev.sh
@@ -101,15 +103,23 @@ if [ "$STUB" = 1 ]; then
     done
   fi
   adb reverse "tcp:$STUB_PORT" "tcp:$STUB_PORT" >/dev/null
-  echo "==> Tunnel: device localhost:$STUB_PORT -> stub server (token: devtoken)"
+  echo "==> Tunnel: device localhost:$STUB_PORT -> stub server"
 fi
 
 # --- build, install, launch -------------------------------------------------
 "$PROJECT_DIR/gradlew" -p "$PROJECT_DIR" :app:installDebug
 
 adb shell am force-stop "$APP_ID"
-adb shell monkey -p "$APP_ID" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
-echo "==> Launched $APP_ID"
+if [ "$STUB" = 1 ]; then
+  # Debug builds take the server for this run from intent extras, held in
+  # memory only: the server and token saved on the phone stay untouched.
+  adb shell am start -n "$APP_ID/com.erkantaylan.listenalong.MainActivity" \
+    --es server "http://localhost:$STUB_PORT" --es token devtoken >/dev/null
+  echo "==> Launched $APP_ID against the stub (saved settings unchanged)"
+else
+  adb shell monkey -p "$APP_ID" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
+  echo "==> Launched $APP_ID"
+fi
 
 if [ "$LOGS" = 1 ]; then
   PID="$(adb shell pidof "$APP_ID" | tr -d '\r')"
