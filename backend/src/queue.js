@@ -10,6 +10,21 @@ class Queue {
   constructor(lobbyId) {
     this.lobbyId = lobbyId;
     this.songs = [];
+    // DB writes run one after another, in the order the in-memory changes
+    // happened (an add followed quickly by its removal must not race).
+    this._dbChain = Promise.resolve();
+  }
+
+  _write(label, fn) {
+    this._dbChain = this._dbChain.then(fn).catch(err => {
+      console.error(`${label}:`, err.message);
+    });
+    return this._dbChain;
+  }
+
+  /** Resolves once every DB write queued so far has finished. */
+  flush() {
+    return this._dbChain;
   }
 
   addSong({ url, title, duration, addedBy, thumbnail }) {
@@ -26,9 +41,8 @@ class Queue {
 
     // Persist to database if available
     if (db.isAvailable()) {
-      this._persistSong(song, this.songs.length - 1).catch(err => {
-        console.error('Failed to persist song:', err.message);
-      });
+      const sortOrder = this.songs.length - 1;
+      this._write('Failed to persist song', () => this._persistSong(song, sortOrder));
     }
 
     return song;
@@ -49,9 +63,7 @@ class Queue {
 
     // Remove from database if available
     if (db.isAvailable()) {
-      this._deleteSong(songId).catch(err => {
-        console.error('Failed to delete song from DB:', err.message);
-      });
+      this._write('Failed to delete song from DB', () => this._deleteSong(songId));
     }
 
     return removed;
@@ -71,9 +83,7 @@ class Queue {
 
     // Update sort orders in database if available
     if (db.isAvailable()) {
-      this._updateSortOrders().catch(err => {
-        console.error('Failed to update sort orders:', err.message);
-      });
+      this._write('Failed to update sort orders', () => this._updateSortOrders());
     }
 
     return true;
@@ -107,9 +117,7 @@ class Queue {
 
     // Clear from database if available
     if (db.isAvailable()) {
-      db.query('DELETE FROM queue_songs WHERE lobby_id = $1', [this.lobbyId]).catch(err => {
-        console.error('Failed to clear queue from DB:', err.message);
-      });
+      this._write('Failed to clear queue from DB', () => db.query('DELETE FROM queue_songs WHERE lobby_id = $1', [this.lobbyId]));
     }
   }
 

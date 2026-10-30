@@ -52,6 +52,21 @@ describe('playlistAccess rules', () => {
     assert.equal(access.canAdminDelete(priv), false);
   });
 
+  it('viewers: a user token is its user; a legacy token sees/edits public only and manages nothing', () => {
+    const alice = { userId: ALICE, legacy: false };
+    const bob = { userId: BOB, legacy: false };
+    const legacy = { userId: null, legacy: true };
+    assert.equal(access.viewerCanView(priv, alice), true);
+    assert.equal(access.viewerCanManage(priv, alice), true);
+    assert.equal(access.viewerCanView(priv, bob), false);
+    assert.equal(access.viewerCanView(pub, legacy), true);
+    assert.equal(access.viewerCanEdit(ownerless, legacy), true);
+    assert.equal(access.viewerCanView(priv, legacy), false);
+    assert.equal(access.viewerCanManage(pub, legacy), false);
+    assert.equal(access.viewerCanManage(ownerless, legacy), false);
+    assert.equal(access.viewerCanView(pub, null), false);
+  });
+
   it('not logged in sees nothing', () => {
     assert.equal(access.canView(pub, null), false);
     assert.equal(access.canEdit(ownerless, null), false);

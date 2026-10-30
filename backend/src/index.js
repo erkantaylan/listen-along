@@ -16,6 +16,7 @@ const library = require('./library');
 const songRequests = require('./requests');
 const { createLibraryRouter, sendSongFile } = require('./libraryRoutes');
 const { createTokenRouter } = require('./tokenRoutes');
+const tokens = require('./tokens');
 const clientIpSetup = require('./clientIp');
 const adminAuth = require('./adminAuth');
 const { apiLimiter } = require('./rateLimits');
@@ -188,7 +189,15 @@ function loginRedirectUrl(req) {
 //   approved  every other /api/... route
 //   page      every other HTML route: a login is needed (the SPA then shows
 //             the pending / denied screen itself); otherwise -> /login?next=
+//
+// The playlist API (/api/playlists, /api/lobbies) also takes a CLI Bearer
+// token instead of the cookie: the token must be valid (its owner approved),
+// and the routes then act as the token's owner (requireViewer).
+const PLAYLIST_API_RE = /^\/api\/(?:playlists|lobbies)(?:\/|$)/;
 app.use((req, res, next) => {
+  if (tokens.hasBearer(req) && PLAYLIST_API_RE.test(String(req.path).toLowerCase().replace(/\/{2,}/g, '/'))) {
+    return apiLimiter(req, res, () => tokens.requireToken(req, res, next));
+  }
   const policy = policyFor(req.path);
   if (policy === 'public' || policy === 'self') return next();
   if (policy === 'page') {
@@ -340,7 +349,9 @@ app.get('/api/stream', apiLimiter, async (req, res) => {
 // ==========================================
 // Mounted at /api/playlists; /api/lobbies stays as an alias for old clients.
 // Every route checks playlistAccess: a playlist the caller cannot see is a
-// 404 (never a 403), so private playlists cannot be probed.
+// 404 (never a 403), so private playlists cannot be probed. Callers are a
+// web session (cookie) or a CLI Bearer token (see the auth guard and
+// requireViewer). Errors are JSON { error, code }.
 
 const PLAYLIST_BASES = ['/api/playlists', '/api/lobbies'];
 const playlistPaths = (suffix = '') => PLAYLIST_BASES.map(b => b + suffix);
@@ -421,79 +432,118 @@ function evictNonOwners(lobbyId, ownerId) {
   }
 }
 
-function requireUser(req, res) {
+// Who is calling a playlist route: { userId, legacy, name }, or null after
+// answering 401. A Bearer token (CLI) was verified by the auth guard
+// (req.apiUser): it acts as the token's owner, or — for a legacy ownerless
+// token — as an ownerless member (playlistAccess viewer rules). Otherwise the
+// signed listen_auth cookie (the guard already required an approved account).
+async function requireViewer(req, res) {
+  if (req.apiUser) {
+    const { userId, name } = req.apiUser;
+    return { userId: userId || null, legacy: !userId, name: name || null };
+  }
   const userId = getAuthUserId(req);
-  if (!userId) res.status(401).json({ error: 'Authentication required' });
-  return userId;
+  if (!userId) {
+    res.status(401).json({ error: 'Authentication required' });
+    return null;
+  }
+  let name = null;
+  try {
+    const account = await userAuth.getAccount(userId);
+    name = account && account.name ? String(account.name).trim().slice(0, 30) : null;
+  } catch {}
+  return { userId, legacy: false, name };
 }
 
 // The playlist, or null after answering 404 when it is missing or hidden.
-async function findVisiblePlaylist(req, res, userId) {
+async function findVisiblePlaylist(req, res, viewer) {
   const l = await lobby.getLobbyAsync(req.params.id);
-  if (!access.canView(l, userId)) {
-    res.status(404).json({ error: 'Playlist not found' });
+  if (!access.viewerCanView(l, viewer)) {
+    res.status(404).json({ error: 'Playlist not found', code: 'NOT_FOUND' });
     return null;
   }
   return l;
 }
 
+// Wrap an async route: unexpected errors become a JSON 500.
+const playlistRoute = (label, fn) => (req, res) => {
+  Promise.resolve(fn(req, res)).catch((err) => {
+    console.error(`Playlist ${label} error:`, err.message);
+    if (!res.headersSent) res.status(500).json({ error: `Failed to ${label}` });
+  });
+};
+
 // Playlists the caller can see: every public one plus their own private ones.
-app.get(playlistPaths(), async (req, res) => {
-  const userId = requireUser(req, res);
-  if (!userId) return;
-  const visible = lobby.getAllLobbies().filter(l => access.canView(l, userId));
+app.get(playlistPaths(), playlistRoute('list playlists', async (req, res) => {
+  const viewer = await requireViewer(req, res);
+  if (!viewer) return;
+  const visible = lobby.getAllLobbies().filter(l => access.viewerCanView(l, viewer));
   const names = await ownerNames(visible.map(l => l.ownerId));
-  const playlists = await Promise.all(visible.map(l => playlistInfo(l, userId, names)));
+  const playlists = await Promise.all(visible.map(l => playlistInfo(l, viewer.userId, names)));
   // `lobbies` is the old key, kept for older clients.
   res.json({ playlists, lobbies: playlists });
-});
+}));
 
 // Create a playlist owned by the caller. Body: { name?, visibility? }.
-app.post(playlistPaths(), express.json(), async (req, res) => {
-  const userId = requireUser(req, res);
-  if (!userId) return;
+// A legacy (ownerless) CLI token creates an ownerless playlist, which is
+// always public: asking it for a private one is refused.
+app.post(playlistPaths(), express.json(), playlistRoute('create playlist', async (req, res) => {
+  const viewer = await requireViewer(req, res);
+  if (!viewer) return;
   const { name, visibility = 'public' } = req.body || {};
   if (!lobby.VISIBILITIES.includes(visibility)) {
-    return res.status(400).json({ error: "visibility must be 'public' or 'private'" });
+    return res.status(400).json({ error: "visibility must be 'public' or 'private'", code: 'BAD_REQUEST' });
+  }
+  if (viewer.legacy && visibility === 'private') {
+    return res.status(403).json({
+      error: 'This token has no owner (legacy token): it can only create public playlists. Create a token on your profile page.',
+      code: 'FORBIDDEN'
+    });
+  }
+  if (name !== undefined && name !== null && typeof name !== 'string') {
+    return res.status(400).json({ error: 'name must be a string', code: 'BAD_REQUEST' });
   }
   const trimmed = typeof name === 'string' ? name.trim() : '';
-  if (trimmed.length > 50) return res.status(400).json({ error: 'Name must be 50 characters or less' });
-  if (trimmed && lobby.isNameTaken(trimmed, null, l => access.canView(l, userId))) {
-    return res.status(409).json({ error: 'A playlist with that name already exists' });
+  if (trimmed.length > 50) return res.status(400).json({ error: 'Name must be 50 characters or less', code: 'BAD_REQUEST' });
+  if (trimmed && lobby.isNameTaken(trimmed, null, l => access.viewerCanView(l, viewer))) {
+    return res.status(409).json({ error: 'A playlist with that name already exists', code: 'CONFLICT' });
   }
-  const created = await lobby.createLobbyAsync(userId, null, trimmed || null, visibility);
-  const info = await playlistInfo(created, userId);
+  const created = await lobby.createLobbyAsync(viewer.userId, null, trimmed || null, visibility, viewer.name);
+  const info = await playlistInfo(created, viewer.userId);
   res.status(201).json({ ...info, link: `/playlist/${created.id}` });
-});
+}));
 
-app.get(playlistPaths('/:id'), async (req, res) => {
-  const userId = requireUser(req, res);
-  if (!userId) return;
-  const l = await findVisiblePlaylist(req, res, userId);
+app.get(playlistPaths('/:id'), playlistRoute('get playlist', async (req, res) => {
+  const viewer = await requireViewer(req, res);
+  if (!viewer) return;
+  const l = await findVisiblePlaylist(req, res, viewer);
   if (!l) return;
-  res.json({ ...(await playlistInfo(l, userId)), users: lobby.getLobbyUsers(l.id) });
-});
+  res.json({ ...(await playlistInfo(l, viewer.userId)), users: lobby.getLobbyUsers(l.id) });
+}));
 
 // Rename and/or change visibility. Body: { name?, visibility? }. Renaming is
 // an edit (anyone who can see it); visibility is owner-only.
 async function updatePlaylist(req, res, { name, visibility }) {
-  const userId = requireUser(req, res);
-  if (!userId) return;
-  const l = await findVisiblePlaylist(req, res, userId);
+  const viewer = await requireViewer(req, res);
+  if (!viewer) return;
+  const l = await findVisiblePlaylist(req, res, viewer);
   if (!l) return;
   if (visibility !== undefined) {
     if (!lobby.VISIBILITIES.includes(visibility)) {
-      return res.status(400).json({ error: "visibility must be 'public' or 'private'" });
+      return res.status(400).json({ error: "visibility must be 'public' or 'private'", code: 'BAD_REQUEST' });
     }
-    if (!access.canManage(l, userId)) {
-      return res.status(403).json({ error: 'Only the owner can change visibility' });
+    if (!access.viewerCanManage(l, viewer)) {
+      return res.status(403).json({ error: 'Only the owner can change visibility', code: 'FORBIDDEN' });
     }
   }
   if (name !== undefined) {
-    if (!access.canEdit(l, userId)) return res.status(404).json({ error: 'Playlist not found' });
-    const result = await lobby.renameLobby(l.id, name, other => access.canView(other, userId));
-    if (!result) return res.status(404).json({ error: 'Playlist not found' });
-    if (result.error) return res.status(400).json({ error: result.error });
+    if (!access.viewerCanEdit(l, viewer)) return res.status(404).json({ error: 'Playlist not found', code: 'NOT_FOUND' });
+    const result = await lobby.renameLobby(l.id, name, other => access.viewerCanView(other, viewer));
+    if (!result) return res.status(404).json({ error: 'Playlist not found', code: 'NOT_FOUND' });
+    if (result.error) {
+      const conflict = /already exists/.test(result.error);
+      return res.status(conflict ? 409 : 400).json({ error: result.error, code: conflict ? 'CONFLICT' : 'BAD_REQUEST' });
+    }
   }
   if (visibility !== undefined && visibility !== l.visibility) {
     await lobby.setVisibility(l.id, visibility);
@@ -506,43 +556,220 @@ async function updatePlaylist(req, res, { name, visibility }) {
     io.to(l.id).emit('lobby:renamed', { lobbyId: l.id, name: fresh.name });
   }
   const fresh = await lobby.getLobbyAsync(l.id);
-  res.json(await playlistInfo(fresh, userId));
+  res.json(await playlistInfo(fresh, viewer.userId));
 }
 
-app.patch(playlistPaths('/:id'), express.json(), (req, res) => {
+app.patch(playlistPaths('/:id'), express.json(), playlistRoute('update playlist', (req, res) => {
   const { name, visibility } = req.body || {};
-  updatePlaylist(req, res, { name, visibility }).catch(err => {
-    console.error('Playlist update error:', err.message);
-    if (!res.headersSent) res.status(500).json({ error: 'Failed to update playlist' });
-  });
-});
+  return updatePlaylist(req, res, { name, visibility });
+}));
 
 // Older form: { is_public: boolean } or { visibility }.
-app.patch(playlistPaths('/:id/visibility'), express.json(), (req, res) => {
+app.patch(playlistPaths('/:id/visibility'), express.json(), playlistRoute('update visibility', (req, res) => {
   const body = req.body || {};
   let visibility = body.visibility;
   if (visibility === undefined && typeof body.is_public === 'boolean') visibility = body.is_public ? 'public' : 'private';
-  if (visibility === undefined) return res.status(400).json({ error: "visibility must be 'public' or 'private'" });
-  updatePlaylist(req, res, { visibility }).catch(err => {
-    console.error('Playlist visibility error:', err.message);
-    if (!res.headersSent) res.status(500).json({ error: 'Failed to update visibility' });
-  });
-});
+  if (visibility === undefined) return res.status(400).json({ error: "visibility must be 'public' or 'private'", code: 'BAD_REQUEST' });
+  return updatePlaylist(req, res, { visibility });
+}));
 
 // Delete as the owner. Ownerless playlists can only be deleted by an admin
 // (DELETE /api/dashboard/lobbies/:id).
-app.delete(playlistPaths('/:id'), async (req, res) => {
-  const userId = requireUser(req, res);
-  if (!userId) return;
-  const l = await findVisiblePlaylist(req, res, userId);
+app.delete(playlistPaths('/:id'), playlistRoute('delete playlist', async (req, res) => {
+  const viewer = await requireViewer(req, res);
+  if (!viewer) return;
+  const l = await findVisiblePlaylist(req, res, viewer);
   if (!l) return;
-  if (!access.canManage(l, userId)) {
-    return res.status(403).json({ error: 'Only the owner can delete this playlist' });
+  if (!access.viewerCanManage(l, viewer)) {
+    return res.status(403).json({ error: 'Only the owner can delete this playlist', code: 'FORBIDDEN' });
   }
   await destroyLobby(l.id, { reason: 'This playlist has been deleted by its owner.' });
-  console.log(`Playlist ${l.id} deleted by owner ${userId}`);
-  res.json({ success: true });
-});
+  console.log(`Playlist ${l.id} deleted by owner ${viewer.userId}`);
+  res.json({ success: true, id: l.id });
+}));
+
+// --- A playlist's songs (its queue of library songs) ---------------------
+// Same permission as the web app: whoever can see a playlist can edit its
+// songs. Changes go through the same queue code as the socket handlers and
+// broadcast queue:update to the playlist room, so open web clients update.
+
+const MAX_SONGS_PER_ADD = 200;
+
+// Queue entries as the API shows them: position (1-based), the entry id
+// (used to remove / move it) and the library song behind it.
+async function playlistSongViews(songs) {
+  const byId = new Map();
+  const byYt = new Map();
+  if (db.isAvailable() && songs.length) {
+    const ids = [];
+    const ytIds = [];
+    for (const s of songs) {
+      if (typeof s.url !== 'string') continue;
+      if (s.url.startsWith('library:') && library.isUuid(s.url.slice(8))) ids.push(s.url.slice(8));
+      const yt = library.parseYoutubeId(s.url);
+      if (yt) ytIds.push(yt);
+    }
+    try {
+      const r = await db.query(
+        `SELECT id::text AS id, youtube_id, title, artist, album, duration_sec FROM library_songs
+         WHERE id = ANY($1::uuid[]) OR youtube_id = ANY($2::text[])`,
+        [ids, ytIds]
+      );
+      for (const row of r.rows) {
+        byId.set(row.id, row);
+        if (row.youtube_id) byYt.set(row.youtube_id, row);
+      }
+    } catch (err) {
+      console.error('Playlist song lookup failed:', err.message);
+    }
+  }
+  return songs.map((s, i) => {
+    const yt = library.parseYoutubeId(s.url || '');
+    const lib = (s.url && s.url.startsWith('library:') && byId.get(s.url.slice(8))) || (yt && byYt.get(yt)) || null;
+    return {
+      position: i + 1,
+      entry_id: s.id,
+      library_id: lib ? lib.id : null,
+      youtube_id: (lib && lib.youtube_id) || yt || null,
+      title: s.title,
+      artist: lib ? lib.artist : null,
+      duration_sec: Number(s.duration) || (lib && lib.duration_sec !== null ? Number(lib.duration_sec) : null) || null,
+      url: s.url,
+      thumbnail: s.thumbnail || null,
+      added_by: s.addedBy || null,
+      added_at: s.addedAt || null,
+      available: db.isAvailable() ? !!lib : null
+    };
+  });
+}
+
+// A song reference from an API body: a library song id (uuid), "yt:<id>", a
+// bare 11-char YouTube id or a YouTube URL, or { library_id } / { youtube_id }.
+// Returns { song } or { code, error }.
+async function resolveLibraryRef(ref) {
+  let libraryId = null;
+  let youtubeId = null;
+  if (ref && typeof ref === 'object') {
+    if (typeof ref.library_id === 'string') libraryId = ref.library_id.trim();
+    else if (typeof ref.youtube_id === 'string') youtubeId = library.parseYoutubeId(ref.youtube_id.replace(/^yt:/i, ''));
+    else return { code: 'INVALID', error: 'Expected { library_id } or { youtube_id }' };
+    if (libraryId !== null && !library.isUuid(libraryId)) return { code: 'INVALID', error: 'library_id must be a UUID' };
+    if (libraryId === null && !youtubeId) return { code: 'INVALID', error: 'Invalid youtube_id' };
+  } else if (typeof ref === 'string' && ref.trim()) {
+    const s = ref.trim();
+    if (library.isUuid(s)) libraryId = s;
+    else youtubeId = library.parseYoutubeId(s.replace(/^yt:/i, ''));
+    if (!libraryId && !youtubeId) return { code: 'INVALID', error: 'Not a library song id, yt:<id> or YouTube URL' };
+  } else {
+    return { code: 'INVALID', error: 'Empty song reference' };
+  }
+  const song = libraryId ? await library.getById(libraryId) : await library.getByYoutubeId(youtubeId);
+  if (!song) return { code: 'NOT_IN_LIBRARY', error: 'Not in the library' };
+  return { song };
+}
+
+app.get(playlistPaths('/:id/songs'), playlistRoute('list playlist songs', async (req, res) => {
+  const viewer = await requireViewer(req, res);
+  if (!viewer) return;
+  const l = await findVisiblePlaylist(req, res, viewer);
+  if (!l) return;
+  const queue = await getQueueAsync(l.id);
+  res.json({ playlist: await playlistInfo(l, viewer.userId), songs: await playlistSongViews(queue.getSongs()) });
+}));
+
+// Add library songs. Body: { songs: [ref, ...], allow_duplicates?: boolean }.
+// A song already in the playlist is skipped unless allow_duplicates. Answers
+// 200 with one result per ref (added | already_in_playlist | not_in_library |
+// invalid) even if some failed.
+app.post(playlistPaths('/:id/songs'), express.json(), playlistRoute('add playlist songs', async (req, res) => {
+  const viewer = await requireViewer(req, res);
+  if (!viewer) return;
+  const l = await findVisiblePlaylist(req, res, viewer);
+  if (!l) return;
+  const body = req.body || {};
+  const refs = Array.isArray(body.songs) ? body.songs : null;
+  if (!refs || !refs.length) return res.status(400).json({ error: 'songs must be a non-empty array of library ids or yt:<id>', code: 'BAD_REQUEST' });
+  if (refs.length > MAX_SONGS_PER_ADD) return res.status(400).json({ error: `At most ${MAX_SONGS_PER_ADD} songs per request`, code: 'BAD_REQUEST' });
+  if (!db.isAvailable()) return res.status(503).json({ error: 'The music library is unavailable (no database)', code: 'NO_DATABASE' });
+  const allowDuplicates = body.allow_duplicates === true;
+  const addedBy = viewer.name || 'CLI';
+  const results = [];
+  for (const ref of refs) {
+    const input = ref;
+    const resolved = await resolveLibraryRef(ref);
+    if (!resolved.song) {
+      results.push({ input, status: resolved.code === 'INVALID' ? 'invalid' : 'not_in_library', code: resolved.code, error: resolved.error });
+      continue;
+    }
+    const entry = await addLibrarySongToLobby(l.id, resolved.song, addedBy, { skipIfQueued: !allowDuplicates });
+    const song = library.toPublic(resolved.song);
+    if (!entry) results.push({ input, status: 'already_in_playlist', song });
+    else results.push({ input, status: 'added', song, entry_id: entry.id });
+  }
+  const queue = await getQueueAsync(l.id);
+  const added = results.filter(r => r.status === 'added').length;
+  if (added) {
+    io.to(l.id).emit('queue:update', { lobbyId: l.id, songs: queue.getSongs() });
+    console.log(`${added} song(s) added to playlist ${l.id} over the API by ${addedBy}`);
+  }
+  await queue.flush(); // persisted before we answer
+  const count = (s) => results.filter(r => r.status === s).length;
+  res.json({
+    playlist_id: l.id,
+    summary: { total: results.length, added, already_in_playlist: count('already_in_playlist'), not_in_library: count('not_in_library'), invalid: count('invalid') },
+    results,
+    song_count: queue.getSongs().length
+  });
+}));
+
+// Remove songs. :ref is a queue entry id (removes that entry), or a library
+// song id / yt:<id> / YouTube id (removes every entry of that song).
+app.delete(playlistPaths('/:id/songs/:ref'), playlistRoute('remove playlist song', async (req, res) => {
+  const viewer = await requireViewer(req, res);
+  if (!viewer) return;
+  const l = await findVisiblePlaylist(req, res, viewer);
+  if (!l) return;
+  const queue = await getQueueAsync(l.id);
+  const ref = String(req.params.ref || '').trim();
+  let targets = queue.getSongs().filter(s => s.id === ref);
+  if (!targets.length) {
+    let song = null;
+    if (library.isUuid(ref) && db.isAvailable()) song = await library.getById(ref);
+    const yt = library.parseYoutubeId(ref.replace(/^yt:/i, ''));
+    if (song) targets = queue.getSongs().filter(s => library.isQueued([s], song));
+    else if (yt) targets = queue.getSongs().filter(s => library.parseYoutubeId(s.url || '') === yt);
+  }
+  if (!targets.length) return res.status(404).json({ error: 'That song is not in this playlist', code: 'SONG_NOT_FOUND' });
+  const removed = [];
+  for (const t of targets) {
+    const r = queue.removeSong(t.id);
+    if (r) removed.push({ entry_id: r.id, title: r.title, url: r.url });
+  }
+  io.to(l.id).emit('queue:update', { lobbyId: l.id, songs: queue.getSongs() });
+  await queue.flush();
+  res.json({ playlist_id: l.id, removed, song_count: queue.getSongs().length });
+}));
+
+// Move one entry. Body: { position } (1-based; or index, 0-based).
+app.post(playlistPaths('/:id/songs/:entryId/move'), express.json(), playlistRoute('move playlist song', async (req, res) => {
+  const viewer = await requireViewer(req, res);
+  if (!viewer) return;
+  const l = await findVisiblePlaylist(req, res, viewer);
+  if (!l) return;
+  const body = req.body || {};
+  const index = Number.isInteger(body.position) ? body.position - 1 : body.index;
+  const queue = await getQueueAsync(l.id);
+  if (!queue.getSongs().some(s => s.id === req.params.entryId)) {
+    return res.status(404).json({ error: 'That song is not in this playlist', code: 'SONG_NOT_FOUND' });
+  }
+  if (!Number.isInteger(index) || index < 0 || index >= queue.getSongs().length) {
+    return res.status(400).json({ error: `position must be between 1 and ${queue.getSongs().length}`, code: 'BAD_REQUEST' });
+  }
+  queue.reorderSong(req.params.entryId, index);
+  io.to(l.id).emit('queue:update', { lobbyId: l.id, songs: queue.getSongs() });
+  await queue.flush();
+  res.json({ playlist_id: l.id, songs: await playlistSongViews(queue.getSongs()) });
+}));
 
 // Thumbnail hosts queue entries use: YouTube (library songs, search) and
 // Spotify (track links).

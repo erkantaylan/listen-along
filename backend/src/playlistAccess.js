@@ -46,4 +46,28 @@ function canAdminDelete(lobby) {
   return !!lobby && !isPrivate(lobby);
 }
 
-module.exports = { isOwner, isPrivate, canView, canEdit, canManage, canAdminDelete };
+// --- Viewers -------------------------------------------------------------
+// HTTP callers are "viewers": { userId, legacy }. A web session or a CLI
+// token owned by a user is that user (userId set). A legacy CLI token (made
+// before tokens had owners, api_tokens.user_id NULL) has no user: it acts like
+// an anonymous logged-in member that can see and edit public playlists only,
+// never manages anything, and creates ownerless (hence public) playlists.
+
+function viewerCanView(lobby, viewer) {
+  if (!viewer) return false;
+  if (viewer.legacy) return !!lobby && !isPrivate(lobby);
+  return canView(lobby, viewer.userId);
+}
+
+function viewerCanEdit(lobby, viewer) {
+  return viewerCanView(lobby, viewer);
+}
+
+function viewerCanManage(lobby, viewer) {
+  return !!viewer && !viewer.legacy && canManage(lobby, viewer.userId);
+}
+
+module.exports = {
+  isOwner, isPrivate, canView, canEdit, canManage, canAdminDelete,
+  viewerCanView, viewerCanEdit, viewerCanManage,
+};
