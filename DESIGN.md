@@ -160,6 +160,11 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   (both follow `?page=`, both hidden when there is one page).
 - **Profile**: navbar with back; avatar + display-name card (the only place to edit your
   name/avatar; the chat and people panel show them); connected-accounts card; Sign out.
+  Approved accounts also get a "CLI tokens" card: label input + grey "Create token"
+  button (the display-name Save stays the one primary), a success alert that shows a new
+  token once (read-only input + Copy, a `pre` "how to use" snippet that scrolls sideways,
+  Done), and a list group of active tokens (label, prefix, created, last used, danger
+  Revoke).
 - **Social** (`/social`): on phones the chat-and-people panel as a full-screen view; on
   desktop the URL just opens the sidebar over the landing page. See below.
 - **Dashboard**: navbar (hamburger below 1024px), 15rem sidebar list group, main area with

@@ -2,6 +2,7 @@
 import { state, elements, socket, auth, STORAGE_KEYS, AVATAR_EMOJIS, storageSet } from './state.js';
 import { showView, showToast, escapeHtml, navigateTo } from './ui.js';
 import { announceProfile } from './social.js';
+import { setupProfileTokens, loadProfileTokens } from './profile-tokens.js';
 
 // The logged-in account's status (approved / pending / denied / rejected),
 // as the server sees it.
@@ -164,6 +165,8 @@ export function setupProfilePage() {
     });
   }
 
+  setupProfileTokens();
+
   const nameInput = document.getElementById('profile-page-name-input');
   const saveBtn = document.getElementById('profile-page-save-btn');
   if (saveBtn && nameInput) {
@@ -203,6 +206,7 @@ export async function loadProfilePage() {
   const providersList = document.getElementById('profile-providers-list');
   if (nameInput) nameInput.value = state.username;
   if (emojiBtn) emojiBtn.textContent = state.emoji;
+  loadProfileTokens();
   try {
     const res = await fetch('/api/profile', { credentials: 'same-origin' });
     if (res.ok) {

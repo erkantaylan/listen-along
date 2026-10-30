@@ -57,51 +57,36 @@
   }
 
   // --- tokens ---------------------------------------------------------------
+  // All tokens, with their owner. Created by users on their profile page;
+  // the admin can only revoke.
+  function ownerLabel(t) {
+    if (!t.owner) return '<span class="badge badge-subtle theme-warning">legacy, no owner</span>';
+    return `<span class="fg-2">${esc(t.owner.name || t.owner.id)}</span>`;
+  }
+
   async function loadTokens() {
     const list = $('adm-tokens');
     try {
       const { tokens } = await api('GET', '/api/admin/tokens');
       if (!tokens.length) { list.innerHTML = '<li class="list-group-item app-empty adm-empty">No tokens yet.</li>'; return; }
       list.innerHTML = tokens.map((t) => `
-        <li class="list-group-item d-flex align-items-center gap-3 adm-item${t.active ? '' : ' revoked fg-3'}">
+        <li class="list-group-item d-flex align-items-center gap-3 adm-item adm-token${t.active ? '' : ' revoked fg-3'}">
           <div class="min-w-0 flex-grow-1 adm-item-main">
-            <div class="fw-medium text-break adm-item-title">${esc(t.name)}</div>
-            <div class="fs-xs fg-3 text-break adm-item-sub">${esc(t.prefix)}… · created ${esc(when(t.created_at))}${t.last_used_at ? ' · last used ' + esc(when(t.last_used_at)) : ' · never used'}${t.revoked_at ? ' · revoked ' + esc(when(t.revoked_at)) : ''}</div>
+            <div class="fw-medium text-break adm-item-title">${esc(t.label)} <span class="fs-sm fw-normal">· ${ownerLabel(t)}</span></div>
+            <div class="fs-xs fg-3 text-break adm-item-sub"><span class="font-monospace">${esc(t.prefix)}…</span> · created ${esc(when(t.created_at))}${t.last_used_at ? ' · last used ' + esc(when(t.last_used_at)) : ' · never used'}${t.revoked_at ? ' · revoked ' + esc(when(t.revoked_at)) : ''}</div>
           </div>
-          ${t.active ? `<button class="btn-outline theme-danger btn-sm" data-revoke="${esc(t.id)}" data-name="${esc(t.name)}">Revoke</button>` : ''}
+          ${t.active ? `<button class="btn-outline theme-danger btn-sm" type="button" data-revoke="${esc(t.id)}" data-name="${esc(t.label)}" data-owner="${esc(t.owner ? t.owner.name || '' : '')}">Revoke</button>` : ''}
         </li>`).join('');
     } catch (err) {
       list.innerHTML = `<li class="list-group-item app-empty adm-empty">${esc(err.message)}</li>`;
     }
   }
 
-  $('adm-token-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const name = $('adm-token-name').value.trim();
-    if (!name) return;
-    try {
-      const { token, record } = await api('POST', '/api/admin/tokens', { name });
-      $('adm-new-token-name').textContent = record.name;
-      $('adm-new-token-value').textContent = token;
-      $('adm-new-token').hidden = false;
-      $('adm-token-name').value = '';
-      loadTokens();
-    } catch (err) {
-      alert(`Could not create token: ${err.message}`);
-    }
-  });
-
-  $('adm-copy-token').addEventListener('click', async () => {
-    const value = $('adm-new-token-value').textContent;
-    try { await navigator.clipboard.writeText(value); $('adm-copy-token').textContent = 'Copied'; }
-    catch { window.prompt('Copy the token:', value); }
-    setTimeout(() => { $('adm-copy-token').textContent = 'Copy'; }, 2000);
-  });
-
   $('adm-tokens').addEventListener('click', async (e) => {
     const btn = e.target.closest('[data-revoke]');
     if (!btn) return;
-    if (!confirm(`Revoke the token for "${btn.dataset.name}"? Their CLI will stop working.`)) return;
+    const whose = btn.dataset.owner ? ` (${btn.dataset.owner})` : '';
+    if (!confirm(`Revoke the token "${btn.dataset.name}"${whose}? The CLI using it stops working.`)) return;
     try { await api('POST', `/api/admin/tokens/${encodeURIComponent(btn.dataset.revoke)}/revoke`); }
     catch (err) { alert(`Could not revoke: ${err.message}`); }
     loadTokens();

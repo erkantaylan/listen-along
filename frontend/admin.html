@@ -46,20 +46,9 @@
       <section class="card">
         <div class="card-header"><h2 class="h6 mb-0">CLI tokens</h2></div>
         <div class="card-body vstack gap-4">
-          <p class="fs-sm fg-3 mb-0">One token per person. The listen-along CLI sends it as
-            <code>Authorization: Bearer &lt;token&gt;</code>; every upload is recorded under the token's name.
-            The token is shown only once — copy it right away.</p>
-          <form id="adm-token-form" class="input-group">
-            <input id="adm-token-name" class="form-control" type="text" maxlength="100" placeholder="Person's display name" aria-label="Person's display name" required autocomplete="off">
-            <button class="btn-solid theme-primary" type="submit">Create token</button>
-          </form>
-          <div id="adm-new-token" class="alert theme-success flex-column" hidden>
-            <p class="mb-2">New token for <strong id="adm-new-token-name"></strong>:</p>
-            <div class="d-flex align-items-center gap-2 w-100">
-              <code id="adm-new-token-value" class="form-control font-monospace text-break user-select-all"></code>
-              <button id="adm-copy-token" class="btn" type="button">Copy</button>
-            </div>
-          </div>
+          <p class="fs-sm fg-3 mb-0">Every token for the listen-along CLI. People create their own on
+            their profile page; uploads are credited to the token's owner. Legacy tokens predate
+            ownership and are credited to the name they were created with.</p>
           <ul id="adm-tokens" class="list-group"></ul>
         </div>
       </section>

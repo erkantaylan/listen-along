@@ -368,6 +368,35 @@
           </ul>
         </div>
       </div>
+      <section id="profile-tokens-card" class="card mb-4 profile-tokens" aria-labelledby="profile-tokens-title" hidden>
+        <div class="card-header">
+          <h2 id="profile-tokens-title" class="h6 mb-0">CLI tokens</h2>
+        </div>
+        <div class="card-body vstack gap-4">
+          <p class="fs-sm fg-3 mb-0">A token lets the <code>la</code> command-line tool upload songs and read the library as you. Uploads are credited to your name. Make one per computer and revoke it when you stop using it.</p>
+          <form id="profile-token-form" class="input-group">
+            <input type="text" id="profile-token-label" class="form-control" maxlength="100" placeholder="Label, e.g. Desktop" aria-label="Token label" autocomplete="off" required>
+            <button id="profile-token-create-btn" class="btn" type="submit">Create token</button>
+          </form>
+          <div id="profile-new-token" class="alert theme-success flex-column align-items-stretch gap-3 mb-0" role="status" hidden>
+            <p class="mb-0 fs-sm">New token <strong id="profile-new-token-label"></strong>. Copy it now: it is shown only once.</p>
+            <div class="input-group">
+              <input type="text" id="profile-new-token-value" class="form-control font-monospace fs-sm" readonly aria-label="New token">
+              <button id="profile-copy-token-btn" class="btn" type="button">Copy</button>
+            </div>
+            <div>
+              <p class="mb-1 fs-sm">Set up the CLI:</p>
+              <pre class="mb-0 fs-xs profile-token-usage"><code id="profile-token-usage"></code></pre>
+            </div>
+            <div class="text-end">
+              <button id="profile-new-token-done-btn" class="btn btn-sm" type="button">Done</button>
+            </div>
+          </div>
+          <ul id="profile-tokens-list" class="list-group profile-tokens-list">
+            <li class="list-group-item app-empty">Loading...</li>
+          </ul>
+        </div>
+      </section>
       <div class="text-end">
         <button id="profile-logout-btn" class="btn-outline theme-danger" type="button">Sign Out</button>
       </div>

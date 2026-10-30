@@ -207,6 +207,17 @@
   }
   .emoji-option { font-size: 1.25rem; }
 
+  /* "How to use" snippet under a new CLI token (profile page): scrolls
+     sideways inside the card instead of widening the page. */
+  .profile-token-usage {
+    padding: 0.5rem 0.75rem;
+    overflow-x: auto;
+    white-space: pre;
+    color: var(--bs-fg-body);
+    background-color: var(--bs-bg-body);
+    border-radius: var(--bs-radius-3, 0.375rem);
+  }
+
   /* Player bar */
   .sticky-player {
     flex-shrink: 0;
