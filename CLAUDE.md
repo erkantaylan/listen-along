@@ -30,7 +30,9 @@ where lobby persistence broke entirely on deployed instances.
 - UI is stock Bootstrap 6 (vendored in `frontend/vendor/`) with light theming; read `DESIGN.md` before changing any page or CSS
 - `index.js` is the main server (~1700 lines, handles all HTTP routes + socket events)
 - Domain modules: lobby.js, playlistAccess.js, queue.js, playback.js, covers.js, db.js,
-  library.js (music library + m4a validation + legacy cache migration),
+  library.js (music library + m4a validation + legacy cache migration +
+  duplicate checks + replace), songMatch.js (normalized "artist|title" key for
+  probable duplicates; bump META_KEY_VERSION when changing it — boot recomputes),
   requests.js (song requests), tokens.js (CLI tokens), adminAuth.js (/admin),
   libraryRoutes.js (library/requests/admin HTTP API), songResolver.js
   (what a user typed -> library song or song request)
@@ -40,6 +42,18 @@ where lobby persistence broke entirely on deployed instances.
   request; uploads fulfil requests and auto-add the song to the requesting
   playlist. yt-dlp on the server is metadata-only (flat YouTube search, playlist
   listing). See `YTDLP-YOUTUBE.md` before touching song sourcing.
+- Duplicates: an upload is refused (409 + `code`) for the same `youtube_id`
+  (`already_in_library`), the same bytes (`sha256`, unique: `duplicate_hash`)
+  or the same `meta_key` with duration ±3s (`duplicate_metadata`, probable;
+  `allow_similar` overrides; serialized by an advisory lock). The CLI asks
+  first via `POST /api/library/check`.
+- Replace (`POST /api/library/:id/replace`, any valid token or approved web
+  user): new audio + metadata under the same song id, audit row in
+  `library_song_replacements`, old file deleted after commit; index.js
+  rewrites queue entries of every playlist holding it and emits
+  `library:updated { replaced }` (players reload the new file). Audio
+  responses are `no-cache` unless the url has `?v=<file_version>`: never mark
+  song urls immutable again, a song's file can change under the same url.
 - Spotify track links supported via `spotify-url-info` page scraping (no API
   credentials needed); title/artist are matched against the library or
   turned into a request

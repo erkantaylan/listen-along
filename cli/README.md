@@ -57,6 +57,8 @@ Every command has detailed `--help` with examples (`la <command> --help`).
 |---|---|
 | `la download <url-or-query>...` | YouTube video URLs, playlist URLs, `yt:<id>` or free-text search → m4a → upload |
 | `la upload <file-or-dir>...` | upload local files; non-m4a is converted to AAC m4a (192k) first |
+| `la download <url-or-query> --replace <song-id>` | fix a wrong upload: the download replaces that library song's audio + metadata (same id) |
+| `la upload <file> --replace <song-id>` | same, from a local file |
 | `la requests [list]` | pending song requests (`--status pending\|fulfilled\|all`) |
 | `la requests fulfill (--all \| <id>...)` | download + upload each requested song with `request_id` |
 | `la requests dismiss <id>...` | dismiss requests |
@@ -87,7 +89,55 @@ la playlist create "Road trip" --private
 la download --playlist "Road trip" "Justice - D.A.N.C.E." "Daft Punk - Digital Love"
 la upload ~/Music/SomeAlbum/ --playlist "Some Album" --create-playlist
 la playlist show "Road trip" --json
+la download --allow-similar "Queen - Bohemian Rhapsody (Live Aid)"
+la download https://youtu.be/RIGHTVIDEO1 --replace 0b6f3b7e-6b0e-4a59-9a43-6bd1ef3c1f00
+la upload fixed.m4a --replace 0b6f3b7e-... --title "Right Title" --artist "Right Artist"
 ```
+
+### Duplicates
+
+Before anything is downloaded or uploaded, `la` asks the server whether the
+song is already in the library, by three signals:
+
+| signal | when `la` checks | skip `reason` |
+|---|---|---|
+| same `youtube_id` | library listing at the start (and the server's check) | `already in library` |
+| same file bytes (sha256) | after the download / conversion, before the upload | `duplicate_hash` |
+| same artist + title, normalized, and duration within ±3s | before a download (search and playlist results: artist/title guessed from the video title or channel) and again before the upload (the file's tags) | `duplicate_metadata` |
+
+Normalization ignores case, accents and Turkish letters (ş, ğ, ı/İ, ç, ö, ü),
+upload noise like "(Official Video)", "[HD]", "- Remastered 2011", "feat. …"
+credits, "VEVO"/" - Topic" channel suffixes and a leading "Artist - " in the
+title; "(Live)", "(Remix)", "- Acoustic" are kept, so versions stay apart.
+
+Every such skip names the existing song in `duplicate_of` (`{id, title,
+artist, youtube_id?, match}`) and carries it as `song` (so `--playlist` adds
+the existing song). youtube_id and hash matches are exact; a metadata match is
+only *probable*: `--allow-similar` uploads it anyway. The server re-checks
+every upload (`409` with `code` `already_in_library` / `duplicate_hash` /
+`duplicate_metadata`; race-safe, two uploaders cannot both add it), and those
+409s become the same skip reasons. A server without the check endpoint is
+asked once (404) and then simply gets the upload, as before.
+
+### Replacing a wrong upload (`--replace`)
+
+`la download <one url-or-query> --replace <song-id>` or `la upload <one file>
+--replace <song-id>` replaces the audio file **and** the metadata (title,
+artist, album, youtube_id, source link, duration; the cover follows the
+youtube_id) of an existing library song. The song **keeps its id**, so every
+playlist that contains it now plays the new file (open web apps update, and a
+listener currently playing it switches to the new file at the same position).
+Find the id with `la library <search> --json`. Anyone with a token may replace
+(and any approved user in the web app); the server keeps an audit trail
+(who, when, old and new youtube_id / source / hash / title / artist) and
+deletes the old file only after the new one is in place. No duplicate
+pre-checks run, but the server refuses a file or youtube_id that belongs to a
+*different* song (`duplicate_hash` / `already_in_library`), the same file
+again (`same_file`) or an unknown id (`not_found`) — exit 1. The result has
+`status: "replaced"` (`would_replace` with `--dry-run`), `replaced_id`,
+`previous: {youtube_id, source_url, title, artist, album, duration_sec,
+file_version}` and counts in `summary.replaced`. Not combinable with
+`--playlist`, `--allow-similar`, `--no-upload` or `--request-id`.
 
 ### Playlists
 
@@ -125,7 +175,8 @@ behaviour are exactly as before.
 - Search queries look at the top 5 results and prefer "Topic" channels and
   "official audio", penalising live/cover/remix/lyrics/sped-up/demo uploads.
 - Resumable: the library is listed once and every `youtube_id` already present
-  is skipped; a `409` from the server also counts as skipped. With `--keep`,
+  is skipped; a `409` from the server also counts as skipped (see
+  [Duplicates](#duplicates) for the hash / metadata checks). With `--keep`,
   a local copy `<Artist> - <Title> [<id>].m4a` is reused instead of
   re-downloading.
 - Every upload carries a `source_url`, the original link shown in the web
@@ -165,9 +216,13 @@ link for a single file. Check first with `la upload --dry-run --json <dir>`.
   JSON object `{"error": {"code", "message", "hint"?}}` on stderr.
 - Batch commands (`download`, `upload`, `requests fulfill`, `requests dismiss`)
   print a summary and, with `--json`:
-  `{ "summary": {total, uploaded, skipped, failed, ...}, "results": [{input|file, status, youtube_id, source_url?, title, artist, reason?, error?, code?, song?}], "aborted"? }`.
+  `{ "summary": {total, uploaded, skipped, failed, ...}, "results": [{input|file, status, youtube_id, source_url?, title, artist, reason?, error?, code?, song?, duplicate_of?}], "aborted"? }`.
   Statuses: `uploaded`, `skipped`, `failed`, `would_download`/`would_upload`
-  (`--dry-run`), `downloaded` (`--no-upload`), `dismissed`.
+  (`--dry-run`), `downloaded` (`--no-upload`), `dismissed`, `replaced` /
+  `would_replace` (`--replace`). Skip reasons: `already in library`,
+  `duplicate_hash`, `duplicate_metadata`, `duplicate in this batch`,
+  `duplicate (server already has it)` (a 409 from an older server).
+  New fields and reasons may be added; existing ones keep their meaning.
   With `--playlist`, the document also has `"playlist": {id, name, visibility,
   created, added, already_in_playlist, failed}` and each uploaded/skipped result
   `playlist_status` (`added` | `already_in_playlist` | `failed`, + `playlist_error`);
@@ -201,9 +256,17 @@ All requests send `Authorization: Bearer <token>`.
 - `GET /api/me` → `{ name, user: { id, name } | null, token: { label, legacy } }`
   (`user` is null for an old token created before tokens had owners)
 - `GET /api/library?q=&limit=&offset=` → `{ songs: [...], total }`
+- `POST /api/library/check {youtube_id?, sha256?, title?, artist?, duration_sec?, exclude_id?}`
+  → `{ duplicate, match, matches: [{reason: already_in_library|duplicate_hash|duplicate_metadata, exact, message, song}] }`
 - `POST /api/library/upload` (multipart: `file` m4a, `title`, `artist`,
-  `album`, `youtube_id`, `source_url`, `duration_sec`, `request_id`) → `201 {song}`,
-  `409 {error, song}` duplicate, `400` bad input
+  `album`, `youtube_id`, `source_url`, `duration_sec`, `request_id`,
+  `allow_similar`) → `201 {song}`, `409 {error, code, exact, song}` duplicate,
+  `400` bad input
+- `POST /api/library/:id/replace` (multipart, same fields) → `{song, previous}`;
+  `404 not_found`, `409 {code: same_file|duplicate_hash|already_in_library, song}`
+- `GET /api/library/:id/replacements` → `{ replacements: [audit rows] }`
+- Song objects also carry `file_version` (changes when the audio is replaced;
+  `/api/library/:id/file?v=<file_version>` is cacheable forever) and `replaced_at`.
 - `GET /api/requests?status=pending|fulfilled|all` → `{ requests: [...] }`
 - `POST /api/requests/:id/dismiss`
 - Playlists (also at `/api/lobbies/...`; errors are `{error, code}` with code

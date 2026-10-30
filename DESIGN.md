@@ -155,9 +155,15 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   "Playlist not found" toast and returns to the landing page.
 - **Music library**: fixed full-screen layer over landing or a playlist: navbar (back, title, "adding
   to" context), tabs Songs/Requested with count badges, search + sort toolbar, list group of
-  songs (play button — plays in the app-wide player, shows pause on the song that is playing —, Add / disabled "Added" button), 20 per page: a compact
+  songs (play button — plays in the app-wide player, shows pause on the song that is playing —, a grey
+  icon button "Replace audio…" (swap arrows), Add / disabled "Added" button), 20 per page: a compact
   "‹ Page n of m ›" pager above the list and the full numbered pagination + range below it
   (both follow `?page=`, both hidden when there is one page).
+  "Replace audio…" opens an `.app-modal` card (any approved user): a one-line muted
+  explanation, file input (.m4a), Title / Artist / Album prefilled from the song,
+  "Source link" (a YouTube URL also sets the YouTube id), a danger alert for errors
+  (e.g. "this file is already in the library as …"), footer Cancel + primary Replace
+  ("Uploading…" while busy). Escape / backdrop / × close it without closing the library.
 - **Profile**: navbar with back; avatar + display-name card (the only place to edit your
   name/avatar; the chat and people panel show them); connected-accounts card; Sign out.
   Approved accounts also get a "CLI tokens" card: label input + grey "Create token"
