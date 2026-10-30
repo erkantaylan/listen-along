@@ -62,8 +62,11 @@ function takeover() {
   if (d.onTakeover) d.onTakeover();
 }
 
+// c=1: songs can now be replaced under the same url, and /api/stream used to
+// be cached as immutable; the extra parameter keeps browsers from reusing
+// such old cached copies (the server now answers no-cache + ETag).
 export function streamUrl(t) {
-  return t.src || `/api/stream?q=${encodeURIComponent(t.url)}`;
+  return t.src || `/api/stream?q=${encodeURIComponent(t.url)}&c=1`;
 }
 
 function normalizeContext(ctx) {
@@ -216,6 +219,39 @@ export const player = {
   },
 
   setDriver(d) { driver = d || null; },
+
+  // A library song's audio was replaced (socket library:updated { replaced }):
+  // { id, oldUrls, url, file_version } plus the new public song. If it is the
+  // loaded track, load the new file (versioned url, so no stale cache) at the
+  // same position and play state; matching tracks in the context's queue get
+  // the new url too. Does not end a driver (listen-along).
+  reloadReplaced(replaced, song) {
+    if (!replaced || !replaced.id) return;
+    const urls = new Set([...(replaced.oldUrls || []), `library:${replaced.id}`]);
+    const matches = (t) => !!t && (t.libraryId === replaced.id || urls.has(t.url) || t.url === replaced.url);
+    const src = `/api/library/${encodeURIComponent(replaced.id)}/file${replaced.file_version ? `?v=${encodeURIComponent(replaced.file_version)}` : ''}`;
+    const patch = (t) => {
+      const next = { ...t };
+      // Library-page tracks carry a versioned src: give them the new one.
+      // Queue entries stream by url; a listen-along driver compares its own
+      // src, so those are left as they are (the <audio> still loads `src`).
+      if (t.src && !driver) next.src = src;
+      // Library tracks keep their library:<id> url; queue entries follow the song.
+      if (!String(t.url || '').startsWith('library:') && replaced.url) next.url = replaced.url;
+      if (song && song.title) next.title = t.libraryId ? song.title : (song.artist && song.artist !== 'Unknown' ? `${song.title} - ${song.artist}` : song.title);
+      if (song && t.libraryId) next.artist = song.artist || '';
+      return next;
+    };
+    if (queue.some(matches)) { queue = queue.map((t) => (matches(t) ? patch(t) : t)); emit('queue', queue); }
+    if (!matches(track)) return;
+    const a = audio();
+    const wasPlaying = hasSource() && !a.paused;
+    const position = a.currentTime || 0;
+    track = patch(track);
+    state.currentTrack = track;
+    playAudioWithUnlock(src, position, wasPlaying);
+    emit('track', track);
+  },
 };
 
 // Wire the <audio> element and the Media Session (lock screen, headphone and

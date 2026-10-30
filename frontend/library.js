@@ -39,6 +39,7 @@ const $ = (id) => document.getElementById(id);
 // button follows the player: the song that is playing shows pause.
 
 const PLAY_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+const REPLACE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6.99 11 3 15l3.99 4v-3H14v-2H6.99v-3zM21 9l-3.99-4v3H10v2h7.01v3L21 9z"/></svg>';
 const PAUSE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
 
 // Library songs as player tracks. Queue entries refer to library songs as
@@ -47,7 +48,8 @@ function libraryTrack(song) {
   return {
     libraryId: song.id,
     url: `library:${song.id}`,
-    src: `/api/library/${encodeURIComponent(song.id)}/file`,
+    // The file version makes the url change when the audio is replaced.
+    src: `/api/library/${encodeURIComponent(song.id)}/file${song.file_version ? `?v=${encodeURIComponent(song.file_version)}` : ''}`,
     title: song.title,
     artist: song.artist || '',
     thumbnail: song.youtube_id ? `https://i.ytimg.com/vi/${encodeURIComponent(song.youtube_id)}/hqdefault.jpg` : null,
@@ -209,6 +211,7 @@ function renderSongs() {
           <div class="fs-xs fg-3 libpage-meta">${meta}</div>
         </div>
         ${playButtonHtml(song.id)}
+        <button class="btn-text theme-secondary btn-icon btn-sm libpage-replace" type="button" data-id="${escapeHtml(song.id)}" aria-label="Replace audio of ${escapeHtml(song.title)}" title="Replace audio…">${REPLACE_ICON}</button>
         <button class="btn-solid theme-primary btn-sm libpage-add" type="button" data-id="${escapeHtml(song.id)}">Add</button>
       </li>`;
     }).join('');
@@ -481,8 +484,108 @@ export function closeLibraryPage() {
   notifyViewChange();
 }
 
-export function handleLibraryUpdated() {
+// payload.replaced: a song's audio was replaced (same id). Whatever is
+// playing it reloads the new file at the same position (player.js).
+export function handleLibraryUpdated(payload) {
+  if (payload && payload.replaced) player.reloadReplaced(payload.replaced, payload.song);
   if (lib.open) loadSongs({ page: lib.page, refresh: true });
+}
+
+// --- Replace --------------------------------------------------------------
+// Fix a wrongly uploaded song: upload another m4a file for it. The song keeps
+// its id, so every playlist holding it plays the new file. Any approved user
+// may do it; the server keeps an audit trail (POST /api/library/:id/replace).
+
+function closeReplaceDialog() {
+  const d = $('replace-dialog');
+  if (d) d.remove();
+}
+
+function openReplaceDialog(songId) {
+  const song = lib.songs.find((s) => s.id === songId);
+  if (!song) return;
+  closeReplaceDialog();
+  const source = song.source_url || (song.youtube_id ? `https://www.youtube.com/watch?v=${song.youtube_id}` : '');
+  const dialog = document.createElement('div');
+  dialog.id = 'replace-dialog';
+  dialog.className = 'app-modal replace-overlay';
+  dialog.setAttribute('role', 'dialog');
+  dialog.setAttribute('aria-modal', 'true');
+  dialog.setAttribute('aria-labelledby', 'replace-title');
+  dialog.innerHTML = `<form class="card app-modal-card replace-form" novalidate>
+    <div class="card-header d-flex flex-row align-items-center justify-content-between gap-2">
+      <h2 id="replace-title" class="h6 mb-0 text-truncate">Replace audio</h2>
+      <button class="btn-text theme-secondary btn-icon btn-sm replace-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>
+    </div>
+    <div class="card-body vstack gap-4">
+      <p class="fs-sm fg-3 mb-0">Upload the right file for <span class="fg-2">${escapeHtml(song.title)}${song.artist ? ` — ${escapeHtml(song.artist)}` : ''}</span>. Every playlist with this song plays the new file; the change is logged.</p>
+      <div><label class="form-label" for="replace-file">Audio file (.m4a, AAC)</label>
+        <input class="form-control" type="file" id="replace-file" accept=".m4a,audio/mp4" required></div>
+      <div><label class="form-label" for="replace-song-title">Title</label>
+        <input class="form-control" id="replace-song-title" maxlength="300" required value="${escapeHtml(song.title)}"></div>
+      <div><label class="form-label" for="replace-artist">Artist</label>
+        <input class="form-control" id="replace-artist" maxlength="300" required value="${escapeHtml(song.artist || '')}"></div>
+      <div><label class="form-label" for="replace-album">Album <span class="fg-3">(optional)</span></label>
+        <input class="form-control" id="replace-album" maxlength="300" value="${escapeHtml(song.album || '')}"></div>
+      <div><label class="form-label" for="replace-source">Source link <span class="fg-3">(optional, e.g. the YouTube video)</span></label>
+        <input class="form-control" id="replace-source" type="url" maxlength="2048" value="${escapeHtml(source)}" placeholder="https://www.youtube.com/watch?v=…"></div>
+      <div class="alert theme-danger fs-sm mb-0 replace-error" role="alert" hidden></div>
+    </div>
+    <div class="card-footer d-flex justify-content-end gap-2">
+      <button class="btn replace-cancel" type="button">Cancel</button>
+      <button class="btn-solid theme-primary replace-submit" type="submit">Replace</button>
+    </div>
+  </form>`;
+  document.body.appendChild(dialog);
+  const form = dialog.querySelector('form');
+  const err = dialog.querySelector('.replace-error');
+  const showError = (msg) => { err.textContent = msg; err.hidden = false; };
+  dialog.querySelector('.replace-close').addEventListener('click', closeReplaceDialog);
+  dialog.querySelector('.replace-cancel').addEventListener('click', closeReplaceDialog);
+  dialog.addEventListener('click', (e) => { if (e.target === dialog) closeReplaceDialog(); });
+  dialog.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeReplaceDialog(); } });
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    err.hidden = true;
+    const file = $('replace-file').files[0];
+    const title = $('replace-song-title').value.trim();
+    const artist = $('replace-artist').value.trim();
+    const link = $('replace-source').value.trim();
+    if (!file) return showError('Choose an .m4a file.');
+    if (!/\.m4a$/i.test(file.name)) return showError('Only .m4a (AAC) files are accepted.');
+    if (!title || !artist) return showError('Title and artist are required.');
+    if (link && !/^https?:\/\//i.test(link)) return showError('The source link must start with http:// or https://');
+    const fd = new FormData();
+    fd.append('file', file, file.name);
+    fd.append('title', title);
+    fd.append('artist', artist);
+    const album = $('replace-album').value.trim();
+    if (album) fd.append('album', album);
+    if (link) {
+      fd.append('source_url', link);
+      const yt = youtubeIdFromUrl(link);
+      if (yt) fd.append('youtube_id', yt);
+    }
+    const submit = dialog.querySelector('.replace-submit');
+    submit.disabled = true;
+    submit.textContent = 'Uploading…';
+    try {
+      const res = await fetch(`/api/library/${encodeURIComponent(song.id)}/replace`, { method: 'POST', body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const other = data.song && data.song.id !== song.id ? ` (“${data.song.title}”${data.song.artist ? ` by ${data.song.artist}` : ''})` : '';
+        throw new Error((data.error || `HTTP ${res.status}`) + other);
+      }
+      closeReplaceDialog();
+      showToast(`Replaced the audio of “${data.song.title}”`, 'success');
+      if (lib.open) loadSongs({ page: lib.page, refresh: true });
+    } catch (ex) {
+      showError(`Could not replace: ${ex.message}`);
+      submit.disabled = false;
+      submit.textContent = 'Replace';
+    }
+  });
+  $('replace-file').focus();
 }
 
 export function handleRequestsUpdated() {
@@ -495,7 +598,7 @@ export function setupLibraryPage() {
   const page = $('library-page');
   if (!page) return;
   $('libpage-close').addEventListener('click', requestCloseLibrary);
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && lib.open) requestCloseLibrary(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && lib.open && !$('replace-dialog')) requestCloseLibrary(); });
   page.querySelectorAll('.libpage-tab').forEach((b) => b.addEventListener('click', () => {
     if (b.dataset.libtab === lib.tab) return;
     switchTab(b.dataset.libtab);
@@ -516,6 +619,8 @@ export function setupLibraryPage() {
   $('libpage-list').addEventListener('click', (e) => {
     const play = e.target.closest('.libpage-play');
     if (play) { playSong(play.dataset.id); return; }
+    const replace = e.target.closest('.libpage-replace');
+    if (replace) { openReplaceDialog(replace.dataset.id); return; }
     const btn = e.target.closest('.libpage-add');
     if (btn) addToQueue(btn.dataset.id, btn);
   });
