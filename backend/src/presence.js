@@ -19,8 +19,12 @@
  *   'offline'     (userId, lastSeen)
  *   'now-playing' (userId, entry | null)
  *
- * entry = { socketId, track: { id, title, artist, thumbnail }, context, playing,
- *           position, duration, updatedAt }
+ * entry = { socketId, track: { id, title, artist, thumbnail }, source, context,
+ *           playing, position, duration, updatedAt }
+ * source = the track's queue url (`library:<uuid>` or a YouTube URL) so
+ * listen-along can resolve the library file; kept out of `track` and never
+ * sent to clients by viewNowPlaying(). updatedAt = server time of the report,
+ * the anchor for `position`.
  * context = { type: 'library' } | { type: 'lobby', lobbyId } | null
  *
  * A lobby context is the raw playlist id. Never send an entry to a client as
@@ -35,6 +39,15 @@ function str(v, max = MAX_FIELD) {
   if (typeof v !== 'string') return null;
   const s = v.trim();
   return s ? s.slice(0, max) : null;
+}
+
+// What a queue entry / library track carries as `url`.
+function source(v) {
+  const s = str(v, 300);
+  if (!s) return null;
+  if (/^library:[0-9a-f-]{36}$/i.test(s)) return s;
+  if (/^https:\/\/(www\.|music\.|m\.)?(youtube\.com|youtu\.be)\//i.test(s)) return s;
+  return null;
 }
 
 function num(v) {
@@ -56,6 +69,7 @@ function normalizeReport(report) {
   }
   return {
     track: { id: str(t.id, 64), title, artist: str(t.artist), thumbnail: str(t.thumbnail, 1000) },
+    source: source(t.url),
     context,
     playing: !!report.playing,
     position: num(report.position),

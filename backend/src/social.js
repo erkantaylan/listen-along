@@ -304,7 +304,10 @@ function createSocial({ io, db, presence, store, getLobby, isAdmin, limiter = ch
     await Promise.all(presence.onlineUserIds().map(u => persistLastSeen(u, t)));
   }
 
-  return { attach, listPeople, deleteMessage, lobbyChanged, profileChanged, flushLastSeen, presence, store };
+  // Display name of a user taking part (listen-along).
+  const nameOf = (userId) => (profiles.get(userId) || {}).name || null;
+
+  return { attach, listPeople, deleteMessage, lobbyChanged, profileChanged, flushLastSeen, nameOf, presence, store };
 }
 
 module.exports = { createSocial, isEligible };

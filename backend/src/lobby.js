@@ -132,8 +132,7 @@ async function joinLobby(lobbyId, socketId, username, emoji) {
     username: username || `User-${socketId.substring(0, 4)}`,
     emoji: emoji || null,
     joinedAt: Date.now(),
-    currentTrack: null,  // { title, thumbnail } - what user is currently listening to
-    followingSocketId: null  // socketId of user being followed
+    currentTrack: null  // { title, thumbnail } - what user is currently listening to
   };
 
   let users = lobbyUsers.get(lobbyId);
@@ -197,50 +196,6 @@ function setUserCurrentTrack(lobbyId, socketId, track) {
 
   user.currentTrack = track ? { title: track.title, thumbnail: track.thumbnail } : null;
   return user;
-}
-
-function setUserFollowing(lobbyId, socketId, targetSocketId) {
-  const users = lobbyUsers.get(lobbyId);
-  if (!users) return null;
-
-  const user = users.get(socketId);
-  if (!user) return null;
-
-  // Can't follow yourself
-  if (targetSocketId === socketId) return null;
-
-  // Validate target exists in same lobby (null means unfollow)
-  if (targetSocketId !== null) {
-    const target = users.get(targetSocketId);
-    if (!target) return null;
-  }
-
-  user.followingSocketId = targetSocketId;
-  return user;
-}
-
-function getFollowers(lobbyId, leaderSocketId) {
-  const users = lobbyUsers.get(lobbyId);
-  if (!users) return [];
-
-  const followers = [];
-  for (const user of users.values()) {
-    if (user.followingSocketId === leaderSocketId) {
-      followers.push(user);
-    }
-  }
-  return followers;
-}
-
-function clearFollowersOf(lobbyId, socketId) {
-  const users = lobbyUsers.get(lobbyId);
-  if (!users) return;
-
-  for (const user of users.values()) {
-    if (user.followingSocketId === socketId) {
-      user.followingSocketId = null;
-    }
-  }
 }
 
 // Names are unique among the playlists a user can see. `visibleTo(lobby)`
@@ -404,8 +359,7 @@ function joinLobbySync(lobbyId, socketId, username, emoji) {
     username: username || `User-${socketId.substring(0, 4)}`,
     emoji: emoji || null,
     joinedAt: Date.now(),
-    currentTrack: null,  // { title, thumbnail } - what user is currently listening to
-    followingSocketId: null  // socketId of user being followed
+    currentTrack: null  // { title, thumbnail } - what user is currently listening to
   };
 
   let users = lobbyUsers.get(lobbyId);
@@ -493,9 +447,6 @@ module.exports = {
   getAllLobbies,
   updateUser,
   setUserCurrentTrack,
-  setUserFollowing,
-  getFollowers,
-  clearFollowersOf,
   isNameTaken,
   renameLobby,
   VISIBILITIES,

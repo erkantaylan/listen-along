@@ -28,6 +28,7 @@ const youtubePlaylist = require('./youtubePlaylist');
 const chat = require('./chat');
 const { createPresence } = require('./presence');
 const { createSocial } = require('./social');
+const { createListenAlong, createSourceResolver } = require('./listenAlong');
 const resolver = createResolver();
 const QRCode = require('qrcode');
 const pkg = require('../package.json');
@@ -1566,7 +1567,7 @@ io.use((socket, next) => {
 io.on('connection', (socket) => {
   console.log(`Client connected: ${socket.id}`);
   // A socket is a *member* of at most one lobby (currentLobby: listed as a
-  // listener, now-playing, follow) and may additionally *view* one other lobby
+  // listener, now-playing) and may additionally *view* one other lobby
   // (viewingLobby: in its Socket.IO room for queue updates and adding
   // songs, but not listed). The web app keeps the member lobby on the one it
   // is playing from while the user browses other lobbies.
@@ -1579,6 +1580,8 @@ io.on('connection', (socket) => {
 
   // Global chat + people panel (presence, now playing): see social.js.
   if (social) social.attach(socket);
+  // Listen along with another user (follows their now-playing): listenAlong.js.
+  if (listenAlong) listenAlong.attach(socket);
 
   // The playlist if this socket may see it, else null (callers answer as if
   // it did not exist, so private playlists cannot be probed).
@@ -1785,7 +1788,7 @@ io.on('connection', (socket) => {
 
   // Look at a lobby without becoming a member of it: join its room (queue,
   // listener updates; adding songs works) but stay listed in, and keep
-  // now-playing / follow in, the member lobby. Replaces any previous view.
+  // now-playing in, the member lobby. Replaces any previous view.
   socket.on('lobby:view', async ({ lobbyId } = {}) => {
     if (!lobbyId) return;
     if (!(await isApproved())) return refusePending();
@@ -1842,7 +1845,8 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Report what this listener is playing (shown next to queue items; followers sync to it)
+  // Report what this listener is playing (shown next to queue items). Listening
+  // along with a user is listenAlong.js (presence:now-playing).
   socket.on('listener:now-playing', async ({ lobbyId, track } = {}) => {
     if (lobbyId && lobbyId !== currentLobby) return;
     lobbyId = currentLobby;
@@ -1856,74 +1860,6 @@ io.on('connection', (socket) => {
     } : null;
     track = clean;
     const user = lobby.setUserCurrentTrack(lobbyId, socket.id, track);
-    if (user) {
-      io.to(lobbyId).emit('users:updated', {
-        lobbyId,
-        users: lobby.getLobbyUsers(lobbyId)
-      });
-
-      // Notify followers of this user to sync to the same track
-      const followers = lobby.getFollowers(lobbyId, socket.id);
-      if (followers.length > 0 && track) {
-        // Find the song in queue that matches this track
-        const queue = getQueue(lobbyId);
-        const songs = queue.getSongs();
-        const songIndex = songs.findIndex(s => s.title === track.title);
-        const song = songIndex >= 0 ? songs[songIndex] : null;
-
-        for (const follower of followers) {
-          io.to(follower.socketId).emit('follow:sync', {
-            leaderSocketId: socket.id,
-            track: song || { title: track.title, thumbnail: track.thumbnail }
-          });
-        }
-      }
-    }
-  });
-
-  // Follow another listener (play the same songs they play)
-  socket.on('follow:start', async ({ lobbyId, targetSocketId } = {}) => {
-    if ((lobbyId && lobbyId !== currentLobby) || !currentLobby || typeof targetSocketId !== 'string' || !(await isApproved())) {
-      socket.emit('follow:error', { message: 'Cannot follow that user' });
-      return;
-    }
-    lobbyId = currentLobby;
-
-    const user = lobby.setUserFollowing(lobbyId, socket.id, targetSocketId);
-    if (!user) {
-      socket.emit('follow:error', { message: 'Cannot follow that user' });
-      return;
-    }
-
-    // Get the target user's current track so follower can sync immediately
-    const users = lobby.getLobbyUsers(lobbyId);
-    const target = users.find(u => u.socketId === targetSocketId);
-
-    io.to(lobbyId).emit('users:updated', { lobbyId, users });
-
-    if (target && target.currentTrack) {
-      // Find the full song object in queue
-      const queue = getQueue(lobbyId);
-      const songs = queue.getSongs();
-      const songIndex = songs.findIndex(s => s.title === target.currentTrack.title);
-      const song = songIndex >= 0 ? songs[songIndex] : null;
-
-      socket.emit('follow:sync', {
-        leaderSocketId: targetSocketId,
-        track: song || target.currentTrack
-      });
-    }
-
-    console.log(`User ${socket.id} now following ${targetSocketId} in lobby ${lobbyId}`);
-  });
-
-  // Stop following
-  socket.on('follow:stop', ({ lobbyId } = {}) => {
-    if (lobbyId && lobbyId !== currentLobby) return;
-    lobbyId = currentLobby;
-    if (!lobbyId) return;
-
-    const user = lobby.setUserFollowing(lobbyId, socket.id, null);
     if (user) {
       io.to(lobbyId).emit('users:updated', {
         lobbyId,
@@ -2125,10 +2061,6 @@ io.on('connection', (socket) => {
 });
 
 function handleLeave(socket, lobbyId) {
-  // Clear follow relationships: unfollow anyone this user was following,
-  // and notify anyone following this user that they've been unfollowed
-  lobby.clearFollowersOf(lobbyId, socket.id);
-
   const user = lobby.getLobbyUsers(lobbyId).find(u => u.socketId === socket.id);
   // leaveLobby is async but removes the user synchronously; the rest is the
   // last-activity write.
@@ -2149,6 +2081,7 @@ function handleLeave(socket, lobbyId) {
 const graceEnv = Number.parseInt(process.env.PRESENCE_GRACE_MS, 10);
 const presence = createPresence({ graceMs: Number.isFinite(graceEnv) ? graceEnv : 5000 });
 let social = null;
+let listenAlong = null;
 
 // Initialize database and start server
 async function start() {
@@ -2162,6 +2095,16 @@ async function start() {
     store: dbAvailable ? chat.createPgStore(db) : chat.createMemoryStore(),
     getLobby: (id) => lobby.getLobby(id),
     isAdmin: (headers) => adminAuth.isAdmin({ headers }),
+  });
+
+  listenAlong = createListenAlong({
+    io,
+    presence,
+    nameOf: (id) => social.nameOf(id),
+    isApproved: (id) => userAuth.getAccount(id).then(a => !!a && a.status === 'approved').catch(() => false),
+    resolveSource: createSourceResolver(dbAvailable
+      ? async (url) => { const song = await library.resolveQueueUrl(url); return song ? song.id : null; }
+      : null),
   });
 
   if (dbAvailable) {
