@@ -27,3 +27,26 @@ class MemoryTextStore(private var value: String? = null) : TextStore {
         this.value = value
     }
 }
+
+/**
+ * A value in its own file, for things too big for SharedPreferences (a
+ * playlist's cached song list). Written to a temporary file and renamed, so a
+ * crash mid-write leaves the previous version rather than half a JSON document.
+ */
+class FileTextStore(private val file: java.io.File) : TextStore {
+    override fun read(): String? = runCatching { if (file.isFile) file.readText() else null }.getOrNull()
+
+    override fun write(value: String) {
+        file.parentFile?.mkdirs()
+        val tmp = java.io.File(file.parentFile, "${file.name}.tmp")
+        tmp.writeText(value)
+        if (!tmp.renameTo(file)) {
+            file.delete()
+            tmp.renameTo(file)
+        }
+    }
+
+    fun delete() {
+        file.delete()
+    }
+}

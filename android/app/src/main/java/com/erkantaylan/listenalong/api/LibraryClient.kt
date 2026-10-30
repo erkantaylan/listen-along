@@ -6,9 +6,16 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.HttpUrl
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
 import java.io.InputStream
@@ -77,12 +84,75 @@ class LibraryClient(
         getJson(endpoint("api/me")) { apiJson.decodeFromString<Me>(it) }
     }
 
+    // --- Playlists -----------------------------------------------------------
+    // Server side: the playlist routes in backend/src/index.js. A playlist the
+    // caller cannot see answers 404 (never 403); errors are { error, code }.
+
+    /** Every public playlist plus the token owner's private ones. */
+    suspend fun playlists(): List<Playlist> = withContext(Dispatchers.IO) {
+        getJson(endpoint("api/playlists")) { apiJson.decodeFromString<PlaylistList>(it).playlists }
+    }
+
+    /** One playlist and its songs, in play order. */
+    suspend fun playlistSongs(id: String): PlaylistSongs = withContext(Dispatchers.IO) {
+        getJson(playlistUrl(id, "songs")) { apiJson.decodeFromString<PlaylistSongs>(it) }
+    }
+
+    suspend fun createPlaylist(name: String, visibility: Visibility): Playlist = withContext(Dispatchers.IO) {
+        val body = buildJsonObject {
+            put("name", name.trim())
+            put("visibility", visibility.param)
+        }
+        sendJson("POST", endpoint("api/playlists"), body) { apiJson.decodeFromString<Playlist>(it) }
+    }
+
+    /** Rename (anyone who can see it) and/or change visibility (owner only). */
+    suspend fun updatePlaylist(id: String, name: String? = null, visibility: Visibility? = null): Playlist =
+        withContext(Dispatchers.IO) {
+            val body = buildJsonObject {
+                if (name != null) put("name", name.trim())
+                if (visibility != null) put("visibility", visibility.param)
+            }
+            sendJson("PATCH", playlistUrl(id), body) { apiJson.decodeFromString<Playlist>(it) }
+        }
+
+    suspend fun deletePlaylist(id: String) = withContext(Dispatchers.IO) {
+        sendJson("DELETE", playlistUrl(id), null) { }
+    }
+
+    /** Adds library songs by id. Songs already in the playlist are skipped by the server. */
+    suspend fun addToPlaylist(id: String, libraryIds: List<String>): AddSongsResult = withContext(Dispatchers.IO) {
+        val body = JsonObject(mapOf("songs" to JsonArray(libraryIds.map(::JsonPrimitive))))
+        sendJson("POST", playlistUrl(id, "songs"), body) { apiJson.decodeFromString<AddSongsResult>(it) }
+    }
+
+    /** Removes one entry (by its entry id) from a playlist. */
+    suspend fun removeFromPlaylist(id: String, entryId: String) = withContext(Dispatchers.IO) {
+        sendJson("DELETE", playlistUrl(id, "songs", entryId), null) { }
+    }
+
+    /** Moves an entry to [position] (1-based) and returns the new order. */
+    suspend fun moveInPlaylist(id: String, entryId: String, position: Int): List<PlaylistEntry> =
+        withContext(Dispatchers.IO) {
+            val body = buildJsonObject { put("position", position) }
+            sendJson("POST", playlistUrl(id, "songs", entryId, "move"), body) {
+                apiJson.decodeFromString<PlaylistSongs>(it).songs
+            }
+        }
+
+    private fun playlistUrl(id: String, vararg rest: String): HttpUrl =
+        endpoint("api/playlists").newBuilder()
+            .addPathSegment(id)
+            .apply { rest.forEach { addPathSegment(it) } }
+            .build()
+
+    /** The URL [fileRequest] fetches; what the player streams. */
+    fun fileUrl(songId: String): HttpUrl =
+        endpoint("api/library").newBuilder().addPathSegment(songId).addPathSegment("file").build()
+
     fun fileRequest(songId: String): Request =
         Request.Builder()
-            .url(endpoint("api/library").newBuilder()
-                .addPathSegment(songId)
-                .addPathSegment("file")
-                .build())
+            .url(fileUrl(songId))
             .authorized()
             .build()
 
@@ -131,6 +201,23 @@ class LibraryClient(
         }
     }
 
+    private fun <T> sendJson(method: String, url: HttpUrl, body: JsonObject?, parse: (String) -> T): T {
+        val requestBody = body?.toString()?.toRequestBody(JSON_TYPE)
+        val request = Request.Builder().url(url).authorized()
+            .header("Accept", "application/json")
+            .method(method, requestBody)
+            .build()
+        return http.newCall(request).execute().use { response ->
+            response.requireSuccess()
+            val text = response.body.string()
+            try {
+                parse(text)
+            } catch (e: Exception) {
+                throw IOException("Unexpected answer from ${url.encodedPath}: ${e.message}", e)
+            }
+        }
+    }
+
     private fun Response.requireSuccess() {
         if (isSuccessful) return
         val raw = runCatching { body.string() }.getOrDefault("")
@@ -143,6 +230,7 @@ class LibraryClient(
     companion object {
         const val PAGE_SIZE = 100
         const val MAX_LIMIT = 1000
+        private val JSON_TYPE = "application/json; charset=utf-8".toMediaType()
 
         val defaultHttpClient: OkHttpClient by lazy {
             OkHttpClient.Builder()
