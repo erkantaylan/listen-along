@@ -127,25 +127,27 @@ function createJobRouter(hooks) {
   // --- Profile: the caller's own activity (only ever their own) -------------
   router.get('/api/profile/activity', requireMember, requireDb, route('load activity', async (req, res) => {
     const me = req.account.id;
-    const limit = 100;
+    // One page of every list (the page reads the tab it shows).
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 100);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
     const [uploaded, asked, fulfilled, counts, workers, webJobs] = await Promise.all([
       // Songs I uploaded: with any token of mine, so via my workers too.
       db.query(
         `SELECT id, title, artist, youtube_id, created_at, uploaded_by_worker AS worker, requested_by
-         FROM library_songs WHERE uploaded_by_user_id = $1 ORDER BY created_at DESC LIMIT $2`, [me, limit]),
+         FROM library_songs WHERE uploaded_by_user_id = $1 ORDER BY created_at DESC, id LIMIT $2 OFFSET $3`, [me, limit, offset]),
       // Songs I asked for (song requests), whether fulfilled, by whose worker.
       db.query(
         `SELECT r.id, r.title, r.artist, r.youtube_id, r.status, r.created_at, r.updated_at,
                 s.id AS song_id, s.title AS song_title, s.artist AS song_artist,
                 s.uploaded_by AS fulfilled_by, s.uploaded_by_worker AS fulfilled_worker
          FROM song_requests r LEFT JOIN library_songs s ON s.id = r.song_id
-         WHERE r.requested_by_id = $1 ORDER BY r.created_at DESC LIMIT $2`, [me, limit]),
+         WHERE r.requested_by_id = $1 ORDER BY r.created_at DESC LIMIT $2`, [me, offset + limit]),
       // Requests my workers fulfilled, and who asked.
       db.query(
         `SELECT s.id, s.title, s.artist, s.youtube_id, s.created_at, s.uploaded_by_worker AS worker, s.requested_by
          FROM library_songs s JOIN download_workers w ON w.id = s.uploaded_by_worker_id
          WHERE w.user_id = $1 AND s.requested_by_user_id IS NOT NULL
-         ORDER BY s.created_at DESC LIMIT $2`, [me, limit]),
+         ORDER BY s.created_at DESC, s.id LIMIT $2 OFFSET $3`, [me, limit, offset]),
       db.query(
         `SELECT
            (SELECT count(*)::int FROM library_songs WHERE uploaded_by_user_id = $1::uuid) AS uploaded,
@@ -156,17 +158,22 @@ function createJobRouter(hooks) {
            (SELECT count(*)::int FROM library_songs s JOIN download_workers w ON w.id = s.uploaded_by_worker_id
               WHERE w.user_id = $1::uuid AND s.requested_by_user_id IS NOT NULL) AS fulfilled_by_my_workers`, [me]),
       jobs.listUserWorkers(me),
-      jobs.listForUser(me, { limit }),
+      jobs.listForUser(me, { limit: offset + limit, source: 'web' }),
     ]);
+    // The asked tab merges song requests and web downloads: page the merged list.
+    const askedPage = [
+      ...asked.rows.map((row) => ({ at: row.created_at, row })),
+      ...webJobs.map((job) => ({ at: job.created_at, job })),
+    ].sort((a, b) => new Date(b.at) - new Date(a.at)).slice(offset, offset + limit);
     res.json({
       counts: counts.rows[0],
       uploaded: uploaded.rows,
-      asked: asked.rows.map((r) => ({
+      asked: askedPage.filter((x) => x.row).map((x) => x.row).map((r) => ({
         id: r.id, title: r.title, artist: r.artist, youtube_id: r.youtube_id, status: r.status, created_at: r.created_at,
         song: r.song_id ? { id: r.song_id, title: r.song_title, artist: r.song_artist } : null,
         fulfilled_by: r.song_id ? { name: r.fulfilled_by || null, worker: r.fulfilled_worker || null } : null,
       })),
-      downloads: webJobs.filter((j) => j.source === 'web').map(jobs.toPublic),
+      downloads: askedPage.filter((x) => x.job).map((x) => jobs.toPublic(x.job)),
       fulfilled_by_my_workers: fulfilled.rows,
       // Own workers: name and state only (machine details are admin-only).
       workers: workers.map((w) => {

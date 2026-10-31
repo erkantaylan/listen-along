@@ -243,9 +243,11 @@ async function listQueued(limit = 200) {
   return r.rows;
 }
 
-async function listForUser(userId, { limit = 50 } = {}) {
+async function listForUser(userId, { limit = 50, source = null } = {}) {
   if (!isUuid(userId)) return [];
-  const r = await db.query(`${JOB_SELECT} WHERE j.requested_by_user_id = $1 ORDER BY j.created_at DESC LIMIT $2`, [userId, limit]);
+  const r = await db.query(
+    `${JOB_SELECT} WHERE j.requested_by_user_id = $1 AND ($3::text IS NULL OR j.source = $3) ORDER BY j.created_at DESC LIMIT $2`,
+    [userId, limit, source]);
   return r.rows;
 }
 

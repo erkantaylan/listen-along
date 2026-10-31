@@ -447,6 +447,22 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
     assert.deepEqual(asked.fulfilled_by, { name: 'Bob', worker: 'bob-pc' });
     assert.ok(alice.downloads.length >= 2);
     assert.equal(alice.counts.asked_fulfilled, 1);
+
+    const page = async (who, offset) => (await req('GET', `/api/profile/activity?limit=1&offset=${offset}`, { cookie: cookies[who] })).body;
+    const [first, second] = [await page('bob', 0), await page('bob', 1)];
+    assert.equal(first.uploaded.length, 1);
+    assert.equal(second.uploaded.length, 1);
+    assert.notEqual(first.uploaded[0].id, second.uploaded[0].id);
+    assert.equal(first.counts.uploaded, bob.counts.uploaded, 'counts are totals, not the page');
+    // The asked tab pages requests and downloads as one newest-first list.
+    const merged = [...alice.asked, ...alice.downloads].map((x) => x.id);
+    const seen = [];
+    for (let i = 0; i < merged.length; i++) {
+      const p = await page('alice', i);
+      assert.equal(p.asked.length + p.downloads.length, 1);
+      seen.push((p.asked[0] || p.downloads[0]).id);
+    }
+    assert.deepEqual([...seen].sort(), [...merged].sort());
   });
 
   it('jobs persist across a restart; a running job is queued again', async () => {

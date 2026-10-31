@@ -29,6 +29,7 @@
 - feat(ui): redesign on stock Bootstrap 6 with a dark grey theme, elevation scale and clearer buttons; every view has a URL; app-wide player bar that keeps playing across pages
 - feat(ui): landing page leads with your playlists; playlist menus; public `/youtube-playlist` page
 - feat(ui): web version and GitHub link visible on all main pages (navbar on landing, profile and library; a slim line above the player bar on playlists)
+- feat(ui): profile activity is paged, 10 per page on every tab, and reaches past the old limit of 100
 - feat(android): new Android app with library, playlists, Media3 background playback, offline mode, downloads and broken-song reports
 - feat(android): About card in Settings with the app version and a GitHub button
 

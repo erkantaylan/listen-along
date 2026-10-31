@@ -18,7 +18,33 @@ function when(value) {
   return isNaN(d) ? '' : d.toLocaleDateString();
 }
 
-const act = { data: null, tab: 'uploaded' };
+const PAGE_SIZE = 10;
+const act = { data: null, tab: 'uploaded', offsets: { uploaded: 0, asked: 0, fulfilled: 0, workers: 0 }, seq: 0 };
+
+function tabTotal() {
+  const d = act.data;
+  const c = d.counts || {};
+  if (act.tab === 'uploaded') return c.uploaded || 0;
+  if (act.tab === 'asked') return (c.asked || 0) + (c.downloads || 0);
+  if (act.tab === 'fulfilled') return c.fulfilled_by_my_workers || 0;
+  return d.workers.length;
+}
+
+function renderPager() {
+  const pager = $('profile-activity-pager');
+  if (!pager) return;
+  const total = tabTotal();
+  const offset = act.offsets[act.tab];
+  pager.hidden = total <= PAGE_SIZE;
+  $('profile-activity-range').textContent = `${offset + 1}–${Math.min(offset + PAGE_SIZE, total)} of ${total}`;
+  $('profile-activity-prev').disabled = offset === 0;
+  $('profile-activity-next').disabled = offset + PAGE_SIZE >= total;
+}
+
+function goToPage(delta) {
+  act.offsets[act.tab] = Math.max(act.offsets[act.tab] + delta * PAGE_SIZE, 0);
+  loadProfileActivity();
+}
 
 function song(s) {
   return `${esc(s.title || 'Unknown')}${s.artist ? ` <span class="fg-3">— ${esc(s.artist)}</span>` : ''}`;
@@ -65,11 +91,13 @@ function render() {
       [`asked by ${esc(s.requested_by || 'someone')}`, s.worker ? `on ${esc(s.worker)}` : '', when(s.created_at)].filter(Boolean).join(' · '))).join('')
       : empty('Nothing yet. Run `la worker` to fetch songs people ask for.');
   } else {
-    list.innerHTML = d.workers.length ? d.workers.map((w) => row(esc(w.name),
+    const offset = act.offsets.workers;
+    list.innerHTML = d.workers.length ? d.workers.slice(offset, offset + PAGE_SIZE).map((w) => row(esc(w.name),
       [`${w.jobs_done} job${w.jobs_done === 1 ? '' : 's'} done`, w.jobs_failed ? `${w.jobs_failed} failed` : '', w.last_connected_at ? `last connected ${when(w.last_connected_at)}` : ''].filter(Boolean).join(' · '),
       w.online ? badge(w.busy ? 'theme-primary' : 'theme-success', w.busy ? 'busy' : 'online') : badge('theme-secondary', 'offline'))).join('')
       : empty('No downloaders yet. Create a CLI token above and run `la worker` on a computer at home.');
   }
+  renderPager();
 }
 
 function renderCounts() {
@@ -94,11 +122,21 @@ export async function loadProfileActivity() {
   const approved = !!(auth.user && auth.user.status === 'approved');
   card.hidden = !approved;
   if (!approved) return;
+  const seq = ++act.seq;
   try {
-    const res = await fetch('/api/profile/activity', { credentials: 'same-origin' });
+    // Downloaders are few and always come whole; the other tabs are paged here.
+    const offset = act.tab === 'workers' ? 0 : act.offsets[act.tab];
+    const res = await fetch(`/api/profile/activity?limit=${PAGE_SIZE}&offset=${offset}`, { credentials: 'same-origin' });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    if (seq !== act.seq) return; // a newer tab or page was asked for meanwhile
     act.data = data;
+    // The list shrank under the current page: step back to the last one.
+    const total = tabTotal();
+    if (act.offsets[act.tab] >= total && act.offsets[act.tab] > 0) {
+      act.offsets[act.tab] = Math.max(Math.floor((total - 1) / PAGE_SIZE) * PAGE_SIZE, 0);
+      return loadProfileActivity();
+    }
     renderCounts();
     render();
   } catch (err) {
@@ -110,6 +148,8 @@ export async function loadProfileActivity() {
 export function setupProfileActivity() {
   document.querySelectorAll('[data-activity-tab]').forEach((b) => b.addEventListener('click', () => {
     act.tab = b.dataset.activityTab;
-    render();
+    loadProfileActivity();
   }));
+  $('profile-activity-prev')?.addEventListener('click', () => goToPage(-1));
+  $('profile-activity-next')?.addEventListener('click', () => goToPage(1));
 }
