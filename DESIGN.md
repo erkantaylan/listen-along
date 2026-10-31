@@ -183,6 +183,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Need | Use |
 | --- | --- |
 | Top bar | `nav.navbar.app-navbar > .container` (brand `.app-brand` or back button + `h1.h6`, actions on the right). |
+| Version + GitHub | `.app-meta[data-app-meta]`, filled by `setupAppMeta()` in `ui.js`: version link to `/changelog` + GitHub icon button. Right side of the navbar on landing, profile and library; a slim `footer.lobby-meta` line above the player bar on playlist pages. |
 | Grouped content | `.card` with `.card-header` (h6) / `.card-body` / `.card-footer`. |
 | Lists of items (songs, playlists, users, tokens) | `ul.list-group` with `li.list-group-item` (flex row: `.app-thumb`, text block `min-w-0 flex-grow-1`, actions). Clickable rows: `.list-group-item-action` + `tabindex="0"` + Enter/Space handler. Empty state: `li.list-group-item.app-empty`. |
 | Song lists (playlist queue, library) | Normal vs edit mode, see "Song rows: normal and edit mode" below. |
@@ -198,6 +199,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Toasts | `showToast(message, type)` in `ui.js` → `.toast.show` in `#toast-container` (fixed, bottom centre). |
 | Overlays | `.app-modal` (fixed backdrop, toggled with `hidden`) wrapping a `.card.app-modal-card`; give it `role="dialog" aria-modal="true" aria-labelledby`. Full-screen panels (music library) are fixed layers with their own navbar. The dashboard sidebar becomes a slide-in drawer below 1024px (`.open` class). |
 | Cover art | `.app-thumb` (3rem square, grey placeholder with a music-note SVG). |
+| Playlist navigation | The one `#app-sidebar` (see "Playlists sidebar"). Never add a second playlist nav. |
 | Chat / people | The one `#social-panel` (see "Chat and people panel"). Never add a second chat or people list. |
 | Player | The one app-wide `#player-bar` (`section.sticky-player.player-bar` in `index.html`, outside the views): see "Player bar" below. Never add a second player or a per-page `<audio>`. |
 | Context menu / small popover | `context-menu.js` (see "Context menu" below). Never a second menu implementation. |
@@ -206,14 +208,18 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 ## Page layouts
 
 - **Login / pending**: navbar + one centred card (`.app-center`, `.login-card` 26rem).
-- **Landing** (`/`, the view after login): navbar (brand, profile), narrow column. A
+- **Landing** (`/`, the view after login). From 768px the sidebar lists your playlists and carries the
+  brand, so this page drops the brand, the tagline and the "Your playlists" card and is for browsing
+  other people's public playlists (rich rows with listeners, age, quick play); with none of those it
+  shows a one-line hint instead. Below 768px it is as follows, in full, because the list is the phone's
+  home screen. Navbar (☰, brand, version + GitHub, profile; the brand folds to its icon below 400px), narrow column. A
   header row: `h1.h4` "Playlists" + muted tagline ("Your playlists and everyone's public
   ones.") on the left; on the right the outline secondary **"Music library & requests"**
   (folds to its icon below 480px) next to the view's one primary button **"New playlist"**
   (plus icon). Then the "Your playlists" card (every
   playlist you own, public and private) and the "Public playlists" card (other people's
   public ones and ownerless shared ones; hidden when there are none). Both are flush list
-  groups, pinned first, then newest. Each row (click / Enter / Space opens `/playlist/<id>`):
+  groups, your pins first, then newest. Each row (click / Enter / Space opens `/playlist/<id>`):
   name, a subtle "Private" badge with a lock icon on private ones (the current **state**;
   public ones show no badge — never an icon of the action that would happen), then a muted line
   "by you / by <owner> / shared", song and listener counts, age. On the right: a ghost
@@ -225,7 +231,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   danger Delete that opens a confirm dialog (grey Cancel focused first, `.btn-solid.theme-danger`
   Delete). No playlists of your own: the "Your
   playlists" card shows an empty state ("No playlists yet", a muted hint, a grey "New
-  playlist" button). Below the cards: the "Have a link?" hint. Footer (version, language, GitHub). On load, a "Back
+  playlist" button). Below the cards: the "Have a link?" hint. Footer (language only). On load, a "Back
   to your last playlist?" prompt names the last playlist you opened (looked up first; not
   shown if it is gone or no longer visible to you).
   **New playlist dialog** (`new-playlist.js`, an `.app-modal`, see "Modal dialogs"): Playlist
@@ -236,7 +242,8 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   success it closes and the new playlist opens.
 - **Playlist** (`/playlist/<id>`; internally the "lobby" view): full-height column —
   navbar (back, name, a muted line with the "Private" badge (lock + text, same as the
-  landing rows; nothing for public), owner and listener count; pin, share, and the owner's
+  landing rows; nothing for public), owner and listener count; your own pin (same as the
+  sidebar's; aria-pressed, `.active`), share, and the owner's
   ⋮ menu: Copy link, Rename, Make private / public, Delete), scrolling body (56rem)
   with the queue (no tabs: who is listening and what they play is the global people
   panel, your name/avatar is on the profile page). There is no per-playlist chat; there
@@ -299,6 +306,40 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   offline badge, Refresh button — the only place machine details appear) and **Download
   jobs** (status filter select, counts in the header, rows with requester, playlist,
   worker, error code, status badge and Cancel / Retry); both refresh every 10s.
+
+### Playlists sidebar
+
+One `nav#app-sidebar` in `index.html`, driven by `sidebar.js` (list in `playlist-store.js`, search
+in `playlist-filter.js`, styles "Playlists sidebar" in `app.css`, hooks prefixed `plnav-` because
+the dashboard already owns `.sidebar-*`). Shown by body classes, never `[hidden]`: `has-plnav`
+(approved account), `plnav-open` (drawer open). Present on landing, playlist, library overlay,
+profile and the desktop `/social`; not on login, pending or `/dashboard`.
+
+- **From 768px**: fixed left column, `--app-sidebar-width` (16.5rem, 19rem from 1280px), from the top
+  down to the player bar. `body` gets the same `padding-left`, and the library overlay's `left`
+  follows it, as the chat panel does on the right.
+- **Below 768px**: a drawer (`min(20rem, 85vw)`) that stops at the player bar, with a backdrop,
+  opened from the ☰ (`[data-plnav-open]`) in every navbar. ☰ replaces the playlist page's back button
+  there (Home is in the drawer). Focus moves in and stays in; Escape, ×, the backdrop and any
+  navigation close it; focus returns to the ☰.
+- Head: brand (link to Home), profile, × (drawer only). Then "Playlists" + a ghost New playlist
+  icon button (not primary: the view's primary stays in the view), then the search box.
+- **Search**: `input[type=search]`, filters as you type by name and owner, every word must match.
+  i/ı/I/İ are one letter and ş/ğ/ü/ö/ç match s/g/u/o/c (`foldText`). × or Escape clears (Escape in an
+  empty box closes the drawer). No match: a muted line and a grey "Clear search".
+- **List**: small uppercase headings (`.people-heading`) over flush list groups: **Pinned** (last
+  pinned first), **Your playlists**, **Public playlists** (both newest first); empty groups vanish.
+  Row: name (`fs-sm`, medium), a muted `fs-xs` line with a lock icon on private ones (icon only here,
+  no badge; the word is there for screen readers) and "by you · 2 songs". Current row =
+  `.is-current`, the usual accent tint + 3px edge + accent title, with `aria-current="page"`. Hover and
+  press as other rows. The text block is the `role="link"`: `bindContextMenu` keeps the browser's menu
+  on real links, which would lose right-click and long-press here.
+- **Row actions**: pin toggle and ⋮ (`playlistMenuItems` + Pin / Unpin; right-click and long-press
+  too). Shown on hover / focus-within, always on touch, and they keep their space so names do not
+  jump. A pinned row always shows its pin, as a plain accent icon rather than the usual toggled box.
+  `aria-pressed` + a label naming the playlist.
+- **Live**: refetches on socket `playlists:changed`, on `queue:update`, on reconnect and every 30s.
+  It only touches the DOM when the markup changed, and focus follows the control when a row moves.
 
 ### Modal dialogs
 

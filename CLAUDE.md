@@ -29,7 +29,7 @@ where lobby persistence broke entirely on deployed instances.
 - Frontend: Vanilla JS, single-page (`frontend/`)
 - UI is stock Bootstrap 6 (vendored in `frontend/vendor/`) with light theming; read `DESIGN.md` before changing any page or CSS
 - `index.js` is the main server (~1700 lines, handles all HTTP routes + socket events)
-- Domain modules: lobby.js, playlistAccess.js, queue.js, playback.js, covers.js, db.js,
+- Domain modules: lobby.js, playlistAccess.js, queue.js, covers.js, db.js,
   workerHub.js / downloadJobs.js / jobRoutes.js (downloaders + jobs, see below),
   library.js (music library + m4a validation + legacy cache migration +
   duplicate checks + replace), songMatch.js (normalized "artist|title" key for
@@ -92,6 +92,15 @@ where lobby persistence broke entirely on deployed instances.
 - Spotify track links supported via `spotify-url-info` page scraping (no API
   credentials needed); title/artist are matched against the library or
   turned into a request
+- Android app (`android/`, see its README): Kotlin + Compose + Media3, a
+  separate client of the HTTP API with a CLI Bearer token (stored encrypted, no
+  socket, so no live updates). Library, playlists (edit mode), broken-song
+  reports, background playback (`player/PlaybackService`), downloads as plain
+  files in `Music/ListenAlong` (MediaStore + WorkManager). Offline: downloaded
+  songs play; saved playlists and reports are read-only. `./dev.sh [--stub]`
+  builds, installs and launches; `tools/stub_server.py` stands in for the
+  server, so API or rule changes the app relies on belong there too. Tests:
+  `./gradlew :app:testDebugUnitTest`.
 
 ## Playlists (internally "lobbies")
 
@@ -108,14 +117,29 @@ where lobby persistence broke entirely on deployed instances.
   Queue and emit `queue:update` like the socket handlers.
 - Each playlist has an owner (`host_id` = `users.id`, JS `ownerId`) and
   `visibility` 'public' | 'private'. Rules live in `backend/src/playlistAccess.js`:
-  public = every logged-in user can see and edit (songs, rename, pin); private =
+  public = every logged-in user can see and edit (songs, pin); private =
   owner only, and to everyone else it does not exist (404 / `lobby:not-found`,
-  never 403). Only the owner switches visibility or deletes. Ownerless (legacy)
-  playlists are always public; only admins delete them (dashboard).
+  never 403). Only the owner renames (others get 403 on a public playlist),
+  switches visibility or deletes. Ownerless (legacy) playlists are always
+  public; only admins rename them (admin cookie, `canRename`) or delete them
+  (dashboard).
 - Enforce on the server in every HTTP route and socket handler that touches a
   playlist or its queue — use `visibleLobby` / `editableLobby` in the socket
   handler and `findVisiblePlaylist` for HTTP. Going private evicts other
   users' sockets (`evictNonOwners`).
+- **Sidebar pins are per user**: `playlistPins.js` (Postgres `playlist_pins`, in
+  memory without a DB), `PUT|DELETE /api/playlists/:id/pin`, `pinnedByMe` /
+  `pinnedAt` in playlist responses. Same 404 rule as everything else: only
+  visible playlists are annotated, so a pin never reveals one that went private
+  (it comes back if it goes public). A legacy token has no user: 403 on a visible
+  playlist. The older shared `lobbies.pinned` (socket `lobby:pin`, field `pinned`)
+  still exists on the server but the web no longer sets or shows it; the playlist
+  page's pin button is the personal pin.
+- The web sidebar (`frontend/sidebar.js`, list in `playlist-store.js`, search in
+  `playlist-filter.js`) refetches `/api/playlists` on socket `playlists:changed`
+  (`notifyPlaylistsChanged` in index.js). The signal carries no data; a private
+  playlist's changes go only to its owner's `userRoom`. Emit it from anything that
+  creates, renames, deletes or changes the visibility of a playlist.
 - There is no per-playlist chat. There is one global chat plus a people panel
   (presence + now playing): `backend/src/social.js` (socket events, privacy),
   `chat.js` (store: Postgres `global_chat_messages`, in-memory without a DB;

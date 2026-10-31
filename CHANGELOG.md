@@ -1,5 +1,43 @@
 # Changelog
 
+## v2.31.0 (2026-10-31)
+
+### Music library and CLI
+- feat(library): the server no longer downloads audio; songs are uploaded as m4a by the `la` CLI with per-user tokens, and anything not in the library becomes a song request
+- feat(library): duplicate detection (YouTube id, file hash, normalized metadata) and replacing a song's audio under the same id
+- feat(library): mark songs as broken (needs replacement) from the song context menu
+- feat(cli): `la playlist`, `--playlist` on download/upload, `la pull`, and `la worker`
+- feat(workers): downloaders on users' machines take download jobs from the server; web Download box, live job status, admin view
+
+### Playlists and social
+- change(playlists): lobbies are now playlists, with an owner and public or private visibility enforced on the server
+- change(playlists): renaming is owner-only; ownerless playlists can be renamed by an admin only
+- feat(playlists): click a row to play, Edit mode for reorder and remove
+- feat(playlists): left sidebar listing your playlists with search (Turkish-aware) and per-user pins synced across devices; a drawer on phones
+- feat(social): one global chat and a people panel with presence and now playing; per-playlist chat removed
+- feat(social): listen along follows a user instead of a playlist
+- remove: Jam (synchronized) lobbies and the listening-mode toggle
+
+### Accounts and security
+- change(auth): login and account status enforced on every route and socket; a restart never changes a status
+- change(tokens): CLI tokens belong to user accounts, created and revoked on the profile page
+- change(admin): dashboard and admin share one login (`ADMIN_USER` / `ADMIN_PASSWORD`)
+- fix(security): escape quotes in `escapeHtml`, fix unescaped HTML sinks
+- fix(rate-limit): key on the real visitor behind Cloudflare + Traefik
+
+### Web and Android
+- feat(ui): redesign on stock Bootstrap 6 with a dark grey theme, elevation scale and clearer buttons; every view has a URL; app-wide player bar that keeps playing across pages
+- feat(ui): landing page leads with your playlists; playlist menus; public `/youtube-playlist` page
+- feat(ui): web version and GitHub link visible on all main pages (navbar on landing, profile and library; a slim line above the player bar on playlists)
+- feat(android): new Android app with library, playlists, Media3 background playback, offline mode, downloads and broken-song reports
+- feat(android): About card in Settings with the app version and a GitHub button
+
+### Server
+- feat(health): `/health` no longer spawns yt-dlp; reports event-loop and threadpool delay
+- feat(version): `/api/version` reports the deployed commit
+- fix(stability): crash guards, pool error handler, child-process watchdogs
+- chore(deps): dependency security bumps
+
 ## v2.30.1 (2026-05-21)
 
 - feat(player): mobile touch ergonomics for the sticky player — 44px+ tap targets, grabbable progress/volume sliders, volume/repeat/shuffle stay reachable on small phones, sub-360px layout, larger track/artist text (CSS only; desktop unchanged)
