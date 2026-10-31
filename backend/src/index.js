@@ -24,6 +24,7 @@ const { apiLimiter } = require('./rateLimits');
 const { createResolver } = require('./songResolver');
 const covers = require('./covers');
 const access = require('./playlistAccess');
+const playlistPins = require('./playlistPins');
 const spotify = require('./spotify');
 const { createUserAuth, policyFor, parseCookie, isBlocked, COOKIE_NAME: AUTH_COOKIE, MAX_AGE_MS: AUTH_MAX_AGE_MS } = require('./userAuth');
 const youtubePlaylist = require('./youtubePlaylist');
@@ -521,9 +522,11 @@ async function ownerNames(ids) {
 }
 
 // What a user sees about a playlist they are allowed to see.
-async function playlistInfo(l, userId, names = null) {
+// `pinned` is the old shared flag (lobby:pin); `pinnedByMe` the viewer's own pin.
+async function playlistInfo(l, userId, names = null, pins = null) {
   const queue = await getQueueAsync(l.id);
   const nameMap = names || await ownerNames([l.ownerId]);
+  const myPins = pins || await playlistPins.pinsForUser(userId);
   return {
     id: l.id,
     name: l.name || null,
@@ -534,6 +537,8 @@ async function playlistInfo(l, userId, names = null) {
     canManage: access.canManage(l, userId),
     canEdit: access.canEdit(l, userId),
     pinned: l.pinned || false,
+    pinnedByMe: myPins.has(l.id),
+    pinnedAt: myPins.get(l.id) || null,
     userCount: l.users ? l.users.size : (l.userCount || 0),
     songCount: queue.getSongs().length,
     createdAt: l.createdAt
@@ -552,6 +557,14 @@ async function broadcastPlaylistUpdated(lobbyId) {
     ownerId: l.ownerId || null,
     ownerName: (l.ownerId && names.get(l.ownerId)) || l.ownerName || null
   });
+}
+
+// Sidebars refetch /api/playlists on this signal. It carries nothing, and a
+// private playlist's changes only reach its owner. `everyone`: the playlist
+// just changed visibility, so others gain or lose it.
+function notifyPlaylistsChanged(l, { everyone = false } = {}) {
+  if (!everyone && l && access.isPrivate(l) && l.ownerId) io.to(userRoom(l.ownerId)).emit('playlists:changed');
+  else io.to(APP_ROOM).emit('playlists:changed');
 }
 
 // A playlist went private: every socket in its room that is not the owner's
@@ -615,7 +628,8 @@ app.get(playlistPaths(), playlistRoute('list playlists', async (req, res) => {
   if (!viewer) return;
   const visible = lobby.getAllLobbies().filter(l => access.viewerCanView(l, viewer));
   const names = await ownerNames(visible.map(l => l.ownerId));
-  const playlists = await Promise.all(visible.map(l => playlistInfo(l, viewer.userId, names)));
+  const pins = await playlistPins.pinsForUser(viewer.userId);
+  const playlists = await Promise.all(visible.map(l => playlistInfo(l, viewer.userId, names, pins)));
   // `lobbies` is the old key, kept for older clients.
   res.json({ playlists, lobbies: playlists });
 }));
@@ -646,6 +660,7 @@ app.post(playlistPaths(), express.json(), playlistRoute('create playlist', async
   }
   const created = await lobby.createLobbyAsync(viewer.userId, null, trimmed || null, visibility, viewer.name);
   const info = await playlistInfo(created, viewer.userId);
+  notifyPlaylistsChanged(created);
   res.status(201).json({ ...info, link: `/playlist/${created.id}` });
 }));
 
@@ -683,7 +698,8 @@ async function updatePlaylist(req, res, { name, visibility }) {
       return res.status(conflict ? 409 : 400).json({ error: result.error, code: conflict ? 'CONFLICT' : 'BAD_REQUEST' });
     }
   }
-  if (visibility !== undefined && visibility !== l.visibility) {
+  const visibilityChanged = visibility !== undefined && visibility !== l.visibility;
+  if (visibilityChanged) {
     await lobby.setVisibility(l.id, visibility);
     if (visibility === 'private') evictNonOwners(l.id, l.ownerId);
   }
@@ -694,6 +710,7 @@ async function updatePlaylist(req, res, { name, visibility }) {
     io.to(l.id).emit('lobby:renamed', { lobbyId: l.id, name: fresh.name });
   }
   const fresh = await lobby.getLobbyAsync(l.id);
+  notifyPlaylistsChanged(fresh, { everyone: visibilityChanged });
   res.json(await playlistInfo(fresh, viewer.userId));
 }
 
@@ -710,6 +727,36 @@ app.patch(playlistPaths('/:id/visibility'), express.json(), playlistRoute('updat
   if (visibility === undefined) return res.status(400).json({ error: "visibility must be 'public' or 'private'", code: 'BAD_REQUEST' });
   return updatePlaylist(req, res, { visibility });
 }));
+
+// The caller's own pin (sidebar). Idempotent; PUT pins, DELETE unpins. A
+// playlist the caller cannot see is a 404 like everywhere else. A legacy
+// ownerless token has no user to keep a pin for. Other devices of the same
+// user follow via playlists:changed in their own room only.
+async function setPlaylistPin(req, res, pinned) {
+  const viewer = await requireViewer(req, res);
+  if (!viewer) return;
+  const l = await findVisiblePlaylist(req, res, viewer);
+  if (!l) return;
+  if (viewer.legacy) {
+    return res.status(403).json({
+      error: 'This token has no owner (legacy token), so it has no pins. Create a token on your profile page.',
+      code: 'FORBIDDEN'
+    });
+  }
+  let pinnedAt = null;
+  try {
+    if (pinned) pinnedAt = await playlistPins.pin(viewer.userId, l.id);
+    else await playlistPins.unpin(viewer.userId, l.id);
+  } catch (err) {
+    if (err instanceof playlistPins.PlaylistGoneError) return res.status(404).json({ error: 'Playlist not found', code: 'NOT_FOUND' });
+    throw err;
+  }
+  io.to(userRoom(viewer.userId)).emit('playlists:changed');
+  res.json({ id: l.id, pinnedByMe: pinned, pinnedAt });
+}
+
+app.put(playlistPaths('/:id/pin'), playlistRoute('pin playlist', (req, res) => setPlaylistPin(req, res, true)));
+app.delete(playlistPaths('/:id/pin'), playlistRoute('unpin playlist', (req, res) => setPlaylistPin(req, res, false)));
 
 // Delete as the owner. Ownerless playlists can only be deleted by an admin
 // (DELETE /api/dashboard/lobbies/:id).
@@ -1308,6 +1355,7 @@ function getAuthUserId(req) {
 // delete so the row does not resurrect on restart (there is no longer any
 // time-based cleanup to remove stale rows — hq-9gvy).
 async function destroyLobby(lobbyId, { reason } = {}) {
+  const before = await lobby.getLobbyAsync(lobbyId);
   io.to(lobbyId).emit('lobby:closed', {
     lobbyId,
     message: reason || 'This playlist has been deleted.'
@@ -1322,7 +1370,9 @@ async function destroyLobby(lobbyId, { reason } = {}) {
   deleteQueue(lobbyId);
 
   await lobby.deleteLobbyAsync(lobbyId);
+  playlistPins.forgetPlaylist(lobbyId);
   if (social) social.lobbyChanged(lobbyId);
+  notifyPlaylistsChanged(before);
 }
 
 // ==========================================
@@ -2144,6 +2194,7 @@ io.on('connection', (socket) => {
     }
     socket.join(newLobby.id);
 
+    notifyPlaylistsChanged(newLobby);
     socket.emit('lobby:created', {
       lobbyId: newLobby.id,
       viewing: viewOnly,
@@ -2333,6 +2384,7 @@ io.on('connection', (socket) => {
       name: result.lobby.name
     });
     if (social) social.lobbyChanged(lobbyId);
+    notifyPlaylistsChanged(result.lobby);
 
     console.log(`Lobby ${lobbyId} renamed to "${result.lobby.name}"`);
   });

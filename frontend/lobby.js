@@ -10,19 +10,20 @@ import { isEditMode, setEditMode } from './queue-edit.js';
 import { isNewPlaylistPending, newPlaylistCreated, newPlaylistFailed } from './new-playlist.js';
 import { playlistMenuItems, privateBadgeHtml, LOCK_SVG } from './playlist-actions.js';
 import { openContextMenu, closeContextMenu, bindContextMenu } from './context-menu.js';
+import { loadPlaylists, onPlaylists, isPinned, togglePlaylistPin } from './playlist-store.js';
 
 // Register landing view activator
 viewActivators.landing = () => {
-  fetchLobbies();
-  setLobbiesInterval(setInterval(fetchLobbies, 10000));
+  loadPlaylists();
+  setLobbiesInterval(setInterval(loadPlaylists, 10000));
 };
 
 
 const visibilityLabel = (v) => v === 'private' ? t('landing.private', 'Private') : t('landing.public', 'Public');
-const playlistTitle = (name, id) => name || `${t('lobby.playlist', 'Playlist')} ${id}`;
+export const playlistTitle = (name, id) => name || `${t('lobby.playlist', 'Playlist')} ${id}`;
 
 // "by you" / "by <name>" / "shared" (ownerless legacy playlists).
-function ownerText({ isOwner, ownerId, ownerName }) {
+export function ownerText({ isOwner, ownerId, ownerName }) {
   if (isOwner) return t('landing.byYou', 'by you');
   if (!ownerId) return t('landing.noOwner', 'shared');
   return ownerName ? t('landing.byOwner', `by ${ownerName}`, { name: ownerName }) : '';
@@ -85,7 +86,6 @@ function clearPlaylistState() {
   state.ownerName = null;
   state.visibility = 'public';
   state.lobbyName = null;
-  state.pinned = false;
   state.queue = [];
   state.listeners = [];
 }
@@ -180,7 +180,6 @@ export function handleLobbyCreated(data, updatePinButton) {
   clearPlaylistState();
   state.listeners = data.users || [];
   applyPlaylistMeta({ ...data, isOwner: true, canEdit: true });
-  state.pinned = data.pinned || false;
   storageSet(STORAGE_KEYS.LAST_LOBBY, data.lobbyId);
   newPlaylistCreated();
   pushLobbyUrl(data.lobbyId);
@@ -199,7 +198,6 @@ export function handleLobbyJoined(data, updatePinButton, updateListeners, update
   }
   if (data.lobbyId !== state.lobbyId) return;
   applyPlaylistMeta(data);
-  state.pinned = data.pinned || false;
   state.listeners = data.listeners || data.users || [];
   setSuppressJoinToasts(true);
   setTimeout(function() { setSuppressJoinToasts(false); }, 2000);
@@ -258,22 +256,20 @@ export function handleLobbyUpdated(data) {
   renderPlaylistHeader();
 }
 
-export function handleLobbyPinned(data, updatePinButton) {
-  if (data.lobbyId && data.lobbyId !== state.lobbyId) return;
-  state.pinned = data.pinned;
-  updatePinButton();
-  showToast(data.pinned ? 'Playlist pinned' : 'Playlist unpinned', 'success');
-}
-
+// The navbar's pin is the viewer's own pin (same as the sidebar's), not the old
+// shared lobby:pin flag, which the web no longer sets or shows.
 export function updatePinButton() {
   if (!elements.pinBtn) return;
-  elements.pinBtn.classList.toggle('active', state.pinned);
-  elements.pinBtn.setAttribute('aria-pressed', state.pinned ? 'true' : 'false');
-  elements.pinBtn.title = state.pinned ? 'Unpin playlist' : 'Pin playlist';
+  const pinned = !!state.lobbyId && isPinned(state.lobbyId);
+  const label = pinned ? t('sidebar.unpin', 'Unpin playlist') : t('lobby.pinPlaylist', 'Pin playlist');
+  elements.pinBtn.classList.toggle('active', pinned);
+  elements.pinBtn.setAttribute('aria-pressed', pinned ? 'true' : 'false');
+  elements.pinBtn.title = label;
+  elements.pinBtn.setAttribute('aria-label', label);
 }
 
 export function togglePin() {
-  socket.emit('lobby:pin', { lobbyId: state.lobbyId, pinned: !state.pinned });
+  if (state.lobbyId) togglePlaylistPin(state.lobbyId, { toast: true });
 }
 
 export function handleUserJoined(data, updateListeners) {
@@ -374,13 +370,6 @@ export function joinLobbyFromCard(lobbyId) {
   navigateTo(playlistPath(lobbyId));
 }
 
-export function fetchLobbies() {
-  fetch('/api/playlists', { credentials: 'same-origin' })
-    .then(res => res.ok ? res.json() : { playlists: [] })
-    .then(data => renderLobbies(data.playlists || []))
-    .catch(() => {});
-}
-
 // Cache of the most recently rendered lobbies, keyed by id. Owner-control
 // handlers look up the (possibly quote-bearing) name here instead of through
 // inline onclick args, so user-controlled names never enter HTML attributes.
@@ -392,19 +381,22 @@ const PLUS_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="tru
 
 // The landing page: "Your playlists" (everything you own, public and
 // private) first, then other people's public playlists (and ownerless
-// shared ones). The server only sends what you may see. Pinned first, then
-// newest. Owner controls (visibility, delete) only on your own playlists.
+// shared ones). The server only sends what you may see. Your pins first, then
+// newest. From 768px the sidebar lists your playlists, so CSS hides the first
+// card there and this page is for browsing other people's. Owner controls (visibility, delete) only on your own playlists.
 function renderLobbies(lobbies) {
   if (!elements.lobbiesSection || !elements.lobbiesList || !elements.myPlaylistsList) return;
   lobbyCache.clear();
   for (const l of lobbies) lobbyCache.set(l.id, l);
-  const sorted = [...lobbies].sort((a, b) => (b.pinned - a.pinned) || (b.createdAt - a.createdAt));
+  const sorted = [...lobbies].sort((a, b) => (b.pinnedByMe - a.pinnedByMe) || (b.createdAt - a.createdAt));
   const mine = sorted.filter(l => l.isOwner);
   const others = sorted.filter(l => !l.isOwner);
   elements.myPlaylistsList.removeAttribute('aria-busy');
   elements.myPlaylistsList.innerHTML = mine.length ? mine.map(lobbyRowHtml).join('') : myPlaylistsEmptyHtml();
   elements.lobbiesSection.hidden = others.length === 0;
   elements.lobbiesList.innerHTML = others.map(lobbyRowHtml).join('');
+  const hint = document.getElementById('landing-home-hint');
+  if (hint) hint.hidden = others.length > 0;
 }
 
 function myPlaylistsEmptyHtml() {
@@ -420,7 +412,7 @@ function lobbyRowHtml(l) {
   // JS string inside an HTML attribute: JSON-encode, then HTML-escape.
   const idArg = escapeHtml(JSON.stringify(l.id));
   const priv = l.visibility === 'private';
-  const pinIcon = l.pinned ? '<svg class="pin-indicator" viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>' : '';
+  const pinIcon = l.pinnedByMe ? '<svg class="pin-indicator" viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>' : '';
   const privateBadge = priv ? privateBadgeHtml('lobby-visibility-badge') : '';
   const owner = ownerText(l);
   const playLabel = t('landing.play', `Play ${title}`, { name: title });
@@ -453,6 +445,9 @@ export function quickPlayLobby(lobbyId) {
 // ⋮ menus (and right-click / long-press) on the landing rows: Play, Copy
 // link for everyone; Rename, Make private / public, Delete for the owner.
 export function setupLandingMenus() {
+  onPlaylists(renderLobbies);
+  onPlaylists(updatePinButton);
+  window.addEventListener('languageChanged', updatePinButton);
   for (const list of [elements.myPlaylistsList, elements.lobbiesList]) {
     bindContextMenu(list, {
       rowSelector: '.lobby-card',
@@ -467,8 +462,9 @@ export function setupLandingMenus() {
         return playlistMenuItems(l, {
           returnFocus,
           onPlay: () => quickPlayLobby(id),
-          onChanged: () => fetchLobbies(),
-          onDeleted: () => fetchLobbies(),
+          onTogglePin: () => togglePlaylistPin(id),
+          onChanged: () => loadPlaylists(),
+          onDeleted: () => loadPlaylists(),
         });
       },
     });

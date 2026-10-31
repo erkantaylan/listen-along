@@ -36,8 +36,22 @@
     font-size: var(--bs-font-size-sm);
     color: var(--bs-fg-3);
   }
-  .app-footer a:not(.btn-text) { color: inherit; }
   .language-selector { width: auto; }
+  /* Version + GitHub link, filled by setupAppMeta() in ui.js. */
+  .app-meta {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  .app-meta-version {
+    padding: 0.25rem;
+    font-size: var(--bs-font-size-xs);
+    color: var(--app-text-muted);
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .app-meta-version:hover { color: var(--app-text); text-decoration: underline; }
 
   /* ---------------------------------------------------------------- Login */
   .login-card { max-width: 26rem; }
@@ -114,6 +128,10 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+  }
+  .lobby-meta {
+    justify-content: center;
+    border-top: var(--bs-border-width) solid var(--app-border-subtle);
   }
   .lobby-header > .container,
   .libpage-header > .container { max-width: 56rem; }
@@ -361,6 +379,107 @@
     left: 50%;
     z-index: var(--bs-z-popover);
     transform: translateX(-50%);
+  }
+
+  /* ------------------------------------------------------ Playlists sidebar */
+  /* sidebar.js. Fixed left column above the player bar from 768px, pushing the
+     page right; a drawer below that. Body classes: has-plnav (approved
+     account), plnav-open (drawer open). */
+  body { --app-sidebar-width: 16.5rem; }
+  @media (width >= 1280px) { body { --app-sidebar-width: 19rem; } }
+  .app-sidebar {
+    display: none;
+    flex-direction: column;
+    background-color: var(--app-surface);
+    border-right: var(--bs-border-width) solid var(--bs-border-color);
+  }
+  .plnav-open-btn, .plnav-backdrop { display: none; }
+  .plnav-head { flex-shrink: 0; min-height: 3.5rem; padding: env(safe-area-inset-top, 0px) 0.5rem 0 0.75rem; }
+  .plnav-home { color: inherit; text-decoration: none; }
+  .plnav-title-row { flex-shrink: 0; padding: 0.25rem 0.5rem 0.25rem 0.75rem; }
+  .plnav-search-wrap { position: relative; flex-shrink: 0; padding: 0.25rem 0.75rem 0.5rem; }
+  .plnav-search { padding-right: 2rem; }
+  .plnav-search::-webkit-search-cancel-button { display: none; }
+  .plnav-search-clear { position: absolute; top: 50%; right: 1rem; transform: translateY(calc(-50% - 0.125rem)); }
+  .plnav-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 0.5rem; }
+  .plnav-list { --bs-list-group-bg: transparent; }
+  .plnav-row { display: flex; gap: 0.125rem; align-items: center; min-width: 0; padding: 0.25rem 0.25rem 0.25rem 0.75rem; border-inline: 0; cursor: pointer; }
+  .plnav-row:hover { background-color: var(--bs-bg-1); }
+  .plnav-row:active { background-color: var(--bs-bg-2); }
+  .plnav-link { flex: 1; min-width: 0; padding-block: 0.125rem; }
+  .plnav-link:focus-visible { outline: 2px solid var(--app-focus); outline-offset: 0; border-radius: var(--bs-radius-3, 0.25rem); }
+  .plnav-name { font-size: var(--bs-font-size-sm); font-weight: var(--bs-font-weight-medium); }
+  .plnav-row.is-current { background-color: var(--app-accent-subtle); box-shadow: inset 3px 0 0 var(--app-accent); }
+  .plnav-row.is-current .plnav-name { color: var(--app-accent-text-strong); }
+  /* Pin and ⋮: on hover / keyboard focus, always on touch; a pinned row always
+     shows its pin. They keep their space so names do not jump. */
+  .plnav-pin, .plnav-menu-btn { flex-shrink: 0; opacity: 0; }
+  .plnav-row:hover .plnav-pin, .plnav-row:hover .plnav-menu-btn,
+  .plnav-row:focus-within .plnav-pin, .plnav-row:focus-within .plnav-menu-btn,
+  .plnav-menu-btn[aria-expanded="true"], .plnav-pin.active { opacity: 1; }
+  @media (hover: none) { .plnav-pin, .plnav-menu-btn { opacity: 1; } }
+  /* A column of boxed toggles would outweigh the names: accent icon only. */
+  .plnav-pin.active:not(:hover) { color: var(--app-accent-text); background-color: transparent; border-color: transparent; }
+  .plnav-empty { padding: 1.5rem 1rem; text-align: center; }
+  .landing-home-hint { display: none; }
+
+  @media (width >= 768px) {
+    body.has-plnav { padding-left: var(--app-sidebar-width); }
+    body.has-plnav .app-sidebar {
+      position: fixed;
+      top: 0;
+      bottom: var(--app-player-height, 0px);
+      left: 0;
+      z-index: var(--bs-z-fixed);
+      display: flex;
+      width: var(--app-sidebar-width);
+    }
+    body.has-plnav .library-page { left: var(--app-sidebar-width); }
+    .plnav-close-btn { display: none; }
+    /* The sidebar carries the brand and your playlists: the landing page is
+       for browsing other people's. */
+    body.has-plnav .landing-brand,
+    body.has-plnav .my-playlists-section { display: none; }
+    body.has-plnav .landing-home-hint { display: block; }
+    body.has-plnav .landing-header .tagline { display: none; }
+  }
+  @media (width < 768px) {
+    body.has-plnav .plnav-open-btn { display: inline-flex; flex-shrink: 0; }
+    /* The drawer holds Home, so the playlist page's ☰ takes the back button's place. */
+    body.has-plnav #back-btn { display: none; }
+    body.has-plnav .app-sidebar {
+      position: fixed;
+      top: 0;
+      bottom: var(--app-player-height, 0px);
+      left: 0;
+      z-index: var(--bs-z-drawer);
+      display: flex;
+      width: min(20rem, 85vw);
+      visibility: hidden;
+      box-shadow: var(--bs-box-shadow-lg);
+      transform: translateX(-100%);
+      transition: transform 0.2s ease, visibility 0.2s;
+    }
+    body.plnav-open { overflow: hidden; }
+    /* Visible at once on opening, so focus can move in straight away. */
+    body.plnav-open .app-sidebar { visibility: visible; transform: none; transition: transform 0.2s ease, visibility 0s; }
+    body.plnav-open .rejoin-prompt { display: none; }
+    body.plnav-open .plnav-backdrop {
+      position: fixed;
+      inset: 0 0 var(--app-player-height, 0px);
+      z-index: calc(var(--bs-z-drawer) - 1);
+      display: block;
+      background-color: var(--app-backdrop);
+    }
+  }
+  @media (width < 400px) {
+    body.has-plnav .landing-brand-name { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    body.has-plnav .app-sidebar { transition: none; }
+  }
+  @media (pointer: coarse) {
+    .plnav-pin, .plnav-menu-btn { --bs-btn-min-height: 2.5rem; }
   }
 
   /* ------------------------------------------------------- Modal and toasts */

@@ -4,6 +4,10 @@
     "tagline": "Senin çalma listelerin ve herkesin herkese açık olanları.",
     "description": "Arkadaşlarınla senkronize müzik dinle"
   },
+  "appMeta": {
+    "changelog": "Değişiklik günlüğü",
+    "source": "GitHub'da kaynak kodu"
+  },
   "landing": {
     "newPlaylist": "Yeni çalma listesi",
     "playlistName": "Çalma listesi adı",
@@ -185,5 +189,24 @@
     "delete": "Sil",
     "deleting": "Siliniyor…",
     "confirmDelete": "“{name}” silinsin mi? Herkes için kalıcı olarak kaldırılır."
+  },
+  "sidebar": {
+    "open": "Çalma listelerini aç",
+    "close": "Çalma listelerini kapat",
+    "home": "Ana sayfa",
+    "search": "Çalma listelerinde ara",
+    "clearSearch": "Aramayı temizle",
+    "noMatches": "“{query}” ile eşleşen çalma listesi yok",
+    "resultCount": "Bulunan çalma listesi: {count}",
+    "pinned": "Sabitlenenler",
+    "pinnedToast": "Sabitlendi",
+    "unpinnedToast": "Sabitleme kaldırıldı",
+    "pinError": "Sabitleme güncellenemedi",
+    "unpin": "Sabitlemeyi kaldır",
+    "pinNamed": "{name} listesini sabitle",
+    "unpinNamed": "{name} sabitlemesini kaldır",
+    "oneSong": "1 şarkı",
+    "songs": "{count} şarkı",
+    "homeHint": "Soldan bir çalma listesi seç ya da yeni bir tane başlat."
   }
 }

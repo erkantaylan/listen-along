@@ -109,7 +109,6 @@ export const state = {
   audioUnlocked: false,
   pendingPlay: null,
   downloadStatus: {},
-  pinned: false,
   visibility: 'public',
   isOwner: false,
   canEdit: false,  // may add / remove / reorder songs (server: playlistAccess.canEdit)
@@ -171,7 +170,6 @@ export const elements = {
   volumeIcon: document.getElementById('volume-icon'),
   audioPlayer: document.getElementById('audio-player'),
   toastContainer: document.getElementById('toast-container'),
-  versionDisplay: document.getElementById('version-display'),
   dashboardUptime: document.getElementById('dashboard-uptime'),
   statLobbies: document.getElementById('stat-lobbies'),
   statUsers: document.getElementById('stat-users'),

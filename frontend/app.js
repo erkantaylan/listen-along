@@ -1,6 +1,6 @@
 // Listen-Along Frontend — Entry point and orchestrator
 import { state, elements, auth, socket, STORAGE_KEYS, viewActivators, setSocket, storageSet } from './state.js';
-import { showView, showToast, switchTab, setupLanguageSelector, fetchVersion, t, setupRangeFill, navigateTo } from './ui.js';
+import { showView, showToast, switchTab, setupLanguageSelector, setupAppMeta, t, setupRangeFill, navigateTo } from './ui.js';
 import { setupAudioPlayer } from './audio.js';
 import { player, setupPlayer } from './player.js';
 import { setupPlayerBar, setupPlayerBarControls, refreshPlayerBar } from './player-bar.js';
@@ -13,7 +13,9 @@ import { handleJobUpdate, handleWorkersUpdate } from './jobs.js';
 import { loadReports } from './song-reports.js';
 import { parseRoute, legacyRedirect } from './router.js';
 import { openNewPlaylistDialog } from './new-playlist.js';
-import { shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyUpdated, handleLobbyPinned, openPlaylistHeaderMenu, setupLandingMenus, handleUserJoined, handleUserLeft, handleLobbyClosed, checkForLastLobby, joinLobbyFromCard, updatePinButton, togglePin, quickPlayLobby, openLobbyPage, closeLobbyPage, syncMembership, resyncMembership, reportNowPlaying } from './lobby.js';
+import { setupSidebar } from './sidebar.js';
+import { scheduleReload } from './playlist-store.js';
+import { shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyUpdated, openPlaylistHeaderMenu, setupLandingMenus, handleUserJoined, handleUserLeft, handleLobbyClosed, checkForLastLobby, joinLobbyFromCard, updatePinButton, togglePin, quickPlayLobby, openLobbyPage, closeLobbyPage, syncMembership, resyncMembership, reportNowPlaying } from './lobby.js';
 import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, updatePlayButton, updatePlaybackModeUI, updateNowPlaying, _setQueueFns } from './playback.js';
 import { handleQueueUpdated, handleSongAdded, addSong, removeSong, clearQueue, downloadPlaylist, cancelPlaylistDownload, moveSongUp, moveSongDown, playSongAt, setupQueueInteractions, setupQueueSearch, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './queue.js';
 
@@ -49,7 +51,7 @@ function setupSocket() {
     let connectedBefore = false;
     s.on('connect', () => {
       console.log('Connected to server');
-      if (connectedBefore) { showToast(t('toast.reconnected', 'Reconnected!'), 'success'); resyncMembership(); loadReports(); }
+      if (connectedBefore) { showToast(t('toast.reconnected', 'Reconnected!'), 'success'); resyncMembership(); loadReports(); scheduleReload(0); }
       connectedBefore = true;
     });
     s.on('disconnect', () => { console.log('Disconnected from server'); showToast(t('toast.connectionLost', 'Connection lost. Reconnecting...'), 'error'); });
@@ -64,10 +66,11 @@ function setupSocket() {
     s.on('lobby:closed', (data) => { if ((data.lobbyId || state.lobbyId) === state.lobbyId) closeLibraryPage(); handleLobbyClosed(data, resetLobbyPage); });
     s.on('lobby:renamed', handleLobbyRenamed);
     s.on('lobby:updated', handleLobbyUpdated);
-    s.on('lobby:pinned', (data) => handleLobbyPinned(data, updatePinButton));
+    // The list changed somewhere: refetch it (sidebar, landing rows, pin button).
+    s.on('playlists:changed', () => scheduleReload());
 
     // Queue Events
-    s.on('queue:update', handleQueueUpdated);
+    s.on('queue:update', (data) => { handleQueueUpdated(data); scheduleReload(1000); });
     s.on('queue:song-added', handleSongAdded);
     s.on('queue:error', (data) => showToast(data.message, 'error'));
     s.on('queue:adding', (data) => showToast(data.status, 'info'));
@@ -180,6 +183,7 @@ function applyRoute() {
 // Initialize Application
 async function init() {
   if (window.i18n) { await window.i18n.init(); setupLanguageSelector(updateQueue, updateListeners); }
+  setupAppMeta();
   setupPlayerBar();
   if (checkUrlForDashboard()) return;
   await setupLoginView();
@@ -216,6 +220,7 @@ function initAuthenticatedApp() {
   const moved = legacyRedirect(window.location.pathname, window.location.search);
   if (moved) history.replaceState(null, '', moved);
   const route = parseRoute(window.location.pathname, window.location.search);
+  setupSidebar();
   showView(route.view === 'profile' ? 'profile' : 'landing');
   setupSocket();
   setupEventListeners();
@@ -237,7 +242,6 @@ function initAuthenticatedApp() {
   });
   // Starting a song in another playlist moves the server membership there.
   player.on('context', () => syncMembership());
-  fetchVersion();
 
   if (auth.authenticated && auth.user) {
     if (auth.user.name) { state.username = auth.user.name; storageSet(STORAGE_KEYS.USERNAME, auth.user.name); }

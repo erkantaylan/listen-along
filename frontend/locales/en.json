@@ -4,6 +4,10 @@
     "tagline": "Your playlists and everyone's public ones.",
     "description": "Listen to music with friends in sync"
   },
+  "appMeta": {
+    "changelog": "Changelog",
+    "source": "Source on GitHub"
+  },
   "landing": {
     "newPlaylist": "New playlist",
     "playlistName": "Playlist name",
@@ -185,5 +189,24 @@
     "delete": "Delete",
     "deleting": "Deleting…",
     "confirmDelete": "Delete “{name}”? It is removed for everyone, permanently."
+  },
+  "sidebar": {
+    "open": "Open playlists",
+    "close": "Close playlists",
+    "home": "Home",
+    "search": "Search playlists",
+    "clearSearch": "Clear search",
+    "noMatches": "No playlists match “{query}”",
+    "resultCount": "Playlists found: {count}",
+    "pinned": "Pinned",
+    "pinnedToast": "Pinned",
+    "unpinnedToast": "Unpinned",
+    "pinError": "Could not update the pin",
+    "unpin": "Unpin playlist",
+    "pinNamed": "Pin {name}",
+    "unpinNamed": "Unpin {name}",
+    "oneSong": "1 song",
+    "songs": "{count} songs",
+    "homeHint": "Pick a playlist on the left, or start a new one."
   }
 }

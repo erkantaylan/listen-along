@@ -4,7 +4,7 @@
 // private / public, Delete) only appear for the owner (`canManage`); the
 // server enforces the same rule.
 //
-// pl = { id, name, visibility, canManage, songCount }
+// pl = { id, name, visibility, canManage, songCount, pinnedByMe }
 import { escapeHtml, showToast, t, trapFocus, copyToClipboard } from './ui.js';
 import { playlistPath } from './router.js';
 
@@ -15,6 +15,7 @@ export const GLOBE_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidd
 const PEN_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>';
 const TRASH_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>';
 const LINK_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>';
+const PIN_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>';
 const PLAY_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
 
 /** The current visibility as a badge: "Private" (lock) only; public shows nothing. */
@@ -36,11 +37,14 @@ export function setPlaylistVisibility(id, visibility) {
 
 /**
  * ⋮ menu items for a playlist.
- * hooks: { onPlay?, onChanged(info), onDeleted(), returnFocus }
+ * hooks: { onPlay?, onTogglePin?, onChanged(info), onDeleted(), returnFocus }
  */
 export function playlistMenuItems(pl, hooks = {}) {
   const items = [];
   if (hooks.onPlay && pl.songCount > 0) items.push({ label: t('playlistMenu.play', 'Play'), icon: PLAY_SVG, onSelect: hooks.onPlay });
+  if (hooks.onTogglePin) {
+    items.push({ label: pl.pinnedByMe ? t('sidebar.unpin', 'Unpin playlist') : t('lobby.pinPlaylist', 'Pin playlist'), icon: PIN_SVG, onSelect: hooks.onTogglePin });
+  }
   items.push({
     label: t('playlistMenu.copyLink', 'Copy link'), icon: LINK_SVG,
     onSelect: () => copyToClipboard(`${window.location.origin}${playlistPath(pl.id)}`),

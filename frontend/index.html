@@ -77,8 +77,12 @@
   <div id="landing-view" class="view">
     <nav class="navbar app-navbar">
       <div class="container app-narrow">
-        <span class="app-brand"><img src="/icon-192.png" alt="">listen-along</span>
+        <button class="btn-text theme-secondary btn-icon plnav-open-btn" type="button" data-plnav-open aria-controls="app-sidebar" aria-expanded="false" aria-label="Open playlists" title="Open playlists" data-i18n-aria-label="sidebar.open" data-i18n-title="sidebar.open">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+        </button>
+        <span class="app-brand landing-brand"><img src="/icon-192.png" alt=""><span class="landing-brand-name">listen-along</span></span>
         <div class="d-flex align-items-center gap-1 ms-auto">
+          <div class="app-meta" data-app-meta></div>
           <button id="landing-profile-btn" class="btn-text theme-secondary btn-icon landing-profile-btn" type="button" aria-label="Profile" title="Profile">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
           </button>
@@ -104,6 +108,7 @@
       </div>
 
       <!-- Your playlists (public + private), then other people's public ones -->
+      <p id="landing-home-hint" class="fs-sm fg-3 mb-5 landing-home-hint" data-i18n="sidebar.homeHint" hidden>Pick a playlist on the left, or start a new one.</p>
       <section id="my-playlists-section" class="card mb-5 my-playlists-section" aria-labelledby="my-playlists-title">
         <div class="card-header"><h2 id="my-playlists-title" class="h6 mb-0" data-i18n="landing.yourPlaylists">Your playlists</h2></div>
         <ul id="my-playlists-list" class="list-group list-group-flush lobbies-list" aria-busy="true">
@@ -120,14 +125,10 @@
       </div>
     </main>
     <footer class="app-footer">
-      <a id="version-display" class="version-text" href="/changelog"></a>
       <select id="language-selector" class="form-control form-control-sm language-selector" aria-label="Select language">
         <option value="en">English</option>
         <option value="tr">Türkçe</option>
       </select>
-      <a class="btn-text theme-secondary btn-icon btn-sm" href="https://github.com/erkantaylan/listen-along" target="_blank" rel="noopener noreferrer" aria-label="View source on GitHub" title="Source on GitHub">
-        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-      </a>
     </footer>
   </div>
 
@@ -135,6 +136,9 @@
   <div id="lobby-view" class="view">
     <nav class="navbar app-navbar lobby-header">
       <div class="container">
+<button class="btn-text theme-secondary btn-icon plnav-open-btn" type="button" data-plnav-open aria-controls="app-sidebar" aria-expanded="false" aria-label="Open playlists" title="Open playlists" data-i18n-aria-label="sidebar.open" data-i18n-title="sidebar.open">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+        </button>
         <button id="back-btn" class="btn-text theme-secondary btn-icon" type="button" aria-label="Back" title="Back">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
         </button>
@@ -150,7 +154,7 @@
         </div>
         <div class="d-flex align-items-center gap-1 flex-shrink-0">
           <button id="edit-queue-btn" class="btn btn-sm me-1 edit-queue-btn" type="button" aria-pressed="false" title="Reorder or remove songs" hidden>Edit</button>
-          <button id="pin-btn" class="btn-text theme-secondary btn-icon" type="button" aria-label="Pin playlist" title="Pin playlist" data-i18n-aria-label="lobby.pinPlaylist" data-i18n-title="lobby.pinPlaylist">
+          <button id="pin-btn" class="btn-text theme-secondary btn-icon" type="button" aria-label="Pin playlist" title="Pin playlist">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>
           </button>
           <button id="share-btn" class="btn-text theme-secondary btn-icon" type="button" aria-label="Share playlist" title="Share playlist" data-i18n-aria-label="lobby.sharePlaylist" data-i18n-title="lobby.sharePlaylist">
@@ -214,7 +218,7 @@
         </div>
       </div>
     </div>
-
+    <footer class="app-meta lobby-meta" data-app-meta></footer>
   </div>
 
   <!-- Pending Approval View -->
@@ -338,10 +342,14 @@
   <div id="profile-view" class="view">
     <nav class="navbar app-navbar">
       <div class="container app-narrow">
+<button class="btn-text theme-secondary btn-icon plnav-open-btn" type="button" data-plnav-open aria-controls="app-sidebar" aria-expanded="false" aria-label="Open playlists" title="Open playlists" data-i18n-aria-label="sidebar.open" data-i18n-title="sidebar.open">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+        </button>
         <button id="profile-back-btn" class="btn-text theme-secondary btn-icon" type="button" aria-label="Back" title="Back">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
         </button>
         <h1 class="h6 mb-0 me-auto">Profile</h1>
+        <div class="app-meta" data-app-meta></div>
       </div>
     </nav>
     <main class="app-main container app-narrow">
@@ -423,6 +431,35 @@
       </div>
     </main>
   </div>
+
+  <!-- Playlists sidebar (sidebar.js): fixed left column from 768px, a drawer
+       below that. Shown only for approved accounts (body.has-plnav). -->
+  <div id="plnav-backdrop" class="plnav-backdrop" hidden></div>
+  <nav id="app-sidebar" class="app-sidebar" aria-labelledby="plnav-title">
+    <div class="d-flex align-items-center gap-1 plnav-head">
+      <a id="plnav-home" class="app-brand me-auto plnav-home" href="/" aria-label="Home" data-i18n-aria-label="sidebar.home"><img src="/icon-192.png" alt="">listen-along</a>
+      <button id="plnav-profile" class="btn-text theme-secondary btn-icon" type="button" aria-label="Profile" title="Profile">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+      </button>
+      <button id="plnav-close" class="btn-text theme-secondary btn-icon plnav-close-btn" type="button" aria-label="Close playlists" title="Close playlists" data-i18n-aria-label="sidebar.close" data-i18n-title="sidebar.close">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button>
+    </div>
+    <div class="d-flex align-items-center justify-content-between gap-2 plnav-title-row">
+      <h2 id="plnav-title" class="h6 mb-0" data-i18n="landing.playlists">Playlists</h2>
+      <button id="plnav-new" class="btn-text theme-secondary btn-icon btn-sm" type="button" aria-haspopup="dialog" aria-label="New playlist" title="New playlist" data-i18n-aria-label="landing.newPlaylist" data-i18n-title="landing.newPlaylist">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+      </button>
+    </div>
+    <div class="plnav-search-wrap" role="search">
+      <input type="search" id="plnav-search" class="form-control form-control-sm plnav-search" placeholder="Search playlists" aria-label="Search playlists" autocomplete="off" spellcheck="false" data-i18n-placeholder="sidebar.search" data-i18n-aria-label="sidebar.search">
+      <button id="plnav-search-clear" class="btn-text theme-secondary btn-icon btn-xs plnav-search-clear" type="button" aria-label="Clear search" title="Clear search" data-i18n-aria-label="sidebar.clearSearch" data-i18n-title="sidebar.clearSearch" hidden>
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button>
+    </div>
+    <div id="plnav-status" class="visually-hidden" role="status"></div>
+    <div id="plnav-list" class="plnav-scroll"></div>
+  </nav>
 
   <!-- Chat and people (social.js): right-hand sidebar on desktop (>= 1024px,
        collapsible), the full-screen /social view on phones. Shown by body
@@ -543,6 +580,9 @@
   <div id="library-page" class="library-page" role="dialog" aria-modal="true" aria-labelledby="libpage-heading" hidden>
     <nav class="navbar app-navbar libpage-header">
       <div class="container">
+<button class="btn-text theme-secondary btn-icon plnav-open-btn" type="button" data-plnav-open aria-controls="app-sidebar" aria-expanded="false" aria-label="Open playlists" title="Open playlists" data-i18n-aria-label="sidebar.open" data-i18n-title="sidebar.open">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+        </button>
         <button id="libpage-close" class="btn-text theme-secondary btn-icon" type="button" aria-label="Close library" title="Close library">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
         </button>
@@ -550,6 +590,7 @@
           <h1 id="libpage-heading" class="h6 mb-0">Music Library</h1>
           <div id="libpage-context" class="fs-xs fg-3 text-truncate libpage-context"></div>
         </div>
+        <div class="app-meta" data-app-meta></div>
       </div>
     </nav>
     <div class="libpage-body">

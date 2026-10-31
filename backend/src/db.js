@@ -457,6 +457,19 @@ async function createTables() {
     )
   `);
 
+  // Per-user playlist pins (playlistPins.js). Added after release, so it lives
+  // here with the migrations and runs on every boot. Goes with both the user
+  // and the playlist. Unrelated to the shared lobbies.pinned column.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS playlist_pins (
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      lobby_id VARCHAR(8) NOT NULL REFERENCES lobbies(id) ON DELETE CASCADE,
+      pinned_at BIGINT NOT NULL,
+      PRIMARY KEY (user_id, lobby_id)
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_playlist_pins_lobby ON playlist_pins(lobby_id)`);
+
   // Migrate existing users' provider data into user_providers junction table
   await pool.query(`
     INSERT INTO user_providers (user_id, provider, provider_id, email, name, avatar_url, linked_at)

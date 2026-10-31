@@ -21,6 +21,7 @@
   </main>
   <script>
     fetch('/api/version').then(r => r.json()).then(v => {
+      if (!v.version) return;
       document.getElementById('build-commit').textContent =
         `v${v.version} · ${v.commit}${v.commitDate ? ' · ' + v.commitDate.slice(0, 10) : ''}`;
     }).catch(() => {});
