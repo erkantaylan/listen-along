@@ -337,6 +337,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not mine:
                     return self.send_json(403, {"error": "Only the owner can change visibility", "code": "FORBIDDEN"})
             if "name" in body:
+                if not mine:
+                    return self.send_json(403, {"error": "Only the owner can rename", "code": "FORBIDDEN"})
                 name = (body["name"] or "").strip()
                 if not name or len(name) > 50:
                     return self.send_json(400, {"error": "Name must be 1-50 characters", "code": "BAD_REQUEST"})

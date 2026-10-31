@@ -47,6 +47,8 @@ class AppActions(
     val openSettings: () -> Unit,
     /** The web profile page, where API tokens are made. */
     val openProfile: () -> Unit,
+    /** The source repository, the same link as the web footer. */
+    val openSource: () -> Unit,
     val openExternal: (LocalSong) -> Unit,
     /** "music.etaylan.com", for hints. */
     val serverName: () -> String,

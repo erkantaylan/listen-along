@@ -244,11 +244,8 @@ class MainActivity : ComponentActivity() {
                 queued = { n -> toast(if (n == 1) "1 song queued" else "$n songs queued") },
                 message = ::toast,
                 openSettings = { tab = Tab.SETTINGS },
-                openProfile = {
-                    val url = SettingsStore.profileUrl(graph.settings.config.value.baseUrl)
-                    runCatching { startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
-                        .onFailure { toast("No browser to open $url") }
-                },
+                openProfile = { openInBrowser(SettingsStore.profileUrl(graph.settings.config.value.baseUrl)) },
+                openSource = { openInBrowser(AppInfo.SOURCE_URL) },
                 openExternal = openExternal,
                 serverName = { graph.settings.config.value.baseUrl.host },
             )
@@ -344,6 +341,11 @@ class MainActivity : ComponentActivity() {
             ReportDetailsDialog(song, live, onDismiss = { reportDetails = null })
         }
         }
+    }
+
+    private fun openInBrowser(url: String) {
+        runCatching { startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
+            .onFailure { toast("No browser to open $url") }
     }
 
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_SHORT).show()

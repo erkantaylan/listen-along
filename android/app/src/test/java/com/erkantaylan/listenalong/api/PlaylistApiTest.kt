@@ -59,6 +59,7 @@ class PlaylistApiTest {
         assertEquals(12, mine.songCount)
         val shared = list[1]
         assertFalse(shared.isPrivate)
+        assertFalse("rename, visibility and delete stay hidden", shared.canManage)
         assertEquals("Untitled playlist", shared.displayName)
         assertEquals("shared", shared.ownerLine)
 
@@ -163,6 +164,7 @@ class PlaylistApiTest {
     fun `server errors carry the status and the server's message`() = runTest {
         server.enqueue(json("""{"error":"Only the owner can delete this playlist","code":"FORBIDDEN"}""", 403))
         server.enqueue(json("""{"error":"A playlist with that name already exists","code":"CONFLICT"}""", 409))
+        server.enqueue(json("""{"error":"Only the owner can rename","code":"FORBIDDEN"}""", 403))
         try {
             client().deletePlaylist("p1")
             fail("expected a 403")
@@ -176,6 +178,13 @@ class PlaylistApiTest {
         } catch (e: ApiException) {
             assertEquals(409, e.code)
             assertEquals("A playlist with that name already exists", e.message)
+        }
+        try {
+            client().updatePlaylist("p1", name = "Mine now")
+            fail("expected a 403")
+        } catch (e: ApiException) {
+            assertEquals(403, e.code)
+            assertEquals("Only the owner can rename", e.message)
         }
     }
 

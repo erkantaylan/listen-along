@@ -128,7 +128,7 @@ class LibraryClient(
         sendJson("POST", endpoint("api/playlists"), body) { apiJson.decodeFromString<Playlist>(it) }
     }
 
-    /** Rename (anyone who can see it) and/or change visibility (owner only). */
+    /** Rename and/or change visibility (owner only). */
     suspend fun updatePlaylist(id: String, name: String? = null, visibility: Visibility? = null): Playlist =
         withContext(Dispatchers.IO) {
             val body = buildJsonObject {

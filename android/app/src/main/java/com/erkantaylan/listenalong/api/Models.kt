@@ -83,7 +83,7 @@ data class Playlist(
     val ownerId: String? = null,
     val ownerName: String? = null,
     val isOwner: Boolean = false,
-    /** Owner-only actions: visibility and delete. */
+    /** Owner-only actions: rename, visibility and delete. */
     val canManage: Boolean = false,
     /**
      * May change the song list (add, remove, reorder): public → anyone signed

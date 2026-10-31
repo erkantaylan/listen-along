@@ -30,6 +30,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.input.ImeAction
@@ -38,6 +39,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.erkantaylan.listenalong.AppGraph
+import com.erkantaylan.listenalong.AppInfo
+import com.erkantaylan.listenalong.BuildConfig
+import com.erkantaylan.listenalong.R
 import com.erkantaylan.listenalong.api.ApiException
 import com.erkantaylan.listenalong.api.LibraryClient
 import com.erkantaylan.listenalong.api.ServerUrl
@@ -198,6 +202,15 @@ fun SettingsScreen(graph: AppGraph, snapshot: DownloadSnapshot, actions: AppActi
                             actions.message(if (gone == 0) "Everything is still there" else "$gone forgotten")
                         }
                     }, tag = "reconcile")
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Card(title = stringResource(R.string.about_title)) {
+                Field(stringResource(R.string.about_version), AppInfo.versionLabel(BuildConfig.VERSION_NAME))
+                Box(Modifier.padding(top = 8.dp)) {
+                    SecondaryButton(stringResource(R.string.about_source), actions.openSource,
+                                    icon = AppIcons.GitHub, tag = "open-source")
                 }
             }
             Spacer(Modifier.height(24.dp))

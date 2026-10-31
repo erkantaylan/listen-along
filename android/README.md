@@ -50,8 +50,8 @@ web (**Open my profile**), create a token under "CLI tokens", copy it, tap
   snackbar, and tapping does not play; **Done** or Back leaves. A finished
   drag sends one move; a removal is sent when the snackbar times out (or on
   Done / the next removal / leaving the playlist). TalkBack gets *Move up* /
-  *Move down* actions on each row. ⋮ on a playlist: *Rename*, and for its
-  owner *Make private/public* and *Delete* (who may do what comes from the
+  *Move down* actions on each row. ⋮ on a playlist, for its owner only:
+  *Rename*, *Make private/public* and *Delete* (who may do what comes from the
   server's `canManage`; its error is shown if it refuses). ⋮ on a song:
   *Add to another playlist*, *Remove from playlist* (with Undo), and the
   report entries. **+** makes a new playlist
@@ -60,7 +60,8 @@ web (**Open my profile**), create a token under "CLI tokens", copy it, tap
 - **On device**: the downloaded songs (play, shuffle, add to playlist, open in
   another app, delete) and the download queue while it runs.
 - **Settings**: server address, API token (Paste button), **Save and test**
-  (`/api/me` and `/api/library`), and storage stats.
+  (`/api/me` and `/api/library`), storage stats, and the app version
+  (`versionName`) with a link to the source on GitHub.
 
 ## Player
 

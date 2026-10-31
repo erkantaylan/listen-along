@@ -255,7 +255,7 @@ private fun PlaylistRow(
     }
 }
 
-/** ⋮ menu: rename (anyone who can see it), visibility and delete (owner only — the server decides). */
+/** ⋮ menu: rename, visibility and delete (owner only — the server decides). Nothing to offer: no ⋮. */
 @Composable
 private fun PlaylistMenu(
     playlist: Playlist,
@@ -264,15 +264,16 @@ private fun PlaylistMenu(
     onDialog: (PlaylistDialog) -> Unit,
     extra: (@Composable (dismiss: () -> Unit) -> Unit)? = null,
 ) {
+    if (!playlist.canManage && extra == null) return
     var open by remember { mutableStateOf(false) }
     Box {
         IconAction(AppIcons.More, "Playlist actions", tag = "menu:playlist:${playlist.id}") { open = true }
         AppDropdownMenu(open, onDismissRequest = { open = false }) {
             extra?.invoke { open = false }
-            MenuEntry("Rename", AppIcons.Edit, "menu-rename", enabled = !readOnly) {
-                open = false; onDialog(PlaylistDialog.Rename(playlist))
-            }
             if (playlist.canManage) {
+                MenuEntry("Rename", AppIcons.Edit, "menu-rename", enabled = !readOnly) {
+                    open = false; onDialog(PlaylistDialog.Rename(playlist))
+                }
                 MenuEntry(
                     if (playlist.isPrivate) "Make public" else "Make private",
                     if (playlist.isPrivate) AppIcons.Public else AppIcons.Lock,
