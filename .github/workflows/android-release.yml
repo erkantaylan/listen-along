@@ -41,6 +41,8 @@ jobs:
           java-version: 17
 
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools # the default also asks for 'tools', which no longer exists
 
       - name: Install the SDK packages
         run: sdkmanager --install "platforms;android-37" "build-tools;$BUILD_TOOLS" > /dev/null
@@ -69,7 +71,7 @@ jobs:
           grep -q "certificate SHA-256 digest: $CERT_SHA256" certs.txt
           IFS=. read -r x y z <<< "$VERSION"
           code=$((x * 10000 + y * 100 + z))
-          "$tools/aapt2" dump badging "$apk" | head -1 | tee badging.txt
+          "$tools/aapt2" dump badging "$apk" > badging.txt
           grep -q "name='com.erkantaylan.listenalong' versionCode='$code' versionName='$VERSION'" badging.txt
 
       - name: Publish the release
