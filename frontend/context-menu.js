@@ -75,11 +75,20 @@ function onOutsidePointer(e) {
   // Its own trigger toggles it (the click handler closes it).
   if (current && current.trigger && current.trigger.contains(e.target)) return;
   closeContextMenu();
+  if (e.pointerType !== 'mouse') swallowNextClick();
 }
 function onScroll(e) {
   if (menuEl && e.target !== menuEl && !(e.target instanceof Node && menuEl.contains(e.target))) closeContextMenu();
 }
 function onWindowChange() { closeContextMenu(); }
+
+// On touch, the tap that dismisses a menu must not also press what is under it
+// (a song row would start playing). A scroll sends no click, hence the timeout.
+function swallowNextClick() {
+  const swallow = (e) => { e.preventDefault(); e.stopPropagation(); };
+  document.addEventListener('click', swallow, { capture: true, once: true });
+  setTimeout(() => document.removeEventListener('click', swallow, { capture: true }), 800);
+}
 
 function addGlobalListeners() {
   document.addEventListener('pointerdown', onOutsidePointer, true);

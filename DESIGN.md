@@ -451,7 +451,7 @@ Bootstrap 6 `.menu` / `.menu-item` / `.menu-header` / `.menu-divider` markup, no
   The browser's own menu is suppressed **only on rows**, and kept on links/inputs and with Shift held.
 - ARIA and keys: `role="menu"` + `role="menuitem"` buttons; ↑/↓ (wrapping), Home/End, Enter/Space;
   Escape and Tab close and return focus to the trigger/row; outside click, any scroll, resize and
-  window blur close it. Opened from the keyboard, focus goes to the first item. Coarse pointers get
+  window blur close it (on touch, the closing tap does not also press what is under it). Opened from the keyboard, focus goes to the first item. Coarse pointers get
   2.75rem items.
 - Song rows use it through `song-reports.js` (`bindSongMenu`, `songMenuItems`): library rows,
   playlist queue rows and the player bar's current song (right-click / long-press on the song,

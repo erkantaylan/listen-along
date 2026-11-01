@@ -15,6 +15,8 @@
 - fix(web): no empty strip beside the chat and player with classic scrollbars; with a mouse the page column scrolls instead of the document
 - fix(web): pressed buttons look pressed instead of keeping the hover colour
 - fix(web): radio borders and faint text in dialogs and the person card now meet WCAG contrast
+- fix(web): library tabs stay on one line and scroll sideways on narrow phones, as the profile tabs do
+- fix(web): on touch, the tap that closes a song menu no longer also plays the row under it
 - fix(web): larger touch targets on phones: song menu, broken-song icon, navbar buttons and the seek bar
 
 ## v2.31.0 (2026-10-31)

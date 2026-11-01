@@ -267,10 +267,10 @@
   .queue-item-meta > :empty { display: none; }
   .user-count { white-space: nowrap; }
 
-  /* Your activity tabs: one line, sideways scroll when the column is too narrow. */
-  .profile-activity-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
-  .profile-activity-tabs .nav-link { flex-shrink: 0; }
-  .profile-activity-tabs .nav-link:focus-visible { outline-offset: -2px; }
+  /* Your activity and library tabs: one line, sideways scroll when the column is too narrow. */
+  .profile-activity-tabs, .libpage-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .profile-activity-tabs .nav-link, .libpage-tabs .nav-link { flex-shrink: 0; }
+  .profile-activity-tabs .nav-link:focus-visible, .libpage-tabs .nav-link:focus-visible { outline-offset: -2px; }
 
   /* Avatar emoji picker (profile page) */
   .profile-page-emoji-btn {
