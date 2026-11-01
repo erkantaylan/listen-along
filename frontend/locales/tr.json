@@ -225,7 +225,20 @@
     "songs": "{count} şarkı",
     "homeHint": "Soldan bir çalma listesi seç ya da yeni bir tane başlat.",
     "expand": "Çalma listelerini genişlet",
-    "collapse": "Çalma listelerini daralt"
+    "collapse": "Çalma listelerini daralt",
+    "filterLabel": "Çalma listelerini filtrele",
+    "filterAll": "Tümü",
+    "filterMine": "Benim",
+    "showAll": "Tümünü göster",
+    "emptyMine": "Henüz çalma listen yok",
+    "emptyPublic": "Herkese açık çalma listesi yok",
+    "emptyPrivate": "Gizli çalma listen yok",
+    "sortBy": "Sırala",
+    "sortLabel": "Çalma listelerini sırala: {sort}",
+    "sortName": "Ad",
+    "sortDate": "Tarih",
+    "sortNameLong": "Ad (A–Z)",
+    "sortDateLong": "Oluşturulma tarihi"
   },
   "addTo": {
     "label": "Çalma listesine ekle",

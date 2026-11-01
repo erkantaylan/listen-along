@@ -378,20 +378,33 @@ profile and the desktop `/social`; not on login, pending or `/dashboard`.
   one 2.5rem rounded-square avatar per playlist with its initials (`playlistInitials`, Turkish capitals; never
   covers), the same order with a divider between groups instead of headings. Tooltip = `title`, and `aria-label` has
   name, Private, owner and song count. Current = the usual tint + edge plus accent avatar; pinned = accent hairline
-  on the avatar. Click and Enter navigate; right-click and long-press open the same menu. No search or pin / ⋮
-  buttons: a running search is cleared on collapsing. A display utility on anything the rail hides would beat
+  on the avatar. Click and Enter navigate; right-click and long-press open the same menu. No search, chips, sort control or pin / ⋮
+  buttons: a running search is cleared on collapsing. The rail follows the sort but lists everything, since nothing there would show or
+  reset a filter; expanding brings the remembered filter back. A display utility on anything the rail hides would beat
   `@layer custom`, so those parts carry none. Rail rules live inside `@media (width >= 768px)`: phones always get the full drawer.
 - **Below 768px** (unchanged by the toggle, which is hidden): a drawer (`min(20rem, 85vw)`) that stops at the player bar, with a backdrop,
   opened from the ☰ (`[data-plnav-open]`) in every navbar. ☰ replaces the playlist page's back button
   there (Home is in the drawer). Focus moves in and stays in; Escape, ×, the backdrop and any
   navigation close it; focus returns to the ☰.
-- Head: brand (link to Home), profile, × (drawer only). Then "Playlists" + a ghost New playlist
-  icon button (not primary: the view's primary stays in the view), then the search box.
+- Head: brand (link to Home), profile, × (drawer only). Then "Playlists" + the sort control + a ghost New playlist
+  icon button (not primary: the view's primary stays in the view), then the filter chips and the search box.
+- **Filter chips** (`#plnav-chips`, `role="group"`): All (default), Mine, Public, Private, one at a time, `aria-pressed`,
+  `.btn.btn-sm` pills 32px tall, on one line that scrolls sideways (hidden scrollbar; the wheel moves it too). Pressed = accent
+  tint, border and text. Tapping the pressed chip, or All, resets. Mine is the server's `isOwner` and Public / Private its `visibility`, never a
+  client guess. On coarse pointers they keep their 32px look with a 40px hit area.
+- **Sort** (`#plnav-sort`): the current choice + icon, `context-menu.js` with `menuitemradio` rows (208px wide, 40px rows): **Name (A–Z)**,
+  `localeCompare('tr', { numeric: true })`, and **Date created**, newest first, the default. Only what the data supports: there is
+  no "recently played", and `lobbies.last_activity` means someone joined or left, is not in the API, so no Recents.
+  Filter and sort are in localStorage (`listen-sidebarFilter`, `listen-sidebarSort`), per browser.
 - **Search**: `input[type=search]`, filters as you type by name and owner, every word must match.
   i/ı/I/İ are one letter and ş/ğ/ü/ö/ç match s/g/u/o/c (`foldText`). × or Escape clears (Escape in an
-  empty box closes the drawer). No match: a muted line and a grey "Clear search".
-- **List**: small uppercase headings (`.people-heading`) over flush list groups: **Pinned** (last
-  pinned first), **Your playlists**, **Public playlists** (both newest first); empty groups vanish.
+  empty box closes the drawer). It combines with the filter and the sort. No match: a muted line, a grey "Clear search",
+  and "Show all" when a filter is on. A filter with nothing and no search has its own line ("You have no private
+  playlists"), with New playlist (not for Public) and "Show all".
+- **List**: small uppercase headings (`.people-heading`) over flush list groups: **Pinned**, always on top,
+  then by date **Your playlists** and **Public playlists**, by name one A–Z list (the groups would break the order; its heading
+  "Playlists" shows only under Pinned). The sort applies inside every group, and the filter to Pinned too; empty groups vanish
+  (`arrangePlaylists`). Names like `Family: Name` sort as families.
   Row: name (`fs-sm`, medium), a muted `fs-xs` line with a lock icon on private ones (icon only here,
   no badge; the word is there for screen readers) and "by you · 2 songs". Current row =
   `.is-current`, the usual accent tint + 3px edge + accent title, with `aria-current="page"`. Hover and
@@ -486,7 +499,7 @@ Bootstrap 6 `.menu` / `.menu-item` / `.menu-header` / `.menu-divider` markup, no
   opens one fixed `.menu.app-ctx-menu` (z-index `--bs-z-popover`, above the player bar and the
   library overlay) at the pointer, or under an element right-aligned; it flips and clamps to stay
   inside the viewport (8px margin). Items: `{ label, description?, icon?, theme?, disabled?, onSelect }`,
-  `{ header }`, `{ divider: true }`, `{ text, muted? }`. `kind: 'popover'` renders the same box as
+  `{ header }`, `{ divider: true }`, `{ text, muted? }`; `checked` makes a radio choice (`menuitemradio`, `aria-checked`, a check mark). `kind: 'popover'` renders the same box as
   `role="dialog"` for details (a song's reports, a person's card); Tab cycles inside it.
   A popover item can be `{ html, onAction }` (trusted markup the caller escaped; its
   `[data-ctx-action]` buttons call `onAction` and close). `sheet: true` makes it a bottom

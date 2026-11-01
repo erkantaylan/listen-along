@@ -34,6 +34,41 @@ export function groupPlaylists(playlists, query = '') {
   };
 }
 
+// The sidebar's filter chips and sort choices. Ownership comes only from the
+// server's `isOwner`, and `visibility` is the server's too.
+export const PLAYLIST_FILTERS = ['all', 'mine', 'public', 'private'];
+export const PLAYLIST_SORTS = ['date', 'name'];
+
+export function matchesFilter(playlist, filter = 'all') {
+  if (filter === 'mine') return playlist.isOwner === true;
+  if (filter === 'public') return playlist.visibility !== 'private';
+  if (filter === 'private') return playlist.visibility === 'private';
+  return true;
+}
+
+// Turkish alphabet order (ç after c, ı before i, ş after s). Numbers compare as
+// numbers. "Family: A" and "Family: B" stay next to each other.
+const byName = (titleOf) => (a, b) => String(titleOf(a)).trim().localeCompare(String(titleOf(b)).trim(), 'tr', { numeric: true })
+  || byDate(a, b);
+const byDate = (a, b) => byNewest(a, b) || String(a.id).localeCompare(String(b.id));
+
+// What the sidebar draws: [{ key, rows }], empty groups gone, plus the count.
+// Pinned is always on top and takes the chosen sort too. By date the rest stays
+// in Your / Public groups; by name it is one list, as groups would break A-Z.
+// titleOf: the name as shown, for playlists without one.
+export function arrangePlaylists(playlists, { query = '', filter = 'all', sort = 'date', titleOf = (p) => p.name || p.id || '' } = {}) {
+  const shown = playlists.filter(p => matchesFilter(p, filter) && matchesQuery(p, query));
+  const compare = sort === 'name' ? byName(titleOf) : byDate;
+  const rest = shown.filter(p => !p.pinnedByMe).sort(compare);
+  const groups = [
+    { key: 'pinned', rows: shown.filter(p => p.pinnedByMe).sort(compare) },
+    ...(sort === 'name'
+      ? [{ key: 'rest', rows: rest }]
+      : [{ key: 'mine', rows: rest.filter(p => p.isOwner) }, { key: 'others', rows: rest.filter(p => !p.isOwner) }]),
+  ].filter(g => g.rows.length);
+  return { groups, count: shown.length };
+}
+
 // One or two capitals for a playlist's rail avatar: first letters of the first
 // two words, whole characters only (emoji), Turkish dotted İ for a Turkish "i".
 export function playlistInitials(name, locale = 'tr') {

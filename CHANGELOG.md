@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- feat(web): the playlists sidebar has filter chips (All, Mine, Public, Private) and a sort menu (Name A-Z in Turkish alphabet order, Date created). Pinned stays on top, search combines with both, and the choices are remembered in this browser. The rail keeps the sort and lists everything
 - feat(web): the playlists sidebar collapses to a 72px rail of initials (pinned first, new playlist, tooltips, right-click menu) with a toggle that is remembered; automatically when the page column would drop under 616px
 - change(web): the chat panel stays docked down to 1010px wide (it was 1200px), 280px wide below 1200px, by collapsing the library first; below that the chat button still opens it full-screen. The page column never goes under 416px from 768px up
 - feat(web): playlist pages show a song table: #, title and artist, added by, added, duration, with a sticky header and ⋮ on hover. # turns into play on hover and focus. Added and Added by drop as the page column narrows; phones keep a compact row. The song list uses the full width on wide screens

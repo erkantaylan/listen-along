@@ -6,12 +6,12 @@
 // pins and filters; the server decides what may be seen.
 import { escapeHtml, navigateTo, t, trapFocus } from './ui.js';
 import { parseRoute, playlistPath } from './router.js';
-import { groupPlaylists, playlistInitials } from './playlist-filter.js';
+import { PLAYLIST_FILTERS, PLAYLIST_SORTS, arrangePlaylists, playlistInitials } from './playlist-filter.js';
 import { DOCK_MIN, sidebarRail } from './layout-rules.js';
 import { storageGet, storageSet } from './state.js';
 import { getPlaylist, getPlaylists, isLoaded, loadPlaylists, onPlaylists, togglePlaylistPin } from './playlist-store.js';
 import { LOCK_SVG, playlistMenuItems } from './playlist-actions.js';
-import { bindContextMenu } from './context-menu.js';
+import { bindContextMenu, closeContextMenu, isContextMenuOpen, openContextMenu } from './context-menu.js';
 import { ownerText, playlistTitle, quickPlayLobby } from './lobby.js';
 import { openNewPlaylistDialog } from './new-playlist.js';
 
@@ -22,9 +22,13 @@ const PLUS_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true
 const POLL_MS = 30000;
 const DRAWER_MQ = '(width < 768px)';
 const MODE_KEY = 'listen-sidebarMode';
+const FILTER_KEY = 'listen-sidebarFilter';
+const SORT_KEY = 'listen-sidebarSort';
 
 const $ = (id) => document.getElementById(id);
 let query = '';
+let filter = 'all';
+let sort = 'date';
 let lastHtml = null;
 let drawerReturnFocus = null;
 
@@ -53,29 +57,57 @@ function rowHtml(p, currentId) {
 }
 
 function groupHtml(key, heading, rows, currentId) {
-  if (!rows.length) return '';
   const id = `plnav-group-${key}`;
   return `<h3 id="${id}" class="fs-xs fw-semibold fg-3 text-uppercase people-heading">${escapeHtml(heading)}</h3>`
-    + `<ul class="list-group list-group-flush plnav-list" aria-labelledby="${id}">${rows.map(p => rowHtml(p, currentId)).join('')}</ul>`;
+    + listGroupHtml(`aria-labelledby="${id}"`, rows, currentId);
+}
+
+const listGroupHtml = (label, rows, currentId) =>
+  `<ul class="list-group list-group-flush plnav-list" ${label}>${rows.map(p => rowHtml(p, currentId)).join('')}</ul>`;
+
+// The rail has no chips to show or reset a filter, so it lists everything.
+const activeFilter = () => (document.body.classList.contains('plnav-rail') ? 'all' : filter);
+const arranged = () => arrangePlaylists(getPlaylists(), { query, filter: activeFilter(), sort, titleOf: (p) => playlistTitle(p.name, p.id) });
+
+function newPlaylistButton() {
+  return `<button type="button" class="btn plnav-empty-new" aria-haspopup="dialog">${PLUS_SVG}${escapeHtml(t('landing.newPlaylist', 'New playlist'))}</button>`;
+}
+
+function noResultsHtml() {
+  const f = activeFilter();
+  const messages = {
+    mine: t('sidebar.emptyMine', 'You have no playlists yet'),
+    public: t('sidebar.emptyPublic', 'No public playlists'),
+    private: t('sidebar.emptyPrivate', 'You have no private playlists'),
+  };
+  const text = query ? t('sidebar.noMatches', `No playlists match “${query}”`, { query }) : messages[f];
+  const buttons = [
+    !query && f !== 'public' ? newPlaylistButton() : '',
+    query ? `<button type="button" class="btn btn-sm plnav-empty-clear">${escapeHtml(t('sidebar.clearSearch', 'Clear search'))}</button>` : '',
+    f !== 'all' ? `<button type="button" class="btn btn-sm plnav-empty-all">${escapeHtml(t('sidebar.showAll', 'Show all'))}</button>` : '',
+  ].join('');
+  return `<div class="app-empty plnav-empty"><p class="fs-sm fg-3 mb-3 text-break">${escapeHtml(text)}</p>`
+    + `<div class="d-flex flex-wrap justify-content-center gap-2">${buttons}</div></div>`;
 }
 
 function listHtml(currentId) {
   if (!isLoaded()) return `<p class="fs-sm fg-3 app-empty plnav-empty">${escapeHtml(t('landing.loading', 'Loading…'))}</p>`;
-  const all = getPlaylists();
-  if (!all.length) {
+  if (!getPlaylists().length) {
     return `<div class="app-empty plnav-empty"><p class="fw-medium fg-1 mb-1">${escapeHtml(t('landing.noPlaylists', 'No playlists yet'))}</p>`
       + `<p class="fs-sm fg-3 mb-4">${escapeHtml(t('landing.emptyHint', 'Make one, add songs, and share the link to listen together.'))}</p>`
-      + `<button type="button" class="btn plnav-empty-new" aria-haspopup="dialog">${PLUS_SVG}${escapeHtml(t('landing.newPlaylist', 'New playlist'))}</button></div>`;
+      + `${newPlaylistButton()}</div>`;
   }
-  const g = groupPlaylists(all, query);
-  const count = g.pinned.length + g.mine.length + g.others.length;
-  if (!count) {
-    return `<div class="app-empty plnav-empty"><p class="fs-sm fg-3 mb-3 text-break">${escapeHtml(t('sidebar.noMatches', `No playlists match “${query}”`, { query }))}</p>`
-      + `<button type="button" class="btn btn-sm plnav-empty-clear">${escapeHtml(t('sidebar.clearSearch', 'Clear search'))}</button></div>`;
-  }
-  return groupHtml('pinned', t('sidebar.pinned', 'Pinned'), g.pinned, currentId)
-    + groupHtml('mine', t('landing.yourPlaylists', 'Your playlists'), g.mine, currentId)
-    + groupHtml('others', t('landing.publicPlaylists', 'Public playlists'), g.others, currentId);
+  const { groups, count } = arranged();
+  if (!count) return noResultsHtml();
+  const headings = {
+    pinned: t('sidebar.pinned', 'Pinned'),
+    mine: t('landing.yourPlaylists', 'Your playlists'),
+    others: t('landing.publicPlaylists', 'Public playlists'),
+    rest: t('landing.playlists', 'Playlists'),
+  };
+  // Under the section title, one A-Z list needs no heading of its own.
+  if (groups.length === 1 && groups[0].key === 'rest') return listGroupHtml('aria-labelledby="plnav-title"', groups[0].rows, currentId);
+  return groups.map(g => groupHtml(g.key, headings[g.key], g.rows, currentId)).join('');
 }
 
 // Re-renders only when something changed: polling must not disturb focus or an
@@ -104,9 +136,8 @@ function render() {
   }
   const status = $('plnav-status');
   if (status) {
-    const g = groupPlaylists(getPlaylists(), query);
-    const n = g.pinned.length + g.mine.length + g.others.length;
-    status.textContent = query ? t('sidebar.resultCount', `Playlists found: ${n}`, { count: n }) : '';
+    const n = arranged().count;
+    status.textContent = query || activeFilter() !== 'all' ? t('sidebar.resultCount', `Playlists found: ${n}`, { count: n }) : '';
   }
 }
 
@@ -121,6 +152,82 @@ function setQuery(value) {
   if (input.value !== value) input.value = value;
   $('plnav-search-clear').hidden = !value;
   render();
+}
+
+// ------------------------------------------------------------- filter and sort
+
+function syncChips() {
+  const chips = $('plnav-chips');
+  chips.querySelectorAll('[data-plnav-filter]').forEach((chip) => {
+    const on = chip.dataset.plnavFilter === filter;
+    chip.setAttribute('aria-pressed', on ? 'true' : 'false');
+    if (!on) return;
+    // Only the chips scroll: scrollIntoView could also move the page or a closed drawer.
+    if (chip.offsetLeft < chips.scrollLeft) chips.scrollLeft = chip.offsetLeft - chips.offsetLeft;
+    else if (chip.offsetLeft + chip.offsetWidth > chips.scrollLeft + chips.clientWidth) chips.scrollLeft = chip.offsetLeft + chip.offsetWidth - chips.clientWidth;
+  });
+}
+
+function syncSortButton() {
+  const name = sort === 'name' ? t('sidebar.sortName', 'Name') : t('sidebar.sortDate', 'Date');
+  const label = t('sidebar.sortLabel', `Sort playlists: ${name}`, { sort: name });
+  const btn = $('plnav-sort');
+  $('plnav-sort-label').textContent = name;
+  btn.setAttribute('aria-label', label);
+  btn.setAttribute('title', label);
+}
+
+function setFilter(value) {
+  filter = value;
+  storageSet(FILTER_KEY, filter);
+  syncChips();
+  $('plnav-list').scrollTop = 0;
+  render();
+}
+
+function setSort(value) {
+  sort = value;
+  storageSet(SORT_KEY, sort);
+  syncSortButton();
+  $('plnav-list').scrollTop = 0;
+  render();
+}
+
+function openSortMenu(btn, keyboard) {
+  const choice = (value, label) => ({ label, checked: sort === value, onSelect: () => setSort(value) });
+  openContextMenu({ anchor: btn }, [
+    { header: t('sidebar.sortBy', 'Sort by') },
+    choice('name', t('sidebar.sortNameLong', 'Name (A–Z)')),
+    choice('date', t('sidebar.sortDateLong', 'Date created')),
+  ], { label: t('sidebar.sortBy', 'Sort by'), trigger: btn, focusFirst: keyboard, className: 'plnav-sort-menu' });
+}
+
+function setupFilterAndSort() {
+  const savedFilter = storageGet(FILTER_KEY);
+  const savedSort = storageGet(SORT_KEY);
+  if (PLAYLIST_FILTERS.includes(savedFilter)) filter = savedFilter;
+  if (PLAYLIST_SORTS.includes(savedSort)) sort = savedSort;
+  const chips = $('plnav-chips');
+  chips.addEventListener('click', (e) => {
+    const chip = e.target.closest('[data-plnav-filter]');
+    if (!chip) return;
+    const value = chip.dataset.plnavFilter;
+    setFilter(value === filter ? 'all' : value); // tapping the active chip resets
+  });
+  // The scrollbar is hidden: a mouse wheel moves the line sideways.
+  chips.addEventListener('wheel', (e) => {
+    if (!e.deltaY || chips.scrollWidth <= chips.clientWidth) return;
+    e.preventDefault();
+    chips.scrollLeft += e.deltaY;
+  }, { passive: false });
+  $('plnav-sort').addEventListener('click', (e) => {
+    const btn = e.currentTarget;
+    if (isContextMenuOpen() && btn.getAttribute('aria-expanded') === 'true') { closeContextMenu(); return; }
+    openSortMenu(btn, e.detail === 0);
+  });
+  syncChips();
+  syncSortButton();
+  window.addEventListener('languageChanged', syncSortButton);
 }
 
 // ------------------------------------------------------------- rail
@@ -139,6 +246,7 @@ function applyRail() {
   toggle.setAttribute('title', label);
   toggle.setAttribute('aria-expanded', rail ? 'false' : 'true');
   if (rail && query) setQuery(''); // nowhere to see or clear it
+  else render(); // the rail lists everything; expanding brings the filter back
 }
 
 function setupRail() {
@@ -205,6 +313,7 @@ function menuItemsFor(row) {
 
 export function setupSidebar() {
   document.body.classList.add('has-plnav');
+  setupFilterAndSort();
   setupRail();
   onPlaylists(render);
   loadPlaylists();
@@ -230,6 +339,7 @@ export function setupSidebar() {
   list.addEventListener('click', (e) => {
     if (e.target.closest('.plnav-empty-new')) { closeDrawer(); openNewPlaylistDialog(null); return; }
     if (e.target.closest('.plnav-empty-clear')) { setQuery(''); search.focus(); return; }
+    if (e.target.closest('.plnav-empty-all')) { setFilter('all'); $('plnav-chips').querySelector('[data-plnav-filter="all"]').focus(); return; }
     const row = e.target.closest('.plnav-row');
     if (!row) return;
     if (e.target.closest('.plnav-pin')) { togglePlaylistPin(row.dataset.playlistId); return; }

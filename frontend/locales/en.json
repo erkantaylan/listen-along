@@ -225,7 +225,20 @@
     "songs": "{count} songs",
     "homeHint": "Pick a playlist on the left, or start a new one.",
     "expand": "Expand playlists",
-    "collapse": "Collapse playlists"
+    "collapse": "Collapse playlists",
+    "filterLabel": "Filter playlists",
+    "filterAll": "All",
+    "filterMine": "Mine",
+    "showAll": "Show all",
+    "emptyMine": "You have no playlists yet",
+    "emptyPublic": "No public playlists",
+    "emptyPrivate": "You have no private playlists",
+    "sortBy": "Sort by",
+    "sortLabel": "Sort playlists: {sort}",
+    "sortName": "Name",
+    "sortDate": "Date",
+    "sortNameLong": "Name (A–Z)",
+    "sortDateLong": "Date created"
   },
   "addTo": {
     "label": "Add to playlist",

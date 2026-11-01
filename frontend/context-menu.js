@@ -8,6 +8,8 @@
 // items: [{ label, description?, icon? (svg string), theme? ('danger'…),
 //           disabled?, onSelect() }] plus { header: 'text' }, { divider: true }
 //           and { text: 'plain line', muted? } (non-interactive).
+// An item with `checked` (true / false) is a radio choice: role="menuitemradio",
+// aria-checked and a check mark.
 // options.kind 'popover' renders the same floating box as role="dialog"
 // (details, not actions: e.g. who reported a song, a person's card) with the
 // same placement and closing rules; Tab cycles inside it instead of closing.
@@ -41,7 +43,7 @@ let viewportWidth = 0;
 const SHEET_MQ = '(max-width: 575.98px)';
 
 function itemButtons() {
-  return menuEl ? [...menuEl.querySelectorAll('[role="menuitem"]:not([aria-disabled="true"])')] : [];
+  return menuEl ? [...menuEl.querySelectorAll(':is([role="menuitem"], [role="menuitemradio"]):not([aria-disabled="true"])')] : [];
 }
 
 function focusItem(index) {
@@ -329,6 +331,7 @@ function positionMenu(at, asSheet) {
   }
 }
 
+const CHECK = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>';
 const CHEVRON = '<span class="app-ctx-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg></span>';
 
 function itemsHtml(items, start = 0) {
@@ -340,13 +343,15 @@ function itemsHtml(items, start = 0) {
     if (item.header) return `<div class="menu-header text-truncate app-ctx-header" role="presentation" title="${escapeHtml(item.header)}">${escapeHtml(item.header)}</div>`;
     const theme = item.theme ? ` theme-${escapeHtml(item.theme)}` : '';
     const disabled = item.disabled ? ' aria-disabled="true" disabled' : '';
-    const icon = item.icon ? `<span class="menu-item-icon" aria-hidden="true">${item.icon}</span>` : '';
+    const radio = item.checked !== undefined;
+    const glyph = radio ? (item.checked ? CHECK : '') : item.icon;
+    const icon = glyph || radio ? `<span class="menu-item-icon" aria-hidden="true">${glyph}</span>` : '';
     const body = item.description
       ? `<span class="menu-item-content"><span>${escapeHtml(item.label)}</span><span class="menu-item-description">${escapeHtml(item.description)}</span></span>`
       : `<span class="menu-item-content">${escapeHtml(item.label)}</span>`;
     const opens = item.submenu && !item.disabled;
     const popup = opens ? ' aria-haspopup="true" aria-expanded="false" data-ctx-sub' : '';
-    return `<button type="button" class="menu-item${theme}" role="menuitem" tabindex="-1" data-ctx-index="${i}"${popup}${disabled}>${icon}${body}${opens ? CHEVRON : ''}</button>`;
+    return `<button type="button" class="menu-item${theme}" role="${radio ? `menuitemradio" aria-checked="${item.checked ? 'true' : 'false'}` : 'menuitem'}" tabindex="-1" data-ctx-index="${i}"${popup}${disabled}>${icon}${body}${opens ? CHEVRON : ''}</button>`;
   }).join('');
 }
 
