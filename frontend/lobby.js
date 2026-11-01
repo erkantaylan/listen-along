@@ -5,6 +5,7 @@ import { state, elements, socket, STORAGE_KEYS, viewActivators, storageSet, stor
 import { showView, showToast, escapeHtml, formatAge, copyToClipboard, t, navigateTo } from './ui.js';
 import { parseRoute, playlistPath } from './router.js';
 import { player } from './player.js';
+import { playViewedFromTop } from './playback.js';
 import { desiredMembership, membershipActions } from './player-queue.js';
 import { isEditMode, setEditMode } from './queue-edit.js';
 import { isNewPlaylistPending, newPlaylistCreated, newPlaylistFailed } from './new-playlist.js';
@@ -87,6 +88,7 @@ function clearPlaylistState() {
   state.visibility = 'public';
   state.lobbyName = null;
   state.queue = [];
+  state.queueLobbyId = null;
   state.listeners = [];
 }
 
@@ -132,6 +134,7 @@ export function resyncMembership() {
 // Show a lobby page (the view itself appears once lobby:joined arrives).
 export function openLobbyPage(lobbyId, resetLobbyPage) {
   hideRejoinPrompt();
+  if (state.autoplayLobbyId !== lobbyId) state.autoplayLobbyId = null;
   state.lobbyId = lobbyId;
   clearPlaylistState();
   if (resetLobbyPage) resetLobbyPage();
@@ -141,6 +144,7 @@ export function openLobbyPage(lobbyId, resetLobbyPage) {
 // Leave the lobby page. Playback is not touched; the socket stays in the
 // lobby being played from so its queue stays live.
 export function closeLobbyPage(resetLobbyPage) {
+  state.autoplayLobbyId = null;
   if (!state.lobbyId) return;
   state.lobbyId = null;
   clearPlaylistState();
@@ -430,12 +434,18 @@ function lobbyRowHtml(l) {
     + `<span class="lobby-card-age">${age}</span></div></li>`;
 }
 
-// Quick play (landing row): the playlist already playing just resumes;
-// otherwise open it and start from its first song once the queue arrives
-// (handleQueueUpdated in queue.js).
+// Quick play (landing row, ⋮ Play, double-click on a row): the playlist already
+// playing just resumes; otherwise open it and start from its first song, now if
+// it is on screen with its queue, else once the queue arrives (handleQueueUpdated
+// in queue.js).
 export function quickPlayLobby(lobbyId) {
   if (player.context && player.context.lobbyId === lobbyId && player.track) {
     if (!player.isPlaying) player.play();
+    return;
+  }
+  if (state.lobbyId === lobbyId && state.queueLobbyId === lobbyId) {
+    navigateTo(playlistPath(lobbyId));
+    playViewedFromTop();
     return;
   }
   state.autoplayLobbyId = lobbyId;

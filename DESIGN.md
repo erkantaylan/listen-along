@@ -418,6 +418,9 @@ profile and the desktop `/social`; not on login, pending or `/dashboard`.
   too). Shown on hover / focus-within, always on touch, and they keep their space so names do not
   jump. A pinned row always shows its pin, as a plain accent icon rather than the usual toggled box.
   `aria-pressed` + a label naming the playlist.
+- **Double-click** (`row-double-click.js`, mouse only): a sidebar row, a rail avatar, a landing row or Radio's row plays, as Play does (`quickPlayLobby`,
+  `playRadioFromTop`): from the top, shuffle taking over after the first song; the one already playing is left alone, or resumed if paused; empty gives the usual toast. The first click opens without any delay
+  and the second press is taken whole, whatever is under it by then. Row controls keep their clicks. No hint, no keyboard equivalent (Enter opens; Play is in ⋮ and on landing rows), no double tap. Rows are `user-select: none`.
 - **Live**: refetches on socket `playlists:changed`, on `queue:update`, on reconnect and every 30s.
   It only touches the DOM when the markup changed, and focus follows the control when a row moves.
 

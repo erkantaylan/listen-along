@@ -1,7 +1,7 @@
 // Queue management, drag-drop reordering, and queue display
 import { state, elements, socket, STORAGE_KEYS, storageSet } from './state.js';
 import { showToast, escapeHtml, sanitizeUrl, getCoverUrl, getInitials, formatDuration, t, toLower, syncRangeFill } from './ui.js';
-import { viewedContext } from './playback.js';
+import { playViewedFromTop } from './playback.js';
 import { refreshLibraryAddButtons } from './library.js';
 import { player } from './player.js';
 import { refreshPlayerBar } from './player-bar.js';
@@ -23,12 +23,12 @@ export function handleQueueUpdated(data) {
   // This list is about to be out of date: the send below brings the final one.
   if (pendingMove) return;
   state.queue = songs;
+  state.queueLobbyId = state.lobbyId;
   updateQueue();
-  // Quick play from the landing page: start this playlist from the top.
+  // Quick play: start this playlist from the top.
   if (state.autoplayLobbyId && state.autoplayLobbyId === (data.lobbyId || state.lobbyId)) {
     state.autoplayLobbyId = null;
-    if (songs.length) player.playFrom(viewedContext(), songs, 0);
-    else showToast(t('landing.emptyPlaylist', 'This playlist has no songs yet'), 'info');
+    playViewedFromTop();
   }
 }
 

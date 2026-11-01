@@ -7,7 +7,7 @@
 // page when it is not gives a fresh shuffle. When the list runs out the player
 // asks for the next round (player.setRefill).
 import { state } from './state.js';
-import { escapeHtml, formatDuration, navigateTo, t } from './ui.js';
+import { escapeHtml, formatDuration, navigateTo, showToast, t } from './ui.js';
 import { player } from './player.js';
 import { libraryTrack } from './library.js';
 import { playCellHtml, playCellLabel, statsHtml } from './queue.js';
@@ -35,6 +35,7 @@ const page = {
   failed: false,
   order: [],  // the tracks on screen; the player's queue while Radio plays
   load: 0,    // the latest fetch; older answers are dropped
+  autoplay: false, // play the top as soon as the list is here
 };
 let summary = null; // { count, duration_sec }
 let stationIds = null; // the song ids the station held at the last look
@@ -168,6 +169,25 @@ function renderList({ anchor = true } = {}) {
 function render(options) {
   renderHead();
   renderList(options);
+  settleAutoplay();
+}
+
+function settleAutoplay() {
+  if (!page.autoplay || page.loading) return;
+  page.autoplay = false;
+  if (page.order.length) playAt(0);
+  else if (!page.failed) showToast(t('radio.emptyTitle', 'No songs to play yet'), 'info');
+}
+
+/** Double-click on the row: Radio already on air just resumes; else open it and play from the top. */
+export function playRadioFromTop() {
+  if (isRadioActive()) {
+    if (!player.isPlaying) player.play();
+    return;
+  }
+  page.autoplay = true;
+  if (!page.open) navigateTo('/radio');
+  settleAutoplay();
 }
 
 // A song change touches two rows and play / pause one cell, in place: a re-render
@@ -267,6 +287,7 @@ export function openRadioPage() {
 export function closeRadioPage() {
   if (!page.open) return;
   page.open = false;
+  page.autoplay = false;
   page.load++;
   page.loading = false;
   if (!isRadioActive()) page.order = [];

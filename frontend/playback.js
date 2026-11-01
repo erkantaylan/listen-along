@@ -3,7 +3,7 @@
 // (listener:now-playing, presence:now-playing). Listening along with another
 // user is listen-along.js.
 import { state, elements, STORAGE_KEYS, storageSet } from './state.js';
-import { escapeHtml, getCoverUrl, sanitizeUrl, syncRangeFill } from './ui.js';
+import { escapeHtml, getCoverUrl, sanitizeUrl, showToast, syncRangeFill, t } from './ui.js';
 import { player } from './player.js';
 import { refreshPlayerBar } from './player-bar.js';
 
@@ -38,6 +38,13 @@ export function handleUsersUpdated(data) {
 // The lobby page's queue as a player context.
 export function viewedContext() {
   return { lobbyId: state.lobbyId, name: state.lobbyName };
+}
+
+// Start the lobby on screen from its first song (shuffle, when on, takes over
+// from the next one). Songs waiting as requests are not in the queue.
+export function playViewedFromTop() {
+  if (state.queue.length) player.playFrom(viewedContext(), state.queue, 0);
+  else showToast(t('landing.emptyPlaylist', 'This playlist has no songs yet'), 'info');
 }
 
 export function updateQueueProgress(url, percent) {

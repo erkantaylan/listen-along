@@ -85,7 +85,7 @@
   }
 
   /* -------------------------------------------------------------- Landing */
-  .lobby-card { cursor: pointer; }
+  .lobby-card { cursor: pointer; user-select: none; } /* a double-click plays */
   /* Quick play: shown on hover / keyboard focus; always there on touch. */
   .lobby-quick-play { opacity: 0; }
   .lobby-card:hover .lobby-quick-play,
@@ -569,6 +569,7 @@
      playing, the usual selection tint with an accent icon. */
   .plnav-radio {
     display: flex;
+    user-select: none;
     flex-shrink: 0;
     gap: 0.625rem;
     align-items: center;
@@ -621,7 +622,7 @@
   .plnav-search-clear { position: absolute; top: 50%; right: 1rem; transform: translateY(calc(-50% - 0.125rem)); }
   .plnav-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: 0.5rem; }
   .plnav-list { --bs-list-group-bg: transparent; }
-  .plnav-row { display: flex; gap: 0.125rem; align-items: center; min-width: 0; padding: 0.25rem 0.25rem 0.25rem 0.75rem; border-inline: 0; cursor: pointer; }
+  .plnav-row { display: flex; gap: 0.125rem; align-items: center; min-width: 0; padding: 0.25rem 0.25rem 0.25rem 0.75rem; border-inline: 0; cursor: pointer; user-select: none; }
   .plnav-row:hover { background-color: var(--bs-bg-1); }
   .plnav-row:active { background-color: var(--bs-bg-2); }
   .plnav-link { flex: 1; min-width: 0; padding-block: 0.125rem; }

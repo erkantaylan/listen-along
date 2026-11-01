@@ -14,7 +14,8 @@ import { loadReports } from './song-reports.js';
 import { parseRoute, legacyRedirect } from './router.js';
 import { openNewPlaylistDialog } from './new-playlist.js';
 import { setupSidebar } from './sidebar.js';
-import { setupRadio, openRadioPage, closeRadioPage, handleRadioLibraryUpdated, refreshRadio } from './radio.js';
+import { setupRadio, openRadioPage, closeRadioPage, handleRadioLibraryUpdated, refreshRadio, playRadioFromTop } from './radio.js';
+import { setupRowDoubleClick } from './row-double-click.js';
 import { scheduleReload } from './playlist-store.js';
 import { shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyUpdated, openPlaylistHeaderMenu, setupLandingMenus, handleUserJoined, handleUserLeft, handleLobbyClosed, checkForLastLobby, joinLobbyFromCard, updatePinButton, togglePin, quickPlayLobby, openLobbyPage, closeLobbyPage, syncMembership, resyncMembership, reportNowPlaying } from './lobby.js';
 import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, updatePlayButton, updatePlaybackModeUI, updateNowPlaying, _setQueueFns } from './playback.js';
@@ -253,6 +254,7 @@ function initAuthenticatedApp() {
   setupPlayer();
   setupPlayerBarControls();
   setupRadio();
+  setupRowDoubleClick((id) => (id === 'radio' ? playRadioFromTop() : quickPlayLobby(id)));
   // Songs marked "needs replacement" (badges everywhere; song-reports.js).
   loadReports();
   // The full player and the lobby page follow the app-wide player.

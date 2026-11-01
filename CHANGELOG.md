@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- feat(web): double-click a playlist in the sidebar, the rail or on the landing page, or Radio, to play it from the top. A single click still only opens it. If it is already playing it keeps going; paused, it resumes. On phones use the Play button
+- fix(web): ⋮ Play on the playlist already on screen starts it right away, instead of at its next change
 - feat(web): playlist pages open with a line of stats: songs, total length ("about" when only some lengths are known), artists, top artist and who added the most. It updates live and counts the whole playlist, whatever the filter shows
 - change(web): long playlists stay fast. Only the rows near the view are in the page (2,500 songs: about 1,360 elements instead of 65,800, first rows in 0.23s instead of 1.5s), with the same scrollbar and sticky header. Playing, next and previous, the song menu and the filter still cover every song
 - feat(web): on a song row, ↑ / ↓, Page Up / Down and Home / End move through the whole playlist; clicking the song in the player bar shows it in its playlist

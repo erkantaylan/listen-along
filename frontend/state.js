@@ -96,6 +96,8 @@ export const state = {
   lobbyId: null,
   // Quick play from the landing page: play this playlist once its queue arrives.
   autoplayLobbyId: null,
+  // The lobby whose queue has arrived, so state.queue is its list and not just empty.
+  queueLobbyId: null,
   ownerId: null,
   isPlaying: false,
   isShuffleEnabled: getStoredShuffleEnabled(),
