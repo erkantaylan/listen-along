@@ -1,13 +1,13 @@
 // The playlists sidebar ("Your Library"): a fixed left column from 768px, a
 // drawer opened from the navbars below that (DESIGN.md "Playlists sidebar").
 // The column is expanded or a 72px rail of avatars: the user's choice, else
-// automatic by the room left for the page (layout-rules.js).
+// automatic by the room left for the page (panel-widths.js, layout-rules.js).
 // The list comes from playlist-store.js, so everything here only navigates,
 // pins and filters; the server decides what may be seen.
 import { escapeHtml, navigateTo, t, trapFocus } from './ui.js';
 import { parseRoute, playlistPath } from './router.js';
 import { PLAYLIST_FILTERS, PLAYLIST_SORTS, arrangePlaylists, playlistInitials } from './playlist-filter.js';
-import { DOCK_MIN, sidebarRail } from './layout-rules.js';
+import { applyColumns, isSidebarRail, setupPanelWidths, toggleSidebarRail } from './panel-widths.js';
 import { storageGet, storageSet } from './state.js';
 import { getPlaylist, getPlaylists, isLoaded, loadPlaylists, onPlaylists, togglePlaylistPin } from './playlist-store.js';
 import { LOCK_SVG, playlistMenuItems } from './playlist-actions.js';
@@ -21,7 +21,6 @@ const PLUS_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true
 
 const POLL_MS = 30000;
 const DRAWER_MQ = '(width < 768px)';
-const MODE_KEY = 'listen-sidebarMode';
 const FILTER_KEY = 'listen-sidebarFilter';
 const SORT_KEY = 'listen-sidebarSort';
 
@@ -232,14 +231,8 @@ function setupFilterAndSort() {
 
 // ------------------------------------------------------------- rail
 
-let mode = null;
-
-function applyRail() {
-  const body = document.body;
-  const width = window.innerWidth;
-  const chatDocked = body.classList.contains('has-social') && !body.classList.contains('social-collapsed') && width >= DOCK_MIN;
-  const rail = sidebarRail({ width, pref: mode, chatDocked });
-  body.classList.toggle('plnav-rail', rail);
+function syncRail() {
+  const rail = isSidebarRail();
   const toggle = $('plnav-toggle');
   const label = rail ? t('sidebar.expand', 'Expand playlists') : t('sidebar.collapse', 'Collapse playlists');
   toggle.setAttribute('aria-label', label);
@@ -250,17 +243,12 @@ function applyRail() {
 }
 
 function setupRail() {
-  const saved = storageGet(MODE_KEY);
-  mode = saved === 'rail' || saved === 'expanded' ? saved : null;
-  $('plnav-toggle').addEventListener('click', () => {
-    mode = document.body.classList.contains('plnav-rail') ? 'expanded' : 'rail';
-    storageSet(MODE_KEY, mode);
-    applyRail();
-  });
-  window.addEventListener('resize', applyRail);
-  document.addEventListener('app:viewchange', applyRail); // the chat panel opened or closed
-  window.addEventListener('languageChanged', applyRail);
-  applyRail();
+  setupPanelWidths();
+  $('plnav-toggle').addEventListener('click', toggleSidebarRail);
+  document.addEventListener('app:railchange', syncRail); // a toggle, a drag, the window or the chat panel
+  window.addEventListener('languageChanged', syncRail);
+  applyColumns();
+  syncRail();
 }
 
 // ------------------------------------------------------------- drawer

@@ -12,7 +12,8 @@
 
   // Detect browser language
   function detectLanguage() {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    let stored = null;
+    try { stored = localStorage.getItem(STORAGE_KEY); } catch { /* storage blocked */ }
     if (stored && SUPPORTED_LANGUAGES.includes(stored)) {
       return stored;
     }
@@ -127,7 +128,7 @@
     }
 
     currentLanguage = lang;
-    localStorage.setItem(STORAGE_KEY, lang);
+    try { localStorage.setItem(STORAGE_KEY, lang); } catch { /* storage blocked */ }
     translations = await loadTranslations(lang);
     updatePageTranslations();
     return true;

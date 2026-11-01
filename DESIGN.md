@@ -221,7 +221,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 
 ### Columns and breakpoints
 
-Automatic widths, with nobody having touched the sidebar's toggle (L = sidebar, R = chat or its rail):
+Automatic widths, with nobody having touched the sidebar's toggle or dragged a column (L = sidebar, R = chat or its rail):
 
 | Viewport | Chat open: L / page / R | Chat closed: L / page / R |
 | --- | --- | --- |
@@ -240,6 +240,18 @@ Automatic widths, with nobody having touched the sidebar's toggle (L = sidebar, 
 - The user's toggle wins (`listen-sidebarMode` in localStorage: `rail`, `expanded`, absent = automatic) at every
   width from 768px. The floor holds by construction: an expanded sidebar with the chat docked leaves 466px at 1010px,
   the narrowest case, and 504px at 768px with no chat. The page column is never under 416px from 768px up.
+- **Dragged widths** (`panel-widths.js` applies, `resolveColumns()` in `layout-rules.js` decides). The sidebar
+  takes 200–420px, or 72 as the rail; the chat 280–420px. Only a width the user dragged or stepped is stored
+  (`listen-sidebarWidth`, `listen-chatWidth`), never one a small window squeezed: the result of `resolveColumns()`
+  is applied and the wish stays, so it returns when there is room. Without storage it all works for the session.
+  - The page column's floor is 416px (`MAIN_FLOOR`). The chat gives way only once a chosen sidebar is down to 200.
+  - Automatic sidebar: it keeps the page at 616. A dragged one shrinks to that, down to 200, then becomes the rail;
+    one never dragged is still 264 or the rail, so the table above stays exact. A chat dragged wide counts as its
+    real width in that sum, so it can rail the library, live during the drag.
+  - Dragging the sidebar below 200 snaps to the rail and sets `rail`, like the toggle; its width stays for the next
+    expand. Dragging out of the rail, or past the automatic 616, sets `expanded`, so the floor becomes 416.
+  - Double-click, double-tap or Enter resets: for the sidebar the width and the toggle's choice, as if never touched.
+    Escape cancels a drag. A click or a drag that ends where it began stores nothing.
 - The chat panel docks from 1010px (`DOCK_MIN`). Below that it never sits beside the page, whatever the user
   chose: the chat button opens the full-screen `/social` and closes it again, and a remembered open or closed
   choice applies again from 1010px. From 1010px the right rail is on screen whenever the column is not, so chat
@@ -259,6 +271,17 @@ Automatic widths, with nobody having touched the sidebar's toggle (L = sidebar, 
 - The player bar always spans the full viewport, and its centre zone is centred on the viewport, not
   on the page column. Login and the standalone pages have neither column; pending has only the chat panel;
   `/dashboard` has its own section list and, for someone also signed in to the app, the chat panel.
+
+- **Column drag handles** (`.panel-resizer`, `#plnav-resizer`, `#social-resizer`): only where a column sits beside the
+  page, so from 768px for the sidebar and on the docked panel from 1010px; never on the phone drawer or the full-screen
+  `/social`. `/dashboard` has its own section list and no sidebar handle, but its chat panel is the same panel with the
+  same saved width. 8px wide (12px with a coarse pointer), full column height, on the side of the divider without
+  a scrollbar: over the page for the sidebar, inside the panel for the chat. Nothing shows at rest; on hover, focus or
+  drag the 1px divider lightens to `--app-border-hover` with a short 4px grip at its middle, neutral, never an accent
+  edge. Pointer events with capture, one update per animation frame through `--app-sidebar-width` and
+  `--app-social-width`, so `@container page` rules respond during the drag. `role="separator"`,
+  `aria-orientation="vertical"`, `aria-valuenow/min/max` in pixels (the max is what fits now); the arrows move the
+  divider 16px, Home and End go to the smallest and largest, Enter resets.
 
 - **Login / pending**: navbar + one centred card (`.app-center`, `.login-card` 26rem).
 - **Landing** (`/`, the view after login). From 768px the sidebar lists your playlists and carries the

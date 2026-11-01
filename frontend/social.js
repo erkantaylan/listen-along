@@ -13,6 +13,7 @@
 // presence:now-playing; the server keeps one entry per user.
 import { formatMessageHtml, formatLastSeen, formatMessageTime, groupPeople, mergeMessages, escapeText } from './chat-format.js';
 import { DOCK_MIN } from './layout-rules.js';
+import { setupPanelWidths } from './panel-widths.js';
 import { player } from './player.js';
 import { storageGet, storageSet } from './state.js';
 import { navigateTo, showToast, t } from './ui.js';
@@ -487,6 +488,7 @@ export function setupSocial(socket, opts = {}) {
   if (opts.isListeningWith) S.hooks.isListeningWith = opts.isListeningWith;
   S.hooks.stopListening = opts.stopListening || null;
   S.hooks.noListenHint = opts.noListenHint || null;
+  setupPanelWidths();
   document.body.classList.add('has-social');
   const toggle = $('social-toggle');
   if (toggle) toggle.hidden = false;

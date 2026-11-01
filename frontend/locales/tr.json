@@ -157,7 +157,11 @@
     "en": "İngilizce",
     "tr": "Türkçe"
   },
+  "panels": {
+    "resizeHint": "Boyutlandırmak için sürükleyin, sıfırlamak için çift tıklayın"
+  },
   "social": {
+    "resize": "Sohbet ve kişileri yeniden boyutlandır",
     "chat": "Sohbet",
     "people": "Kişiler",
     "openChat": "Sohbeti aç",
@@ -244,6 +248,7 @@
     "homeHint": "Soldan bir çalma listesi seç ya da yeni bir tane başlat.",
     "expand": "Çalma listelerini genişlet",
     "collapse": "Çalma listelerini daralt",
+    "resize": "Çalma listelerini yeniden boyutlandır",
     "filterLabel": "Çalma listelerini filtrele",
     "filterAll": "Tümü",
     "filterMine": "Benim",

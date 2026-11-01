@@ -571,7 +571,9 @@
   }
   .plnav-open-btn, .plnav-backdrop { display: none; }
   .plnav-head { flex-shrink: 0; min-height: 3.5rem; padding: env(safe-area-inset-top, 0px) 0.5rem 0 0.75rem; }
-  .plnav-home { margin-inline-end: auto; color: inherit; text-decoration: none; }
+  .plnav-home { min-width: 0; margin-inline-end: auto; color: inherit; text-decoration: none; }
+  .plnav-home img { flex-shrink: 0; }
+  .plnav-brand-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .plnav-avatar, .plnav-toggle, .plnav-toggle-expand { display: none; }
   /* Radio: above the list, not part of it (no search, filter or sort reaches it).
      At rest the info tint, so it never reads as the selected row; when current or
@@ -659,7 +661,7 @@
       top: 0;
       bottom: var(--app-player-height, 0px);
       left: 0;
-      z-index: var(--bs-z-fixed);
+      z-index: calc(var(--bs-z-fixed) + 1); /* its drag handle reaches over the library overlay */
       display: flex;
       width: var(--app-sidebar-width);
     }
@@ -1010,6 +1012,63 @@
     }
     body.social-route { overflow: hidden; }
     .social-collapse { display: none; }
+  }
+
+  /* Drag handles on the column dividers (panel-widths.js): only where a column
+     sits beside the page. 8px of hit area on the side that has no scrollbar: the
+     page for the sidebar (its own list scrolls at its edge), the panel for the chat
+     (the page column scrolls at its edge). At rest nothing shows. On hover or focus
+     the divider itself lightens, with a short neutral grip at its middle. */
+  .panel-resizer {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: 1;
+    display: none;
+    width: 0.5rem;
+    cursor: col-resize;
+    touch-action: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  .plnav-resizer { left: 100%; }
+  .social-resizer { left: calc(-1 * var(--bs-border-width)); }
+  .panel-resizer::before {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: var(--bs-border-width);
+    content: "";
+    background-color: var(--app-border-hover);
+    opacity: 0;
+  }
+  .panel-resizer::after {
+    position: absolute;
+    top: 50%;
+    left: -0.0625rem;
+    width: 0.25rem;
+    height: 1.5rem;
+    content: "";
+    background-color: var(--app-border-hover);
+    border-radius: 0.125rem;
+    opacity: 0;
+    transform: translateY(-50%);
+  }
+  @media (hover: hover) {
+    .panel-resizer:hover::before, .panel-resizer:hover::after { opacity: 1; }
+  }
+  .panel-resizer:focus-visible::before, .panel-resizer:focus-visible::after,
+  .panel-resizer.is-dragging::before, .panel-resizer.is-dragging::after { opacity: 1; }
+  .panel-resizer:focus-visible { outline: 2px solid var(--app-focus); outline-offset: -2px; }
+  body.panel-resizing, body.panel-resizing * { cursor: col-resize !important; user-select: none !important; }
+  @media (pointer: coarse) { .panel-resizer { width: 0.75rem; } }
+  @media (width >= 768px) {
+    body.has-plnav:not(.social-route) .plnav-resizer { display: block; }
+  }
+  @media (width >= 1010px) {
+    body.has-plnav .plnav-resizer { display: block; }
+    body.has-social:not(.social-collapsed) .social-resizer { display: block; }
   }
 
   /* Chat */

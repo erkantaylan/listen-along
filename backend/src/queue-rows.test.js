@@ -90,6 +90,61 @@ describe('row text (frontend/queue-format.js)', () => {
   });
 });
 
+describe('dragged column widths (frontend/layout-rules.js)', () => {
+  let f;
+  before(async () => { f = await frontend('layout-rules.js'); });
+
+  it('never dragged: the automatic widths, at every size', () => {
+    for (let width = 768; width <= 2000; width += 1) {
+      for (const chatDocked of [false, true]) {
+        for (const pref of [null, 'rail', 'expanded']) {
+          const c = f.resolveColumns({ width, pref, chatDocked });
+          const docked = chatDocked && width >= 1010;
+          const right = docked ? (width >= 1200 ? 320 : 280) : width >= 1010 ? 56 : 0;
+          const rail = pref === 'rail' || (pref !== 'expanded' && width - 264 - right < 616);
+          assert.equal(c.rail, rail, `${width} ${chatDocked} ${pref}`);
+          assert.equal(c.left, rail ? 72 : width >= 1440 ? 304 : 264, `${width} ${chatDocked} ${pref}`);
+          assert.equal(c.right, docked ? right : null);
+        }
+      }
+    }
+  });
+
+  it('clamps what applies, never below the floor, and the wish comes back with room', () => {
+    for (let width = 1010; width <= 2000; width += 1) {
+      for (const pref of [null, 'rail', 'expanded']) {
+        const c = f.resolveColumns({ width, pref, chatDocked: true, left: 420, right: 420 });
+        assert.ok(c.main >= f.MAIN_FLOOR, `${width} ${pref}: ${c.main}`);
+        assert.ok(c.right >= f.CHAT_MIN && c.right <= f.CHAT_MAX);
+        assert.ok(c.rail ? c.left === 72 : c.left >= f.SIDEBAR_MIN && c.left <= f.SIDEBAR_MAX);
+      }
+    }
+    const wish = { pref: 'expanded', chatDocked: true, left: 400, right: 400 };
+    const small = f.resolveColumns({ width: 1010, ...wish });
+    assert.deepEqual([small.left, small.right, small.main], [200, 394, 416]);
+    const big = f.resolveColumns({ width: 1920, ...wish });
+    assert.deepEqual([big.left, big.right], [400, 400]);
+  });
+
+  it('automatic: a dragged sidebar shrinks to the comfortable page, then rails', () => {
+    const at = (width) => f.resolveColumns({ width, chatDocked: true, left: 400 });
+    assert.deepEqual([at(1400).rail, at(1400).left, at(1400).main], [false, 400, 680]);
+    assert.deepEqual([at(1200).rail, at(1200).left, at(1200).main], [false, 264, 616]);
+    assert.equal(at(1096).rail, false); // 1096 - 280 - 616 = 200
+    assert.equal(at(1095).rail, true);
+  });
+
+  it('a wide chat alone follows the same automatic rule', () => {
+    assert.equal(f.resolveColumns({ width: 1300, chatDocked: true, right: 420 }).rail, false);
+    assert.equal(f.resolveColumns({ width: 1299, chatDocked: true, right: 420 }).rail, true);
+  });
+
+  it('no sidebar on the page: the chat takes its wish', () => {
+    const c = f.resolveColumns({ width: 1010, chatDocked: true, hasSidebar: false, right: 420 });
+    assert.deepEqual([c.left, c.right, c.main], [null, 420, 590]);
+  });
+});
+
 describe('library rail rule (frontend/layout-rules.js)', () => {
   let f;
   before(async () => { f = await frontend('layout-rules.js'); });

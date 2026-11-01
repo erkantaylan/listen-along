@@ -157,7 +157,11 @@
     "en": "English",
     "tr": "Turkish"
   },
+  "panels": {
+    "resizeHint": "Drag to resize, double-click to reset"
+  },
   "social": {
+    "resize": "Resize chat and people",
     "chat": "Chat",
     "people": "People",
     "openChat": "Open chat",
@@ -244,6 +248,7 @@
     "homeHint": "Pick a playlist on the left, or start a new one.",
     "expand": "Expand playlists",
     "collapse": "Collapse playlists",
+    "resize": "Resize playlists",
     "filterLabel": "Filter playlists",
     "filterAll": "All",
     "filterMine": "Mine",
