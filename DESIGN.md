@@ -515,14 +515,14 @@ art, times, buttons).
   - `.player-zone-center`: shuffle, prev, play (`.btn-solid.theme-primary` pill), next, repeat, so Play sits in
     the middle; under them the seek `.form-range` with the current time and duration on either side (fixed
     width, so the track stays centred).
-  - `.player-zone-right`, right-aligned: chat (`#social-toggle`, unread badge on its corner; toggles the chat
-    panel from 1200px, opens `/social` below that; the only opener below 1024px, the rail is the labelled one
-    above that), then mute + volume at the very far right. The slider is 4.75rem at 768px, growing with the
+  - `.player-zone-right`, right-aligned: mute + volume, then chat at the very far right (`#social-toggle`,
+    unread badge on its corner; toggles the chat panel from 1200px, opens `/social` below that; the only opener
+    below 1024px, the rail is the labelled one above that). The slider is 4.75rem at 768px, growing with the
     viewport to 7.8125rem at 1280px.
-  - Focus order follows that: song, ⋮, transport, seek, chat, mute, volume.
+  - Focus order follows that: song, ⋮, transport, seek, mute, volume, chat.
 - Below 768px the zones dissolve (`display: contents`) into one row with the seek line wrapped under it, and the
-  volume slider hides. The row reads song, ⋮, transport, chat, mute; the times are under the seek line. The seek
-  input stays in the centre zone's markup, so there Tab reaches it before chat.
+  volume slider hides. The row reads song, ⋮, transport, mute, chat; the times are under the seek line. The seek
+  input stays in the centre zone's markup, so there Tab reaches it before mute and chat.
 - Below 576px it is the slim form: cover, title, play/pause, next, chat and a thin seek line (`.player-extra`
   and times hidden).
 - On coarse pointers the seek input keeps a 2.5rem hit area around its 20px of layout; the buttons in the row

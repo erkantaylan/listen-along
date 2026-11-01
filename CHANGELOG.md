@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- change(web): the player bar uses the full window from 768px, in three zones: cover and song at the far left, transport over the seek bar in the middle (times beside it, Play in the exact centre, repeat moved to the right of next), and the chat button next to the volume at the far right. It is about 14px shorter; phones keep their slim form
+- change(web): the player bar uses the full window from 768px, in three zones: cover and song at the far left, transport over the seek bar in the middle (times beside it, Play in the exact centre, repeat moved to the right of next), and the chat button to the right of the volume at the far right. It is about 14px shorter; phones keep their slim form
 - fix(web): a collapsed chat and people panel has a visible way back: a labelled rail at the right edge with **Chat** and **People**, from 1024px. Since the panel started docking at 1200px, windows of 1024-1199px had only the small chat icon in the player bar
 - feat(web): whoever is also signed in to the app gets the chat and people panel on `/dashboard`
 - change(admin): the `/admin` page moved into `/dashboard` (Downloaders, Download jobs, Broken songs, CLI tokens, Song requests, Library); `/dashboard` has its own login form and `/admin` redirects to it

@@ -373,6 +373,7 @@
     .player-zone-right { justify-content: flex-end; min-width: 0; margin-inline-start: 0; }
     /* 79px at 800 wide up to 125px at 1280. */
     .volume-range { flex-shrink: 0; width: clamp(4.75rem, 9.6vw + 0.125rem, 7.8125rem); margin-left: 0.25rem; }
+    .player-zone-right .social-toggle { margin-left: 0.25rem; }
   }
   /* Phones: slim bar — cover, title, play/pause, next, thin seek line. */
   @media (width < 576px) {
