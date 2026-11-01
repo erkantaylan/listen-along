@@ -45,7 +45,7 @@ jobs:
           packages: platform-tools # the default also asks for 'tools', which no longer exists
 
       - name: Install the SDK packages
-        run: sdkmanager --install "platforms;android-37" "build-tools;$BUILD_TOOLS" > /dev/null
+        run: sdkmanager --install "platforms;android-37.0" "build-tools;$BUILD_TOOLS" > /dev/null
 
       - name: Unit tests
         working-directory: android
