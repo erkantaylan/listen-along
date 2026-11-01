@@ -150,16 +150,26 @@ function guessArtistTitle(title, channel) {
   return { artist: String(channel || '').replace(/\s*-\s*topic$/i, ''), title: String(title || '') };
 }
 
+/** Run an upload with out's progress display, if it has one here. */
+async function withUploadProgress(out, label, send) {
+  const progress = out.uploadProgress ? out.uploadProgress(label) : null;
+  try {
+    return await send(progress ? { onProgress: progress.update } : {});
+  } finally {
+    if (progress) progress.finish();
+  }
+}
+
 /** Upload and translate the result into a batch result. */
-async function uploadOne(api, file, fields, base) {
-  const res = await api.upload(file, fields);
+async function uploadOne(out, api, file, fields, base, label) {
+  const res = await withUploadProgress(out, label, (opts) => api.upload(file, fields, opts));
   if (res.status === 'duplicate') return duplicateSkip(base, res.code, res.song);
   return { ...base, status: 'uploaded', song: res.song };
 }
 
 /** Replace library song `songId` with `file`; a replaced result. */
-async function replaceOne(api, songId, file, fields, base) {
-  const res = await api.replace(songId, file, fields);
+async function replaceOne(out, api, songId, file, fields, base, label) {
+  const res = await withUploadProgress(out, label, (opts) => api.replace(songId, file, fields, opts));
   return { ...base, status: 'replaced', replaced_id: songId, song: res.song, previous: res.previous };
 }
 
@@ -340,7 +350,7 @@ async function downloadAndUpload(ctx, inputs, opts, batch) {
         batch.add({ ...base, status: 'downloaded' });
       } else if (replacing) {
         out.info(`Replacing library song ${opts.replace} with ${base.label}…`);
-        batch.add(await replaceOne(api, opts.replace, file, uploadFields(meta), base));
+        batch.add(await replaceOne(out, api, opts.replace, file, uploadFields(meta), base, base.label));
       } else {
         // After downloading: same file bytes, or tags that match a song already there.
         const m = t.request_id === undefined
@@ -351,7 +361,7 @@ async function downloadAndUpload(ctx, inputs, opts, batch) {
           continue;
         }
         out.info(`Uploading ${base.label}…`);
-        const r = await uploadOne(api, file, uploadFields(meta, { request_id: t.request_id, allow_similar: opts.allowSimilar }), base);
+        const r = await uploadOne(out, api, file, uploadFields(meta, { request_id: t.request_id, allow_similar: opts.allowSimilar }), base, base.label);
         if (meta.youtube_id && r.song) have.set(meta.youtube_id, r.song);
         batch.add(r);
       }
@@ -430,7 +440,7 @@ async function uploadFiles(ctx, files, opts, batch) {
       }
       if (replacing) {
         out.info(`Replacing library song ${opts.replace} with ${meta.artist} - ${meta.title}…`);
-        batch.add(await replaceOne(api, opts.replace, uploadPath, fields, base));
+        batch.add(await replaceOne(out, api, opts.replace, uploadPath, fields, base, `${meta.artist} - ${meta.title}`));
         continue;
       }
       if (checks && needsConvert) {
@@ -439,7 +449,7 @@ async function uploadFiles(ctx, files, opts, batch) {
         if (m) { batch.add(duplicateSkip(base, m.reason, m.song)); continue; }
       }
       out.info(`Uploading ${meta.artist} - ${meta.title}…`);
-      const r = await uploadOne(api, uploadPath, fields, base);
+      const r = await uploadOne(out, api, uploadPath, fields, base, `${meta.artist} - ${meta.title}`);
       if (have && meta.youtube_id && r.song) have.set(meta.youtube_id, r.song);
       batch.add(r);
     } catch (err) {

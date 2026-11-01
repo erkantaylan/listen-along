@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- feat(cli): `la upload` / `la download` show upload percent on a terminal; files are streamed from disk with a byte count
+- fix(cli): uploads no longer hold the whole file in memory (a 600 MB file: 669 MB of memory before, 77 MB now)
+- change(cli): an upload to a server URL that redirects fails with a clear message (code `REDIRECTED`); use the final address
+- feat(workers): `la worker` reports upload percent, shown live on the Download tab to whoever asked for the song
+
 ## v2.31.0 (2026-10-31)
 
 ### Music library and CLI

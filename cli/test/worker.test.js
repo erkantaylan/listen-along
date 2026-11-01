@@ -102,6 +102,10 @@ describe('la worker', () => {
     const progress = hub.messages.filter((m) => m.type === 'job:progress');
     assert.ok(progress.some((m) => m.stage === 'downloading' && m.job_id === 'job-1'), JSON.stringify(progress));
     assert.ok(progress.some((m) => m.stage === 'uploading'));
+    // Upload percent travels in the message; only the known fields are sent.
+    const last = progress.filter((m) => m.stage === 'uploading').at(-1);
+    assert.equal(last.message, 'Uploading Daft Punk - Digital Love… 100%');
+    assert.deepEqual(Object.keys(last).sort(), ['job_id', 'message', 'stage', 'type']);
 
     const up = server.state.uploads[0].fields;
     assert.equal(up.job_id, 'job-1');

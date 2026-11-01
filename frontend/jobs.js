@@ -183,7 +183,13 @@ export function handleJobUpdate(payload) {
   const before = i >= 0 ? dl.jobs[i].status : null;
   if (i >= 0) dl.jobs[i] = job; else dl.jobs.unshift(job);
   renderWorkers();
-  renderList();
+  // A running job reports progress every second: touch only its status line,
+  // so the other rows' buttons keep focus and thumbs don't reload.
+  const statusLine = before === 'assigned' && job.status === 'assigned'
+    ? $('dl-list')?.querySelector(`.dl-item[data-job="${CSS.escape(job.id)}"] .dl-status`)
+    : null;
+  if (statusLine) statusLine.textContent = jobStatusText(job);
+  else renderList();
   if (before !== job.status && !dl.visible) {
     const name = job.title || job.input;
     if (job.status === 'done' && job.source === 'web') showToast(`Downloaded “${name}”${job.playlist_name ? ` — added to ${job.playlist_name}` : ''}`, 'success');

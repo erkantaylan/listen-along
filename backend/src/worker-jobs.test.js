@@ -465,6 +465,87 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
     assert.deepEqual([...seen].sort(), [...merged].sort());
   });
 
+  it('upload progress reaches only the requester through jobs:update; an old-style worker that sends none still works', async () => {
+    const [carol, bob, alice] = await Promise.all([socketFor('carol'), socketFor('bob'), socketFor('alice')]);
+    const seen = { carol: [], bob: [], alice: [] };
+    carol.on('jobs:update', (p) => seen.carol.push(p.job));
+    bob.on('jobs:update', (p) => seen.bob.push(p.job));
+    alice.on('jobs:update', (p) => seen.alice.push(p.job));
+
+    const wb = connectWorker(tok.bob, 'bob-progress');
+    await wb.ready;
+    const r = await create('carol', { input: 'Progress Band - Progress Song' });
+    assert.equal(r.status, 201);
+    const j = await wb.nextJob();
+    // Unknown extra fields are ignored, for workers newer than this server.
+    wb.send({ type: 'job:progress', job_id: j.id, stage: 'uploading', message: 'Uploading Progress Band - Progress Song… 42%', percent: 42 });
+    const live = await until(() => seen.carol.find((x) => x.id === j.id && x.progress && x.progress.endsWith('42%')), 'progress on the socket');
+    assert.equal(live.stage, 'uploading');
+    assert.equal(live.status, 'assigned');
+    assert.equal((await job('carol', j.id)).progress, 'Uploading Progress Band - Progress Song… 42%');
+    // Another worker cannot write progress on it.
+    const other = connectWorker(tok.alice, 'alice-progress');
+    await other.ready;
+    other.send({ type: 'job:progress', job_id: j.id, stage: 'uploading', message: 'hijack 99%' });
+    await tick(150);
+    assert.ok(!seen.carol.some((x) => x.progress === 'hijack 99%'));
+
+    const up = await uploadAs(tok.bob, { title: 'Progress Song', artist: 'Progress Band', job_id: j.id, worker_id: wb.id });
+    assert.equal(up.status, 201, JSON.stringify(up.body));
+    done(wb, j.id, [up.body.song.id]);
+    const finished = await until(() => seen.carol.find((x) => x.id === j.id && x.status === 'done'), 'job done on the socket');
+    assert.equal(finished.progress, null);
+    assert.equal(finished.stage, null);
+    // Only the requester's room gets it: not the worker's owner, not anyone else.
+    assert.equal(seen.bob.filter((x) => x.id === j.id).length, 0);
+    assert.equal(seen.alice.filter((x) => x.id === j.id).length, 0);
+    await closeAll();
+
+    // Old-style worker: no job:progress at all, upload and result only.
+    const old = connectWorker(tok.bob, 'bob-old', { cli_version: '0.0.9' });
+    await old.ready;
+    const r2 = await create('carol', { input: 'Old Band - Old Song' });
+    const j2 = await old.nextJob();
+    const up2 = await uploadAs(tok.bob, { title: 'Old Song', artist: 'Old Band', job_id: j2.id, worker_id: old.id });
+    assert.equal(up2.status, 201, JSON.stringify(up2.body));
+    done(old, j2.id, [up2.body.song.id]);
+    const f2 = await until(async () => { const x = await job('carol', r2.body.job.id); return x.status === 'done' && x; }, 'old worker job done');
+    assert.equal(f2.song.title, 'Old Song');
+    assert.equal(f2.progress, null);
+    await closeAll();
+    for (const s of [carol, bob, alice]) s.disconnect();
+  });
+
+  it('the CLI\'s streamed upload is accepted by the real upload and replace routes (multer)', async () => {
+    const { ApiClient } = require('../../cli/src/api');
+    const api = new ApiClient({ server: srv.base, token: tok.alice });
+    const file = tone(777);
+    const size = fs.statSync(file).size;
+    const counts = [];
+    const r = await api.upload(file, { title: 'Stream Şarkı', artist: 'Stream Band', duration_sec: 1 }, { onProgress: (s, t) => counts.push([s, t]) });
+    assert.equal(r.status, 'uploaded');
+    assert.equal(r.song.title, 'Stream Şarkı');
+    assert.equal(r.song.uploaded_by, 'Alice');
+    assert.equal(counts.at(-1)[0], counts.at(-1)[1]);
+    assert.ok(counts.at(-1)[1] > size);
+    const audio = await fetch(`${srv.base}/api/library/${r.song.id}/file`, { headers: { Authorization: `Bearer ${tok.alice}` } });
+    assert.equal((await audio.arrayBuffer()).byteLength, size);
+
+    // The same bytes again: a 409 is still a duplicate result, with its code.
+    const dup = await api.upload(file, { title: 'Other', artist: 'Other' });
+    assert.equal(dup.status, 'duplicate');
+    assert.equal(dup.code, 'duplicate_hash');
+    assert.equal(dup.song.id, r.song.id);
+
+    const replaced = await api.replace(r.song.id, tone(888), { title: 'Stream Replaced', artist: 'Stream Band' });
+    assert.equal(replaced.song.id, r.song.id);
+    assert.equal(replaced.song.title, 'Stream Replaced');
+
+    // Refused before the body is read: a bad token.
+    const bad = new ApiClient({ server: srv.base, token: 'la_nope' });
+    await assert.rejects(bad.upload(file, { title: 'X', artist: 'Y' }), (e) => e.exitCode === 4);
+  });
+
   it('jobs persist across a restart; a running job is queued again', async () => {
     const wb = connectWorker(tok.bob, 'bob-pc');
     await wb.ready;

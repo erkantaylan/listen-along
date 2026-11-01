@@ -11,6 +11,7 @@ const proc = require('../proc');
 const tools = require('../tools');
 const config = require('../config');
 const { WorkerClient } = require('../worker');
+const { percentThrottle } = require('../progress');
 const pkg = require('../../package.json');
 
 /** Output for one job: progress lines go to the terminal AND to the server. */
@@ -36,6 +37,21 @@ class JobOutput extends Output {
 
   warn(msg) {
     this.stderr.write(`${this.prefix}warning: ${msg}\n`);
+  }
+
+  /**
+   * Upload percent goes to the server only (not the terminal), inside the
+   * message text of a job:progress: no protocol change, so any server stores
+   * and shows it. About once per second at most; the server writes each one
+   * to the database and to the requester's sockets.
+   */
+  uploadProgress(label) {
+    const text = String(label).trim().slice(0, 200);
+    return percentThrottle({
+      emit: (percent) => {
+        try { this.onProgress('uploading', `Uploading ${text}… ${percent}%`); } catch { /* connection gone */ }
+      },
+    });
   }
 }
 
@@ -121,12 +137,12 @@ async function runJob(ctx, values, opts, job, { progress, signal, workerId }) {
   };
   const base = ctx.getApi();
   const api = Object.create(base);
-  api.upload = (file, fields) => {
+  api.upload = (file, fields, uploadOpts) => {
     if (signal.aborted) return Promise.reject(aborted());
     const extra = { job_id: job.id };
     const wid = workerId();
     if (wid) extra.worker_id = wid;
-    return base.upload.call(api, file, { ...fields, ...extra });
+    return base.upload.call(api, file, { ...fields, ...extra }, uploadOpts);
   };
   const sleep = (ms) => new Promise((resolve) => {
     if (signal.aborted) return resolve();

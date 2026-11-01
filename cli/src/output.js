@@ -1,5 +1,7 @@
 'use strict';
 
+const { percentThrottle } = require('./progress');
+
 /**
  * Output conventions:
  *  - stdout carries the result only (human text, or one JSON document with --json)
@@ -40,6 +42,21 @@ class Output {
   result(data, human) {
     if (this.json) this.stdout.write(`${JSON.stringify(data, null, 2)}\n`);
     else if (human) human();
+  }
+
+  /**
+   * Live percent of the upload announced by the info line just before it: one
+   * line rewritten in place, on a terminal only (never with --json / --quiet
+   * or when stderr is piped). The label is for subclasses.
+   * @returns {{update: (sent, total) => void, finish: () => void}|null}
+   */
+  uploadProgress(_label) {
+    if (this.json || this.quiet || !this.stderr.isTTY) return null;
+    const throttle = percentThrottle({ intervalMs: 250, emit: (percent) => this.stderr.write(`\r  ${percent}%`) });
+    return {
+      update: throttle.update,
+      finish: () => { throttle.finish(); this.stderr.write('\r\x1b[K'); },
+    };
   }
 
   /** Report a fatal error (stderr; JSON object in --json mode). */

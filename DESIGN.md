@@ -277,7 +277,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   `la worker`"), a danger alert for errors — then "Your downloads": a list group of your
   jobs (Download-box jobs and the jobs of songs you requested in a playlist), newest first.
   Row: thumb, title, one `fg-2` status line ("Waiting for a downloader", "Downloading on
-  living-room-pc (Ayşe) · Uploading …", "In the library: … · added to Road trip",
+  living-room-pc (Ayşe) · Uploading Artist - Title… 42%", "In the library: … · added to Road trip",
   "Failed: … (AGE_RESTRICTED)"), a muted origin line, a subtle status badge (warning
   waiting, primary downloading, success done, danger failed, secondary cancelled) and a
   grey Cancel (waiting) / Retry (failed, cancelled) button. Live over the socket

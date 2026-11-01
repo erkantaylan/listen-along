@@ -88,7 +88,8 @@ where lobby persistence broke entirely on deployed instances.
   job with `playlist_id` is added server-side as the requester
   (`addJobSongsToPlaylist`) — workers never learn playlist ids. Live status:
   socket `jobs:update` to the requester's `userRoom`, `workers:update` to
-  `APP_ROOM`.
+  `APP_ROOM`. Upload percent is plain text in `job:progress.message`, throttled
+  by the worker to about 1/s (each one is a DB write + `jobs:update`).
 - Spotify track links supported via `spotify-url-info` page scraping (no API
   credentials needed); title/artist are matched against the library or
   turned into a request

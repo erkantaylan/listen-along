@@ -381,6 +381,12 @@ link for a single file. Check first with `la upload --dry-run --json <dir>`.
 
 - stdout carries only the result; progress, warnings and errors go to stderr
   (`-q` silences progress, `-v` adds yt-dlp's live output).
+- Uploads show a live percent on stderr when it is a terminal; never with
+  `--json`, `-q` or a piped stderr. `la worker` sends it to the server instead
+  (see `job:progress` below), so the person who asked for the song sees it on
+  the Download tab.
+- Uploads stream the file from disk, so they cannot follow a redirect: a server
+  URL that redirects fails with code `REDIRECTED`. Use the final address.
 - `--json` on any command: stdout is exactly one JSON document; errors are a
   JSON object `{"error": {"code", "message", "hint"?}}` on stderr.
 - Batch commands (`download`, `upload`, `requests fulfill`, `requests dismiss`)
@@ -447,7 +453,8 @@ All requests send `Authorization: Bearer <token>`.
 - Worker WebSocket `GET /api/workers/connect` (upgrade). JSON messages:
   worker → `hello {token, name, hostname, platform, arch, os_release,
   cli_version, node_version, ytdlp_version, current_job_id?}`, `pong`,
-  `job:progress {job_id, stage, message}`, `job:done {job_id, result:
+  `job:progress {job_id, stage, message}` (at most about one per second;
+  uploads: stage `uploading`, message `Uploading <song>… 42%`), `job:done {job_id, result:
   {summary, results}}`, `job:release {job_id, reason}`, `drain`; server →
   `welcome {worker, owner, heartbeat_ms}`, `ping`, `job {job: {id, kind,
   input, title, request_id, requested_by, no_playlist}}`. Close codes 4001

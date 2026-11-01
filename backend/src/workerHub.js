@@ -10,7 +10,11 @@
  *                    cli_version, node_version, ytdlp_version, protocol,
  *                    current_job_id? }   first message, within HELLO_TIMEOUT
  *     pong         answer to ping
- *     job:progress { job_id, stage, message }
+ *     job:progress { job_id, stage, message }   free text shown to the job's
+ *                  requester; each one is a DB write + a jobs:update, so send
+ *                  at most about one per second. Upload percent is in the text
+ *                  ("Uploading Artist - Title… 42%", stage "uploading"); the
+ *                  server does not parse it and a worker may leave it out.
  *     job:done     { job_id, result: { summary, results, error_code?, error_message? } }
  *     job:release  { job_id, reason }   give a job back (shutdown, fatal error)
  *     job:reject   { job_id, reason }   "busy": never sent a second job, but be safe
