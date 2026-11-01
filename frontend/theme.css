@@ -164,6 +164,10 @@
   --bs-shadow-color: #0d0e10;
 }
 
+/* Unlayered, because Bootstrap's own :root is. Its scrollbar-gutter: stable keeps
+   an empty strip beside anything fixed to the right edge (chat, player bar). */
+:root { scrollbar-gutter: auto; }
+
 /* 2. Shared rules -------------------------------------------------------------- */
 @layer custom {
   body {
@@ -225,6 +229,11 @@
     --bs-btn-active-bg: var(--app-accent-pressed);
     --bs-btn-active-border-color: var(--app-accent-pressed);
     --bs-btn-active-color: var(--app-on-accent);
+    /* Bootstrap paints a pressed button only with .active; under the pointer it
+       stays :hover. So on every tier below, pressed also sets the hover colours. */
+    --bs-btn-hover-bg: var(--app-accent-pressed);
+    --bs-btn-hover-border-color: var(--app-accent-pressed);
+    --bs-btn-hover-color: var(--app-on-accent);
   }
 
   .btn {
@@ -238,22 +247,30 @@
     --bs-btn-active-color: var(--app-text);
     --bs-btn-active-border-color: var(--app-border-strong);
   }
+  .btn:active {
+    --bs-btn-hover-bg: var(--bs-bg-3);
+    --bs-btn-hover-border-color: var(--app-border-strong);
+  }
   .btn-outline.theme-secondary {
     --bs-btn-color: var(--app-text);
     --bs-btn-hover-bg: var(--bs-bg-2);
     --bs-btn-hover-color: var(--app-text);
     --bs-btn-hover-border-color: var(--app-border-hover);
   }
+  .btn-outline.theme-secondary:active { --bs-btn-hover-bg: var(--bs-bg-3); }
   .btn-outline.theme-danger {
     --bs-btn-hover-bg: var(--app-danger-subtle);
     --bs-btn-hover-color: var(--bs-danger-fg-emphasis);
     --bs-btn-hover-border-color: var(--app-danger);
   }
+  .btn-outline.theme-danger:active { --bs-btn-hover-bg: var(--bs-danger-bg-muted); }
   .btn-text.theme-secondary {
     --bs-btn-hover-bg: var(--bs-bg-2);
     --bs-btn-hover-color: var(--app-text);
   }
+  .btn-text.theme-secondary:active { --bs-btn-hover-bg: var(--bs-bg-3); }
   .btn-text.theme-danger { --bs-btn-hover-bg: var(--app-danger-subtle); }
+  .btn-text.theme-danger:active { --bs-btn-hover-bg: var(--bs-danger-bg-muted); }
 
   /* Disabled: grey and flat whatever the tier, so it never reads as clickable. */
   :is(.btn, .btn-solid, .btn-outline, .btn-subtle):is(:disabled, .disabled) {
@@ -306,6 +323,8 @@
     --bs-check-bg: var(--app-field-bg);
     --bs-check-border-color: var(--app-border-strong);
   }
+  /* Radios sit on the overlay in dialogs: the stronger border keeps 3:1 there. */
+  .radio { --bs-radio-border-color: var(--app-border-hover); }
 
   /* Overlays: lighter than the surface, strong border, real shadow. */
   .menu {

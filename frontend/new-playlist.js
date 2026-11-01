@@ -50,7 +50,7 @@ export function openNewPlaylistDialog(returnFocus = null) {
         <input type="text" id="new-playlist-name" class="form-control" maxlength="${MAX_NAME}" required autocomplete="off" placeholder="${escapeHtml(t('landing.playlistNamePlaceholder', 'e.g. Road trip'))}" aria-describedby="new-playlist-name-error new-playlist-count">
         <div class="d-flex gap-2 mt-1">
           <div id="new-playlist-name-error" class="fs-sm new-playlist-field-error me-auto" aria-live="polite"></div>
-          <div id="new-playlist-count" class="fs-xs fg-4 flex-shrink-0 ms-auto">0/${MAX_NAME}</div>
+          <div id="new-playlist-count" class="fs-xs fg-3 flex-shrink-0 ms-auto">0/${MAX_NAME}</div>
         </div>
       </div>
       <fieldset class="vstack gap-3">

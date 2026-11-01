@@ -148,6 +148,7 @@ export async function loadProfileActivity() {
 export function setupProfileActivity() {
   document.querySelectorAll('[data-activity-tab]').forEach((b) => b.addEventListener('click', () => {
     act.tab = b.dataset.activityTab;
+    b.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     loadProfileActivity();
   }));
   $('profile-activity-prev')?.addEventListener('click', () => goToPage(-1));

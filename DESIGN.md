@@ -82,23 +82,25 @@ held to 3:1.
 | --- | --- | --- | --- |
 | **Elevation** (each step lighter) | | | |
 | Page (behind everything) | `--app-page-bg` | `#1d1f22` | — |
-| Surface: cards, navbars, list groups, chat panel | `--app-surface` = `--bs-bg-body` | `#2a2d31` | 1.19 vs page |
+| Surface: cards, navbars, list groups, playlists sidebar, chat panel | `--app-surface` = `--bs-bg-body` | `#2a2d31` | 1.19 vs page |
 | Raised: card headers, player bar | `--app-raised` | `#33373c` | 1.15 vs surface |
 | Overlay: menus, popovers, modals, toasts | `--app-overlay` | `#3b4046` | 1.32 vs surface |
 | Input well (inputs, selects, checkboxes) | `--app-field-bg` | `#222528` | — |
 | Secondary (tonal) button fill / hover | `--app-btn-tonal` / `-hover` | `#41464d` / `#4b5158` | text 7.89 |
 | Hover / pressed row fill | `--bs-bg-1` / `--bs-bg-2` | `#32363b` / `#3a3e44` | — |
+| Tonal button pressed; outline and ghost pressed | `--bs-bg-3` | `#444950` | text 7.53 |
+| Danger button pressed | `--bs-danger-bg-muted` | `#5c3131` | text 6.50 |
 | Backdrop | `--app-backdrop` | `rgb(10 11 12 / .6)` | — |
 | **Text** | | | |
 | Primary text | `--app-text` = `--bs-fg-body` | `#e8eaed` | 11.48 surface, 13.70 page, 8.68 overlay |
 | Secondary text, icon buttons | `--app-text-secondary` = `--bs-fg-2` | `#c3c8ce` | 8.22 surface |
 | Muted: meta lines, hints, times | `--app-text-muted` = `--bs-fg-3` | `#a4abb3` | 5.96 surface, 5.17 raised, 4.51 overlay |
-| Faint: placeholders, drag handles, disabled | `--app-text-faint` = `--bs-fg-4` | `#8f969e` | 4.63 surface, 5.53 page |
+| Faint: placeholders, drag handles, disabled; not for text on raised or overlay surfaces (use muted) | `--app-text-faint` = `--bs-fg-4` | `#8f969e` | 4.63 surface, 5.53 page, 4.01 raised, 3.50 overlay |
 | **Borders** | | | |
 | Subtle: dividers inside a component (decorative) | `--app-border-subtle` | `#3d4147` | 1.35 surface |
 | Default: outline of cards, list groups, panels, navbar/player edges (decorative) | `--app-border` = `--bs-border-color` | `#50565d` | 1.86 surface, 2.23 page |
-| Strong: inputs, secondary/outline buttons, pagination, overlays | `--app-border-strong` | `#737a83` | **3.19** surface, 3.55 field, 3.81 page |
-| Strong, hovered | `--app-border-hover` | `#8c939c` | — |
+| Strong: inputs, secondary/outline buttons, pagination, overlays | `--app-border-strong` | `#737a83` | **3.19** surface, 3.55 field, 3.81 page, 2.41 overlay (its own edge is decorative) |
+| Strong, hovered; radios (they sit on overlays in dialogs) | `--app-border-hover` | `#8c939c` | 4.46 surface, **3.37** overlay |
 | **Accent** (cornflower blue) | | | |
 | Fill: primary buttons, playing edge, checked controls, seek fill | `--app-accent` = `--bs-primary-bg` | `#7cacee` | 5.92 surface, 7.07 page |
 | Fill hovered / pressed | `--app-accent-hover` / `-pressed` | `#97bdf2` / `#6a9de3` | — |
@@ -154,6 +156,8 @@ tertiary.
 | **Danger** | `.btn-outline.theme-danger` (text) / `.btn-text.theme-danger.btn-icon` (icon) / `.btn-solid.theme-danger` (rare: a confirm step) | red text and border / red icon; red tint on hover | Anything that deletes or revokes: Delete playlist (trash), Clear queue, remove from queue (minus), Revoke token, Sign out, Delete (dashboard), delete chat message, Reject. |
 | **Success** | `.btn-subtle.theme-success` | green tint, green text | Approve (dashboard). Don't use green for ordinary confirm buttons — that's primary. |
 
+**Pressed** buttons change from their hover colour: primary `--app-accent-pressed`, tonal, outline and ghost `--bs-bg-3` (player controls `--bs-bg-4`), danger `--bs-danger-bg-muted`. Bootstrap paints a pressed button only with `.active`, so `theme.css` also sets the `--bs-btn-hover-*` variables under `:active`; a new tier needs the same.
+
 **Disabled** buttons of every tier turn flat grey (`--bs-bg-1` fill, `--app-text-faint` label,
 subtle border, 70% opacity; text buttons 55%) so they never read as clickable — e.g. the
 library's "Add" when no playlist is open, the player controls when nothing is playing.
@@ -207,6 +211,33 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 
 ## Page layouts
 
+### Columns and breakpoints
+
+| Viewport | Playlists sidebar (`has-plnav`) | Page column | Chat panel (`has-social`) |
+| --- | --- | --- | --- |
+| < 768px | drawer, `min(20rem, 85vw)` | full width | only on `/social`, full-screen |
+| 768–1199px | fixed, 16.5rem | width − 264px | only on `/social`, full-screen; it covers the sidebar too |
+| 1200–1439px | fixed, 16.5rem | width − 584px (− 264px collapsed) | fixed, 20rem, collapsible |
+| >= 1440px | fixed, 19rem | width − 624px (− 304px collapsed) | fixed, 20rem, collapsible |
+
+- The chat panel docks only from 1200px, where the page column is still 616px. Below that it never sits beside
+  the page, whatever the user chose: the chat button opens the full-screen `/social` and closes it again, and
+  a remembered open or closed choice applies again from 1200px.
+- Rules about what fits in the page column use `@container page (…)`: `#landing-view`, `#lobby-view`,
+  `#profile-view` and `.library-page` are size containers, so a rule such as `width < 576px` fires
+  in a column of 504px at 768px. `@media (width …)` is for what follows the viewport (the two columns, the
+  player bar's slim form).
+- The 19rem step still takes 39px at 1440px with the chat open (855px at 1439px, 816px at 1440px), at a width where that
+  does no harm; it used to fall on 1280px.
+- With a mouse (`pointer: fine`) the page column scrolls, not the document, so the chat panel and the player
+  bar never move and no scrollbar sits beyond them. The column's own scrollbar takes 15px from it when
+  the page overflows. Touch keeps document scrolling. Bootstrap's `scrollbar-gutter: stable` is overridden
+  (`theme.css`).
+- The narrowest page column with the sidebar is 504px at 768px. Check new page content there, not only on phones.
+- The player bar always spans the full viewport with its `.container` (56rem) centred on the viewport, not
+  on the page column. `/dashboard`, login, `/admin` and the other standalone pages have neither column;
+  pending has only the chat panel.
+
 - **Login / pending**: navbar + one centred card (`.app-center`, `.login-card` 26rem).
 - **Landing** (`/`, the view after login). From 768px the sidebar lists your playlists and carries the
   brand, so this page drops the brand, the tagline and the "Your playlists" card and is for browsing
@@ -215,7 +246,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   home screen. Navbar (☰, brand, version + GitHub, profile; the brand folds to its icon below 400px), narrow column. A
   header row: `h1.h4` "Playlists" + muted tagline ("Your playlists and everyone's public
   ones.") on the left; on the right the outline secondary **"Music library & requests"**
-  (folds to its icon below 480px) next to the view's one primary button **"New playlist"**
+  (folds to its icon when the page column is below 34rem; the actions wrap under the title rather than squeeze it) next to the view's one primary button **"New playlist"**
   (plus icon). Then the "Your playlists" card (every
   playlist you own, public and private) and the "Public playlists" card (other people's
   public ones and ownerless shared ones; hidden when there are none). Both are flush list
@@ -258,7 +289,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   "Playlist not found" toast and returns to the landing page.
 - **Music library**: fixed full-screen layer over landing or a playlist: navbar (back, title, "adding
   to" context), tabs Songs/Requested/Download/Broken with count badges, search + sort toolbar, list group of
-  songs (clicking / tapping the row, or Enter / Space on it, plays it — the song already playing is
+  songs (when the page column is below 576px the row's buttons go on their own line under the text; clicking / tapping the row, or Enter / Space on it, plays it — the song already playing is
   resumed, never restarted —; play button — plays in the app-wide player, shows pause on the song that is playing —, a grey
   icon button "Replace audio…" (swap arrows), Add / disabled "Added" button, ⋮ song menu), 20 per page: a compact
   "‹ Page n of m ›" pager above the list and the full numbered pagination + range below it
@@ -292,12 +323,12 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   Done), and a list group of active tokens (label, prefix, created, last used, danger
   Revoke). Then **Your activity** (`profile-activity.js`, approved accounts, only ever
   your own; "Only you can see this" in the header): a one-line `fg-2` summary of counts,
-  underline tabs with count badges — Uploaded (also by your downloaders), Asked for (song
+  underline tabs with count badges, on one line that scrolls sideways when the column is too narrow — Uploaded (also by your downloaders), Asked for (song
   requests + Download-box jobs, with status badge and "uploaded by <worker> (<owner>)"),
-  My downloaders fulfilled (with "asked by"), My downloaders (name, jobs done, online /
+  Fulfilled (what your downloaders fulfilled, with "asked by"), Downloaders (yours: name, jobs done, online /
   busy / offline badge; never host, OS or IP) — and one list group below them.
-- **Social** (`/social`): on phones the chat-and-people panel as a full-screen view; on
-  desktop the URL just opens the sidebar over the landing page. See below.
+- **Social** (`/social`): below 1200px the chat-and-people panel as a full-screen view (over the
+  playlists sidebar too); from 1200px the URL just opens the chat panel beside the current page. See below.
 - **Dashboard**: navbar (hamburger below 1024px), 15rem sidebar list group, main area with
   stat cards grid, public playlists and users list groups (private playlists are only counted, never listed).
 - **/admin, /youtube-playlist, /changelog**: navbar + narrow column of cards; Bootstrap and
@@ -315,7 +346,7 @@ the dashboard already owns `.sidebar-*`). Shown by body classes, never `[hidden]
 (approved account), `plnav-open` (drawer open). Present on landing, playlist, library overlay,
 profile and the desktop `/social`; not on login, pending or `/dashboard`.
 
-- **From 768px**: fixed left column, `--app-sidebar-width` (16.5rem, 19rem from 1280px), from the top
+- **From 768px**: fixed left column, `--app-sidebar-width` (16.5rem, 19rem from 1440px), from the top
   down to the player bar. `body` gets the same `padding-left`, and the library overlay's `left`
   follows it, as the chat panel does on the right.
 - **Below 768px**: a drawer (`min(20rem, 85vw)`) that stops at the player bar, with a backdrop,
@@ -455,8 +486,8 @@ art, times, buttons).
   is disabled — never a playlist name (it may be private).
 - Desktop row: cover + title / "artist · context" (one button that opens the context:
   the playlist page, or `/library`), repeat, shuffle, prev, play (`.btn-solid.theme-primary`
-  pill), next, chat (`#social-toggle`, unread badge on its corner; toggles the sidebar on
-  desktop, opens `/social` on phones), mute + volume; seek `.form-range` with times below.
+  pill), next, chat (`#social-toggle`, unread badge on its corner; toggles the chat panel from
+  1200px, opens `/social` below that), mute + volume; seek `.form-range` with times below.
 - Below 768px the volume slider hides. Below 576px it is the slim form: cover, title,
   play/pause, next, chat and a thin seek line (`.player-extra` and times hidden).
 - Empty state (`.is-empty`): "Nothing playing", controls disabled (Play stays enabled on
@@ -473,14 +504,14 @@ One `aside#social-panel` in `index.html`, driven by `social.js` (pure helpers in
 never by `[hidden]`: `has-social` (signed in, socket up), `social-collapsed`
 (desktop, remembered in localStorage), `social-route` (the `/social` URL).
 
-- **Desktop (>= 1024px)**: fixed right sidebar, `--app-social-width` (20rem) wide, from
+- **Desktop (>= 1200px)**: fixed right column, `--app-social-width` (20rem) wide, from
   the top of the page down to the player bar (`--app-player-height`). `body` gets the
   same `padding-right`, so every page (and the library overlay, via `right`) shifts left
   rather than sitting under it. Collapse with the chevron in its header; reopen with the
   chat button in the player bar. Present on every signed-in page (landing, playlist,
   library overlay, profile) and next to the pending-approval card; not on `/dashboard`.
-- **Below 1024px**: hidden except on `/social`, where it covers the page above the
-  player bar with a back arrow in its header (the collapse chevron is hidden).
+- **Below 1200px** (tablets and small windows too): hidden except on `/social`, where it covers the page and the
+  playlists sidebar above the player bar with a back arrow in its header (the collapse chevron is hidden).
 - Header: back (phones) | underline tabs **Chat** (unread badge) and **People** (online
   count) | collapse (desktop).
 - **Chat**: a scrolling list (`.chat-scroll`) of messages — avatar, bold name, faint time,
@@ -515,7 +546,8 @@ never by `[hidden]`: `has-social` (signed in, socket up), `social-collapsed`
   every `[data-social-unread]` badge (player-bar chat button, Chat tab, pending card) and
   reset when the chat is shown.
 
-All pages must work from 320px wide with no horizontal page scroll; check 320 and 375.
+All pages must work from 320px wide with no horizontal page scroll; check 320 and 375, and 768 and
+1200 (the narrowest page columns, see "Columns and breakpoints").
 
 ## Accessibility rules
 
@@ -525,8 +557,10 @@ All pages must work from 320px wide with no horizontal page scroll; check 320 an
 - Contrast: text >= 4.5:1, state-carrying UI (input borders, focus ring, playing edge, icons)
   >= 3:1 — see the token table. New colours must be added there with their ratios.
 - Clickable non-buttons need `tabindex="0"`, a role and a keyboard handler — prefer a real `<button>`.
-- Touch targets: player controls grow to 2.5rem on coarse pointers; don't go below `.btn-sm` (2rem)
-  for primary touch actions.
+- Touch targets: on coarse pointers player controls, navbar icon buttons, ⋮ and library row buttons grow to
+  2.5rem. The broken-song icon keeps its 1.5rem look with a 2.5rem invisible hit area, and the seek bar a 2.5rem
+  hit area around its unchanged track (the player buttons above it stay on top). Don't go below `.btn-sm`
+  (2rem) anywhere, on any pointer.
 
 ## How to add something
 

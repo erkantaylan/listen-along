@@ -6,6 +6,15 @@
 - fix(cli): uploads no longer hold the whole file in memory (a 600 MB file: 669 MB of memory before, 77 MB now)
 - change(cli): an upload to a server URL that redirects fails with a clear message (code `REDIRECTED`); use the final address
 - feat(workers): `la worker` reports upload percent, shown live on the Download tab to whoever asked for the song
+- fix(web): the chat panel docks beside the page only from 1200px; below that the chat button opens it full-screen, so it no longer squeezes the page
+- fix(web): library rows keep their title readable in a narrow column: the buttons go under the text (320px, and tablets beside the sidebar)
+- fix(web): the landing title no longer collapses under its buttons; the header wraps and the library button folds to its icon by the room in the page column
+- fix(web): profile activity tabs stay on one line with shorter labels (Fulfilled, Downloaders) and scroll sideways on phones
+- fix(web): the page column no longer narrows at 1280px; the wider playlists sidebar starts at 1440px
+- fix(web): no empty strip beside the chat and player with classic scrollbars; with a mouse the page column scrolls instead of the document
+- fix(web): pressed buttons look pressed instead of keeping the hover colour
+- fix(web): radio borders and faint text in dialogs and the person card now meet WCAG contrast
+- fix(web): larger touch targets on phones: song menu, broken-song icon, navbar buttons and the seek bar
 
 ## v2.31.0 (2026-10-31)
 

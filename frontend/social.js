@@ -1,8 +1,9 @@
 // The global chat and the people panel (markup: #social-panel in index.html;
 // server: backend/src/social.js). One panel, two layouts:
-//   desktop (>= 1024px): a right-hand sidebar on every signed-in page,
+//   desktop (>= 1200px): a right-hand column on every signed-in page,
 //     collapsible (remembered per browser);
-//   phones / narrow: a full-screen "Social" view at /social (router.js),
+//   narrower (phones, tablets, small windows): a full-screen "Social" view at
+//     /social (router.js), never beside the page, which would squeeze it;
 //     opened from the chat button in the player bar (or on the pending card).
 // The player bar's chat button carries the unread badge.
 //
@@ -14,7 +15,7 @@ import { storageGet, storageSet } from './state.js';
 import { navigateTo, showToast, t } from './ui.js';
 import { openContextMenu, closeContextMenu, updateContextMenu } from './context-menu.js';
 
-const DESKTOP = '(min-width: 1024px)';
+const DESKTOP = '(min-width: 1200px)';
 const COLLAPSED_KEY = 'listen-socialCollapsed';
 const GROUP_GAP_MS = 5 * 60 * 1000;
 const NEAR_BOTTOM_PX = 80;
@@ -98,8 +99,8 @@ function selectTab(tab) {
   if (S.tab === 'chat') scrollChatToBottom(false);
 }
 
-// The /social route (router.js). On phones it is the full-screen Social
-// view; on desktop it just makes sure the sidebar is open.
+// The /social route (router.js). Below 1200px it is the full-screen Social
+// view; from 1200px it just makes sure the column is open.
 export function applySocialRoute(active, { fromApp = false } = {}) {
   S.route = !!active;
   if (active && fromApp) S.cameFromApp = true;
@@ -114,7 +115,7 @@ function leaveRoute() {
   else navigateTo('/');
 }
 
-// Chat button (player bar / pending card): sidebar on desktop, view on phones.
+// Chat button (player bar / pending card): the column from 1200px, else the view.
 export function toggleSocial() {
   if (isDesktop()) { setCollapsed(!collapsed()); return; }
   if (S.route) leaveRoute();
@@ -325,7 +326,7 @@ function cardHtml(p) {
       + `<span class="d-flex align-items-center gap-1 fs-xs ${np.playing ? 'person-card-label' : 'fg-3'}">${np.playing ? EQ_HTML : svg(PAUSE_PATH)}${escapeText(np.playing ? t('social.listeningTo', 'Listening to') : t('social.paused', 'Paused'))}</span>`
       + `<span class="d-block fw-medium text-truncate" title="${escapeText(np.track.title)}">${escapeText(np.track.title)}</span>`
       + (np.track.artist ? `<span class="d-block fs-sm fg-3 text-truncate">${escapeText(np.track.artist)}</span>` : '')
-      + (where ? `<span class="d-block fs-xs fg-4 text-truncate">${escapeText(tf('social.from', 'from {where}', { where }))}</span>` : '')
+      + (where ? `<span class="d-block fs-xs fg-3 text-truncate">${escapeText(tf('social.from', 'from {where}', { where }))}</span>` : '')
       + `</span></div>`;
   }
   const count = Number(p.listeners) || 0;
@@ -536,7 +537,11 @@ export function setupSocial(socket, opts = {}) {
   });
   const scroller = chatScroller();
   scroller.addEventListener('scroll', () => { if (scroller.scrollTop < 120) loadOlder(); }, { passive: true });
-  window.matchMedia(DESKTOP).addEventListener('change', () => { refreshVisibility(); document.dispatchEvent(new CustomEvent('app:viewchange')); });
+  window.matchMedia(DESKTOP).addEventListener('change', () => {
+    // Opened full-screen, then the window grew: keep it open as the column.
+    if (S.route && isDesktop() && collapsed()) setCollapsed(false);
+    refreshVisibility(); document.dispatchEvent(new CustomEvent('app:viewchange'));
+  });
   document.addEventListener('visibilitychange', refreshVisibility);
   // Relative "last seen" times age.
   setInterval(() => { if (S.tab === 'people' && panelVisible()) renderPeople(); }, 60_000);

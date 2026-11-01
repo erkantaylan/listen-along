@@ -15,6 +15,30 @@
   }
   .view.active { display: flex; }
 
+  /* The page column is a size container: rules about what fits in it use
+     @container page, because the sidebar and chat panel take a viewport-sized
+     guess out of it. Not the dashboard: it has fixed children of its own. */
+  #landing-view, #lobby-view, #profile-view, .library-page { container: page / inline-size; }
+
+  /* With a mouse the page column scrolls instead of the document, so the fixed
+     chat panel and player bar never move when a page starts or stops overflowing
+     or an overlay opens, and no scrollbar sits beyond them (theme.css has the
+     gutter). Touch keeps document scrolling (the browser's address bar collapses
+     with it) and has overlay scrollbars. */
+  @media (pointer: fine) {
+    html, body { overflow: hidden; }
+    .view.active:not(#lobby-view) {
+      height: 100dvh;
+      min-height: 0;
+      overflow: hidden auto;
+    }
+    body.has-player-bar .view.active:not(#lobby-view) {
+      height: calc(100dvh - var(--app-player-height, 0px));
+      padding-bottom: 0;
+    }
+    .view .dashboard-layout { min-height: auto; } /* grows with its content, the view scrolls */
+  }
+
   .app-main {
     flex: 1;
     padding-block: 1.25rem 2rem;
@@ -84,9 +108,12 @@
   .lobby-quick-play:focus-visible { opacity: 1; }
   @media (hover: none) { .lobby-quick-play { opacity: 1; } }
   .lobbies-empty { padding-block: 2rem; text-align: center; }
-  /* Header actions: "Music library & requests" (secondary) next to the
-     primary "New playlist"; the library label folds to its icon on phones. */
-  @media (max-width: 479.98px) {
+  /* Header actions: "Music library & requests" (secondary) next to the primary
+     "New playlist"; the actions wrap under the title rather than squeeze it, and
+     the library label folds to its icon when the column is narrow. */
+  .landing-header { flex-wrap: wrap; }
+  .landing-title { flex: 1 1 7rem; }
+  @container page (width < 34rem) {
     .landing-library-label { display: none; }
     .landing-library-btn { padding-inline: 0.625rem; }
   }
@@ -222,21 +249,28 @@
     transition: none;
   }
   body.app-dragging, body.app-dragging * { cursor: grabbing !important; user-select: none; }
-  @media (pointer: coarse) {
-    .queue-item-handle, .queue-item-remove { --bs-btn-min-height: 2.5rem; }
-  }
-  @media (width < 576px) {
+  @container page (width < 576px) {
     .queue-item { gap: 0.5rem; }
     .queue-item-thumb { width: 2.5rem; height: 2.5rem; }
     .lobby-header .btn-icon:not(.btn-xs) { --bs-btn-min-height: 2rem; }
     .lobby-header .container { gap: 0.25rem; }
   }
-  @media (width < 400px) {
-    .queue-item-actions .song-menu-btn,
-    .libpage-item .song-menu-btn { --bs-btn-min-height: 1.75rem; }
+  /* Touch: 2.5rem targets. The broken icon keeps its size in the title line and
+     gets a larger invisible hit area instead. */
+  @media (pointer: coarse) {
+    .queue-item-handle, .queue-item-remove, .song-menu-btn,
+    .libpage-item .btn-sm { --bs-btn-min-height: 2.5rem; }
+    .app-navbar .btn-icon:not(.btn-xs) { --bs-btn-min-height: 2.5rem; }
+    .song-broken-btn { position: relative; }
+    .song-broken-btn::after { position: absolute; inset: -0.5rem; content: ""; }
   }
   .queue-item-meta > :empty { display: none; }
   .user-count { white-space: nowrap; }
+
+  /* Your activity tabs: one line, sideways scroll when the column is too narrow. */
+  .profile-activity-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .profile-activity-tabs .nav-link { flex-shrink: 0; }
+  .profile-activity-tabs .nav-link:focus-visible { outline-offset: -2px; }
 
   /* Avatar emoji picker (profile page) */
   .profile-page-emoji-btn {
@@ -302,6 +336,7 @@
   /* Other controls: clearly clickable grey icons that brighten on hover. */
   .btn-control:not(.active):not(:disabled) { color: var(--app-text-secondary); }
   .btn-control:not(.active):not(:disabled):hover { color: var(--app-text); background-color: var(--bs-bg-3); }
+  .btn-control:not(.active):not(:disabled):active { background-color: var(--bs-bg-4); }
   .volume-range { width: 5.5rem; margin-left: 0.25rem; }
   .sticky-player-progress { margin-top: 0.125rem; }
   .time-display { margin-top: -0.125rem; }
@@ -313,6 +348,10 @@
   }
   @media (pointer: coarse) {
     .btn-control { --bs-btn-min-height: 2.5rem; }
+    /* A 40px hit area around the same 20px of layout: the track stays centred
+       and looks the same. The buttons above it stay on top. */
+    #progress-bar { position: relative; height: 2.5rem; margin-block: -0.625rem; }
+    .sticky-player-controls { position: relative; z-index: 1; }
   }
   @media (width < 768px) {
     .volume-range { display: none; }
@@ -386,7 +425,7 @@
      page right; a drawer below that. Body classes: has-plnav (approved
      account), plnav-open (drawer open). */
   body { --app-sidebar-width: 16.5rem; }
-  @media (width >= 1280px) { body { --app-sidebar-width: 19rem; } }
+  @media (width >= 1440px) { body { --app-sidebar-width: 19rem; } }
   .app-sidebar {
     display: none;
     flex-direction: column;
@@ -607,23 +646,28 @@
   }
   .libpage-pager-top .libpage-page { font-size: var(--bs-font-size-lg); line-height: 1; }
   .libpage-pager-label { min-width: 7.5rem; text-align: center; font-variant-numeric: tabular-nums; }
-  @media (width < 576px) {
+  /* Narrow column: the row's actions go on their own line under the text, so
+     they never squeeze the title. */
+  @container page (width < 576px) {
     .libpage-item { gap: 0.5rem; padding-inline: 0.625rem; }
     .libpage-thumb { width: 2.5rem; height: 2.5rem; }
     .libpage-add { min-width: 3.75rem; }
+    .libpage-item[data-id] { flex-wrap: wrap; }
+    .libpage-item[data-id] .libpage-info { flex-basis: calc(100% - 3rem); }
+    .libpage-item[data-id] .libpage-play { margin-inline-start: auto; }
   }
   /* Download tab (jobs.js): downloaders-online dot; job rows wrap their
      action button under the text on phones. */
   .dl-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background-color: var(--bs-bg-4); flex: none; }
   .dl-dot.online { background-color: var(--app-success); }
-  @media (width < 400px) {
+  @container page (width < 400px) {
     .dl-item { flex-wrap: wrap; }
     .dl-item .dl-cancel, .dl-item .dl-retry { margin-left: auto; }
   }
 
   /* ------------------------------------------------- Chat and people panel */
   /* social.js. One #social-panel, shown by body classes (never [hidden]):
-     desktop (>= 1024px): fixed right sidebar above the player bar, pushing
+     desktop (>= 1200px): fixed right column above the player bar, pushing
      the page left; .social-collapsed hides it.
      narrower: only on /social (.social-route), as a full-screen view. */
   body { --app-social-width: 20rem; }
@@ -648,7 +692,7 @@
   .social-chat[hidden],
   .social-people[hidden] { display: none; }
 
-  @media (width >= 1024px) {
+  @media (width >= 1200px) {
     body.has-social:not(.social-collapsed) { padding-right: var(--app-social-width); }
     body.has-social:not(.social-collapsed) .social-panel {
       position: fixed;
@@ -663,7 +707,7 @@
     body.has-social:not(.social-collapsed) .library-page { right: var(--app-social-width); }
     .social-back { display: none; }
   }
-  @media (width < 1024px) {
+  @media (width < 1200px) {
     body.has-social.social-route .social-panel {
       position: fixed;
       inset: 0 0 var(--app-player-height, 0px);

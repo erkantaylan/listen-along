@@ -91,7 +91,7 @@
     </nav>
     <main class="app-main container app-narrow">
       <div class="d-flex align-items-center gap-3 mb-5 landing-header">
-        <div class="min-w-0 me-auto">
+        <div class="min-w-0 me-auto landing-title">
           <h1 class="h4 mb-1" data-i18n="landing.playlists">Playlists</h1>
           <p class="fs-sm fg-3 mb-0 tagline" data-i18n="app.tagline">Your playlists and everyone's public ones.</p>
         </div>
@@ -415,11 +415,11 @@
         </div>
         <div class="card-body vstack gap-4">
           <p id="profile-activity-summary" class="fs-sm fg-2 mb-0"></p>
-          <nav class="nav nav-underline flex-wrap profile-activity-tabs" aria-label="Activity">
+          <nav class="nav nav-underline profile-activity-tabs" aria-label="Activity">
             <button class="nav-link active" type="button" data-activity-tab="uploaded">Uploaded <span class="badge badge-subtle theme-secondary" data-activity-count="uploaded"></span></button>
             <button class="nav-link" type="button" data-activity-tab="asked">Asked for <span class="badge badge-subtle theme-secondary" data-activity-count="asked"></span></button>
-            <button class="nav-link" type="button" data-activity-tab="fulfilled">My downloaders fulfilled <span class="badge badge-subtle theme-secondary" data-activity-count="fulfilled"></span></button>
-            <button class="nav-link" type="button" data-activity-tab="workers">My downloaders <span class="badge badge-subtle theme-secondary" data-activity-count="workers"></span></button>
+            <button class="nav-link" type="button" data-activity-tab="fulfilled" title="Requests your downloaders fulfilled">Fulfilled <span class="badge badge-subtle theme-secondary" data-activity-count="fulfilled"></span></button>
+            <button class="nav-link" type="button" data-activity-tab="workers" title="Your downloaders (la worker)">Downloaders <span class="badge badge-subtle theme-secondary" data-activity-count="workers"></span></button>
           </nav>
           <ul id="profile-activity-list" class="list-group profile-activity-list">
             <li class="list-group-item app-empty">Loading...</li>
