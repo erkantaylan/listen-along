@@ -1,7 +1,7 @@
 // Queue management, drag-drop reordering, and queue display
 import { state, elements, socket, STORAGE_KEYS, storageSet } from './state.js';
 import { showToast, escapeHtml, sanitizeUrl, getCoverUrl, getInitials, formatDuration, t, toLower, syncRangeFill } from './ui.js';
-import { playViewedFromTop } from './playback.js';
+import { playViewedFromTop, viewedContext } from './playback.js';
 import { refreshLibraryAddButtons } from './library.js';
 import { player } from './player.js';
 import { refreshPlayerBar } from './player-bar.js';
