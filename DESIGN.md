@@ -74,7 +74,7 @@ for hover fills and text steps.
 ### Tokens
 
 Contrast is the WCAG 2.x ratio. AA needs **4.5:1** for text and **3:1** for UI parts that convey
-state or identify a control (input borders, focus ring, the playing edge, icons). Borders marked
+state or identify a control (input borders, focus ring, icons). Borders marked
 "decorative" separate things that are already distinguishable by fill or position and are not
 held to 3:1.
 
@@ -102,7 +102,7 @@ held to 3:1.
 | Strong: inputs, secondary/outline buttons, pagination, overlays | `--app-border-strong` | `#737a83` | **3.19** surface, 3.55 field, 3.81 page, 2.41 overlay (its own edge is decorative) |
 | Strong, hovered; radios (they sit on overlays in dialogs) | `--app-border-hover` | `#8c939c` | 4.46 surface, **3.37** overlay |
 | **Accent** (cornflower blue) | | | |
-| Fill: primary buttons, playing edge, checked controls, seek fill | `--app-accent` = `--bs-primary-bg` | `#7cacee` | 5.92 surface, 7.07 page |
+| Fill: primary buttons, current rail avatar, checked controls, seek fill | `--app-accent` = `--bs-primary-bg` | `#7cacee` | 5.92 surface, 7.07 page |
 | Fill hovered / pressed | `--app-accent-hover` / `-pressed` | `#97bdf2` / `#6a9de3` | — |
 | Text/icons on the accent fill | `--app-on-accent` = `--bs-primary-contrast` | `#0e1b2c` | 7.42 (8.98 hover, 6.23 pressed) |
 | Accent text: links, playing title, toggled icons | `--app-accent-text` = `--bs-primary-fg` | `#8fbaf2` | 6.90 surface, 5.75 on tint |
@@ -137,8 +137,14 @@ still the **only** brand colour.
   with a `--app-border-strong` edge and `--bs-box-shadow-lg`. Shadows only on floating things
   (and the soft one above the player bar).
 - **Row states** must be distinguishable from each other: hover = grey `--bs-bg-1`, pressed =
-  `--bs-bg-2`, selected / playing = `--app-accent-subtle` tint **plus** a 3px `--app-accent`
-  left edge and accent title, keyboard focus = the 2px focus ring inside the row.
+  `--bs-bg-2`, selected / playing = `--app-accent-subtle` tint and a semibold
+  `--app-accent-text-strong` title (the tint alone is only 1.2:1 against the surface; the title's colour and
+  weight carry the state too), keyboard focus = the 2px focus ring inside the row.
+- **No accent edges, anywhere.** Never mark or decorate anything with a coloured or thicker bar on one side:
+  not for selected, current, playing, pinned, hover or status, not on cards, rows, callouts, toasts, panels, tables
+  or menus, and not by way of `border-left`, an inset `box-shadow`, a `::before` bar, an outline trick or a gradient.
+  **Selection is a background tint**; status is a tinted fill. Allowed: uniform full outlines, the plain dividers
+  between rows and panels, the underline tabs (`nav-underline`) and the focus ring.
 - Focus: every focusable thing shows a 2px `--app-focus` ring with a 2px gap
   (inset `-2px` in list rows and menu items, so it is not clipped). Never remove it.
 
@@ -192,7 +198,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Grouped content | `.card` with `.card-header` (h6) / `.card-body` / `.card-footer`. |
 | Lists of items (songs, playlists, users, tokens) | `ul.list-group` with `li.list-group-item` (flex row: `.app-thumb`, text block `min-w-0 flex-grow-1`, actions). Clickable rows: `.list-group-item-action` + `tabindex="0"` + Enter/Space handler. Empty state: `li.list-group-item.app-empty`. |
 | Song lists (playlist queue, library) | Normal vs edit mode, see "Song rows: normal and edit mode" below. |
-| Playing / current row | `.is-playing` (shared) or `.queue-item.playing` (playlist): accent tint + 3px accent left edge + accent title. |
+| Playing / current row | `.is-playing` (shared) or `.queue-item.playing` (playlist): accent tint + accent semibold title, no edge. |
 | Buttons | See "Button hierarchy" above: primary `.btn-solid.theme-primary` (one per view), secondary `.btn` / `.btn-outline.theme-secondary`, tertiary `.btn-text.theme-secondary(.btn-icon)`, danger `.btn-outline.theme-danger` / `.btn-text.theme-danger.btn-icon`. |
 | Icon-only action | `.btn-text.theme-secondary.btn-icon` with `aria-label` + `title`; toggled state = `.active` (accent tint + accent border). |
 | Inputs | `.form-control` (also on `<select>`), `.input-group` to attach buttons, `.form-label` or `aria-label`. |
@@ -201,7 +207,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Pagination | `ul.pagination.pagination-sm > li.page-item > button.page-link` (`.active`, `.disabled`). |
 | Progress | `.progress > .progress-bar` (inline `width`). Seek/volume: `.form-range`. |
 | Notices | `.alert.theme-warning|danger|success`. |
-| Toasts | `showToast(message, type)` in `ui.js` → `.toast.show` in `#toast-container` (fixed, bottom centre). |
+| Toasts | `showToast(message, type)` in `ui.js` → `.toast.show` in `#toast-container` (fixed, bottom centre). Success and error are a tinted fill (`--app-success-subtle`, `--app-danger-subtle`). |
 | Overlays | `.app-modal` (fixed backdrop, toggled with `hidden`) wrapping a `.card.app-modal-card`; give it `role="dialog" aria-modal="true" aria-labelledby`. Full-screen panels (music library) are fixed layers with their own navbar. The dashboard sidebar becomes a slide-in drawer below 1024px (`.open` class). |
 | Cover art | `.app-thumb` (3rem square, grey placeholder with a music-note SVG). |
 | Playlist navigation | The one `#app-sidebar` (see "Playlists sidebar"). Never add a second playlist nav. |
@@ -377,8 +383,8 @@ profile and the desktop `/social`; not on login, pending or `/dashboard`.
   profile, the toggle (`#plnav-toggle`, chevron, "Expand / Collapse playlists", `aria-expanded`), New playlist, then
   one 2.5rem rounded-square avatar per playlist with its initials (`playlistInitials`, Turkish capitals; never
   covers), the same order with a divider between groups instead of headings. Tooltip = `title`, and `aria-label` has
-  name, Private, owner and song count. Current = the usual tint + edge plus accent avatar; pinned = accent hairline
-  on the avatar. Click and Enter navigate; right-click and long-press open the same menu. No search, chips, sort control or pin / ⋮
+  name, Private, owner and song count. Current = the usual tint plus a solid accent avatar; pinned = tinted avatar
+  with accent initials. Click and Enter navigate; right-click and long-press open the same menu. No search, chips, sort control or pin / ⋮
   buttons: a running search is cleared on collapsing. The rail follows the sort but lists everything, since nothing there would show or
   reset a filter; expanding brings the remembered filter back. A display utility on anything the rail hides would beat
   `@layer custom`, so those parts carry none. Rail rules live inside `@media (width >= 768px)`: phones always get the full drawer.
@@ -407,7 +413,7 @@ profile and the desktop `/social`; not on login, pending or `/dashboard`.
   (`arrangePlaylists`). Names like `Family: Name` sort as families.
   Row: name (`fs-sm`, medium), a muted `fs-xs` line with a lock icon on private ones (icon only here,
   no badge; the word is there for screen readers) and "by you · 2 songs". Current row =
-  `.is-current`, the usual accent tint + 3px edge + accent title, with `aria-current="page"`. Hover and
+  `.is-current`, the usual accent tint + accent semibold title, with `aria-current="page"`. Hover and
   press as other rows. The text block is the `role="link"`: `bindContextMenu` keeps the browser's menu
   on real links, which would lose right-click and long-press here.
 - **Row actions**: pin toggle and ⋮ (`playlistMenuItems` + Pin / Unpin; right-click and long-press
@@ -651,7 +657,7 @@ All pages must work from 320px wide with no horizontal page scroll; check 320 an
 - Every icon-only button has `aria-label` (and `title` for a tooltip). Decorative SVGs get `aria-hidden="true"`.
 - Focus is always visible: a global 2px `--app-focus` ring with a 2px gap on every focusable
   element (`theme.css`). Never remove outlines.
-- Contrast: text >= 4.5:1, state-carrying UI (input borders, focus ring, playing edge, icons)
+- Contrast: text >= 4.5:1, state-carrying UI (input borders, focus ring, icons)
   >= 3:1 — see the token table. New colours must be added there with their ratios.
 - Clickable non-buttons need `tabindex="0"`, a role and a keyboard handler — prefer a real `<button>`.
 - Touch targets: on coarse pointers player controls, navbar icon buttons, ⋮ and library row buttons grow to
@@ -730,13 +736,12 @@ no container, `fg2` content, `pressed` fill on press; `DangerButton` = `danger` 
 `dangerBorder` outline (icon-only: `danger` tint). Disabled: `hover` fill, `fg4` content, 70%
 alpha. Cards and list groups get a 1dp `border` outline; text fields a 1dp `borderStrong`
 outline on `field`, `accent` 2dp when focused. Menus, sheets and dialogs use `overlay` with a
-1dp `borderStrong` edge. Playing row = `accentSubtle` + 3dp `accent` left edge + `accentFgStrong`
-title; hover/pressed rows use `hover` / `pressed`.
+1dp `borderStrong` edge. Playing row = `accentSubtle` tint + `accentFgStrong` title, never an edge
+bar (no one-sided accent edges anywhere; selection is a background tint); hover/pressed rows use `hover` / `pressed`.
 
 Components (`ui/Components.kt`) stand in for the Bootstrap ones: `AppTopBar` (navbar: back, small
 title, muted subtitle, icon actions), `ListGroupItem` (list group row; each row draws its slice of
-the group's 1dp `border` outline; pressed = `pressed` fill, `current` = `.is-playing` accent tint +
-3dp left edge, `lifted` = the row being dragged), `PrimaryButton` / `SecondaryButton` (`outlined`
+the group's 1dp `border` outline; pressed = `pressed` fill, `current` = `.is-playing` accent tint, `lifted` = the row being dragged), `PrimaryButton` / `SecondaryButton` (`outlined`
 variant) / `DangerButton` (`solid` only as a destructive dialog's confirm) / `QuietButton`, all with
 `compact` for top bars and dialogs, `IconAction` (`.btn-text.btn-icon`, `active` = accent tint +
 accent border), `SubtleBadge` (`tone`: NEUTRAL "Private" / counts, ACCENT, WARNING "Broken" count,

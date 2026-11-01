@@ -42,7 +42,7 @@
   --app-btn-tonal-hover: #4b5158;
 
   /* Accent: a clear cornflower blue. Filled with dark text, like Material 3. */
-  --app-accent:          #7cacee; /* primary buttons, playing edge, checked controls */
+  --app-accent:          #7cacee; /* primary buttons, current rail avatar, checked controls */
   --app-accent-hover:    #97bdf2;
   --app-accent-pressed:  #6a9de3;
   --app-on-accent:       #0e1b2c; /* text/icons on the accent fill */
@@ -305,6 +305,9 @@
     --bs-list-group-action-hover-bg: var(--bs-bg-1);
     --bs-list-group-action-active-color: var(--app-text);
     --bs-list-group-action-active-bg: var(--bs-bg-2);
+    --bs-list-group-active-color: var(--app-accent-text-strong);
+    --bs-list-group-active-bg: var(--app-accent-subtle);
+    --bs-list-group-active-border-color: var(--app-border);
   }
   .form-control {
     --bs-control-bg: var(--app-field-bg);
@@ -429,11 +432,9 @@
 
   /* The row that is playing right now, in any list group. */
   /* Row states: hover = grey (--bs-bg-1), pressed = --bs-bg-2,
-     selected / playing = accent tint + 3px accent edge + accent title. */
-  .list-group-item.is-playing {
-    background-color: var(--app-accent-subtle);
-    box-shadow: inset 3px 0 0 var(--app-accent);
-  }
+     selected / playing = accent tint + accent semibold title. Never an edge bar. */
+  .list-group-item.is-playing { background-color: var(--app-accent-subtle); }
+  .list-group-item.active { font-weight: var(--bs-font-weight-semibold); }
 
   /* Small centred form (log-in boxes). */
   .app-form-narrow { max-width: 24rem; }

@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -418,9 +417,6 @@ fun ListGroupItem(
                         else -> Palette.surface
                     }
                 )
-                .let {
-                    if (current) it.drawBehind { drawRect(Palette.accent, size = Size(3.dp.toPx(), size.height)) } else it
-                }
                 .let {
                     if (onClick != null || onLongClick != null) {
                         it.combinedClickable(

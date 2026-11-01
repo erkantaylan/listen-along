@@ -280,12 +280,10 @@
     border-radius: 50%;
   }
   .queue-listener-avatar.emoji { font-size: 0.75rem; }
-  .queue-item.playing {
-    background-color: var(--app-accent-subtle);
-    box-shadow: inset 3px 0 0 var(--app-accent);
-  }
+  .libpage-title { font-weight: var(--bs-font-weight-medium); }
+  .queue-item.playing { background-color: var(--app-accent-subtle); }
   .queue-item.playing .queue-item-title,
-  .libpage-item.is-playing .libpage-title { color: var(--app-accent-text-strong); }
+  .libpage-item.is-playing .libpage-title { font-weight: var(--bs-font-weight-semibold); color: var(--app-accent-text-strong); }
   /* Normal mode: hover and press read as grey, distinct from the blue playing row. */
   .queue-list:not(.is-editing) .queue-item:not(.playing):hover { background-color: var(--bs-bg-1); }
   .queue-list:not(.is-editing) .queue-item:not(.playing):active { background-color: var(--bs-bg-2); }
@@ -552,8 +550,8 @@
   .plnav-link:focus-visible { outline: 2px solid var(--app-focus); outline-offset: 0; border-radius: var(--bs-radius-3, 0.25rem); }
   .plnav-name { display: block; font-size: var(--bs-font-size-sm); font-weight: var(--bs-font-weight-medium); }
   .plnav-meta { display: flex; gap: 0.25rem; align-items: center; }
-  .plnav-row.is-current { background-color: var(--app-accent-subtle); box-shadow: inset 3px 0 0 var(--app-accent); }
-  .plnav-row.is-current .plnav-name { color: var(--app-accent-text-strong); }
+  .plnav-row.is-current { background-color: var(--app-accent-subtle); }
+  .plnav-row.is-current .plnav-name { font-weight: var(--bs-font-weight-semibold); color: var(--app-accent-text-strong); }
   /* Pin and ⋮: on hover / keyboard focus, always on touch; a pinned row always
      shows its pin. They keep their space so names do not jump. */
   .plnav-pin, .plnav-menu-btn { flex-shrink: 0; opacity: 0; }
@@ -614,8 +612,8 @@
       background-color: var(--bs-bg-2);
       border-radius: var(--bs-radius-5);
     }
-    body.plnav-rail .plnav-row.is-current .plnav-avatar { color: var(--app-accent-text-strong); background-color: var(--app-accent-subtle); }
-    body.plnav-rail .plnav-row.is-pinned .plnav-avatar { box-shadow: inset 0 0 0 1px var(--app-accent-border); }
+    body.plnav-rail .plnav-row.is-pinned .plnav-avatar { color: var(--app-accent-text-strong); background-color: var(--app-accent-subtle); }
+    body.plnav-rail .plnav-row.is-current .plnav-avatar { color: var(--app-on-accent); background-color: var(--app-accent); }
     /* The sidebar carries the brand and your playlists: the landing page is
        for browsing other people's. */
     body.has-plnav .landing-brand,
@@ -765,8 +763,8 @@
     transform: translateX(-50%);
   }
   .app-toasts .toast { width: 100%; }
-  .app-toast-success { border-left: 3px solid var(--app-success); }
-  .app-toast-error { border-left: 3px solid var(--app-danger); }
+  .app-toast-success { --bs-toast-bg: var(--app-success-subtle); }
+  .app-toast-error { --bs-toast-bg: var(--app-danger-subtle); }
 
   /* -------------------------------------------------------- Music library */
   .library-page {

@@ -219,7 +219,7 @@ function renderSongs() {
       return `<li class="list-group-item list-group-item-action libpage-item${isCurrentSong(song.id) ? ' is-playing' : ''}" data-id="${escapeHtml(song.id)}" tabindex="0">
         ${thumbHtml(song.youtube_id)}
         <div class="libpage-info min-w-0">
-          <div class="d-flex align-items-center gap-1 min-w-0 libpage-title-row"><div class="fw-medium text-truncate libpage-title" title="${escapeHtml(song.title)}">${escapeHtml(song.title)}</div>${reportIconHtml(reports)}</div>
+          <div class="d-flex align-items-center gap-1 min-w-0 libpage-title-row"><div class="text-truncate libpage-title" title="${escapeHtml(song.title)}">${escapeHtml(song.title)}</div>${reportIconHtml(reports)}</div>
           <div class="fs-sm fg-2 text-truncate libpage-sub">${sub}</div>
           <div class="fs-xs fg-3 libpage-meta">${meta}</div>
           ${reportsHtml}
@@ -385,7 +385,7 @@ async function loadRequests() {
       return `<li class="list-group-item libpage-item">
         ${thumbHtml(r.youtube_id)}
         <div class="libpage-info min-w-0">
-          <div class="fw-medium text-truncate libpage-title" title="${escapeHtml(title)}">${link ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>` : escapeHtml(title)}</div>
+          <div class="text-truncate libpage-title" title="${escapeHtml(title)}">${link ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>` : escapeHtml(title)}</div>
           <div class="fs-sm fg-2 text-truncate libpage-sub">${sub}</div>
           <div class="fs-xs fg-3 libpage-meta">requested by ${escapeHtml(r.requested_by)} · ${relativeDate(r.created_at)}</div>
         </div>
