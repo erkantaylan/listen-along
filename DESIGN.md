@@ -312,14 +312,10 @@ Automatic widths, with nobody having touched the sidebar's toggle (L = sidebar, 
   to" context), tabs Songs/Requested/Download/Broken with count badges, search + sort toolbar, list group of
   songs (when the page column is below 576px the row's buttons go on their own line under the text; clicking / tapping the row, or Enter / Space on it, plays it — the song already playing is
   resumed, never restarted —; play button — plays in the app-wide player, shows pause on the song that is playing —, a grey
-  icon button "Replace audio…" (swap arrows), Add / disabled "Added" button, ⋮ song menu), 20 per page: a compact
+  icon button "Replace with…" (swap arrows), Add / disabled "Added" button, ⋮ song menu), 20 per page: a compact
   "‹ Page n of m ›" pager above the list and the full numbered pagination + range below it
   (both follow `?page=`, both hidden when there is one page).
-  "Replace audio…" opens an `.app-modal` card (any approved user): a one-line muted
-  explanation, file input (.m4a), Title / Artist / Album prefilled from the song,
-  "Source link" (a YouTube URL also sets the YouTube id), a danger alert for errors
-  (e.g. "this file is already in the library as …"), footer Cancel + primary Replace
-  ("Uploading…" while busy). Escape / backdrop / × close it without closing the library.
+  "Replace with…" opens the song dialog, see "Replace with…" under "Context menu".
   Third tab **Download** (`jobs.js`, `?tab=downloads`; badge = your waiting + running jobs):
   a card with the Download box — text input (YouTube video / playlist link, Spotify track
   link or a search) with a one-line muted hint, "Add it to" `select.form-control` (the
@@ -447,7 +443,7 @@ Every song in the listener's own shuffled order, separate from the library, whic
 
 ### Modal dialogs
 
-Every dialog (share, replace audio, mark as broken, new playlist) is the same plain markup —
+Every dialog (share, replace with, mark as broken, new playlist) is the same plain markup —
 no `<dialog>`, no Bootstrap JS:
 
 ```html
@@ -582,13 +578,35 @@ Bootstrap 6 `.menu` / `.menu-item` / `.menu-header` / `.menu-divider` markup, no
   plus `#player-menu-btn`, hidden in the slim phone bar where long-press is the way in). Add new
   song actions to `songMenuItems` — keep labels short ("Mark as broken", "Unmark broken").
 - Song menu order: **Add to playlist**, **Open on YouTube** (or `Open on <host>`) and **Copy link** (only with a
-  `youtube_id` or an http(s) source; new tab, `noopener`), divider, broken-song items. Song rows and the player bar
+  `youtube_id` or an http(s) source; new tab, `noopener`), divider, broken-song items, **Replace with…**. Song rows and the player bar
   carry no source link of their own. A song not in the library: Add and Mark as broken are disabled, the source items remain.
 - **Add to playlist** (`add-to-playlist.js`, a submenu): search with `matchesQuery` (Turkish-aware), groups Pinned /
   Your playlists / Public playlists from `playlist-store.js`, only `canEdit` playlists, and a fixed **New playlist** at the bottom (the usual
   dialog, "Create and add"; it stays on the page). Rows say "by … · Private". "Already added" (disabled) is known only for
   the playlist on screen and the one playing, whose queues the page holds; elsewhere the server's `already_in_playlist` becomes an
   "Already in “X”" toast. Goes through `POST /api/playlists/:id/songs`; a toast names the playlist. Nothing here touches playback or navigates.
+
+**Replace with…** (`replace-dialog.js`, an `.app-modal`, any approved user, on every library song: playlist
+rows, library rows, the Broken tab, the player bar; also the library row's swap button). One dialog, whatever is being
+changed. Fields, top to bottom: a muted line naming the song, a warning alert with the song's report reasons (if any), the job
+status, Title, Artist, Album, "YouTube or source link" with an icon link that opens the current one in a new tab (a real
+`<a target="_blank">`, so playback goes on), and an optional audio file. **The primary button says what will happen:**
+
+| What changed | Button | What happens |
+| --- | --- | --- |
+| A file is chosen (wins over the link, which is then its label) | Replace | Uploaded at once ("Uploading…"), the dialog closes. Refused while a downloader is running a job for the song; a job still waiting is dropped. |
+| Another YouTube link, no file | Replace from link | A download job. The dialog stays, with the job's live status and percent. The song plays its old audio until the job is done and keeps the title, artist and album in the fields. |
+| Only title, artist or album | Save | Saved at once, the dialog closes. The audio plays on. |
+| Nothing | Save, disabled | |
+
+As soon as a link is entered it is looked up (debounced; the server's metadata-only yt-dlp and oEmbed) and the line under the field
+gives the video's title, channel and length. A warning alert appears when the length differs by more than 15 seconds and 10%: it
+changes the song for everyone and there is no undo. A failed lookup is a muted note and does not stop anything. A red line under
+the field, with the button disabled, says that the video belongs to another song (with its name) or that a replacement is
+already running; the same video as now, in other words, is a muted "nothing to replace". Job status is a tinted alert: warning
+while it waits ("Waiting for a downloader", with Stop waiting; the file field stays usable), primary while it runs (with a `.progress` bar), danger when it failed
+(nothing changed), success when it is done. Only the requester sees the job; others see "Someone is already replacing this song".
+Replace jobs also show on the Download tab, under "Asked for" on the profile, and in the dashboard's Download jobs.
 
 **Broken songs ("needs replacement").** A reported song shows a small muted-warning icon button
 (`.song-broken-btn`, warning triangle, `aria-label` + `title` "Needs replacement — marked as broken

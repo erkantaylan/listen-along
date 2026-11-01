@@ -4,6 +4,9 @@
  *   GET  /api/workers                  online downloaders: name, owner, busy (approved users)
  *   GET  /api/jobs                     the caller's jobs, newest first, + worker counts
  *   POST /api/jobs                     { input, playlist_id? } the web "Download" box
+ *   POST /api/jobs/replace             { song_id, input, title?, artist?, album? } replace a song from a video
+ *   POST /api/jobs/replace/preview     { song_id, input } what that would do (title, duration, refusal)
+ *   GET  /api/jobs/replace/:songId     the caller's job for the song; whether anyone's is active
  *   POST /api/jobs/:id/cancel          a queued job of the caller
  *   POST /api/jobs/:id/retry           a failed / cancelled job of the caller
  *   GET  /api/profile/activity         the caller's own uploads / asks / fulfilments
@@ -20,7 +23,19 @@ const db = require('./db');
 const library = require('./library');
 const jobs = require('./downloadJobs');
 const adminAuth = require('./adminAuth');
-const { apiLimiter } = require('./rateLimits');
+const ytdlp = require('./ytdlp');
+const { apiLimiter, make } = require('./rateLimits');
+
+// Each preview may run yt-dlp once on the server; results are kept a while.
+const previewLimiter = make(30, 60 * 1000, { message: 'Too many link lookups, slow down' });
+const PREVIEW_CACHE_MS = 10 * 60 * 1000;
+const PREVIEW_CACHE_SIZE = 200;
+
+/** "Differs a lot": more than 15 seconds and more than 10% of the current length. */
+function durationDiffers(current, next) {
+  if (!(current > 0) || !(next > 0)) return false;
+  return Math.abs(current - next) > Math.max(15, current * 0.1);
+}
 
 /**
  * @param {object} hooks
@@ -31,6 +46,7 @@ const { apiLimiter } = require('./rateLimits');
  * @param {(url) => Promise<{title, artist}>} hooks.spotifyTrack
  * @param {(playlistId, song, addedBy) => Promise<boolean>} hooks.addSongToPlaylist - true if added now
  * @param {(job) => void} [hooks.onJobUpdated]
+ * @param {(videoId) => Promise<{title, channel, duration_sec}|null>} [hooks.previewVideo]
  */
 function createJobRouter(hooks) {
   const { requireUser, requireMember, hub } = hooks;
@@ -49,6 +65,48 @@ function createJobRouter(hooks) {
     });
   };
   const workerCounts = () => hub.stats();
+  const previewVideo = hooks.previewVideo || ytdlp.previewVideo;
+  const previews = new Map(); // video id -> { at, value }
+
+  async function cachedPreview(id) {
+    const hit = previews.get(id);
+    if (hit && Date.now() - hit.at < PREVIEW_CACHE_MS) return hit.value;
+    const value = await previewVideo(id).catch(() => null);
+    if (previews.size >= PREVIEW_CACHE_SIZE) previews.delete(previews.keys().next().value);
+    // A failed lookup may be momentary: only an answer is kept.
+    if (value) previews.set(id, { at: Date.now(), value });
+    return value;
+  }
+
+  /**
+   * Can this link replace this song? Every rule of a link replace, for the
+   * preview and the real thing: { song, youtubeId } or { status, error, code, song? }.
+   */
+  async function checkReplace(songId, input) {
+    const song = library.isUuid(songId) ? await library.getById(songId) : null;
+    if (!song) return { status: 404, error: 'Song not found', code: 'not_found' };
+    const what = jobs.classifyInput(input);
+    if (what.error || what.kind !== 'video') {
+      return { status: 400, error: 'Paste a link to a YouTube video', code: 'BAD_INPUT' };
+    }
+    if (what.youtubeId === song.youtube_id) {
+      return { status: 409, error: 'That is the video this song already uses, so there is nothing to replace', code: 'same_video' };
+    }
+    const other = await library.getByYoutubeId(what.youtubeId);
+    if (other && other.id !== song.id) {
+      return {
+        status: 409,
+        error: `This video is already in the library as “${other.title}”${other.artist ? ` by ${other.artist}` : ''}`,
+        code: 'already_in_library',
+        song: library.toPublic(other),
+      };
+    }
+    if (await jobs.activeReplaceJob(song.id)) {
+      return { status: 409, error: 'A replacement is already in progress for this song', code: 'replace_job_active' };
+    }
+    return { song, youtubeId: what.youtubeId };
+  }
+  const refuse = (res, c) => res.status(c.status).json({ error: c.error, code: c.code, ...(c.song ? { song: c.song } : {}) });
 
   router.get('/api/workers', requireUser, (req, res) => {
     res.json({ workers: hub.onlineWorkers(), ...workerCounts() });
@@ -109,6 +167,56 @@ function createJobRouter(hooks) {
     res.status(201).json({ job: jobs.toPublic(row), workers: workerCounts() });
   }));
 
+  // --- Replace a song from a video (the song dialog) ----------------------
+  router.post('/api/jobs/replace/preview', requireUser, requireDb, previewLimiter, express.json(), route('look up the link', async (req, res) => {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const c = await checkReplace(body.song_id, body.input);
+    if (c.status === 404) return refuse(res, c);
+    if (c.status) return res.json({ resolved: false, problem: { code: c.code, message: c.error, song: c.song || null } });
+    const found = await cachedPreview(c.youtubeId);
+    const current = c.song.duration_sec === null ? null : Number(c.song.duration_sec);
+    res.json({
+      youtube_id: c.youtubeId,
+      resolved: !!found,
+      title: found ? found.title : null,
+      channel: found ? found.channel : null,
+      duration_sec: found ? found.duration_sec : null,
+      current_duration_sec: current,
+      duration_differs: !!found && durationDiffers(current, found.duration_sec),
+      problem: null,
+    });
+  }));
+
+  router.post('/api/jobs/replace', requireUser, requireDb, express.json(), route('replace the song', async (req, res) => {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const c = await checkReplace(body.song_id, body.input);
+    if (c.status) return refuse(res, c);
+    const title = body.title === undefined ? c.song.title : library.cleanText(body.title, 300);
+    const artist = body.artist === undefined ? c.song.artist : library.cleanText(body.artist, 300);
+    const album = body.album === undefined ? (c.song.album || null) : (library.cleanText(body.album, 300) || null);
+    if (!title || !artist) return res.status(400).json({ error: 'Title and artist are required', code: 'bad_details' });
+    let row;
+    try {
+      row = await jobs.createReplaceJob({
+        song: c.song, youtubeId: c.youtubeId, title, artist, album,
+        requestedByUserId: req.account.id, requestedBy: req.account.name || 'Someone',
+      });
+    } catch (err) {
+      if (err.code !== '23505') throw err;
+      return res.status(409).json({ error: 'A replacement is already in progress for this song', code: 'replace_job_active' });
+    }
+    console.log(`[jobs] ${row.requested_by} queued replace job ${row.id}: song ${c.song.id} from ${c.youtubeId}`);
+    onJobUpdated(row);
+    hub.dispatch();
+    res.status(201).json({ job: jobs.toPublic(row), workers: workerCounts() });
+  }));
+
+  // The job itself is the requester's only; anyone may learn that one is running.
+  router.get('/api/jobs/replace/:songId', requireUser, requireDb, route('load the replace job', async (req, res) => {
+    const [active, mine] = await Promise.all([jobs.activeReplaceJob(req.params.songId), jobs.latestReplaceJob(req.params.songId, req.account.id)]);
+    res.json({ active: !!active, job: mine ? jobs.toPublic(mine) : null, workers: workerCounts() });
+  }));
+
   router.post('/api/jobs/:id/cancel', requireUser, requireDb, route('cancel job', async (req, res) => {
     const row = await jobs.cancel(req.params.id, { userId: req.account.id });
     if (!row) return res.status(409).json({ error: 'Only a job of yours that is still waiting can be cancelled', code: 'NOT_CANCELLABLE' });
@@ -154,11 +262,11 @@ function createJobRouter(hooks) {
            (SELECT count(*)::int FROM library_songs WHERE uploaded_by_user_id = $1::uuid AND uploaded_by_worker_id IS NOT NULL) AS uploaded_by_workers,
            (SELECT count(*)::int FROM song_requests WHERE requested_by_id = $1::text) AS asked,
            (SELECT count(*)::int FROM song_requests WHERE requested_by_id = $1::text AND status = 'fulfilled') AS asked_fulfilled,
-           (SELECT count(*)::int FROM download_jobs WHERE requested_by_user_id = $1::uuid AND source = 'web') AS downloads,
+           (SELECT count(*)::int FROM download_jobs WHERE requested_by_user_id = $1::uuid AND source IN ('web', 'replace')) AS downloads,
            (SELECT count(*)::int FROM library_songs s JOIN download_workers w ON w.id = s.uploaded_by_worker_id
               WHERE w.user_id = $1::uuid AND s.requested_by_user_id IS NOT NULL) AS fulfilled_by_my_workers`, [me]),
       jobs.listUserWorkers(me),
-      jobs.listForUser(me, { limit: offset + limit, source: 'web' }),
+      jobs.listForUser(me, { limit: offset + limit, sources: ['web', 'replace'] }),
     ]);
     // The asked tab merges song requests and web downloads: page the merged list.
     const askedPage = [
@@ -216,4 +324,4 @@ function createJobRouter(hooks) {
   return router;
 }
 
-module.exports = { createJobRouter };
+module.exports = { createJobRouter, durationDiffers };

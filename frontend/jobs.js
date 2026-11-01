@@ -21,6 +21,19 @@ const dl = {
 
 const ACTIVE = new Set(['queued', 'assigned']);
 
+// Others that follow jobs live (the song dialog). A listener that returns true
+// is showing this job's change itself, so no toast.
+const changeListeners = new Set();
+export function onJobChange(fn) {
+  changeListeners.add(fn);
+  return () => changeListeners.delete(fn);
+}
+function notifyChange(change) {
+  let shown = false;
+  changeListeners.forEach((fn) => { try { if (fn(change) === true) shown = true; } catch (err) { console.error(err); } });
+  return shown;
+}
+
 function youtubeIdOf(text) {
   const m = /(?:[?&]v=|youtu\.be\/|\/shorts\/)([A-Za-z0-9_-]{11})/.exec(text || '');
   return m ? m[1] : null;
@@ -44,11 +57,14 @@ function workerLabel(w) {
 export function jobStatusText(job, workers = dl.workers) {
   switch (job.status) {
     case 'queued':
+      // An older downloader cannot run these: it may be online and still no help.
+      if (job.replace && workers.online && !workers.can_replace) return 'Waiting for a downloader — the ones online are too old to replace songs (la 0.2.0 or newer)';
       if (!workers.online) return 'Waiting for a downloader — none is online right now';
       return workers.idle ? 'Queued' : 'Queued — every downloader is busy';
     case 'assigned':
       return `Downloading on ${workerLabel(job.worker)}${job.progress ? ` · ${job.progress}` : ''}`;
     case 'done': {
+      if (job.replace) return `Replaced the audio${job.worker ? ` · by ${workerLabel(job.worker)}` : ''}`;
       const s = job.summary;
       let what = 'Done';
       if (s && s.total > 1) what = `Done: ${s.uploaded} uploaded, ${s.skipped} already in the library${s.failed ? `, ${s.failed} failed` : ''}`;
@@ -77,10 +93,10 @@ const BADGES = {
 function jobHtml(job) {
   const [theme, label] = BADGES[job.status] || ['theme-secondary', job.status];
   const title = job.title || job.input;
-  const origin = job.source === 'request' ? 'Requested in a playlist' : ({ playlist: 'YouTube playlist', video: 'YouTube video', spotify: 'Spotify track', search: 'Search' }[job.kind] || job.kind);
+  const origin = job.replace ? 'Replacing this song from a link' : job.source === 'request' ? 'Requested in a playlist' : ({ playlist: 'YouTube playlist', video: 'YouTube video', spotify: 'Spotify track', search: 'Search' }[job.kind] || job.kind);
   const target = job.playlist_name && job.status !== 'done' ? ` · for ${escapeHtml(job.playlist_name)}` : '';
   let action = '';
-  if (job.status === 'queued' && job.source === 'web') action = `<button class="btn btn-sm dl-cancel" type="button" data-job="${escapeHtml(job.id)}">Cancel</button>`;
+  if (job.status === 'queued' && (job.source === 'web' || job.source === 'replace')) action = `<button class="btn btn-sm dl-cancel" type="button" data-job="${escapeHtml(job.id)}">Cancel</button>`;
   else if (job.status === 'failed' || job.status === 'cancelled') action = `<button class="btn btn-sm dl-retry" type="button" data-job="${escapeHtml(job.id)}">Retry</button>`;
   return `<li class="list-group-item libpage-item dl-item" data-job="${escapeHtml(job.id)}">
     ${thumbHtml(job)}
@@ -190,9 +206,12 @@ export function handleJobUpdate(payload) {
     : null;
   if (statusLine) statusLine.textContent = jobStatusText(job);
   else renderList();
-  if (before !== job.status && !dl.visible) {
+  const shown = notifyChange({ job, workers: dl.workers });
+  if (before !== job.status && !dl.visible && !shown) {
     const name = job.title || job.input;
-    if (job.status === 'done' && job.source === 'web') showToast(`Downloaded “${name}”${job.playlist_name ? ` — added to ${job.playlist_name}` : ''}`, 'success');
+    if (job.status === 'done' && job.replace) showToast(`Replaced the audio of “${job.replace.title || name}”`, 'success');
+    else if (job.status === 'failed' && job.replace) showToast(`Could not replace “${job.replace.title || name}”: ${job.error_message || job.error_code || 'failed'}`, 'error');
+    else if (job.status === 'done' && job.source === 'web') showToast(`Downloaded “${name}”${job.playlist_name ? ` — added to ${job.playlist_name}` : ''}`, 'success');
     else if (job.status === 'failed') showToast(`Could not download “${name}”: ${job.error_message || job.error_code || 'failed'}`, 'error');
   }
 }
@@ -201,6 +220,7 @@ export function handleJobUpdate(payload) {
 export function handleWorkersUpdate(stats) {
   if (!stats) return;
   dl.workers = stats;
+  notifyChange({ workers: stats });
   renderWorkers();
   if (dl.jobs.some((j) => j.status === 'queued')) renderList();
 }

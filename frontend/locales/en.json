@@ -271,7 +271,8 @@
   },
   "songMenu": {
     "openOn": "Open on {host}",
-    "copyLink": "Copy link"
+    "copyLink": "Copy link",
+    "replaceWith": "Replace with…"
   },
   "radio": {
     "title": "Radio",

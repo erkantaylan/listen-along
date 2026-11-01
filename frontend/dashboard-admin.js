@@ -82,7 +82,7 @@ async function loadJobs() {
       <li class="list-group-item d-flex align-items-center gap-3 adm-item adm-job">
         <div class="min-w-0 flex-grow-1 adm-item-main">
           <div class="fw-medium text-break adm-item-title">${esc(j.title || j.input)}</div>
-          <div class="fs-xs fg-3 text-break adm-item-sub">${esc(j.source === 'request' ? 'song request' : j.kind)} · asked by ${esc(j.requested_by || '?')}${j.playlist_name ? ` · for ${esc(j.playlist_name)}` : ''} · ${esc(when(j.created_at))}${j.attempts > 1 ? ` · attempt ${j.attempts}` : ''}</div>
+          <div class="fs-xs fg-3 text-break adm-item-sub">${esc(j.replace ? 'replaces a song' : j.source === 'request' ? 'song request' : j.kind)} · asked by ${esc(j.requested_by || '?')}${j.playlist_name ? ` · for ${esc(j.playlist_name)}` : ''} · ${esc(when(j.created_at))}${j.attempts > 1 ? ` · attempt ${j.attempts}` : ''}</div>
           ${where || detail ? `<div class="fs-xs fg-3 text-break adm-item-sub">${[where, detail].filter(Boolean).join(' · ')}</div>` : ''}
         </div>
         <span class="badge badge-subtle ${JOB_THEMES[j.status] || 'theme-secondary'}">${esc(j.status === 'assigned' ? 'running' : j.status)}</span>

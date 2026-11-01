@@ -107,6 +107,10 @@
   /* New playlist dialog (new-playlist.js) */
   .new-playlist-field-error { color: var(--app-danger); }
   .new-playlist-field-error:empty { display: none; }
+  .replace-note-danger { color: var(--app-danger); }
+  /* The long song dialog scrolls in its body: the title and the button stay on screen. */
+  .replace-form { display: flex; flex-direction: column; overflow: hidden; }
+  .replace-form > .card-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
   .new-playlist-choice { cursor: pointer; }
   .lobby-card-stat {
     display: inline-flex;

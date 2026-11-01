@@ -5,7 +5,12 @@
  *
  * A job comes from
  *   - a song request (source 'request', automatic: index.js queue:add), or
- *   - the web "Download" box (source 'web', POST /api/jobs, jobRoutes.js).
+ *   - the web "Download" box (source 'web', POST /api/jobs, jobRoutes.js), or
+ *   - the song dialog's new link (source 'replace', POST /api/jobs/replace): the
+ *     video replaces song replace_song_id and keeps the details in replace_*.
+ *
+ * Only a worker that advertises the 'replace' capability gets a replace job
+ * (workerHub.planAssignments): an older one would upload a new, duplicate song.
  *
  * Lifecycle: queued -> assigned (a worker runs it) -> done | failed.
  * A queued job can be cancelled; a failed/cancelled one retried (-> queued).
@@ -80,7 +85,7 @@ function summaryOf(result) {
   if (!result || typeof result !== 'object' || !result.summary) return null;
   const s = result.summary;
   const n = (k) => (Number.isFinite(Number(s[k])) ? Number(s[k]) : 0);
-  return { total: n('total'), uploaded: n('uploaded'), skipped: n('skipped'), failed: n('failed') };
+  return { total: n('total'), uploaded: n('uploaded'), skipped: n('skipped'), failed: n('failed'), replaced: n('replaced') };
 }
 
 /**
@@ -108,6 +113,12 @@ function toPublic(row) {
     error_message: row.error_message || null,
     summary: summaryOf(row.result),
     song: row.song_id ? { id: row.song_id, title: row.song_title || null, artist: row.song_artist || null } : null,
+    replace: row.replace_song_id ? {
+      song_id: row.replace_song_id,
+      title: row.replace_title || null,
+      artist: row.replace_artist || null,
+      album: row.replace_album || null,
+    } : null,
     created_at: row.created_at,
     started_at: row.started_at || null,
     finished_at: row.finished_at || null,
@@ -129,6 +140,9 @@ function toWorker(row) {
     request_id: row.request_id || null,
     requested_by: row.requested_by || null,
     no_playlist: row.kind !== 'playlist',
+    ...(row.replace_song_id ? {
+      replace: { song_id: row.replace_song_id, title: row.replace_title, artist: row.replace_artist, album: row.replace_album || null },
+    } : {}),
   };
 }
 
@@ -172,10 +186,11 @@ function adminWorkerView(row, live) {
 }
 
 const JOB_SELECT = `
-  SELECT j.*, l.name AS playlist_name, s.title AS song_title, s.artist AS song_artist
+  SELECT j.*, l.name AS playlist_name, s.title AS song_title, s.artist AS song_artist, rs.id AS replace_target_id
   FROM download_jobs j
   LEFT JOIN lobbies l ON l.id = j.playlist_id
-  LEFT JOIN library_songs s ON s.id = j.song_id`;
+  LEFT JOIN library_songs s ON s.id = j.song_id
+  LEFT JOIN library_songs rs ON rs.id = j.replace_song_id`;
 
 const WORKER_SELECT = `
   SELECT w.*, u.display_name AS u_display_name, u.name AS u_name, u.username AS u_username
@@ -214,6 +229,67 @@ async function createJob(f) {
 }
 
 /**
+ * A job that downloads a YouTube video and replaces a song with it.
+ * @param {object} f - { song, youtubeId, title, artist, album, requestedByUserId, requestedBy }
+ * @returns {Promise<object>} the row
+ * @throws a pg 23505 when the song already has an active replace job
+ */
+async function createReplaceJob(f) {
+  const label = [f.artist, f.title].filter(Boolean).join(' - ') || f.title;
+  const r = await db.query(
+    `INSERT INTO download_jobs (source, kind, input, title, requested_by_user_id, requested_by, replace_song_id, replace_title, replace_artist, replace_album)
+     VALUES ('replace', 'video', $1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+    [library.youtubeUrl(f.youtubeId), clean(label, 300), isUuid(f.requestedByUserId) ? f.requestedByUserId : null, clean(f.requestedBy, 255), f.song.id, f.title, f.artist, f.album || null]
+  );
+  return getJob(r.rows[0].id);
+}
+
+/** The song's active replace job (at most one), whoever asked for it. */
+async function activeReplaceJob(songId) {
+  if (!isUuid(songId)) return null;
+  const r = await db.query(`${JOB_SELECT} WHERE j.replace_song_id = $1 AND j.status = ANY($2::text[]) LIMIT 1`, [songId, ACTIVE]);
+  return r.rows[0] || null;
+}
+
+/** This user's newest replace job for the song: what the dialog shows. */
+async function latestReplaceJob(songId, userId) {
+  if (!isUuid(songId) || !isUuid(userId)) return null;
+  const r = await db.query(`${JOB_SELECT} WHERE j.replace_song_id = $1 AND j.requested_by_user_id = $2 ORDER BY j.created_at DESC LIMIT 1`, [songId, userId]);
+  return r.rows[0] || null;
+}
+
+const SONG_GONE = 'The song to replace was deleted from the library';
+
+/** A replace job whose song is gone fails, whatever state it is in. */
+async function failTargetGone(jobId) {
+  const r = await db.query(
+    `UPDATE download_jobs SET status = 'failed', error_code = 'SONG_DELETED', error_message = $2,
+       stage = NULL, progress = NULL, finished_at = now(), updated_at = now()
+     WHERE id = $1 AND status = ANY($3::text[]) RETURNING id`,
+    [jobId, SONG_GONE, ACTIVE]
+  );
+  return r.rows[0] ? getJob(jobId) : null;
+}
+
+/** A song was deleted: its active replace jobs fail (a worker's upload is then refused). */
+async function failReplaceJobsForSong(songId) {
+  if (!isUuid(songId)) return [];
+  const r = await db.query(`SELECT id FROM download_jobs WHERE replace_song_id = $1 AND status = ANY($2::text[])`, [songId, ACTIVE]);
+  return (await Promise.all(r.rows.map((x) => failTargetGone(x.id)))).filter(Boolean);
+}
+
+/** Someone uploaded a file for the song: the file wins, active jobs are dropped. */
+async function cancelReplaceJobsForSong(songId, reason) {
+  if (!isUuid(songId)) return [];
+  const r = await db.query(
+    `UPDATE download_jobs SET status = 'cancelled', progress = $2, stage = NULL, finished_at = now(), updated_at = now()
+     WHERE replace_song_id = $1 AND status = ANY($3::text[]) RETURNING id`,
+    [songId, clean(reason, 300), ACTIVE]
+  );
+  return Promise.all(r.rows.map((x) => getJob(x.id)));
+}
+
+/**
  * The job for a new song request (one per request; an existing active job
  * for it is returned as is). null if the request has nothing to search for.
  */
@@ -243,11 +319,11 @@ async function listQueued(limit = 200) {
   return r.rows;
 }
 
-async function listForUser(userId, { limit = 50, source = null } = {}) {
+async function listForUser(userId, { limit = 50, sources = null } = {}) {
   if (!isUuid(userId)) return [];
   const r = await db.query(
-    `${JOB_SELECT} WHERE j.requested_by_user_id = $1 AND ($3::text IS NULL OR j.source = $3) ORDER BY j.created_at DESC LIMIT $2`,
-    [userId, limit, source]);
+    `${JOB_SELECT} WHERE j.requested_by_user_id = $1 AND ($3::text[] IS NULL OR j.source = ANY($3::text[])) ORDER BY j.created_at DESC LIMIT $2`,
+    [userId, limit, sources]);
   return r.rows;
 }
 
@@ -290,8 +366,9 @@ async function reclaim(jobId, worker) {
   if (!isUuid(jobId)) return null;
   const r = await db.query(
     `UPDATE download_jobs SET status = 'assigned', worker_id = $2, worker_name = $3, worker_owner = $4, updated_at = now()
-     WHERE id = $1 AND (status = 'queued' OR (status = 'assigned' AND worker_id = $2)) RETURNING id`,
-    [jobId, worker.id, worker.name, worker.ownerName || null]
+     WHERE id = $1 AND (status = 'queued' OR (status = 'assigned' AND worker_id = $2))
+       AND ($5 OR replace_song_id IS NULL) RETURNING id`,
+    [jobId, worker.id, worker.name, worker.ownerName || null, !!worker.canReplace]
   );
   return r.rows[0] ? getJob(jobId) : null;
 }
@@ -351,7 +428,7 @@ function trimResult(result) {
     reason: clean(x && x.reason, 200),
   }));
   return {
-    summary: { total: num(summary.total), uploaded: num(summary.uploaded), skipped: num(summary.skipped), failed: num(summary.failed) },
+    summary: { total: num(summary.total), uploaded: num(summary.uploaded), skipped: num(summary.skipped), failed: num(summary.failed), replaced: num(summary.replaced) },
     results: items,
   };
 }
@@ -364,9 +441,14 @@ function trimResult(result) {
  */
 async function finish(jobId, worker, result) {
   const trimmed = trimResult(result);
-  const ok = trimmed.summary.uploaded + trimmed.summary.skipped > 0;
+  const current = await getJob(jobId);
+  // A replace job only counts when the song was replaced: an upload or a
+  // skip would not have changed it.
+  const ok = current && current.replace_song_id
+    ? trimmed.summary.replaced > 0
+    : trimmed.summary.uploaded + trimmed.summary.skipped > 0;
   const firstFail = trimmed.results.find((x) => x.status === 'failed');
-  const songIds = [...new Set(trimmed.results.filter((x) => (x.status === 'uploaded' || x.status === 'skipped') && x.song_id).map((x) => x.song_id))];
+  const songIds = [...new Set(trimmed.results.filter((x) => ['uploaded', 'skipped', 'replaced'].includes(x.status) && x.song_id).map((x) => x.song_id))];
   const status = ok ? 'done' : 'failed';
   const errorCode = ok ? null : clean((result && result.error_code) || (firstFail && firstFail.code) || 'NOTHING_DOWNLOADED', 64);
   const errorMessage = ok ? null : clean((result && result.error_message) || (firstFail && firstFail.error) || 'Nothing was downloaded', 500);
@@ -406,14 +488,22 @@ async function retry(jobId, { userId = null } = {}) {
   const params = [jobId];
   let mine = '';
   if (userId) { params.push(userId); mine = `AND requested_by_user_id = $${params.length}`; }
-  const r = await db.query(
-    `UPDATE download_jobs SET status = 'queued', attempts = 0, error_code = NULL, error_message = NULL,
-       result = NULL, worker_id = NULL, worker_name = NULL, worker_owner = NULL, stage = NULL,
-       progress = NULL, started_at = NULL, finished_at = NULL, updated_at = now()
-     WHERE id = $1 AND status IN ('failed', 'cancelled') ${mine} RETURNING id`,
-    params
-  );
-  return r.rows[0] ? getJob(jobId) : null;
+  let r;
+  try {
+    r = await db.query(
+      `UPDATE download_jobs SET status = 'queued', attempts = 0, error_code = NULL, error_message = NULL,
+         result = NULL, worker_id = NULL, worker_name = NULL, worker_owner = NULL, stage = NULL,
+         progress = NULL, started_at = NULL, finished_at = NULL, updated_at = now()
+       WHERE id = $1 AND status IN ('failed', 'cancelled') ${mine} RETURNING id`,
+      params
+    );
+  } catch (err) {
+    if (err.code === '23505') return null; // the song has another active replace job
+    throw err;
+  }
+  if (!r.rows[0]) return null;
+  const row = await getJob(jobId);
+  return row.replace_song_id && !row.replace_target_id ? failTargetGone(jobId) : row;
 }
 
 /**
@@ -532,6 +622,12 @@ module.exports = {
   getJob,
   createJob,
   createForRequest,
+  createReplaceJob,
+  activeReplaceJob,
+  latestReplaceJob,
+  failTargetGone,
+  failReplaceJobsForSong,
+  cancelReplaceJobsForSong,
   listQueued,
   listForUser,
   listAll,

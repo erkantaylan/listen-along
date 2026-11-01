@@ -8,6 +8,7 @@
  *                         page only, no player API, so no PO token needed)
  *   - getPlaylistEntries: `yt-dlp --flat-playlist` (playlist page only)
  *   - getOembed:          YouTube's public oEmbed endpoint (title/channel for an id)
+ *   - previewVideo:       oEmbed + a flat search for the id: title and duration
  * All of these are best-effort; callers must cope with failure.
  */
 
@@ -257,8 +258,8 @@ function runYtdlpJson(args, timeoutMs, label) {
  * API — just the search results page).
  * @returns {Promise<{id, url, title, duration, channel}|null>}
  */
-async function searchYoutube(query) {
-  const data = await runYtdlpJson(['--flat-playlist', '-J', `ytsearch1:${query}`], 30000, 'YouTube search');
+async function searchYoutube(query, { timeoutMs = 30000 } = {}) {
+  const data = await runYtdlpJson(['--flat-playlist', '-J', `ytsearch1:${query}`], timeoutMs, 'YouTube search');
   const e = (data.entries || []).find((x) => x && x.id);
   if (!e) return null;
   return {
@@ -287,6 +288,26 @@ async function getOembed(videoId, { timeoutMs = 8000 } = {}) {
   }
 }
 
+/**
+ * Title and duration of one video, without the player API (blocked on the
+ * server's IP): oEmbed gives the title, a flat search for its id the duration
+ * when that video is the top hit. Best effort.
+ * @returns {Promise<{title, channel, duration_sec}|null>} null if neither answered
+ */
+async function previewVideo(videoId) {
+  const [oembed, hit] = await Promise.all([
+    getOembed(videoId),
+    searchYoutube(videoId, { timeoutMs: 15000 }).catch(() => null),
+  ]);
+  const match = hit && hit.id === videoId ? hit : null;
+  if (!oembed && !match) return null;
+  return {
+    title: (oembed && oembed.title) || (match && match.title) || null,
+    channel: (oembed && oembed.channel) || (match && match.channel) || null,
+    duration_sec: match && match.duration ? Number(match.duration) : null,
+  };
+}
+
 module.exports = {
   parseError,
   checkAvailable,
@@ -296,5 +317,6 @@ module.exports = {
   parsePlaylistId,
   getPlaylistEntries,
   searchYoutube,
-  getOembed
+  getOembed,
+  previewVideo
 };

@@ -725,11 +725,13 @@ async function replaceSong(id, file, fields, actor) {
         `INSERT INTO library_song_replacements
            (song_id, replaced_by_user_id, replaced_by, replaced_by_token,
             old_youtube_id, old_source_url, old_sha256, old_title, old_artist, old_album, old_duration_sec,
-            new_youtube_id, new_source_url, new_sha256, new_title, new_artist, new_album, new_duration_sec)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
+            new_youtube_id, new_source_url, new_sha256, new_title, new_artist, new_album, new_duration_sec,
+            job_id, worker_name, requested_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
         [id, actor.userId || null, actor.name || null, actor.id || null,
           previous.youtube_id, previous.source_url, previous.sha256, previous.title, previous.artist, previous.album, previous.duration_sec,
-          updated.youtube_id, updated.source_url, updated.sha256, updated.title, updated.artist, updated.album, updated.duration_sec]
+          updated.youtube_id, updated.source_url, updated.sha256, updated.title, updated.artist, updated.album, updated.duration_sec,
+          actor.jobId || null, actor.workerName || null, actor.requestedBy || null]
       );
       // The song is fixed: every open "needs replacement" report is resolved.
       resolvedReports = await songReports.resolveForSong(id, { resolution: 'replaced', userId: actor.userId, name: actor.name }, client);
@@ -752,6 +754,71 @@ async function replaceSong(id, file, fields, actor) {
   } finally {
     if (newPath) { try { fs.unlinkSync(newPath); } catch {} }
     try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {}
+  }
+}
+
+/**
+ * Title, artist and album only: the audio, its id and its reports stay. Audited
+ * in library_song_replacements (kind 'details', same sha). Like a replace, a
+ * probable (metadata) duplicate is not refused: only uploads are, and fixing a
+ * name must stay possible. An active replace job keeps the newer details.
+ *
+ * @param {string} id - library song id
+ * @param {{title?: string, artist?: string, album?: string|null}} patch - what is
+ *   left out stays; an empty album clears it
+ * @param {{name: string, id?: string, userId?: string}} actor
+ * @returns {Promise<{song: object, previous: object}>}
+ * @throws {UploadError} 400 bad or unchanged values, 404 unknown song
+ */
+async function updateDetails(id, patch, actor) {
+  if (!isUuid(id)) throw new UploadError(404, 'Song not found', null, 'not_found');
+  const given = (k) => patch[k] !== undefined && patch[k] !== null;
+  const title = given('title') ? cleanText(patch.title, 300) : null;
+  const artist = given('artist') ? cleanText(patch.artist, 300) : null;
+  if (given('title') && !title) throw new UploadError(400, 'title is required', null, 'bad_details');
+  if (given('artist') && !artist) throw new UploadError(400, 'artist is required', null, 'bad_details');
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+    const cur = await client.query('SELECT * FROM library_songs WHERE id = $1 FOR UPDATE', [id]);
+    const previous = cur.rows[0];
+    if (!previous) throw new UploadError(404, 'Song not found', null, 'not_found');
+    const next = {
+      title: title ?? previous.title,
+      artist: artist ?? previous.artist,
+      album: patch.album !== undefined ? (cleanText(patch.album, 300) || null) : (previous.album || null),
+    };
+    if (next.title === previous.title && next.artist === previous.artist && next.album === (previous.album || null)) {
+      throw new UploadError(400, 'Nothing to change', null, 'nothing_changed');
+    }
+    const r = await client.query(
+      `UPDATE library_songs SET title = $2, artist = $3, album = $4, meta_key = $5, meta_key_version = $6
+       WHERE id = $1 RETURNING *`,
+      [id, next.title, next.artist, next.album, songMatch.metaKey(next.title, next.artist), songMatch.META_KEY_VERSION]
+    );
+    const song = r.rows[0];
+    await client.query(
+      `INSERT INTO library_song_replacements
+         (song_id, kind, replaced_by_user_id, replaced_by, replaced_by_token,
+          old_youtube_id, old_source_url, old_sha256, old_title, old_artist, old_album, old_duration_sec,
+          new_youtube_id, new_source_url, new_sha256, new_title, new_artist, new_album, new_duration_sec)
+       VALUES ($1, 'details', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $5, $6, $7, $12, $13, $14, $11)`,
+      [id, actor.userId || null, actor.name || null, actor.id || null,
+        previous.youtube_id, previous.source_url, previous.sha256, previous.title, previous.artist, previous.album, previous.duration_sec,
+        next.title, next.artist, next.album]
+    );
+    await client.query(
+      `UPDATE download_jobs SET replace_title = $2, replace_artist = $3, replace_album = $4, updated_at = now()
+       WHERE replace_song_id = $1 AND status IN ('queued', 'assigned')`,
+      [id, next.title, next.artist, next.album]
+    );
+    await client.query('COMMIT');
+    return { song, previous };
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
   }
 }
 
@@ -950,6 +1017,8 @@ module.exports = {
   normalizeSha256,
   DUPLICATE_REASONS,
   replaceSong,
+  updateDetails,
+  cleanText,
   listReplacements,
   backfillMetaKeys,
   resolveQueueUrl,

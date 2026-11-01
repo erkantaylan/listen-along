@@ -229,8 +229,9 @@ async function resolveTargets(ctx, inputs, onFail) {
  * the upload. A probable (metadata) match is skipped unless allowSimilar.
  * With opts.replace (a library song id) the single target replaces that
  * song instead (no duplicate checks; the server refuses another song's file).
+ * opts.keepMeta { title, artist, album }: the song keeps these, not the video's.
  *
- * @param {object} opts - { dryRun, keep, keepDir, sleepSec, upload, skipLibraryCheck, allowSimilar, replace }
+ * @param {object} opts - { dryRun, keep, keepDir, sleepSec, upload, skipLibraryCheck, allowSimilar, replace, keepMeta }
  * @param {import('./batch').Batch} batch
  */
 async function downloadAndUpload(ctx, inputs, opts, batch) {
@@ -323,6 +324,11 @@ async function downloadAndUpload(ctx, inputs, opts, batch) {
           source_url: info.webpage_url || (info.id || t.id ? watchUrl(info.id || t.id) : t.url),
         },
       });
+      if (opts.keepMeta) {
+        meta.title = opts.keepMeta.title;
+        meta.artist = opts.keepMeta.artist;
+        meta.album = opts.keepMeta.album || null;
+      }
       if (!Media.isAacM4a(meta.probe, file)) {
         throw Object.assign(new Error(`Downloaded file is not AAC m4a (${meta.probe.codec} in ${meta.probe.format})`), { code: 'NOT_M4A' });
       }

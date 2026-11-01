@@ -244,6 +244,24 @@ export const player = {
 
   setDriver(d) { driver = d || null; },
 
+  // Only a library song's title, artist or album changed (socket library:updated
+  // { details }): what is shown follows, the audio plays on untouched.
+  updateDetails(details, song) {
+    if (!details || !details.id || !song) return;
+    const urls = new Set([...(details.oldUrls || []), `library:${details.id}`]);
+    const matches = (t) => !!t && (t.libraryId === details.id || urls.has(t.url) || t.url === details.url);
+    const patch = (t) => ({
+      ...t,
+      title: t.libraryId ? song.title : (song.artist && song.artist !== 'Unknown' ? `${song.title} - ${song.artist}` : song.title),
+      artist: t.libraryId ? (song.artist || '') : t.artist,
+    });
+    if (queue.some(matches)) { queue = queue.map((t) => (matches(t) ? patch(t) : t)); emit('queue', queue); }
+    if (!matches(track)) return;
+    track = patch(track);
+    state.currentTrack = track;
+    emit('track', track);
+  },
+
   // A library song's audio was replaced (socket library:updated { replaced }):
   // { id, oldUrls, url, file_version } plus the new public song. If it is the
   // loaded track, load the new file (versioned url, so no stale cache) at the

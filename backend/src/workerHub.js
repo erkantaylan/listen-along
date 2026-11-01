@@ -8,7 +8,10 @@
  *   worker -> server
  *     hello        { token, name, hostname, platform, arch, os_release,
  *                    cli_version, node_version, ytdlp_version, protocol,
- *                    current_job_id? }   first message, within HELLO_TIMEOUT
+ *                    capabilities?, current_job_id? }   first message, within
+ *                    HELLO_TIMEOUT. capabilities: optional list of features
+ *                    beyond protocol 1; so far 'replace' (see below). A worker
+ *                    from before this field has none.
  *     pong         answer to ping
  *     job:progress { job_id, stage, message }   free text shown to the job's
  *                  requester; each one is a DB write + a jobs:update, so send
@@ -24,7 +27,12 @@
  *     welcome      { worker: {id, name}, user: {id, name}|null, heartbeat_ms }
  *     ping         every heartbeat_ms; a worker that hears nothing for ~3x
  *                  reconnects
- *     job          { job: { id, kind, input, title, request_id, requested_by, no_playlist } }
+ *     job          { job: { id, kind, input, title, request_id, requested_by, no_playlist, replace? } }
+ *                  replace: { song_id, title, artist, album } means: download
+ *                  input and POST it to /api/library/<song_id>/replace with
+ *                  job_id + worker_id, instead of an upload. The server keeps
+ *                  those details and the video's id whatever the worker sends,
+ *                  and refuses an ordinary upload for such a job.
  *     error        { code, message } just before a close
  *
  *   Close codes: 4001 bad/revoked token, 4002 bad hello / protocol,
@@ -36,7 +44,9 @@
  * downloader") and is dispatched when one connects or finishes. One job at a
  * time per worker. A worker that disconnects mid-job gets REQUEUE_GRACE to
  * come back (it reports the job it is still running in its hello); after that
- * the job is queued again for anyone.
+ * the job is queued again for anyone. A replace job only goes to a worker that
+ * advertises 'replace': an older worker would upload a new, duplicate song, so
+ * with no capable worker the job just waits (and does not hold up other jobs).
  */
 
 const { WebSocketServer } = require('ws');
@@ -44,27 +54,30 @@ const jobs = require('./downloadJobs');
 
 const PATH = '/api/workers/connect';
 const PROTOCOL = 1;
+const CAP_REPLACE = 'replace';
 
 /**
  * Pure routing: which idle worker gets which queued job.
- * @param {object[]} queued - jobs oldest first ({ id, requested_by_user_id })
- * @param {object[]} idle - idle workers ({ userId, idleSince })
+ * @param {object[]} queued - jobs oldest first ({ id, requested_by_user_id, replace_song_id? })
+ * @param {object[]} idle - idle workers ({ userId, idleSince, canReplace? })
  * @returns {{job, worker}[]}
  */
 function planAssignments(queued, idle) {
   const free = [...idle].sort((a, b) => (a.idleSince || 0) - (b.idleSince || 0));
   const plan = [];
   const rest = [];
+  const fits = (job, w) => !job.replace_song_id || w.canReplace === true;
   // 1. The requester's own idle worker, if any.
   for (const job of queued) {
-    const i = job.requested_by_user_id ? free.findIndex((w) => w.userId && w.userId === job.requested_by_user_id) : -1;
+    const i = job.requested_by_user_id ? free.findIndex((w) => w.userId && w.userId === job.requested_by_user_id && fits(job, w)) : -1;
     if (i >= 0) plan.push({ job, worker: free.splice(i, 1)[0] });
     else rest.push(job);
   }
   // 2. Anyone idle, oldest job first, longest-idle worker first.
   for (const job of rest) {
     if (!free.length) break;
-    plan.push({ job, worker: free.shift() });
+    const i = free.findIndex((w) => fits(job, w));
+    if (i >= 0) plan.push({ job, worker: free.splice(i, 1)[0] });
   }
   return plan;
 }
@@ -119,18 +132,20 @@ function createWorkerHub(opts = {}) {
   }
 
   function workerInfo(conn) {
-    return { id: conn.worker.id, name: conn.worker.name, ownerName: conn.ownerName };
+    return { id: conn.worker.id, name: conn.worker.name, ownerName: conn.ownerName, canReplace: conn.canReplace };
   }
 
   function stats() {
     let online = 0;
     let idle = 0;
+    let canReplace = 0;
     for (const c of conns.values()) {
       if (!c.ready) continue;
       online++;
+      if (c.canReplace) canReplace++;
       if (!c.currentJobId && !c.draining) idle++;
     }
-    return { online, idle, busy: online - idle };
+    return { online, idle, busy: online - idle, can_replace: canReplace };
   }
 
   /** Live state of a worker id (for the views), or null if offline. */
@@ -164,9 +179,13 @@ function createWorkerHub(opts = {}) {
     if (!dbAvailable()) return;
     const idle = [...conns.values()].filter((c) => c.ready && !c.currentJobId && !c.draining);
     if (!idle.length) return;
-    const queued = await store.listQueued(200);
+    const queued = [];
+    for (const job of await store.listQueued(200)) {
+      if (job.replace_song_id && !job.replace_target_id) notify(await store.failTargetGone(job.id));
+      else queued.push(job);
+    }
     if (!queued.length) return;
-    const plan = planAssignments(queued, idle.map((c) => ({ conn: c, userId: c.userId, idleSince: c.idleSince })));
+    const plan = planAssignments(queued, idle.map((c) => ({ conn: c, userId: c.userId, idleSince: c.idleSince, canReplace: c.canReplace })));
     for (const { job, worker } of plan) {
       const conn = worker.conn;
       if (conn.currentJobId || conn.draining || conns.get(conn.worker.id) !== conn) continue;
@@ -223,6 +242,7 @@ function createWorkerHub(opts = {}) {
     const prev = conns.get(worker.id);
     const conn = {
       ws, worker, userId: apiUser.userId || null, tokenId: apiUser.id, ownerName,
+      canReplace: Array.isArray(msg.capabilities) && msg.capabilities.includes(CAP_REPLACE),
       currentJobId: null, draining: false, ready: false,
       idleSince: Date.now(), connectedAt: Date.now(), lastSeen: Date.now(),
     };

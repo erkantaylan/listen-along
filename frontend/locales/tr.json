@@ -271,7 +271,8 @@
   },
   "songMenu": {
     "openOn": "{host} ile aç",
-    "copyLink": "Bağlantıyı kopyala"
+    "copyLink": "Bağlantıyı kopyala",
+    "replaceWith": "Şununla değiştir…"
   },
   "radio": {
     "title": "Radyo",

@@ -239,6 +239,12 @@ async function createTables() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_song_replacements_song ON library_song_replacements(song_id, created_at DESC)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_song_replacements_old_yt ON library_song_replacements(old_youtube_id)`).catch(() => {});
+  // Migration: kind 'audio' (a replace) or 'details' (title / artist / album
+  // only, sha unchanged), and for a replace job what ran it and who asked.
+  await pool.query(`ALTER TABLE library_song_replacements ADD COLUMN IF NOT EXISTS kind VARCHAR(16) NOT NULL DEFAULT 'audio'`).catch(() => {});
+  await pool.query(`ALTER TABLE library_song_replacements ADD COLUMN IF NOT EXISTS job_id UUID`).catch(() => {});
+  await pool.query(`ALTER TABLE library_song_replacements ADD COLUMN IF NOT EXISTS worker_name VARCHAR(100)`).catch(() => {});
+  await pool.query(`ALTER TABLE library_song_replacements ADD COLUMN IF NOT EXISTS requested_by VARCHAR(255)`).catch(() => {});
 
   // "Mark as broken — needs replacement" reports (songReports.js). One OPEN
   // report per user per song (partial unique index); re-marking updates the
@@ -350,6 +356,14 @@ async function createTables() {
     )
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_download_jobs_status ON download_jobs(status, created_at)`).catch(() => {});
+  // Migration: replace jobs (source 'replace'). The job downloads a video and
+  // replaces this song, keeping these details. No FK: a deleted song fails the
+  // job with a clear error, and its history stays. One active job per song.
+  await pool.query(`ALTER TABLE download_jobs ADD COLUMN IF NOT EXISTS replace_song_id UUID`).catch(() => {});
+  await pool.query(`ALTER TABLE download_jobs ADD COLUMN IF NOT EXISTS replace_title TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE download_jobs ADD COLUMN IF NOT EXISTS replace_artist TEXT`).catch(() => {});
+  await pool.query(`ALTER TABLE download_jobs ADD COLUMN IF NOT EXISTS replace_album TEXT`).catch(() => {});
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_download_jobs_replace_active ON download_jobs(replace_song_id) WHERE replace_song_id IS NOT NULL AND status IN ('queued', 'assigned')`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_download_jobs_requester ON download_jobs(requested_by_user_id, created_at DESC)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_download_jobs_request ON download_jobs(request_id)`).catch(() => {});
 

@@ -55,6 +55,19 @@ where lobby persistence broke entirely on deployed instances.
   `library:updated { replaced }` (players reload the new file). Audio
   responses are `no-cache` unless the url has `?v=<file_version>`: never mark
   song urls immutable again, a song's file can change under the same url.
+- Editing a song is one dialog ("Replace with…", `frontend/replace-dialog.js`,
+  DESIGN.md). Details only: `PATCH /api/library/:id` (`library.updateDetails`;
+  same access as replace, audit row kind `details`, recomputes `meta_key`, no
+  duplicate_metadata refusal, as on replace; queues rewritten, `library:updated
+  { details }`, the audio plays on). A new YouTube link: `POST /api/jobs/replace`
+  (web, approved; rules in `checkReplace`: `same_video`, `already_in_library`,
+  `replace_job_active`), a job with `replace_song_id` + `replace_title|artist|album`;
+  partial unique index = one active per song. A worker's upload with `job_id`
+  goes to `/replace`, where the server forces the job's details and video and
+  finishes the job itself; an ordinary upload for that job is refused. A file by
+  hand drops a waiting job and is refused (409) while one runs. A details edit
+  updates an active job's kept fields. Deleting the song fails its jobs
+  (`SONG_DELETED`).
 - Broken songs ("needs replacement", `songReports.js`, table
   `library_song_reports`): approved users / owned tokens `POST|DELETE
   /api/library/:id/report` (one open report per user per song, partial unique
@@ -71,7 +84,9 @@ where lobby persistence broke entirely on deployed instances.
   upgrade event, not Socket.IO; token in the first `hello` message; protocol
   documented at the top of `backend/src/workerHub.js`). `workerHub.js`
   routes queued jobs (`planAssignments`: requester's own idle worker first,
-  else any idle worker longest-idle first, else wait; one job per worker),
+  else any idle worker longest-idle first, else wait; one job per worker;
+  replace jobs only to a worker whose hello has capability `replace`, la 0.2.0+:
+  an older one would upload a duplicate new song),
   requeues a job whose worker disconnects after `WORKER_REQUEUE_GRACE_MS`
   (default 20s; a reconnecting worker reclaims it via `current_job_id`),
   requeues all `assigned` jobs at boot. `downloadJobs.js` is the store

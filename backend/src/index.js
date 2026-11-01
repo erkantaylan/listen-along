@@ -409,10 +409,15 @@ app.use(createLibraryRouter({
   },
   onSongAdded: (song, fulfilled) => { handleLibrarySongAdded(song, fulfilled).catch(err => console.error('[library] post-upload handling failed:', err)); },
   onRequestsChanged: () => io.to(APP_ROOM).emit('requests:updated'),
-  onSongRemoved: (song) => io.to(APP_ROOM).emit('library:updated', { removed: song.id }),
+  onSongRemoved: (song) => {
+    io.to(APP_ROOM).emit('library:updated', { removed: song.id });
+    downloadJobs.failReplaceJobsForSong(song.id).then((rows) => rows.forEach(emitJob)).catch(() => {});
+  },
   // Marked / unmarked broken, or reports dismissed: badges everywhere refresh.
   onReportsChanged: (songId) => io.to(APP_ROOM).emit('library:updated', { reports: { id: songId } }),
   onSongReplaced: (song, previous) => { handleLibrarySongReplaced(song, previous).catch(err => console.error('[library] post-replace handling failed:', err)); },
+  onSongDetailsChanged: (song, previous) => { handleLibrarySongDetailsChanged(song, previous).catch(err => console.error('[library] post-edit handling failed:', err)); },
+  onJobUpdated: emitJob,
   loginRateLimit: rateLimit,
   // Library / requests reads from the web app: an approved account.
   requireWebUser: userAuth.requireLevel('approved')
@@ -1420,6 +1425,30 @@ async function emitUnavailableSongs(target, songs) {
 // position (frontend player.reloadReplaced).
 async function handleLibrarySongReplaced(librarySong, previous) {
   const pub = library.toPublic(librarySong);
+  const { entry, oldUrls, rewritten } = await rewriteQueueEntries(librarySong, previous, { covers: true });
+  io.to(APP_ROOM).emit('library:updated', {
+    song: pub,
+    replaced: { id: librarySong.id, oldUrls, url: entry.url, file_version: pub.file_version },
+  });
+  for (const url of new Set([entry.url, librarySong.source_url].filter(Boolean))) {
+    io.to(APP_ROOM).emit('download:status', { url, status: 'ready', percent: 100 });
+  }
+  if (rewritten) console.log(`[library] replaced ${librarySong.id}: rewrote ${rewritten} queue entr${rewritten === 1 ? 'y' : 'ies'}`);
+}
+
+// Only the title, artist or album changed: queue entries follow, and players
+// update what they show without touching the audio (library:updated { details }).
+async function handleLibrarySongDetailsChanged(librarySong, previous) {
+  const { entry, oldUrls } = await rewriteQueueEntries(librarySong, previous, { covers: false });
+  io.to(APP_ROOM).emit('library:updated', {
+    song: library.toPublic(librarySong),
+    details: { id: librarySong.id, oldUrls, url: entry.url },
+  });
+}
+
+// Every entry of every playlist holding the song gets its current url / title
+// / duration / cover; viewers get queue:update.
+async function rewriteQueueEntries(librarySong, previous, { covers: withCovers }) {
   const entry = library.toQueueEntry(librarySong);
   const oldUrls = [...new Set([library.queueUrlFor(previous), `library:${previous.id}`, previous.source_url].filter(Boolean))];
   // Queues already in memory, plus (below) any in the DB that hold the song.
@@ -1442,22 +1471,15 @@ async function handleLibrarySongReplaced(librarySong, previous) {
       if (!hits.length) continue;
       for (const s of hits) {
         queue.updateSong(s.id, { ...entry, artistName: library.queueArtist(librarySong) });
-        if (entry.thumbnail) covers.cacheCover(s.id, entry.thumbnail).catch(() => {});
+        if (withCovers && entry.thumbnail) covers.cacheCover(s.id, entry.thumbnail).catch(() => {});
         rewritten++;
       }
       io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
     } catch (err) {
-      console.error(`[library] could not rewrite queue of ${lobbyId} after a replace:`, err.message);
+      console.error(`[library] could not rewrite queue of ${lobbyId} after a change:`, err.message);
     }
   }
-  io.to(APP_ROOM).emit('library:updated', {
-    song: pub,
-    replaced: { id: librarySong.id, oldUrls, url: entry.url, file_version: pub.file_version },
-  });
-  for (const url of new Set([entry.url, librarySong.source_url].filter(Boolean))) {
-    io.to(APP_ROOM).emit('download:status', { url, status: 'ready', percent: 100 });
-  }
-  if (rewritten) console.log(`[library] replaced ${librarySong.id}: rewrote ${rewritten} queue entr${rewritten === 1 ? 'y' : 'ies'}`);
+  return { entry, oldUrls, rewritten };
 }
 
 // A song was uploaded (or an upload hit an existing song that fulfils

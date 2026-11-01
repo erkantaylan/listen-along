@@ -89,6 +89,8 @@ function sendSongFile(req, res, song, { download = false } = {}) {
  * @param {() => void} [hooks.onRequestsChanged] - after a request is fulfilled/dismissed
  * @param {(song: object) => void} [hooks.onSongRemoved] - after an admin deletes a song
  * @param {(song: object, previous: object) => void} [hooks.onSongReplaced] - after a song's audio was replaced
+ * @param {(song: object, previous: object) => void} [hooks.onSongDetailsChanged] - after its title, artist or album changed
+ * @param {(job: object) => void} [hooks.onJobUpdated] - a job changed here (a replace finished or dropped one)
  * @param {Function} [hooks.loginRateLimit] - middleware for POST /api/admin/login
  * @param {Function} [hooks.requireWebUser] - middleware: is the caller a web user allowed to read?
  * @param {(job: object, song: object) => void} [hooks.onJobUpload] - a worker uploaded a song for a job
@@ -100,6 +102,8 @@ function createLibraryRouter(hooks = {}) {
   const onRequestsChanged = hooks.onRequestsChanged || (() => {});
   const onSongRemoved = hooks.onSongRemoved || (() => {});
   const onSongReplaced = hooks.onSongReplaced || (() => {});
+  const onSongDetailsChanged = hooks.onSongDetailsChanged || (() => {});
+  const onJobUpdated = hooks.onJobUpdated || (() => {});
   const onJobUpload = hooks.onJobUpload || (() => {});
   const onRequestDismissed = hooks.onRequestDismissed || (() => {});
   const onReportsChanged = hooks.onReportsChanged || (() => {});
@@ -201,6 +205,11 @@ function createLibraryRouter(hooks = {}) {
     try {
       // Upload records: the worker (worker_id), its job (job_id) and who asked.
       const ctx = await downloadJobs.uploadContext(req.apiUser, req.body || {}, fields);
+      // Never let a replace job become a new song, whatever the worker does.
+      if (ctx.job && ctx.job.replace_song_id) {
+        cleanupTmp();
+        return res.status(409).json({ error: 'This job replaces a song; it cannot upload a new one', code: 'replace_job_upload' });
+      }
       if (ctx.requestId && !fields.request_id) fields.request_id = ctx.requestId;
       const uploader = {
         ...req.apiUser,
@@ -291,8 +300,47 @@ function createLibraryRouter(hooks = {}) {
       return res.status(err.status || 400).json({ error: err.message });
     }
     try {
-      const actor = actorOf(req);
+      let actor = actorOf(req);
+      let job = null;
+      let worker = null;
+      if (req.apiUser && (req.body || {}).job_id) {
+        // A worker running a replace job: it must still hold the job, for this
+        // song. The job says what the song becomes; the file gives the duration.
+        const ctx = await downloadJobs.uploadContext(req.apiUser, req.body, {});
+        const usable = ctx.job && ctx.job.replace_song_id === req.params.id && ['queued', 'assigned'].includes(ctx.job.status);
+        if (!usable) {
+          cleanupTmp();
+          return res.status(409).json({ error: 'This job is no longer active for this song', code: 'replace_job_stale' });
+        }
+        job = ctx.job;
+        worker = await downloadJobs.getWorker(ctx.workerId);
+        const youtubeId = library.parseYoutubeId(job.input);
+        fields = {
+          ...fields, title: job.replace_title, artist: job.replace_artist, album: job.replace_album || null,
+          youtube_id: youtubeId, source_url: library.youtubeUrl(youtubeId), duration_sec: null,
+        };
+        actor = { ...actor, jobId: job.id, workerName: ctx.workerName, requestedBy: job.requested_by || null };
+      } else {
+        // By hand: a job still waiting is overtaken below; one running is not.
+        const active = await downloadJobs.activeReplaceJob(req.params.id);
+        if (active && active.status === 'assigned') {
+          cleanupTmp();
+          return res.status(409).json({ error: 'A downloader is replacing this song right now; try again when it is done', code: 'replace_job_active' });
+        }
+      }
       const { song, previous, resolvedReports } = await library.replaceSong(req.params.id, req.file, fields, actor);
+      if (job) {
+        // Done now, not when the worker reports: a worker that drops right
+        // after this must not run it again (it would be the same file).
+        const finished = await downloadJobs.finish(job.id, { id: worker.id, name: worker.name, ownerName: downloadJobs.workerOwnerName(worker) }, {
+          summary: { total: 1, replaced: 1 },
+          results: [{ status: 'replaced', song_id: song.id, title: song.title, artist: song.artist, youtube_id: song.youtube_id }],
+        }).catch((err) => { console.error('[library] could not finish replace job:', err.message); return null; });
+        if (finished) { try { onJobUpdated(finished.job); } catch {} }
+      } else {
+        const dropped = await downloadJobs.cancelReplaceJobsForSong(song.id, 'Replaced by an uploaded file').catch(() => []);
+        for (const row of dropped) { try { onJobUpdated(row); } catch {} }
+      }
       console.log(`[library] ${actor.name} replaced the audio of ${song.id}: "${previous.title}" by ${previous.artist} -> "${song.title}" by ${song.artist}${resolvedReports ? `; resolved ${resolvedReports} report(s)` : ''}`);
       try { onSongReplaced(song, previous); } catch (err) { console.error('[library] onSongReplaced hook failed:', err); }
       res.json({
@@ -317,6 +365,25 @@ function createLibraryRouter(hooks = {}) {
       }
       console.error('[library] replace error:', err);
       res.status(500).json({ error: 'Replace failed' });
+    }
+  });
+
+  // Title, artist and album only (the audio stays): same access as replace,
+  // audited. Body: { title?, artist?, album? } (an empty album clears it).
+  router.patch('/api/library/:id', writeAccess, requireDb, async (req, res) => {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    try {
+      const actor = actorOf(req);
+      const { song, previous } = await library.updateDetails(req.params.id, body, actor);
+      console.log(`[library] ${actor.name} changed the details of ${song.id}: "${previous.title}" by ${previous.artist} -> "${song.title}" by ${song.artist}`);
+      try { onSongDetailsChanged(song, previous); } catch (err) { console.error('[library] onSongDetailsChanged hook failed:', err); }
+      const pub = library.toPublic(song);
+      await songReports.attachReports([pub], viewerOf(req)).catch(() => {});
+      res.json({ song: pub });
+    } catch (err) {
+      if (err instanceof library.UploadError) return res.status(err.status).json({ error: err.message, code: err.code || undefined });
+      console.error('[library] details error:', err);
+      res.status(500).json({ error: 'Could not save the details' });
     }
   });
 
@@ -361,7 +428,8 @@ function createLibraryRouter(hooks = {}) {
     const song = await library.getById(req.params.id).catch(() => null);
     if (!song) return res.status(404).json({ error: 'Song not found' });
     const rows = await library.listReplacements(song.id);
-    res.json({ replacements: rows });
+    // Names only: no account or token ids.
+    res.json({ replacements: rows.map(({ replaced_by_user_id, replaced_by_token, ...row }) => row) });
   });
 
   router.get('/api/library/:id', readAccess, requireDb, async (req, res) => {

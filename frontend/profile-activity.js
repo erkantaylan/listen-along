@@ -82,7 +82,7 @@ function render() {
       const theme = { queued: 'theme-warning', assigned: 'theme-primary', done: 'theme-success', failed: 'theme-danger', cancelled: 'theme-secondary' }[j.status] || 'theme-secondary';
       const by = j.worker ? `${j.status === 'assigned' ? 'downloading on' : 'by'} ${esc(j.worker.name)}${j.worker.owner ? ` (${esc(j.worker.owner)})` : ''}` : '';
       const what = j.song ? song(j.song) : esc(j.title || j.input);
-      return { at: j.created_at, html: row(what, ['Download box', by, j.error_code ? esc(j.error_code) : '', when(j.created_at)].filter(Boolean).join(' · '), badge(theme, j.status === 'assigned' ? 'downloading' : j.status)) };
+      return { at: j.created_at, html: row(what, [j.replace ? 'Replace from a link' : 'Download box', by, j.error_code ? esc(j.error_code) : '', when(j.created_at)].filter(Boolean).join(' · '), badge(theme, j.status === 'assigned' ? 'downloading' : j.status)) };
     });
     const all = [...reqs, ...jobs].sort((a, b) => new Date(b.at) - new Date(a.at));
     list.innerHTML = all.length ? all.map((x) => x.html).join('') : empty('Nothing yet. Songs you request in a playlist or download from the library show up here.');

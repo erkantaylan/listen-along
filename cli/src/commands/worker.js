@@ -14,6 +14,9 @@ const { WorkerClient } = require('../worker');
 const { percentThrottle } = require('../progress');
 const pkg = require('../../package.json');
 
+/** Told to the server in the hello: it sends replace jobs only to workers that say so. */
+const CAPABILITIES = ['replace'];
+
 /** Output for one job: progress lines go to the terminal AND to the server. */
 class JobOutput extends Output {
   constructor(base, jobId, onProgress) {
@@ -137,12 +140,19 @@ async function runJob(ctx, values, opts, job, { progress, signal, workerId }) {
   };
   const base = ctx.getApi();
   const api = Object.create(base);
-  api.upload = (file, fields, uploadOpts) => {
-    if (signal.aborted) return Promise.reject(aborted());
+  const jobFields = (fields) => {
     const extra = { job_id: job.id };
     const wid = workerId();
     if (wid) extra.worker_id = wid;
-    return base.upload.call(api, file, { ...fields, ...extra }, uploadOpts);
+    return { ...fields, ...extra };
+  };
+  api.upload = (file, fields, uploadOpts) => {
+    if (signal.aborted) return Promise.reject(aborted());
+    return base.upload.call(api, file, jobFields(fields), uploadOpts);
+  };
+  api.replace = (id, file, fields, uploadOpts) => {
+    if (signal.aborted) return Promise.reject(aborted());
+    return base.replace.call(api, id, file, jobFields(fields), uploadOpts);
   };
   const sleep = (ms) => new Promise((resolve) => {
     if (signal.aborted) return resolve();
@@ -160,7 +170,9 @@ async function runJob(ctx, values, opts, job, { progress, signal, workerId }) {
   const input = { input: job.input, label: job.title || job.input, noPlaylist: job.no_playlist !== false };
   if (job.request_id) input.request_id = job.request_id;
   try {
-    await downloadAndUpload(deps, [input], { ...opts, skipLibraryCheck: true }, batch);
+    // A replace job: this song gets the new audio and keeps its details.
+    const replacing = job.replace ? { replace: job.replace.song_id, keepMeta: job.replace } : {};
+    await downloadAndUpload(deps, [input], { ...opts, skipLibraryCheck: true, ...replacing }, batch);
   } catch (err) {
     if (!isFatal(err)) throw err;
     // Auth / server unreachable / missing tool: give the job back.
@@ -180,7 +192,8 @@ module.exports = {
 listens on this computer) with your token and waits for download jobs. A job
 comes from a song request (someone queued a song the library does not have) or
 from the web app's Download box (a YouTube video / playlist link, a Spotify
-track link, or a search). Each job runs the same pipeline as \`la download\`
+track link, or a search), or from the song dialog's new YouTube link, which
+replaces that song's audio and keeps its title, artist and album. Each job runs the same pipeline as \`la download\`
 (yt-dlp m4a without re-encoding, tags, cover, duplicate checks) and uploads the
 result; a request's song is then added to the playlist it was requested from,
 a Download-box job's songs to the playlist the requester chose.
@@ -224,7 +237,7 @@ Needs Node.js 22 or newer.`,
 stdout for each event:
   {"event":"ready","name","server","user","ytdlp_version"}
   {"event":"connected","worker":{"id","name"}}
-  {"event":"job_started","job":{"id","kind","input","title","request_id"}}
+  {"event":"job_started","job":{"id","kind","input","title","request_id","replace"?}}
   {"event":"job_finished","job_id","status":"done|released","summary"?,"reason"?}
   {"event":"disconnected","code"}
   {"event":"stopped","exit_code"}
@@ -276,7 +289,7 @@ Exit: 0 after a graceful stop, 130 after a second Ctrl+C, 3 not configured,
       WebSocket: WebSocketImpl,
       backoffMs: ctx.deps.backoffMs,
       maxBackoffMs: ctx.deps.maxBackoffMs,
-      hello: { name, cli_version: pkg.version, ytdlp_version: ytdlpVersion },
+      hello: { name, cli_version: pkg.version, ytdlp_version: ytdlpVersion, capabilities: CAPABILITIES },
       runJob: async (job, ctl) => {
         const since = Date.now() - lastDownloadEnd;
         if (lastDownloadEnd && sleepSec > 0 && since < sleepSec * 1000) await wait(sleepSec * 1000 - since);
@@ -295,12 +308,12 @@ Exit: 0 after a graceful stop, 130 after a second Ctrl+C, 3 not configured,
         } else if (type === 'job_started') {
           const j = data.job;
           out.info(`Job ${j.id.slice(0, 8)}: ${j.title || j.input}${j.requested_by ? ` (asked by ${j.requested_by})` : ''}`);
-          event({ event: 'job_started', job: { id: j.id, kind: j.kind, input: j.input, title: j.title, request_id: j.request_id } });
+          event({ event: 'job_started', job: { id: j.id, kind: j.kind, input: j.input, title: j.title, request_id: j.request_id, ...(j.replace ? { replace: j.replace } : {}) } });
         } else if (type === 'job_finished') {
           const o = data.outcome;
           if (o.kind === 'done') {
             const s = o.result.summary || {};
-            out.info(`Job ${data.job.id.slice(0, 8)} finished: ${s.uploaded || 0} uploaded, ${s.skipped || 0} skipped, ${s.failed || 0} failed`);
+            out.info(`Job ${data.job.id.slice(0, 8)} finished: ${s.uploaded || 0} uploaded, ${s.replaced || 0} replaced, ${s.skipped || 0} skipped, ${s.failed || 0} failed`);
             event({ event: 'job_finished', job_id: data.job.id, status: 'done', summary: s });
           } else {
             out.info(`Job ${data.job.id.slice(0, 8)} given back: ${o.reason}`);

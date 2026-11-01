@@ -120,6 +120,55 @@ describe('la worker', () => {
     assert.ok(hub.messages.some((m) => m.type === 'drain'));
   });
 
+  const REPLACE_JOB = {
+    id: 'job-r', kind: 'video', input: 'https://www.youtube.com/watch?v=aaaaaaaaaa1', title: 'Old Band - Old Title', no_playlist: true,
+    replace: { song_id: 'song-9', title: 'Old Title', artist: 'Old Band', album: null },
+  };
+
+  test('advertises the replace capability; a replace job replaces the song and keeps its details', async () => {
+    server.state.songs.push({ id: 'song-9', title: 'Old Title', artist: 'Old Band' });
+    hub = stubHub(server, { jobs: [REPLACE_JOB] });
+    const d = deps();
+    const p = run(['worker', '--name', 'test-box', '--json'], { server, deps: d.deps });
+    const done = await until(() => hub.done[0], 'job:done');
+    assert.deepEqual(hub.conns[0].hello.capabilities, ['replace']);
+    assert.equal(done.type, 'job:done');
+    assert.equal(done.result.summary.replaced, 1);
+    assert.equal(done.result.results[0].status, 'replaced');
+    assert.equal(server.state.uploads.length, 0, 'never an ordinary upload');
+    assert.equal(server.state.replaces.length, 1);
+    const { id, fields } = server.state.replaces[0];
+    assert.equal(id, 'song-9');
+    assert.equal(fields.title, 'Old Title', 'not the video\'s');
+    assert.equal(fields.artist, 'Old Band');
+    assert.equal(fields.album, undefined);
+    assert.equal(fields.youtube_id, 'aaaaaaaaaa1');
+    assert.equal(fields.job_id, 'job-r');
+    assert.equal(fields.worker_id, WORKER_ID);
+    assert.ok(Number(fields.duration_sec) > 0, 'duration from the file');
+    const progress = hub.messages.filter((m) => m.type === 'job:progress' && m.stage === 'uploading');
+    assert.match(progress.at(-1).message, /100%$/, 'the throttled percent still goes out');
+    d.signals.emit('SIGINT');
+    const r = await p;
+    assert.equal(r.code, 0);
+    const started = r.stdout.trim().split('\n').map((l) => JSON.parse(l)).find((e) => e.event === 'job_started');
+    assert.equal(started.job.replace.song_id, 'song-9');
+  });
+
+  test('a replace the server refuses is a failed job with its code, not a release', async () => {
+    server.state.failReplace = () => ({ status: 409, body: { error: 'This file is already in the library as another song', code: 'duplicate_hash' } });
+    hub = stubHub(server, { jobs: [REPLACE_JOB] });
+    const d = deps();
+    const p = run(['worker', '--name', 'test-box'], { server, deps: d.deps });
+    const done = await until(() => hub.done[0], 'job:done');
+    assert.equal(done.type, 'job:done');
+    assert.equal(done.result.summary.failed, 1);
+    assert.equal(done.result.results[0].code, 'duplicate_hash');
+    assert.match(done.result.results[0].error, /another song/);
+    d.signals.emit('SIGINT');
+    assert.equal((await p).code, 0);
+  });
+
   test('request jobs upload with request_id; searches; failures report the CLI error code', async () => {
     server.state.requests.push({ id: 'req-7', title: 'Digital Love', artist: 'Daft Punk', status: 'pending' });
     hub = stubHub(server, {

@@ -112,7 +112,12 @@ for download jobs:
 - every new **song request** (someone queued a song the library does not
   have) — the song is then added to the playlist it was requested from;
 - the web app's **Download box** (Library → Download): a YouTube video or
-  playlist link, a Spotify track link, or a search, optionally into a playlist.
+  playlist link, a Spotify track link, or a search, optionally into a playlist;
+- a song's **Replace with…** dialog given a new YouTube link (needs `la` 0.2.0 or
+  newer; older workers are never sent these): the download replaces that song's
+  audio under its id through `POST /api/library/:id/replace`. The song keeps its
+  title, artist and album; only the duration comes from the new file. A file
+  that is already another song's fails the job, and nothing changes.
 
 Each job runs the `la download` pipeline (m4a without re-encoding, tags,
 cover, duplicate checks) and uploads with the job id, so the server records
