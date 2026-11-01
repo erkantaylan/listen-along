@@ -35,6 +35,7 @@ const { createListenAlong, createSourceResolver } = require('./listenAlong');
 const downloadJobs = require('./downloadJobs');
 const { createWorkerHub } = require('./workerHub');
 const { createJobRouter } = require('./jobRoutes');
+const { createStationRouter } = require('./stations');
 const resolver = createResolver();
 const QRCode = require('qrcode');
 const pkg = require('../package.json');
@@ -416,6 +417,9 @@ app.use(createLibraryRouter({
   // Library / requests reads from the web app: an approved account.
   requireWebUser: userAuth.requireLevel('approved')
 }));
+
+// Radio stations (stations.js). Approved accounts only, by the guard's default.
+app.use(createStationRouter());
 
 // The caller's own CLI tokens (profile page). Approved accounts only.
 app.use(createTokenRouter({
@@ -1938,7 +1942,7 @@ app.get(['/lobby/:id', '/lobby/:id/library'], (req, res) => {
 });
 
 // SPA views (auth guard applied above; the client routes them, see frontend/router.js)
-app.get(['/playlist/:id', '/playlist/:id/library', '/library', '/profile', '/social'], (req, res) => {
+app.get(['/playlist/:id', '/playlist/:id/library', '/library', '/radio', '/profile', '/social'], (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 

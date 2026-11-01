@@ -47,7 +47,7 @@ const PAUSE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="tr
 
 // Library songs as player tracks. Queue entries refer to library songs as
 // `library:<id>`, so the same song playing from a lobby also counts.
-function libraryTrack(song) {
+export function libraryTrack(song) {
   return {
     libraryId: song.id,
     url: `library:${song.id}`,
@@ -55,6 +55,7 @@ function libraryTrack(song) {
     src: `/api/library/${encodeURIComponent(song.id)}/file${song.file_version ? `?v=${encodeURIComponent(song.file_version)}` : ''}`,
     title: song.title,
     artist: song.artist || '',
+    youtubeId: song.youtube_id || null,
     thumbnail: song.youtube_id ? `https://i.ytimg.com/vi/${encodeURIComponent(song.youtube_id)}/hqdefault.jpg` : null,
     duration: song.duration_sec || 0,
   };

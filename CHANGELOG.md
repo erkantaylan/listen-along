@@ -8,6 +8,8 @@
 - change(web): edit mode drags cross any distance, the auto-scroll speeds up as you hold it, and holding an arrow key moves a song as one move. Live edits by someone else no longer move what you are looking at
 - fix(web): the song filter finds titles with `&` and quotes, and says so when nothing matches
 - change(server): a playlist reorder saves in one statement instead of one per song
+- feat(web): **Radio**, at the top of the sidebar and at `/radio`: every song in your own shuffled order. Opening it plays nothing; Play starts at the top, a row plays from there. No repeats until the list runs out, then a new shuffle. The order stays while it plays, also when you browse elsewhere and come back. Songs marked broken stay out. People listening along hear it, and the people panel names Radio as the source
+- feat(api): `GET /api/stations/:id` and `/api/stations/:id/songs` for approved web accounts (`all` is the only station); the now-playing context may be `{ type: 'radio' }`
 - feat(web): the playlists sidebar has filter chips (All, Mine, Public, Private) and a sort menu (Name A-Z in Turkish alphabet order, Date created). Pinned stays on top, search combines with both, and the choices are remembered in this browser. The rail keeps the sort and lists everything
 - change(web, android): no more coloured edge bars. Selected, playing and current rows are a background tint with a stronger title; success and error toasts are a tinted fill; in the library rail the current playlist is a solid avatar and a pinned one a tinted avatar
 - feat(web): the playlists sidebar collapses to a 72px rail of initials (pinned first, new playlist, tooltips, right-click menu) with a toggle that is remembered; automatically when the page column would drop under 616px

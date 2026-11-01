@@ -18,6 +18,8 @@ describe('frontend router: parseRoute', () => {
     assert.deepEqual(parseRoute('/profile'), { view: 'profile', lobbyId: null, library: null });
     assert.deepEqual(parseRoute('/dashboard'), { view: 'dashboard', lobbyId: null, library: null });
     assert.deepEqual(parseRoute('/social'), { view: 'social', lobbyId: null, library: null });
+    assert.deepEqual(parseRoute('/radio'), { view: 'radio', lobbyId: null, library: null });
+    assert.deepEqual(parseRoute('/radio/'), { view: 'radio', lobbyId: null, library: null });
     assert.deepEqual(parseRoute('/playlist/abc-123'), { view: 'lobby', lobbyId: 'abc-123', library: null });
   });
 
@@ -68,6 +70,7 @@ describe('frontend router: building URLs', () => {
     assert.equal(basePath({ view: 'landing' }), '/');
     assert.equal(basePath({ view: 'lobby', lobbyId: 'q' }), '/playlist/q');
     assert.equal(basePath({ view: 'profile' }), '/profile');
+    assert.equal(basePath({ view: 'radio' }), '/radio');
   });
 });
 

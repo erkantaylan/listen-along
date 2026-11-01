@@ -14,6 +14,7 @@ import { loadReports } from './song-reports.js';
 import { parseRoute, legacyRedirect } from './router.js';
 import { openNewPlaylistDialog } from './new-playlist.js';
 import { setupSidebar } from './sidebar.js';
+import { setupRadio, openRadioPage, closeRadioPage, handleRadioLibraryUpdated, refreshRadio } from './radio.js';
 import { scheduleReload } from './playlist-store.js';
 import { shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyUpdated, openPlaylistHeaderMenu, setupLandingMenus, handleUserJoined, handleUserLeft, handleLobbyClosed, checkForLastLobby, joinLobbyFromCard, updatePinButton, togglePin, quickPlayLobby, openLobbyPage, closeLobbyPage, syncMembership, resyncMembership, reportNowPlaying } from './lobby.js';
 import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, updatePlayButton, updatePlaybackModeUI, updateNowPlaying, _setQueueFns } from './playback.js';
@@ -51,7 +52,7 @@ function setupSocket() {
     let connectedBefore = false;
     s.on('connect', () => {
       console.log('Connected to server');
-      if (connectedBefore) { showToast(t('toast.reconnected', 'Reconnected!'), 'success'); resyncMembership(); loadReports(); scheduleReload(0); }
+      if (connectedBefore) { showToast(t('toast.reconnected', 'Reconnected!'), 'success'); resyncMembership(); loadReports(); scheduleReload(0); refreshRadio(); }
       connectedBefore = true;
     });
     s.on('disconnect', () => { console.log('Disconnected from server'); showToast(t('toast.connectionLost', 'Connection lost. Reconnecting...'), 'error'); });
@@ -79,6 +80,7 @@ function setupSocket() {
 
     // Library Events
     s.on('library:updated', handleLibraryUpdated);
+    s.on('library:updated', handleRadioLibraryUpdated);
     s.on('requests:updated', handleRequestsUpdated);
     // Download jobs (Download tab) and downloaders online.
     s.on('jobs:update', handleJobUpdate);
@@ -148,7 +150,7 @@ function resetLobbyPage() {
   resetLobbyUI();
 }
 
-const routeViews = { landing: 'landingView', lobby: 'lobbyView', profile: 'profileView' };
+const routeViews = { landing: 'landingView', lobby: 'lobbyView', profile: 'profileView', radio: 'radioView' };
 function isViewActive(view) {
   const el = elements[routeViews[view]];
   return !!el && el.classList.contains('active');
@@ -163,6 +165,7 @@ function applyRoute() {
   const route = parseRoute(window.location.pathname, window.location.search);
   if (route.view === 'dashboard') { window.location.reload(); return; }
   applySocialRoute(route.view === 'social');
+  if (route.view !== 'radio') closeRadioPage();
   if (route.view === 'social') {
     // Phones: the Social view covers the page; desktop: the sidebar over the
     // landing page (a playlist page under it would be left anyway).
@@ -174,6 +177,7 @@ function applyRoute() {
   } else {
     closeLobbyPage(resetLobbyPage);
     if (!isViewActive(route.view)) showView(route.view);
+    if (route.view === 'radio') openRadioPage();
   }
   refreshPlayerBar();
   if (route.library) showLibraryRoute(route.library);
@@ -238,16 +242,17 @@ function initAuthenticatedApp() {
   if (moved) history.replaceState(null, '', moved);
   const route = parseRoute(window.location.pathname, window.location.search);
   setupSidebar();
-  showView(route.view === 'profile' ? 'profile' : 'landing');
+  showView(route.view === 'profile' || route.view === 'radio' ? route.view : 'landing');
   setupSocket();
   setupEventListeners();
   setupProfilePage();
   applyRoute();
-  if (!route.lobbyId) checkForLastLobby();
+  if (!route.lobbyId && route.view !== 'radio') checkForLastLobby();
   setupRangeFill();
   setupAudioPlayer();
   setupPlayer();
   setupPlayerBarControls();
+  setupRadio();
   // Songs marked "needs replacement" (badges everywhere; song-reports.js).
   loadReports();
   // The full player and the lobby page follow the app-wide player.

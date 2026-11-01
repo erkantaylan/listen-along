@@ -4,7 +4,7 @@
 //
 // "Context" is what playback was last started from: a lobby queue
 // ({ type: 'lobby', lobbyId, name }), the music library list
-// ({ type: 'library' }), or another user while listening along
+// ({ type: 'library' }), Radio ({ type: 'radio', stationId }), or another user while listening along
 // ({ type: 'listen', leaderId, name }, no songs), plus its songs. It stays current while other pages
 // (and other lobbies) are shown, and changes only when play is pressed on a
 // song somewhere else (playFrom).
@@ -17,6 +17,8 @@
 //   player.setContext(ctx, songs, { keepDriver })  make a queue current without playing
 //   player.updateQueue(lobbyId, songs)   live queue update (ignored unless that lobby is the context)
 //   player.renameContext(lobbyId, name)
+//   player.replaceQueue(ctx, songs)      new order for a context that is no lobby (ignored unless it is current)
+//   player.setRefill(fn)                 fn(context, track) -> songs | null: what comes after the last song (Radio)
 //   player.playIndex(i) / playTrack(track, { position, autoplay })
 //   player.play() / pause() / toggle() / next() / previous() / seek(seconds) / stop()
 //     (these are the listener's own actions: each one ends a driver; the
@@ -46,6 +48,7 @@ let context = null;
 let queue = [];
 let track = null;
 let driver = null;
+let refill = null;
 
 const audio = () => elements.audioPlayer;
 
@@ -72,6 +75,7 @@ export function streamUrl(t) {
 function normalizeContext(ctx) {
   if (!ctx) return null;
   if (ctx.type === 'library') return { type: 'library', name: ctx.name || null };
+  if (ctx.type === 'radio') return { type: 'radio', stationId: ctx.stationId || null, name: ctx.name || null };
   if (ctx.type === 'listen') return ctx.leaderId ? { type: 'listen', leaderId: ctx.leaderId, name: ctx.name || null } : null;
   if (!ctx.lobbyId) return null;
   return { type: 'lobby', lobbyId: ctx.lobbyId, name: ctx.name || null };
@@ -80,6 +84,7 @@ function normalizeContext(ctx) {
 function sameContext(a, b) {
   if (!a || !b || a.type !== b.type) return false;
   if (a.type === 'listen') return a.leaderId === b.leaderId;
+  if (a.type === 'radio') return a.stationId === b.stationId;
   return a.type === 'library' || a.lobbyId === b.lobbyId;
 }
 
@@ -132,6 +137,14 @@ export const player = {
     emit('queue', queue);
   },
 
+  replaceQueue(ctx, songs) {
+    if (!sameContext(context, normalizeContext(ctx))) return;
+    queue = Array.isArray(songs) ? songs.slice() : [];
+    emit('queue', queue);
+  },
+
+  setRefill(fn) { refill = fn || null; },
+
   // Play `index` of a context's songs; switches the context when it is another one.
   playFrom(ctx, songs, index) {
     takeover();
@@ -175,13 +188,24 @@ export const player = {
 
   next({ auto = false } = {}) {
     if (!auto) takeover();
-    const i = nextIndex({
+    // Radio is shuffled already and has its own next round: no random jumps
+    // (they would repeat songs), and "repeat all" would replay the same order.
+    const radio = !!context && context.type === 'radio';
+    let i = nextIndex({
       length: queue.length,
       current: this.index,
-      repeat: state.repeatMode,
-      shuffle: state.isShuffleEnabled,
+      repeat: radio && state.repeatMode === 'all' ? 'off' : state.repeatMode,
+      shuffle: state.isShuffleEnabled && !radio,
       auto,
     });
+    if (i < 0 && refill) {
+      const songs = refill(context, track);
+      if (songs && songs.length) {
+        queue = songs.slice();
+        emit('queue', queue);
+        i = 0;
+      }
+    }
     if (i < 0) { this.pause(); return; }
     this.playIndex(i, { manual: false });
   },

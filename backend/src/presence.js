@@ -25,7 +25,7 @@
  * listen-along can resolve the library file; kept out of `track` and never
  * sent to clients by viewNowPlaying(). updatedAt = server time of the report,
  * the anchor for `position`.
- * context = { type: 'library' } | { type: 'lobby', lobbyId } | null
+ * context = { type: 'library' } | { type: 'radio' } | { type: 'lobby', lobbyId } | null
  *
  * A lobby context is the raw playlist id. Never send an entry to a client as
  * it is: viewNowPlaying() drops the playlist unless the viewer may see it.
@@ -64,6 +64,7 @@ function normalizeReport(report) {
   let context = null;
   const c = report.context;
   if (c && c.type === 'library') context = { type: 'library' };
+  else if (c && c.type === 'radio') context = { type: 'radio' };
   else if (c && c.type === 'lobby' && typeof c.lobbyId === 'string' && /^[a-zA-Z0-9-]{1,64}$/.test(c.lobbyId)) {
     context = { type: 'lobby', lobbyId: c.lobbyId };
   }
@@ -193,6 +194,8 @@ function viewNowPlaying(entry, lobbyFor) {
   let context = null;
   if (entry.context && entry.context.type === 'library') {
     context = { type: 'library' };
+  } else if (entry.context && entry.context.type === 'radio') {
+    context = { type: 'radio' };
   } else if (entry.context && entry.context.type === 'lobby') {
     const l = lobbyFor(entry.context.lobbyId);
     if (l) context = { type: 'lobby', lobbyId: l.id, name: l.name || null, socketId: entry.socketId };

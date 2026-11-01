@@ -5,6 +5,7 @@
 //   /playlist/<id>             playlist (internally the view is still "lobby")
 //   /library                   music library (no playlist; Add is disabled)
 //   /playlist/<id>/library     music library over a playlist (Add targets it)
+//   /radio                     Radio: every song, shuffled (radio.js)
 //   /profile                   own profile
 //   /social                    chat + people (full-screen below 1010px; from
 //                              1010px the column beside the current page)
@@ -52,6 +53,8 @@ export function parseRoute(pathname, search = '') {
     withLibrary = !!lobbyMatch[2];
   } else if (/^\/library\/?$/.test(pathname)) {
     withLibrary = true;
+  } else if (/^\/radio\/?$/.test(pathname)) {
+    view = 'radio';
   } else if (/^\/profile\/?$/.test(pathname)) {
     view = 'profile';
   } else if (/^\/social\/?$/.test(pathname)) {
@@ -80,6 +83,7 @@ function parseLibraryParams(params) {
 // The path for a view without the library overlay.
 export function basePath({ view, lobbyId }) {
   if (view === 'lobby' && lobbyId) return playlistPath(lobbyId);
+  if (view === 'radio') return '/radio';
   if (view === 'profile') return '/profile';
   if (view === 'social') return '/social';
   if (view === 'dashboard') return '/dashboard';

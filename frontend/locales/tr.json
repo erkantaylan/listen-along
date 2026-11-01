@@ -272,5 +272,18 @@
   "songMenu": {
     "openOn": "{host} ile aç",
     "copyLink": "Bağlantıyı kopyala"
+  },
+  "radio": {
+    "title": "Radyo",
+    "subtitle": "{count} şarkının tümü, karışık",
+    "subtitleLoading": "Tüm şarkılar, karışık",
+    "subtitleEmpty": "Henüz şarkı yok",
+    "nowPlaying": "çalıyor",
+    "reshuffle": "Yeniden karıştır",
+    "loadFailed": "Radyo yüklenemedi",
+    "retry": "Tekrar dene",
+    "emptyTitle": "Henüz çalınacak şarkı yok",
+    "emptyHint": "Şarkılar müzik kütüphanesine girer girmez burada olur.",
+    "statsLabel": "Radyo istatistikleri"
   }
 }

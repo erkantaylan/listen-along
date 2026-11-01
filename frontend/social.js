@@ -278,6 +278,7 @@ function contextLabel(np) {
   const c = np && np.context;
   if (!c) return '';
   if (c.type === 'library') return t('player.fromLibrary', 'Music Library');
+  if (c.type === 'radio') return t('radio.title', 'Radio');
   return c.name || t('social.aPlaylist', 'a playlist');
 }
 
@@ -452,7 +453,7 @@ export function reportNowPlaying() {
     const ctx = player.context;
     S.socket.emit('presence:now-playing', tr ? {
       track: { id: tr.id || null, title: tr.title, artist: tr.artist || null, thumbnail: tr.thumbnail || null, url: tr.url || null },
-      context: ctx ? (ctx.type === 'library' ? { type: 'library' } : { type: 'lobby', lobbyId: ctx.lobbyId }) : null,
+      context: ctx ? (ctx.type === 'library' || ctx.type === 'radio' ? { type: ctx.type } : { type: 'lobby', lobbyId: ctx.lobbyId }) : null,
       playing: player.isPlaying,
       position: player.currentTime,
       duration: player.duration,

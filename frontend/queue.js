@@ -409,13 +409,13 @@ const EQ_HTML = '<span class="person-eq queue-item-eq" aria-hidden="true"><i></i
 
 // The # cell: the position, which becomes a play (or pause) button on hover and
 // focus. The song playing right now shows the equaliser instead of its number.
-function playCellHtml(position, isPlaying) {
+export function playCellHtml(position, isPlaying) {
   const sounding = isPlaying && player.isPlaying;
   return (sounding ? EQ_HTML : `<span class="queue-item-pos">${position}</span>`)
     + `<svg class="queue-item-glyph" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="${sounding ? PAUSE_PATH : PLAY_PATH}"/></svg>`;
 }
 
-function playCellLabel(title, sounding) {
+export function playCellLabel(title, sounding) {
   return sounding ? t('queue.pauseNamed', `Pause ${title}`, { title }) : t('queue.playNamed', `Play ${title}`, { title });
 }
 
@@ -493,7 +493,7 @@ function emptyRowHtml(title, hint) {
 
 // The stats strip above the table, always over the whole playlist (the page holds
 // every entry; only the rows are windowed), whatever the filter shows.
-function statsHtml(songs) {
+export function statsHtml(songs) {
   const number = (n) => `<b>${escapeHtml(new Intl.NumberFormat(addedLocale()).format(n))}</b>`;
   const item = (html, title = '') => `<li${title ? ` title="${escapeHtml(title)}"` : ''}>${html}</li>`;
   const name = (value) => `<b class="playlist-stat-name">${escapeHtml(value)}</b>`;

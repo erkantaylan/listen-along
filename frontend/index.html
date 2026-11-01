@@ -230,6 +230,44 @@
     </div>
   </div>
 
+  <!-- Radio: every song, shuffled (radio.js) -->
+  <div id="radio-view" class="view">
+    <nav class="navbar app-navbar lobby-header">
+      <div class="container">
+        <button class="btn-text theme-secondary btn-icon plnav-open-btn" type="button" data-plnav-open aria-controls="app-sidebar" aria-expanded="false" aria-label="Open playlists" title="Open playlists" data-i18n-aria-label="sidebar.open" data-i18n-title="sidebar.open">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+        </button>
+        <button id="radio-back" class="btn-text theme-secondary btn-icon radio-back" type="button" aria-label="Back" title="Back">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+        </button>
+        <div class="lobby-info min-w-0 me-auto">
+          <h1 class="h6 mb-0 text-truncate" data-i18n="radio.title">Radio</h1>
+        </div>
+        <div class="d-flex align-items-center gap-2 flex-shrink-0">
+          <button id="radio-reshuffle" class="btn-text theme-secondary btn-icon" type="button" aria-label="Reshuffle" title="Reshuffle" data-i18n-aria-label="radio.reshuffle" data-i18n-title="radio.reshuffle" disabled>
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
+          </button>
+          <button id="radio-play" class="btn-solid theme-primary flex-shrink-0" type="button" disabled>
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+            <span id="radio-play-label">Play</span>
+          </button>
+        </div>
+      </div>
+    </nav>
+    <div id="radio-body" class="lobby-body">
+      <div class="container lobby-container radio-table">
+        <ul id="radio-stats" class="playlist-stats" aria-label="Radio stats" data-i18n-aria-label="radio.statsLabel"></ul>
+        <div id="radio-head" class="queue-head fs-xs fg-3" aria-hidden="true" hidden>
+          <span class="queue-head-num">#</span>
+          <span data-i18n="queue.colTitle">Title</span>
+          <span class="queue-col-dur" data-i18n="queue.colDuration">Duration</span>
+          <span></span>
+        </div>
+        <ul id="radio-list" class="list-group queue-list" role="list" aria-label="Radio" data-i18n-aria-label="radio.title"></ul>
+      </div>
+    </div>
+  </div>
+
   <!-- Pending Approval View -->
   <div id="pending-view" class="view">
     <nav class="navbar app-navbar">
@@ -583,6 +621,14 @@
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
       </button>
     </div>
+    <a id="plnav-radio" class="plnav-radio" href="/radio">
+      <span class="plnav-radio-icon"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.24 6.15C2.51 6.43 2 7.17 2 8v12c0 1.1.89 2 2 2h16c1.11 0 2-.9 2-2V8c0-1.11-.89-2-2-2H8.3l8.26-3.34L15.88 1 3.24 6.15zM7 20c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm13-8h-2v-2h-2v2H4V8h16v4z"/></svg></span>
+      <span class="plnav-radio-text">
+        <span class="plnav-radio-name" data-i18n="radio.title">Radio</span>
+        <span id="plnav-radio-meta" class="plnav-radio-meta">All songs, shuffled</span>
+      </span>
+      <span class="person-eq plnav-radio-eq" aria-hidden="true"><i></i><i></i><i></i></span>
+    </a>
     <div class="d-flex align-items-center gap-2 plnav-title-row">
       <h2 id="plnav-title" class="h6 mb-0 min-w-0 text-truncate" data-i18n="landing.playlists">Playlists</h2>
       <button id="plnav-sort" class="btn-text theme-secondary btn-sm plnav-sort" type="button" aria-haspopup="menu" aria-expanded="false">

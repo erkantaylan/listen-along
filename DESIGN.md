@@ -212,6 +212,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Cover art | `.app-thumb` (3rem square, grey placeholder with a music-note SVG). |
 | Playlist navigation | The one `#app-sidebar` (see "Playlists sidebar"). Never add a second playlist nav. |
 | Chat / people | The one `#social-panel` (see "Chat and people panel"). Never add a second chat or people list. |
+| Radio | The one `#plnav-radio` row and `#radio-view` (see "Radio"). A future station is another rule in `stations.js`, not another page. |
 | Player | The one app-wide `#player-bar` (`section.sticky-player.player-bar` in `index.html`, outside the views): see "Player bar" below. Never add a second player or a per-page `<audio>`. |
 | Context menu / small popover | `context-menu.js` (see "Context menu" below). Never a second menu implementation. |
 | Icons | Inline SVG (Material paths), `fill="currentColor"`, `aria-hidden="true"`. Inside buttons they are sized automatically (1.25rem, 1rem in `.btn-sm`); elsewhere add `.icon` or `.icon-sm`. |
@@ -365,6 +366,7 @@ Automatic widths, with nobody having touched the sidebar's toggle (L = sidebar, 
   outline, no shadow). One fact per line and no line wraps: `.stat-label` (`fs-sm fg-3`), `.stat-value` (`fs-2xl`), then optional
   `.stat-meta` lines (`fs-xs`) for what used to be crammed into the value: "1,234 private", "1,234 files", the warning-coloured
   "12 unregistered (1.2 GB)". Longer facts get a `.stat-meta` line, not a wider value.
+- **Radio** (`/radio`, `radio.js`, approved accounts): see "Radio" below.
 - **/youtube-playlist, /changelog**: navbar + narrow column of cards; Bootstrap and
   utilities only.
 
@@ -422,6 +424,26 @@ profile and the desktop `/social`; not on login, pending or `/dashboard`.
   `aria-pressed` + a label naming the playlist.
 - **Live**: refetches on socket `playlists:changed`, on `queue:update`, on reconnect and every 30s.
   It only touches the DOM when the markup changed, and focus follows the control when a row moves.
+
+### Radio
+
+Every song in the listener's own shuffled order, separate from the library, which stays as it is.
+
+- **Sidebar row** (`#plnav-radio`, a real link): between the head and "Playlists", outside `#plnav-list`, so search, chips, sort and scrolling
+  never touch it. Inset rounded box, 3.5rem tall, full `--app-info-border` outline on `--app-info-subtle`, radio icon, "Radio" over a live
+  "All 2,108 songs, shuffled". At rest the info tint, so it never reads as the selected row. While on `/radio` or while Radio is the player's source
+  it is `.is-current`: the selection tint (`--app-accent-subtle`, `--app-accent-border`, accent title); `.is-playing` adds the equaliser. No covers, no edge.
+- **Rail**: a 2.5rem box with the icon, above the title row and the initials; tooltip and `aria-label` carry the count. **Drawer**: the same row; navigating closes the drawer.
+- **Page**: navbar with ☰ / back, `h1.h6` "Radio", ghost Reshuffle and the view's primary Play / Pause. No hero, no art. Under it the stats strip (`statsHtml`) with songs and total length only,
+  then the playlist song table (`.queue-head`, `.queue-item`) with #, Title + artist, Duration, ⋮ at every column width from 480px, and the compact row under that. Windowed with `virtual-list.js`, so ↑ / ↓, Page Up / Down and Home / End work as on playlists.
+  No Added / Added by, edit mode, remove or reorder. The song menu works as on any song row.
+- **Behaviour**: opening plays nothing. Play starts at the top, so what you see is what you hear; a row plays from there (the song already playing is resumed, never
+  restarted). The order is made in the browser per opening and stays while the view is open and while Radio is the player's source, playing or paused, also across navigation (with the
+  current row scrolled into view). Opened when it is not the source: a fresh shuffle. Picking a song or playlist elsewhere replaces it, like any context.
+  At the end of the list a new shuffle starts that does not open with the song that just ended; Previous at its first song restarts that song.
+  Player bar: "artist · Radio", which opens `/radio`; the shuffle button is disabled (the list is the shuffle).
+- **Broken songs** (a default we can reverse): songs with an open report are not in Radio. Marked while it plays, the song on air finishes first.
+- **Library changes** (`library:updated`): songs that left go away, new ones land at a random place after the current song, nothing else moves.
 
 ### Modal dialogs
 
@@ -505,7 +527,7 @@ scroller. No "load more", no pager, and the sticky head and scrollbar act as if 
 - Keyboard: on a row, ↑ / ↓ walk rows, Page keys a screenful, Home / End the ends, rendered or not. Enter / Space plays. Tab goes through a row's buttons.
 - Someone else's edit keeps your place: the song at the top of the viewport stays put. Your own move or removal does not anchor, so the rows shift as they did under your hand.
 - The player bar's song opens its playlist and brings the current song to the centre. Playback never scrolls the list by itself.
-- For another long list (the planned Radio view) call `createVirtualList` and set `--vl-row-height`. The library keeps its 20-per-page pager: it is server-paged, so it holds no long list.
+- Radio uses it too. For another long list call `createVirtualList` and set `--vl-row-height`. The library keeps its 20-per-page pager: it is server-paged, so it holds no long list.
 
 **Edit mode** (playlist queue only; "Edit" → "Done" in the navbar, only for users who may edit;
 leaving the page always ends it; `queue-edit.js`):
@@ -665,7 +687,7 @@ never by `[hidden]`: `has-social` (signed in, socket up), `social-collapsed`
   anchored under the row — a **bottom sheet** below 576px (`sheet: true`, page dimmed).
   It shows a big avatar + presence ("Online" in green / "Last seen …"), the current song
   (cover thumbnail or a music placeholder, "Listening to" with the equaliser or "Paused",
-  title, artist, "from <playlist / Music Library>" only when the viewer may see it),
+  title, artist, "from <playlist / Music Library / Radio>" only when the viewer may see it),
   "N listening along" when they have followers (a count from `people:listeners`, no
   names), and one full-width action: primary **Listen along**, or tonal **Stop listening
   along** while you follow them (or whomever they follow). Disabled with a muted hint for

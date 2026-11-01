@@ -272,5 +272,18 @@
   "songMenu": {
     "openOn": "Open on {host}",
     "copyLink": "Copy link"
+  },
+  "radio": {
+    "title": "Radio",
+    "subtitle": "All {count} songs, shuffled",
+    "subtitleLoading": "All songs, shuffled",
+    "subtitleEmpty": "No songs yet",
+    "nowPlaying": "playing",
+    "reshuffle": "Reshuffle",
+    "loadFailed": "Could not load Radio",
+    "retry": "Try again",
+    "emptyTitle": "No songs to play yet",
+    "emptyHint": "Songs land here as soon as they are in the music library.",
+    "statsLabel": "Radio stats"
   }
 }

@@ -11,7 +11,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { io: ioClient } = require('socket.io-client');
 const chat = require('./chat');
-const { createPresence, viewNowPlaying } = require('./presence');
+const { createPresence, viewNowPlaying, normalizeReport } = require('./presence');
 
 const SECRET = 'social-test-secret';
 const ADMIN_PASSWORD = 'social-test-admin-pw';
@@ -475,5 +475,16 @@ describe('global chat and people panel against a running server', { timeout: 60_
     const after = (await ask(bob, 'people:list')).people.find(p => p.id === ALICE);
     assert.equal(after.online, false);
     assert.ok(after.lastSeen > 0, 'offline users stay listed');
+  });
+});
+
+describe('presence: Radio as a source', () => {
+  const report = { track: { title: 'Song' }, context: { type: 'radio', stationId: 'secret', lobbyId: 'abc' }, playing: true };
+  it('keeps only the type', () => {
+    assert.deepEqual(normalizeReport(report).context, { type: 'radio' });
+  });
+  it('shows to every viewer, with no playlist in it', () => {
+    const view = viewNowPlaying(normalizeReport(report), () => null);
+    assert.deepEqual(view.context, { type: 'radio' });
   });
 });

@@ -52,6 +52,7 @@ function refreshVisibility() {
 export function contextLabel(ctx) {
   if (!ctx) return '';
   if (ctx.type === 'library') return t('player.fromLibrary', 'Music Library');
+  if (ctx.type === 'radio') return t('radio.title', 'Radio');
   if (ctx.type === 'listen') {
     // Only while actually listening along (the track stays after stopping).
     const { leader } = listenState();
@@ -63,6 +64,7 @@ export function contextLabel(ctx) {
 function contextPath(ctx) {
   if (!ctx) return null;
   if (ctx.type === 'library') return '/library';
+  if (ctx.type === 'radio') return '/radio';
   if (ctx.type === 'listen') return null;
   return playlistPath(ctx.lobbyId);
 }
@@ -74,9 +76,12 @@ export function refreshPlayerBar() {
   const track = player.track;
   bar.classList.toggle('is-empty', !track);
   for (const id of CONTROL_IDS) { const el = $(id); if (el) el.disabled = !track; }
-  // With nothing loaded, Play starts the playlist on screen if it has songs.
+  // Radio is its own shuffle.
+  const shuffle = $('shuffle-btn');
+  if (shuffle && player.context && player.context.type === 'radio') shuffle.disabled = true;
+  // With nothing loaded, Play starts the playlist or Radio on screen if it has songs.
   const play = $('play-btn');
-  if (play) play.disabled = !track && !(state.lobbyId && state.queue.length);
+  if (play) play.disabled = !track && !state.viewPlay && !(state.lobbyId && state.queue.length);
   const open = $('player-open');
   const ctx = player.context;
   if (open) {

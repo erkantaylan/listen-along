@@ -71,6 +71,7 @@ export function toggleShuffle() {
 // Full-player buttons. With nothing loaded, Play starts the lobby on screen.
 export function togglePlayback() {
   if (player.track) { player.toggle(); return; }
+  if (state.viewPlay) { state.viewPlay(); return; }
   if (state.lobbyId && state.queue.length) player.playFrom(viewedContext(), state.queue, 0);
 }
 

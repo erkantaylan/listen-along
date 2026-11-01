@@ -93,6 +93,16 @@ where lobby persistence broke entirely on deployed instances.
 - Spotify track links supported via `spotify-url-info` page scraping (no API
   credentials needed); title/artist are matched against the library or
   turned into a request
+- **Radio** (`/radio`): a station is a list of songs from a rule. `stations.js`
+  (`GET /api/stations/:id[/songs]`, lean rows, approved accounts by the guard's
+  default, no tokens) holds the rules: `all` = every song without an open report.
+  The order is client-side and per opening: `frontend/radio-order.js` (pure,
+  tested) and `radio.js`, which renders through `virtual-list.js`. The player context is `{ type: 'radio', stationId }`;
+  `player.setRefill` gives the next round when the list runs out and
+  `player.replaceQueue` applies a new order. The order changes only by
+  reshuffle, a next round or `library:updated` (`reconcile`, which keeps the
+  playing song and puts new songs after it). Presence reports `{ type: 'radio' }`.
+  Followers need nothing: `listen:sync` carries the song alone.
 - Android app (`android/`, see its README): Kotlin + Compose + Media3, a
   separate client of the HTTP API with a CLI Bearer token (stored encrypted, no
   socket, so no live updates). Library, playlists (edit mode), broken-song
