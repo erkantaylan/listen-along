@@ -6,6 +6,7 @@ export function showView(viewName) {
   elements.landingView.classList.remove('active');
   elements.lobbyView.classList.remove('active');
   if (elements.radioView) elements.radioView.classList.remove('active');
+  if (elements.appView) elements.appView.classList.remove('active');
   if (elements.dashboardView) elements.dashboardView.classList.remove('active');
   if (elements.pendingView) elements.pendingView.classList.remove('active');
   if (elements.profileView) elements.profileView.classList.remove('active');
@@ -25,6 +26,9 @@ export function showView(viewName) {
       break;
     case 'radio':
       if (elements.radioView) elements.radioView.classList.add('active');
+      break;
+    case 'app':
+      if (elements.appView) elements.appView.classList.add('active');
       break;
     case 'profile':
       if (elements.profileView) elements.profileView.classList.add('active');

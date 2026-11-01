@@ -1,0 +1,87 @@
+name: Android release
+
+# A tag android-vX.Y.Z builds the signed APK and publishes it as a GitHub Release.
+# Tag pushes only: pull requests never run this and never see the signing secrets.
+on:
+  push:
+    tags: ['android-v*']
+
+permissions:
+  contents: write # create the release
+
+concurrency:
+  group: android-release-${{ github.ref }}
+
+env:
+  BUILD_TOOLS: 37.0.0
+  # The release key's certificate (public, not a secret). A build signed with
+  # anything else could not update existing installs, so it must not ship.
+  CERT_SHA256: ddb6d8fe68097be1505d533755ee3c59d165e6e31852dbba9cc6a65f4561c3f5
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! [[ "$TAG" =~ ^android-v[0-9]+\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+            echo "::error::Tag must look like android-vX.Y.Z with Y and Z under 100"
+            exit 1
+          fi
+          echo "VERSION=${TAG#android-v}" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install the SDK packages
+        run: sdkmanager --install "platforms;android-37" "build-tools;$BUILD_TOOLS" > /dev/null
+
+      - name: Unit tests
+        working-directory: android
+        run: ./gradlew --no-daemon :app:testDebugUnitTest
+
+      - name: Build the signed APK
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/release.jks"
+          trap 'rm -f "$ANDROID_KEYSTORE_PATH"' EXIT
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$ANDROID_KEYSTORE_PATH"
+          ./gradlew --no-daemon :app:assembleRelease
+
+      - name: Verify the signature and the version
+        run: |
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          tools="$ANDROID_HOME/build-tools/$BUILD_TOOLS"
+          "$tools/apksigner" verify --print-certs "$apk" | tee certs.txt
+          grep -q "certificate SHA-256 digest: $CERT_SHA256" certs.txt
+          IFS=. read -r x y z <<< "$VERSION"
+          code=$((x * 10000 + y * 100 + z))
+          "$tools/aapt2" dump badging "$apk" | head -1 | tee badging.txt
+          grep -q "name='com.erkantaylan.listenalong' versionCode='$code' versionName='$VERSION'" badging.txt
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          name="listen-along-$VERSION.apk"
+          cp android/app/build/outputs/apk/release/app-release.apk "$name"
+          sha256sum "$name" > "$name.sha256"
+          sha="$(cut -d' ' -f1 "$name.sha256")"
+          gh release create "$TAG" "$name" "$name.sha256" \
+            --verify-tag --latest --generate-notes \
+            --title "Android $VERSION" \
+            --notes "SHA-256: $sha"

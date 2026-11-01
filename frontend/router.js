@@ -6,6 +6,7 @@
 //   /library                   music library (no playlist; Add is disabled)
 //   /playlist/<id>/library     music library over a playlist (Add targets it)
 //   /radio                     Radio: every song, shuffled (radio.js)
+//   /app                       Android app: download, install, connect (app-page.js)
 //   /profile                   own profile
 //   /social                    chat + people (full-screen below 1010px; from
 //                              1010px the column beside the current page)
@@ -55,6 +56,8 @@ export function parseRoute(pathname, search = '') {
     withLibrary = true;
   } else if (/^\/radio\/?$/.test(pathname)) {
     view = 'radio';
+  } else if (/^\/app\/?$/.test(pathname)) {
+    view = 'app';
   } else if (/^\/profile\/?$/.test(pathname)) {
     view = 'profile';
   } else if (/^\/social\/?$/.test(pathname)) {
@@ -84,6 +87,7 @@ function parseLibraryParams(params) {
 export function basePath({ view, lobbyId }) {
   if (view === 'lobby' && lobbyId) return playlistPath(lobbyId);
   if (view === 'radio') return '/radio';
+  if (view === 'app') return '/app';
   if (view === 'profile') return '/profile';
   if (view === 'social') return '/social';
   if (view === 'dashboard') return '/dashboard';

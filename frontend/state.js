@@ -131,6 +131,7 @@ export const elements = {
   landingView: document.getElementById('landing-view'),
   lobbyView: document.getElementById('lobby-view'),
   radioView: document.getElementById('radio-view'),
+  appView: document.getElementById('app-view'),
   dashboardView: document.getElementById('dashboard-view'),
   pendingView: document.getElementById('pending-view'),
   profileView: document.getElementById('profile-view'),

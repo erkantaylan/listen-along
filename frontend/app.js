@@ -14,6 +14,7 @@ import { loadReports } from './song-reports.js';
 import { parseRoute, legacyRedirect } from './router.js';
 import { openNewPlaylistDialog } from './new-playlist.js';
 import { setupSidebar } from './sidebar.js';
+import { setupAppPage } from './app-page.js';
 import { setupRadio, openRadioPage, closeRadioPage, handleRadioLibraryUpdated, refreshRadio, playRadioFromTop } from './radio.js';
 import { setupRowDoubleClick } from './row-double-click.js';
 import { scheduleReload } from './playlist-store.js';
@@ -151,7 +152,7 @@ function resetLobbyPage() {
   resetLobbyUI();
 }
 
-const routeViews = { landing: 'landingView', lobby: 'lobbyView', profile: 'profileView', radio: 'radioView' };
+const routeViews = { landing: 'landingView', lobby: 'lobbyView', profile: 'profileView', radio: 'radioView', app: 'appView' };
 function isViewActive(view) {
   const el = elements[routeViews[view]];
   return !!el && el.classList.contains('active');
@@ -194,7 +195,11 @@ async function init() {
   await setupLoginView();
   const authData = await checkAuth();
   if (!authData.authenticated) { showView('login'); return; }
-  if (authData.user && authData.user.status === 'pending') { showPendingCard(); showView('login'); initPendingSocial(); return; }
+  if (authData.user && authData.user.status === 'pending') {
+    // /app works before approval: the app can be installed, a token has to wait.
+    if (parseRoute(window.location.pathname).view === 'app') { setupAppPage(); showView('app'); initPendingSocial(); return; }
+    showPendingCard(); showView('login'); initPendingSocial(); return;
+  }
   if (authData.user && authData.user.status === 'denied') {
     showPendingCard();
     const pendingTitle = document.querySelector('.pending-title');
@@ -243,12 +248,13 @@ function initAuthenticatedApp() {
   if (moved) history.replaceState(null, '', moved);
   const route = parseRoute(window.location.pathname, window.location.search);
   setupSidebar();
-  showView(route.view === 'profile' || route.view === 'radio' ? route.view : 'landing');
+  setupAppPage();
+  showView(route.view === 'profile' || route.view === 'radio' || route.view === 'app' ? route.view : 'landing');
   setupSocket();
   setupEventListeners();
   setupProfilePage();
   applyRoute();
-  if (!route.lobbyId && route.view !== 'radio') checkForLastLobby();
+  if (!route.lobbyId && route.view !== 'radio' && route.view !== 'app') checkForLastLobby();
   setupRangeFill();
   setupAudioPlayer();
   setupPlayer();

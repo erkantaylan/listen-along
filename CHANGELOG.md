@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- feat(android): signed release builds, published as GitHub Releases from a tag `android-vX.Y.Z` (`listen-along-X.Y.Z.apk` plus its SHA-256). versionName and versionCode come from the tag, and every release installs over the one before. The first one is `android-v0.2.0`
+- feat(web): **Android app** page at `/app`: download the latest APK with its version, size and SHA-256, how to install it (unknown sources, Play Protect, updates), and how to connect it with a token. In English and Turkish, linked from the About card and the CLI tokens card, and open to accounts still waiting for approval. `/profile#tokens` goes straight to the tokens
+- feat(api): `GET /api/app/latest` reads the release from GitHub, cached for 10 minutes; when GitHub is down the page still works and links to the releases page
 - feat(web): double-click a playlist in the sidebar, the rail or on the landing page, or Radio, to play it from the top. A single click still only opens it. If it is already playing it keeps going; paused, it resumes. On phones use the Play button
 - fix(web): ⋮ Play on the playlist already on screen starts it right away, instead of at its next change
 - feat(web): playlist pages open with a line of stats: songs, total length ("about" when only some lengths are known), artists, top artist and who added the most. It updates live and counts the whole playlist, whatever the filter shows

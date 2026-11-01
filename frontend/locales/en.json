@@ -7,7 +7,8 @@
   "appMeta": {
     "changelog": "Changelog",
     "source": "GitHub",
-    "about": "About"
+    "about": "About",
+    "androidApp": "Android app"
   },
   "landing": {
     "newPlaylist": "New playlist",
@@ -286,5 +287,41 @@
     "emptyTitle": "No songs to play yet",
     "emptyHint": "Songs land here as soon as they are in the music library.",
     "statsLabel": "Radio stats"
+  },
+  "appPage": {
+    "title": "Android app",
+    "setUpLink": "Set up the Android app",
+    "downloadTitle": "Download",
+    "checking": "Checking the latest version…",
+    "downloadButton": "Download APK",
+    "copy": "Copy",
+    "copied": "Copied",
+    "copyFailed": "Could not copy",
+    "allReleases": "All releases on GitHub",
+    "requires": "Needs Android 8 or newer.",
+    "noRelease": "No release has been published yet.",
+    "unavailable": "Could not check the latest version. Find it on the releases page below.",
+    "installTitle": "Install",
+    "install1": "Tap Download on your phone. If the browser warns about this type of file, choose to download it anyway.",
+    "install2": "Open the file from the browser's notification or from your Downloads.",
+    "install3": "If Android says it cannot install from this source, tap Settings, turn on “Allow from this source” for your browser and go back.",
+    "install4": "Tap Install, then Open.",
+    "protectTitle": "Play Protect.",
+    "protectBody": "The app is not on Google Play, so Play Protect does not know its developer and may warn you or offer to scan it. If you trust this site, open “More details” and choose “Install anyway”. The wording differs from phone to phone.",
+    "updatesTitle": "Updates.",
+    "updatesBody": "The app does not update itself. To update, come back here, download the new version and install it over the old one. Your token, settings and songs stay.",
+    "debugTitle": "Developer builds.",
+    "debugBody": "A debug build is a separate app (com.erkantaylan.listenalong.debug), so both can be installed side by side. They do not share a token or settings: connect this one on its own.",
+    "connectTitle": "Connect your account",
+    "pendingNote": "Your account is waiting for approval. You can install the app now, but tokens need an approved account.",
+    "connect1": "On your profile, under “CLI tokens”, type a label such as Phone and press “Create token”.",
+    "connect2": "Press “Copy”. The token is shown only once; if you lose it, create another.",
+    "connect3": "Open the app. It starts on Settings until it has a token (later: the Settings tab).",
+    "connect4": "Under “Server”, check that “Address” is {origin}.",
+    "connect5": "Under “API token”, press “Paste”, then “Save and test”.",
+    "connect6": "You should see “Signed in as” with your name and “Library reachable”. If the token is rejected, create a new one.",
+    "openTokens": "Open CLI tokens on my profile",
+    "revokeTitle": "Revoking.",
+    "revokeBody": "The token acts as you, so keep it private and use one per device. To cut a device off, press “Revoke” next to its token on your profile; the app then gets “Token rejected” until it has a new one."
   }
 }

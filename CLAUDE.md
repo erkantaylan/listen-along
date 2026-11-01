@@ -118,6 +118,12 @@ where lobby persistence broke entirely on deployed instances.
   reshuffle, a next round or `library:updated` (`reconcile`, which keeps the
   playing song and puts new songs after it). Presence reports `{ type: 'radio' }`.
   Followers need nothing: `listen:sync` carries the song alone.
+- Android releases: a tag `android-vX.Y.Z` runs `.github/workflows/android-release.yml`
+  (signed APK on a GitHub Release; version from the tag; key and backup rules in
+  `android/README.md`). The web page `/app` (`frontend/app-page.js`) offers the latest
+  through `GET /api/app/latest` (`appRelease.js`: GitHub Releases API, no token, 10 min
+  cache + ETag, always 200; only `android-v*` tags count, the repo has old `v2.x` ones).
+  Both are open to pending accounts too (`policyFor`: `member`).
 - Android app (`android/`, see its README): Kotlin + Compose + Media3, a
   separate client of the HTTP API with a CLI Bearer token (stored encrypted, no
   socket, so no live updates). Library, playlists (edit mode), broken-song

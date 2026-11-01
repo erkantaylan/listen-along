@@ -194,7 +194,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Need | Use |
 | --- | --- |
 | Top bar | `nav.navbar.app-navbar > .container` (brand `.app-brand` or back button + `h1.h6`, actions on the right). |
-| Version, changelog, GitHub | One place only: the About card at the bottom of the profile page (`#profile-about`). Links open a new tab so playback continues; `setupAppMeta()` in `ui.js` fills the version from `/api/version` and leaves it hidden on failure. Never in a navbar. |
+| Version, Android app, changelog, GitHub | One place only: the About card at the bottom of the profile page (`#profile-about`). Android app is an in-app link to `/app`; the others open a new tab so playback continues; `setupAppMeta()` in `ui.js` fills the version from `/api/version` and leaves it hidden on failure. Never in a navbar. |
 | Grouped content | `.card` with `.card-header` (h6) / `.card-body` / `.card-footer`. |
 | Lists of items (songs, playlists, users, tokens) | `ul.list-group` with `li.list-group-item` (flex row: `.app-thumb`, text block `min-w-0 flex-grow-1`, actions). Clickable rows: `.list-group-item-action` + `tabindex="0"` + Enter/Space handler. Empty state: `li.list-group-item.app-empty`. |
 | Song lists (playlist queue, library) | Normal vs edit mode, see "Song rows: normal and edit mode" below. |
@@ -335,7 +335,7 @@ Automatic widths, with nobody having touched the sidebar's toggle (L = sidebar, 
 - **Profile**: navbar with back; avatar + display-name card (the only place to edit your
   name/avatar; the chat and people panel show them); connected-accounts card; Sign out; last, the
   About card (version, Changelog, GitHub). The pending-approval card has no route here (app.js stops at it).
-  Approved accounts also get a "CLI tokens" card: label input + grey "Create token"
+  Approved accounts also get a "CLI tokens" card (`/profile#tokens` scrolls to it and focuses the label; it links to `/app`): label input + grey "Create token"
   button (the display-name Save stays the one primary), a success alert that shows a new
   token once (read-only input + Copy, a `pre` "how to use" snippet that scrolls sideways,
   Done), and a list group of active tokens (label, prefix, created, last used, danger
@@ -363,6 +363,10 @@ Automatic widths, with nobody having touched the sidebar's toggle (L = sidebar, 
   `.stat-meta` lines (`fs-xs`) for what used to be crammed into the value: "1,234 private", "1,234 files", the warning-coloured
   "12 unregistered (1.2 GB)". Longer facts get a `.stat-meta` line, not a wider value.
 - **Radio** (`/radio`, `radio.js`, approved accounts): see "Radio" below.
+- **Android app** (`/app`, `app-page.js`; `a[data-spa-link]` is its in-app link, so playback continues): navbar (☰, back, `h1.h6`), `.app-narrow` column, no art, three cards.
+  **Download**: the view's primary "Download APK" (GitHub's asset URL, new tab), a line of version · size · date, the SHA-256 with a grey Copy, a ghost link to all releases and "Needs Android 8 or newer". While checking, or when GitHub cannot be reached, a muted line replaces the button and the releases link stays.
+  **Install**: numbered steps (`.app-steps`), then short notes with a bold lead-in: Play Protect, Updates, Developer builds. **Connect your account**: numbered steps quoting the app's Settings labels exactly (the app is English only, so the Turkish text keeps them in English; keep them in step with `SettingsScreen.kt`), the Address step showing this site's origin, a grey link to `/profile#tokens` and a Revoking note.
+  A pending account gets the page too, from a link on its pending card: a warning alert says tokens need approval, and the tokens link is hidden. No sidebar or player there. iOS has no section.
 - **/youtube-playlist, /changelog**: navbar + narrow column of cards; Bootstrap and
   utilities only.
 

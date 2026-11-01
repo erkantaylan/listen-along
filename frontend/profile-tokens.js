@@ -131,4 +131,10 @@ export function loadProfileTokens() {
   card.hidden = !approved;
   hideNewToken();
   if (approved) loadTokens();
+  // /profile#tokens, the link from the /app page.
+  if (approved && window.location.hash === '#tokens') {
+    card.scrollIntoView({ block: 'start' });
+    const label = $('profile-token-label');
+    if (label) label.focus({ preventScroll: true });
+  }
 }

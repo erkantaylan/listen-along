@@ -63,6 +63,7 @@
             <button id="pending-chat-btn" class="btn-solid theme-primary pending-chat-btn" type="button" hidden>
               Open chat <span class="badge badge-subtle theme-secondary" data-social-unread hidden></span>
             </button>
+            <a class="btn-outline theme-secondary" href="/app" data-i18n="appMeta.androidApp">Android app</a>
             <button id="login-logout-btn" class="btn login-logout-btn" type="button">Sign out</button>
           </div>
         </div>
@@ -539,7 +540,7 @@
           <h2 id="profile-tokens-title" class="h6 mb-0">CLI tokens</h2>
         </div>
         <div class="card-body vstack gap-4">
-          <p class="fs-sm fg-3 mb-0">A token lets the <code>la</code> command-line tool upload songs and read the library as you. Uploads are credited to your name. Make one per computer and revoke it when you stop using it.</p>
+          <p class="fs-sm fg-3 mb-0">A token lets the <code>la</code> command-line tool and the Android app use the library as you. Uploads are credited to your name. Make one per computer or phone and revoke it when you stop using it. <a href="/app" data-spa-link data-i18n="appPage.setUpLink">Set up the Android app</a></p>
           <form id="profile-token-form" class="input-group">
             <input type="text" id="profile-token-label" class="form-control" maxlength="100" placeholder="Label, e.g. Desktop" aria-label="Token label" autocomplete="off" required>
             <button id="profile-token-create-btn" class="btn" type="submit">Create token</button>
@@ -596,9 +597,83 @@
           <h2 id="profile-about-title" class="h6 mb-0" data-i18n="appMeta.about">About</h2>
           <span id="profile-about-version" class="fs-sm fg-3" hidden></span>
           <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
+            <a class="btn-text theme-secondary btn-sm" href="/app" data-spa-link data-i18n="appMeta.androidApp">Android app</a>
             <a class="btn-text theme-secondary btn-sm" href="/changelog" target="_blank" rel="noopener" data-i18n="appMeta.changelog">Changelog</a>
             <a class="btn-text theme-secondary btn-sm" href="https://github.com/erkantaylan/listen-along" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg><span data-i18n="appMeta.source">GitHub</span></a>
           </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Android app: download, install, connect (app-page.js). Pending accounts get it too. -->
+  <div id="app-view" class="view">
+    <nav class="navbar app-navbar">
+      <div class="container app-narrow">
+        <button class="btn-text theme-secondary btn-icon plnav-open-btn" type="button" data-plnav-open aria-controls="app-sidebar" aria-expanded="false" aria-label="Open playlists" title="Open playlists" data-i18n-aria-label="sidebar.open" data-i18n-title="sidebar.open">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+        </button>
+        <button id="app-back-btn" class="btn-text theme-secondary btn-icon" type="button" aria-label="Back" title="Back">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+        </button>
+        <h1 class="h6 mb-0 me-auto" data-i18n="appPage.title">Android app</h1>
+      </div>
+    </nav>
+    <main class="app-main container app-narrow">
+      <section class="card mb-4" aria-labelledby="app-download-title">
+        <div class="card-header"><h2 id="app-download-title" class="h6 mb-0" data-i18n="appPage.downloadTitle">Download</h2></div>
+        <div class="card-body vstack gap-4">
+          <p id="app-release-status" class="fs-sm fg-3 mb-0" role="status">Checking the latest version…</p>
+          <div id="app-release" class="vstack gap-4" hidden>
+            <div class="d-flex flex-wrap align-items-center gap-3">
+              <a id="app-download-link" class="btn-solid theme-primary" rel="noopener" target="_blank">
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                <span data-i18n="appPage.downloadButton">Download APK</span>
+              </a>
+              <span id="app-release-meta" class="fs-sm fg-2"></span>
+            </div>
+            <div id="app-release-sha" class="vstack gap-2" hidden>
+              <span class="fs-sm fg-3">SHA-256</span>
+              <div class="d-flex align-items-center gap-2">
+                <code id="app-release-sha-value" class="fs-xs text-break min-w-0 flex-grow-1"></code>
+                <button id="app-release-sha-copy" class="btn btn-sm flex-shrink-0" type="button" data-i18n="appPage.copy">Copy</button>
+              </div>
+            </div>
+          </div>
+          <div class="d-flex flex-wrap align-items-center gap-3">
+            <a id="app-releases-link" class="btn-text theme-secondary btn-sm" href="https://github.com/erkantaylan/listen-along/releases" target="_blank" rel="noopener" data-i18n="appPage.allReleases">All releases on GitHub</a>
+            <span class="fs-sm fg-3" data-i18n="appPage.requires">Needs Android 8 or newer.</span>
+          </div>
+        </div>
+      </section>
+      <section class="card mb-4" aria-labelledby="app-install-title">
+        <div class="card-header"><h2 id="app-install-title" class="h6 mb-0" data-i18n="appPage.installTitle">Install</h2></div>
+        <div class="card-body vstack gap-4">
+          <ol class="app-steps mb-0">
+            <li data-i18n="appPage.install1">Tap Download on your phone. If the browser warns about this type of file, choose to download it anyway.</li>
+            <li data-i18n="appPage.install2">Open the file from the browser's notification or from your Downloads.</li>
+            <li data-i18n="appPage.install3">If Android says it cannot install from this source, tap Settings, turn on “Allow from this source” for your browser and go back.</li>
+            <li data-i18n="appPage.install4">Tap Install, then Open.</li>
+          </ol>
+          <p class="fs-sm fg-2 mb-0"><strong data-i18n="appPage.protectTitle">Play Protect.</strong> <span data-i18n="appPage.protectBody">The app is not on Google Play, so Play Protect does not know its developer and may warn you or offer to scan it. If you trust this site, open “More details” and choose “Install anyway”. The wording differs from phone to phone.</span></p>
+          <p class="fs-sm fg-2 mb-0"><strong data-i18n="appPage.updatesTitle">Updates.</strong> <span data-i18n="appPage.updatesBody">The app does not update itself. To update, come back here, download the new version and install it over the old one. Your token, settings and songs stay.</span></p>
+          <p class="fs-sm fg-2 mb-0"><strong data-i18n="appPage.debugTitle">Developer builds.</strong> <span data-i18n="appPage.debugBody">A debug build is a separate app (com.erkantaylan.listenalong.debug), so both can be installed side by side. They do not share a token or settings: connect this one on its own.</span></p>
+        </div>
+      </section>
+      <section class="card mb-4" aria-labelledby="app-connect-title">
+        <div class="card-header"><h2 id="app-connect-title" class="h6 mb-0" data-i18n="appPage.connectTitle">Connect your account</h2></div>
+        <div class="card-body vstack gap-4">
+          <div id="app-pending-note" class="alert theme-warning mb-0" role="status" data-i18n="appPage.pendingNote" hidden>Your account is waiting for approval. You can install the app now, but tokens need an approved account.</div>
+          <ol class="app-steps mb-0">
+            <li data-i18n="appPage.connect1">On your profile, under “CLI tokens”, type a label such as Phone and press “Create token”.</li>
+            <li data-i18n="appPage.connect2">Press “Copy”. The token is shown only once; if you lose it, create another.</li>
+            <li data-i18n="appPage.connect3">Open the app. It starts on Settings until it has a token (later: the Settings tab).</li>
+            <li id="app-connect-server"></li>
+            <li data-i18n="appPage.connect5">Under “API token”, press “Paste”, then “Save and test”.</li>
+            <li data-i18n="appPage.connect6">You should see “Signed in as” with your name and “Library reachable”. If the token is rejected, create a new one.</li>
+          </ol>
+          <div><a id="app-tokens-link" class="btn" href="/profile#tokens" data-spa-link data-i18n="appPage.openTokens">Open CLI tokens on my profile</a></div>
+          <p class="fs-sm fg-2 mb-0"><strong data-i18n="appPage.revokeTitle">Revoking.</strong> <span data-i18n="appPage.revokeBody">The token acts as you, so keep it private and use one per device. To cut a device off, press “Revoke” next to its token on your profile; the app then gets “Token rejected” until it has a new one.</span></p>
         </div>
       </section>
     </main>

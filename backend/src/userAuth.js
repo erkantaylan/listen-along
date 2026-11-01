@@ -109,8 +109,8 @@ const SELF_PREFIXES = [
   '/api/chat/messages/',
 ];
 
-// Pending users may use these too (their own account).
-const MEMBER_EXACT = new Set(['/api/profile']);
+// Pending users may use these too (their own account; /app, the install page).
+const MEMBER_EXACT = new Set(['/api/profile', '/api/app/latest']);
 const MEMBER_PREFIXES = ['/api/profile/'];
 
 function matches(p, exact, prefixes) {

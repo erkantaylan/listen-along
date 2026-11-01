@@ -18,7 +18,7 @@
   /* The page column is a size container: rules about what fits in it use
      @container page, because the sidebar and chat panel take a viewport-sized
      guess out of it. Not the dashboard: it has fixed children of its own. */
-  #landing-view, #lobby-view, #radio-view, #profile-view, .library-page { container: page / inline-size; }
+  #landing-view, #lobby-view, #radio-view, #profile-view, #app-view, .library-page { container: page / inline-size; }
 
   /* With a mouse the page column scrolls instead of the document, so the fixed
      chat panel and player bar never move when a page starts or stops overflowing
@@ -376,6 +376,15 @@
 
   /* "How to use" snippet under a new CLI token (profile page): scrolls
      sideways inside the card instead of widening the page. */
+  /* /app: numbered install and connect steps. */
+  .app-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding-left: 1.5rem;
+  }
+  .app-steps li { overflow-wrap: anywhere; }
+
   .profile-token-usage {
     padding: 0.5rem 0.75rem;
     overflow-x: auto;

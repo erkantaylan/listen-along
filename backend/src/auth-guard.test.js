@@ -326,7 +326,10 @@ describe('account status and CLI tokens on Postgres', { skip: pgSkip, timeout: 1
       .withDatabase('listen_auth').withUsername('test').withPassword('test').start();
     const url = container.getConnectionUri();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'la-auth-test-'));
-    srv = await startServer({ DATABASE_URL: url, SONGS_PATH: path.join(tmp, 'songs'), COVERS_DIR: path.join(tmp, 'covers') });
+    srv = await startServer({
+      DATABASE_URL: url, SONGS_PATH: path.join(tmp, 'songs'), COVERS_DIR: path.join(tmp, 'covers'),
+      APP_RELEASES_API_URL: 'http://127.0.0.1:9/', // never GitHub from a test; the endpoint answers 200 anyway
+    });
     c = client(srv.base);
 
     const { Client } = require('pg');
@@ -377,6 +380,9 @@ describe('account status and CLI tokens on Postgres', { skip: pgSkip, timeout: 1
     }
     assert.equal((await c.req('GET', '/API/Playlists', { cookie: cookies.pending })).status, 403, 'case does not dodge the check');
     assert.equal((await c.req('POST', '/api/playlists', { cookie: cookies.pending, body: { name: 'x' } })).status, 403);
+    // The install page and its release info work before approval.
+    assert.equal((await c.req('GET', '/api/app/latest', { cookie: cookies.pending })).status, 200);
+    assert.equal((await c.req('GET', '/app', { cookie: cookies.pending })).status, 200);
     // The SPA loads (it shows the pending screen itself).
     assert.equal((await c.req('GET', '/', { cookie: cookies.pending })).status, 200);
 

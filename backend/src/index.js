@@ -26,6 +26,7 @@ const covers = require('./covers');
 const access = require('./playlistAccess');
 const playlistPins = require('./playlistPins');
 const spotify = require('./spotify');
+const { createAppRelease } = require('./appRelease');
 const { createUserAuth, policyFor, parseCookie, isBlocked, COOKIE_NAME: AUTH_COOKIE, MAX_AGE_MS: AUTH_MAX_AGE_MS } = require('./userAuth');
 const youtubePlaylist = require('./youtubePlaylist');
 const chat = require('./chat');
@@ -1964,8 +1965,16 @@ app.get(['/lobby/:id', '/lobby/:id/library'], (req, res) => {
 });
 
 // SPA views (auth guard applied above; the client routes them, see frontend/router.js)
-app.get(['/playlist/:id', '/playlist/:id/library', '/library', '/radio', '/profile', '/social'], (req, res) => {
+app.get(['/playlist/:id', '/playlist/:id/library', '/library', '/radio', '/profile', '/social', '/app'], (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
+});
+
+// The latest Android release for the /app page. Always 200: when GitHub cannot
+// be reached the page still has its link to the releases page.
+const appRelease = createAppRelease(process.env.APP_RELEASES_API_URL ? { apiUrl: process.env.APP_RELEASES_API_URL } : {});
+app.get('/api/app/latest', apiLimiter, async (req, res) => {
+  res.set('Cache-Control', 'private, no-cache');
+  res.json(await appRelease.latest());
 });
 
 // Serve shared YouTube playlist page (public by design, see policyFor in userAuth.js)

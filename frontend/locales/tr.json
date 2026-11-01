@@ -7,7 +7,8 @@
   "appMeta": {
     "changelog": "Değişiklik günlüğü",
     "source": "GitHub",
-    "about": "Hakkında"
+    "about": "Hakkında",
+    "androidApp": "Android uygulaması"
   },
   "landing": {
     "newPlaylist": "Yeni çalma listesi",
@@ -286,5 +287,41 @@
     "emptyTitle": "Henüz çalınacak şarkı yok",
     "emptyHint": "Şarkılar müzik kütüphanesine girer girmez burada olur.",
     "statsLabel": "Radyo istatistikleri"
+  },
+  "appPage": {
+    "title": "Android uygulaması",
+    "setUpLink": "Android uygulamasını kur",
+    "downloadTitle": "İndir",
+    "checking": "Son sürüm denetleniyor…",
+    "downloadButton": "APK'yı indir",
+    "copy": "Kopyala",
+    "copied": "Kopyalandı",
+    "copyFailed": "Kopyalanamadı",
+    "allReleases": "GitHub'daki tüm sürümler",
+    "requires": "Android 8 veya üstü gerekir.",
+    "noRelease": "Henüz yayımlanmış bir sürüm yok.",
+    "unavailable": "Son sürüm denetlenemedi. Aşağıdaki sürümler sayfasından bulabilirsiniz.",
+    "installTitle": "Kurulum",
+    "install1": "Telefonunuzda İndir'e dokunun. Tarayıcı bu dosya türü için uyarırsa yine de indirmeyi seçin.",
+    "install2": "Dosyayı tarayıcının bildiriminden ya da İndirilenler'den açın.",
+    "install3": "Android bu kaynaktan yükleme yapamayacağını söylerse Ayarlar'a dokunun, tarayıcınız için “Bu kaynağa izin ver” seçeneğini açın ve geri dönün.",
+    "install4": "Yükle'ye, ardından Aç'a dokunun.",
+    "protectTitle": "Play Protect.",
+    "protectBody": "Uygulama Google Play'de olmadığı için Play Protect geliştiricisini tanımaz; uyarabilir ya da taramayı önerebilir. Bu siteye güveniyorsanız “Daha fazla ayrıntı”yı açıp “Yine de yükle”yi seçin. İfadeler telefona göre değişebilir.",
+    "updatesTitle": "Güncellemeler.",
+    "updatesBody": "Uygulama kendini güncellemez. Güncellemek için buraya dönün, yeni sürümü indirin ve eskisinin üzerine kurun. Token'ınız, ayarlarınız ve şarkılarınız kalır.",
+    "debugTitle": "Geliştirici sürümleri.",
+    "debugBody": "Debug sürümü ayrı bir uygulamadır (com.erkantaylan.listenalong.debug), bu yüzden ikisi yan yana kurulabilir. Token ve ayarları paylaşmazlar: bunu ayrıca bağlayın.",
+    "connectTitle": "Hesabınızı bağlayın",
+    "pendingNote": "Hesabınız onay bekliyor. Uygulamayı şimdi kurabilirsiniz, ancak token için onaylı bir hesap gerekir.",
+    "connect1": "Profilinizde “CLI tokens” bölümüne Telefon gibi bir etiket yazın ve “Create token” düğmesine basın.",
+    "connect2": "“Copy” düğmesine basın. Token yalnızca bir kez gösterilir; kaybederseniz yenisini oluşturun.",
+    "connect3": "Uygulamayı açın. Token olana kadar Settings ekranında başlar (sonrasında Settings sekmesi).",
+    "connect4": "“Server” bölümünde “Address” alanının {origin} olduğunu denetleyin.",
+    "connect5": "“API token” bölümünde “Paste”e, ardından “Save and test”e basın.",
+    "connect6": "Adınızla birlikte “Signed in as” ve “Library reachable” yazmalı. Token reddedilirse yenisini oluşturun.",
+    "openTokens": "Profilimde CLI token'larını aç",
+    "revokeTitle": "İptal etme.",
+    "revokeBody": "Token sizin adınıza işlem yapar; gizli tutun ve her cihaz için ayrı bir tane kullanın. Bir cihazın erişimini kesmek için profilinizde token'ının yanındaki “Revoke” düğmesine basın; uygulama yenisini alana kadar “Token rejected” der."
   }
 }

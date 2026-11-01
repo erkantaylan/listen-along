@@ -153,10 +153,44 @@ cd android
 ./gradlew :app:assembleDebug        # → app/build/outputs/apk/debug/app-debug.apk
 ```
 
+Users get the app from the **`/app` page** of the web app (download, install
+steps, connecting with a token), which offers the latest GitHub Release.
+
 `dev.sh` finds a JDK (JAVA_HOME if it is ≥ 17, else 17, else 21+ under
 `/usr/lib/jvm`) and the SDK (`ANDROID_HOME`, else `~/Android/Sdk`) by itself;
 call `./gradlew` with `JAVA_HOME` and `ANDROID_HOME` set yourself. The debug
 build installs as `com.erkantaylan.listenalong.debug`. minSdk 26, targetSdk 36.
+
+## Releases
+
+Push a tag `android-vX.Y.Z` (Y and Z under 100) and
+`.github/workflows/android-release.yml` runs the unit tests, builds the signed
+APK, checks its certificate and version, and publishes a GitHub Release with
+`listen-along-X.Y.Z.apk`, a `.sha256` file and generated notes. The web app's
+`/app` page picks it up within 10 minutes.
+
+- **Version**: from the tag (`ANDROID_RELEASE_TAG`). versionName `X.Y.Z`,
+  versionCode `X*10000 + Y*100 + Z`, so `android-v0.2.0` is 200. Without a tag
+  a build is code 1, `0.2.0-dev`.
+- **Signing key**: `~/keys/listen-along-release.jks`, with its password in
+  `~/keys/listen-along-release.env`, on the maintainer's machine, and as the Actions
+  secrets `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD`. Never in the repo.
+  **If this key is lost, no update can ever install over existing installs**:
+  everyone would have to uninstall first and lose the app's data. Keep a backup
+  somewhere else. Certificate SHA-256 (public):
+  `ddb6d8fe68097be1505d533755ee3c59d165e6e31852dbba9cc6a65f4561c3f5`.
+- **Build one locally**: `set -a; . ~/keys/listen-along-release.env; set +a;
+  ./gradlew :app:assembleRelease`. Without those variables the same command leaves
+  an unsigned `app-release-unsigned.apk`.
+- **R8**: release builds are minified and shrunk (`isMinifyEnabled`,
+  `isShrinkResources`). `proguard-rules.pro` keeps the serializers. Run a
+  release build against a real server after changing dependencies or
+  API models; the unit tests run unminified.
+- The release is `com.erkantaylan.listenalong`, the debug build
+  `com.erkantaylan.listenalong.debug`, with different keys. They install side by side
+  and share no token, settings or download index. Moving to the release
+  means connecting it again; with music access, *Find songs already in the folder*
+  picks up the files.
 
 ## Dev loop
 
