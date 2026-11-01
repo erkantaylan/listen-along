@@ -185,7 +185,7 @@ async function init() {
   if (window.i18n) { await window.i18n.init(); setupLanguageSelector(updateQueue, updateListeners); }
   setupAppMeta();
   setupPlayerBar();
-  if (checkUrlForDashboard()) return;
+  if (checkUrlForDashboard(initDashboardSocial)) return;
   await setupLoginView();
   const authData = await checkAuth();
   if (!authData.authenticated) { showView('login'); return; }
@@ -205,13 +205,30 @@ async function init() {
 // Pending users can already use the global chat (and see who is around),
 // nothing else: a socket for the social panel only.
 function initPendingSocial() {
-  const sock = io({ reconnection: true, reconnectionAttempts: 5, reconnectionDelay: 1000 });
-  setupSocial(sock, { name: auth.user && auth.user.name, emoji: auth.user && auth.user.emoji });
+  initSocialOnly();
   const btn = document.getElementById('pending-chat-btn');
   if (btn) { btn.hidden = false; btn.addEventListener('click', toggleSocial); }
+}
+
+function initSocialOnly(opts = {}) {
+  const sock = io({ reconnection: true, reconnectionAttempts: 5, reconnectionDelay: 1000 });
+  setupSocial(sock, { name: auth.user && auth.user.name, emoji: auth.user && auth.user.emoji, ...opts });
   const sync = () => applySocialRoute(parseRoute(window.location.pathname).view === 'social');
   window.addEventListener('popstate', sync);
   sync();
+}
+
+// /dashboard has no player or playlists of its own, but whoever is also signed
+// in to the app keeps the chat and people panel here. (The admin login alone is
+// not an account: no panel.)
+let dashboardSocialStarted = false;
+async function initDashboardSocial() {
+  if (dashboardSocialStarted) return;
+  dashboardSocialStarted = true;
+  const authData = await checkAuth().catch(() => null);
+  const status = authData && authData.authenticated && authData.user && authData.user.status;
+  if (status !== 'approved' && status !== 'pending') return;
+  initSocialOnly({ noListenHint: t('social.cardListenInApp', 'Open the app to listen along.') });
 }
 
 function initAuthenticatedApp() {

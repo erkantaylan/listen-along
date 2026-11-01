@@ -20,8 +20,8 @@ services:
       - SESSION_SECRET=${SESSION_SECRET:-}
       - FRONTEND_URL=${FRONTEND_URL:-}
       - BASE_URL=${BASE_URL:-}
-      # Login for /admin (CLI tokens, requests, library) and /dashboard.
-      # ADMIN_USER defaults to "admin". Unset ADMIN_PASSWORD = both disabled.
+      # Login for /dashboard (users, CLI tokens, downloaders, requests, library).
+      # ADMIN_USER defaults to "admin". Unset ADMIN_PASSWORD = disabled.
       - ADMIN_USER=${ADMIN_USER:-}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
     depends_on:

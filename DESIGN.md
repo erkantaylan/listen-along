@@ -14,8 +14,8 @@ black), muted text, one restrained accent. There is no light mode and no colour-
 | `frontend/app.css` | `index.html` only | Layout of the single-page app (views, playlist, player, library, dashboard). |
 
 Pages: `index.html` (login, landing, playlist, profile, pending, dashboard views, the
-music-library overlay and the chat-and-people panel), `admin.html`, `youtube-playlist.html`,
-`changelog.html`. `admin.html`, `youtube-playlist.html` and `changelog.html` use
+music-library overlay and the chat-and-people panel), `youtube-playlist.html`,
+`changelog.html`. `youtube-playlist.html` and `changelog.html` use
 only Bootstrap + `theme.css`; keep it that way.
 
 ### Bootstrap version
@@ -43,7 +43,7 @@ It is a pre-release, and its API differs from Bootstrap 5:
   Bootstrap's JS**: our overlays are plain elements (see "Overlays" below).
 
 To upgrade: `npm pack bootstrap@<version>`, copy `dist/css/bootstrap.min.css`, its map and
-`LICENSE` into a new `frontend/vendor/bootstrap-<version>/`, update the `<link>` in the four
+`LICENSE` into a new `frontend/vendor/bootstrap-<version>/`, update the `<link>` in the three
 HTML files, delete the old folder, and re-check the notes above. The version in the path busts
 caches (Cloudflare rewrites cache headers, so never reuse a path for new content).
 
@@ -150,7 +150,7 @@ tertiary.
 | Tier | Markup | Looks like | Use for |
 | --- | --- | --- | --- |
 | **Primary** | `.btn-solid.theme-primary` | accent fill, dark semibold text; lightens on hover | The main action of a view or dialog: New playlist (landing), Create playlist (its dialog), Save (display name), Download, Replace, Mark as broken (in its dialog), Done (playlist edit mode), the chat send button, the player's **Play/Pause** pill (a size up, 2.75rem, 1.5rem icon). |
-| **Secondary, tonal** | `.btn` | grey fill `--app-btn-tonal` + strong border | Neutral actions next to a primary or on their own: Cancel, Edit, Create token, Disconnect, Refresh, Play (admin), Retry/Cancel on jobs, preset reasons. |
+| **Secondary, tonal** | `.btn` | grey fill `--app-btn-tonal` + strong border | Neutral actions next to a primary or on their own: Cancel, Edit, Create token, Disconnect, Refresh, Play (dashboard), Retry/Cancel on jobs, preset reasons. |
 | **Secondary, outline** | `.btn-outline.theme-secondary` | border only, transparent | Navigation-ish or less important neutral actions: Music library & requests, login providers, Dismiss all, library pager, round library play buttons. |
 | **Tertiary / ghost** | `.btn-text.theme-secondary` (+ `.btn-icon`) | no fill, no border; `--app-text-secondary` icon; grey fill + bright icon on hover | Icon buttons: player controls (repeat, shuffle, prev, next, mute, chat), navbar back / pin / share / lock, ⋮ song menus, drag handles, collapse chevrons, small text links like "Dismiss". Toggled on = `.active`: accent tint + accent icon + accent border. |
 | **Danger** | `.btn-outline.theme-danger` (text) / `.btn-text.theme-danger.btn-icon` (icon) / `.btn-solid.theme-danger` (rare: a confirm step) | red text and border / red icon; red tint on hover | Anything that deletes or revokes: Delete playlist (trash), Clear queue, remove from queue (minus), Revoke token, Sign out, Delete (dashboard), delete chat message, Reject. |
@@ -216,13 +216,14 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Viewport | Playlists sidebar (`has-plnav`) | Page column | Chat panel (`has-social`) |
 | --- | --- | --- | --- |
 | < 768px | drawer, `min(20rem, 85vw)` | full width | only on `/social`, full-screen |
-| 768–1199px | fixed, 16.5rem | width − 264px | only on `/social`, full-screen; it covers the sidebar too |
-| 1200–1439px | fixed, 16.5rem | width − 584px (− 264px collapsed) | fixed, 20rem, collapsible |
-| >= 1440px | fixed, 19rem | width − 624px (− 304px collapsed) | fixed, 20rem, collapsible |
+| 768–1023px | fixed, 16.5rem | width − 264px | only on `/social`, full-screen; it covers the sidebar too |
+| 1024–1199px | fixed, 16.5rem | width − 320px | rail, 3.5rem; opens `/social`, full-screen |
+| 1200–1439px | fixed, 16.5rem | width − 584px (− 320px collapsed: rail) | fixed, 20rem, collapses to the rail |
+| >= 1440px | fixed, 19rem | width − 624px (− 360px collapsed: rail) | fixed, 20rem, collapses to the rail |
 
 - The chat panel docks only from 1200px, where the page column is still 616px. Below that it never sits beside
   the page, whatever the user chose: the chat button opens the full-screen `/social` and closes it again, and
-  a remembered open or closed choice applies again from 1200px.
+  a remembered open or closed choice applies again from 1200px. From 1024px the rail is on screen whenever the column is not, so chat and people are never hidden behind one icon.
 - Rules about what fits in the page column use `@container page (…)`: `#landing-view`, `#lobby-view`,
   `#profile-view` and `.library-page` are size containers, so a rule such as `width < 576px` fires
   in a column of 504px at 768px. `@media (width …)` is for what follows the viewport (the two columns, the
@@ -235,8 +236,8 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   (`theme.css`).
 - The narrowest page column with the sidebar is 504px at 768px. Check new page content there, not only on phones.
 - The player bar always spans the full viewport with its `.container` (56rem) centred on the viewport, not
-  on the page column. `/dashboard`, login, `/admin` and the other standalone pages have neither column;
-  pending has only the chat panel.
+  on the page column. Login and the standalone pages have neither column; pending has only the chat panel;
+  `/dashboard` has its own section list and, for someone also signed in to the app, the chat panel.
 
 - **Login / pending**: navbar + one centred card (`.app-center`, `.login-card` 26rem).
 - **Landing** (`/`, the view after login). From 768px the sidebar lists your playlists and carries the
@@ -329,14 +330,23 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   busy / offline badge; never host, OS or IP) — and one list group below them.
 - **Social** (`/social`): below 1200px the chat-and-people panel as a full-screen view (over the
   playlists sidebar too); from 1200px the URL just opens the chat panel beside the current page. See below.
-- **Dashboard**: navbar (hamburger below 1024px), 15rem sidebar list group, main area with
-  stat cards grid, public playlists and users list groups (private playlists are only counted, never listed).
-- **/admin, /youtube-playlist, /changelog**: navbar + narrow column of cards; Bootstrap and
-  utilities only. `/admin` starts with **Downloaders**, then **Broken songs** (see "Context menu"), (every `la worker` ever connected:
-  name · owner, host / platform / OS, IP and versions in muted lines, online / busy /
-  offline badge, Refresh button — the only place machine details appear) and **Download
-  jobs** (status filter select, counts in the header, rows with requester, playlist,
-  worker, error code, status badge and Cancel / Retry); both refresh every 10s.
+- **Dashboard** (`dashboard.js`, `dashboard-admin.js`; `/admin` 301s here): navbar (hamburger below 1024px),
+  15rem section list (sticky, a drawer below 1024px; `#section` in the URL), main area up to 64rem. Until the admin login
+  it shows only a centred login card (`#adm-gate`, no player bar, no sections); Log out is under the section list. Sections, one at a time, each `h2.h5` + a
+  muted hint + a list group: **Overview** (stat cards, below); **Playlists** (public ones; private ones are only
+  counted, never listed); **Users**; **Downloaders** (every `la worker` ever connected: name · owner, host /
+  platform / OS, IP and versions in muted lines, online / busy / offline badge, Refresh — the only place
+  machine details appear); **Download jobs** (status filter select, counts, rows with requester, playlist, worker,
+  error code, status badge and Cancel / Retry); **Broken songs** (see "Context menu"); **CLI tokens** (list, Revoke);
+  **Song requests** (status filter, Dismiss); **Library** (search, Play, Delete). Downloaders, jobs and broken songs refresh every 10s.
+  The dashboard does not start the app-wide player (the bar stays empty there), so Play is a preview on one in-memory `Audio`; this is the
+  only exception to "one player".
+  **Stat cards**: `.dashboard-stats` is `repeat(auto-fit, minmax(min(100%, 14rem), 1fr))`; every card is a `.card` (surface, `--app-border`
+  outline, no shadow). One fact per line and no line wraps: `.stat-label` (`fs-sm fg-3`), `.stat-value` (`fs-2xl`), then optional
+  `.stat-meta` lines (`fs-xs`) for what used to be crammed into the value: "1,234 private", "1,234 files", the warning-coloured
+  "12 unregistered (1.2 GB)". Longer facts get a `.stat-meta` line, not a wider value.
+- **/youtube-playlist, /changelog**: navbar + narrow column of cards; Bootstrap and
+  utilities only.
 
 ### Playlists sidebar
 
@@ -479,8 +489,8 @@ badge on rows. Clicking it opens the details popover (count, each reason, report
 "Mark as broken" dialog is an `.app-modal` card: preset reason buttons (Wrong song, Bad audio,
 Cut off, …; `.active` when chosen), a free-text input (max 200, counter), Cancel + primary
 "Mark as broken" / "Update". The library's fourth tab **Broken** (`?tab=broken`, warning count
-badge) is the Songs list filtered to reported songs with every report listed under the row; `/admin`
-has a **Broken songs** card (reasons, reporters, per-report Dismiss, Dismiss all). Short labels
+badge) is the Songs list filtered to reported songs with every report listed under the row; `/dashboard`
+has a **Broken songs** section (reasons, reporters, per-report Dismiss, Dismiss all). Short labels
 ("Broken") are fine on tabs, cards and badges there.
 
 ### Player bar
@@ -501,7 +511,7 @@ art, times, buttons).
 - Desktop row: cover + title / "artist · context" (one button that opens the context:
   the playlist page, or `/library`), repeat, shuffle, prev, play (`.btn-solid.theme-primary`
   pill), next, chat (`#social-toggle`, unread badge on its corner; toggles the chat panel from
-  1200px, opens `/social` below that), mute + volume; seek `.form-range` with times below.
+  1200px, opens `/social` below that; the only opener below 1024px, the rail is the labelled one above that), mute + volume; seek `.form-range` with times below.
 - Below 768px the volume slider hides. Below 576px it is the slim form: cover, title,
   play/pause, next, chat and a thin seek line (`.player-extra` and times hidden).
 - Empty state (`.is-empty`): "Nothing playing", controls disabled (Play stays enabled on
@@ -521,9 +531,16 @@ never by `[hidden]`: `has-social` (signed in, socket up), `social-collapsed`
 - **Desktop (>= 1200px)**: fixed right column, `--app-social-width` (20rem) wide, from
   the top of the page down to the player bar (`--app-player-height`). `body` gets the
   same `padding-right`, so every page (and the library overlay, via `right`) shifts left
-  rather than sitting under it. Collapse with the chevron in its header; reopen with the
-  chat button in the player bar. Present on every signed-in page (landing, playlist,
-  library overlay, profile) and next to the pending-approval card; not on `/dashboard`.
+  rather than sitting under it. Collapse with the chevron in its header. Present on every
+  signed-in page (landing, playlist, library overlay, profile), next to the pending-approval
+  card, and on `/dashboard` when the browser is also signed in to the app (the admin login alone is
+  not an account; a chat-only socket as for pending users, so Listen along says to open the app).
+- **Rail (`#social-rail`, >= 1024px)**: whenever the column is not on screen (collapsed, or below 1200px), a fixed 3.5rem
+  column at the right edge, same surface and border as the column, mirroring the playlists sidebar. Two stacked
+  icon-and-word buttons, **Chat** (unread badge) and **People** (neutral online count), each opens the panel on that
+  tab: the column from 1200px, `/social` below that. It takes page width like the column does
+  (`--app-social-inset`). Focus moves to the tab on open and back to the rail on collapse. Never hide
+  the panel without leaving the rail: one small icon in the player bar is not enough of a way back.
 - **Below 1200px** (tablets and small windows too): hidden except on `/social`, where it covers the page and the
   playlists sidebar above the player bar with a back arrow in its header (the collapse chevron is hidden).
 - Header: back (phones) | underline tabs **Chat** (unread badge) and **People** (online
@@ -584,7 +601,7 @@ forms), register it in `ui.js`'s `showView` and in `router.js`. Build the conten
 list groups and utilities. Only if something is genuinely not expressible that way, add a
 small, named section to `app.css` inside `@layer custom`, using tokens only.
 
-**A new standalone page**: copy the `<html data-bs-theme="dark">` and `<head>` of `admin.html` (Bootstrap, theme.css),
+**A new standalone page**: copy the `<html data-bs-theme="dark">` and `<head>` of `changelog.html` (Bootstrap, theme.css),
 start the body with an `app-navbar`, and use only Bootstrap + `theme.css` classes. If a rule is
 needed by more than one page, put it in `theme.css` (`@layer custom`).
 

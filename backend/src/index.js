@@ -449,10 +449,9 @@ app.use(createJobRouter({
   onJobUpdated: emitJob,
 }));
 
-// Admin page (all CLI tokens, requests, library management). Disabled without ADMIN_PASSWORD.
-app.get('/admin', apiLimiter, (req, res) => {
-  res.sendFile(path.join(frontendPath, 'admin.html'));
-});
+// The admin page moved into /dashboard. The query is dropped on purpose (the old
+// ?next= has no meaning any more).
+app.get('/admin', apiLimiter, (req, res) => res.redirect(301, '/dashboard'));
 
 // Play audio for a queue entry. `q` is the queue entry's url: a YouTube URL
 // (looked up by youtube_id), `library:<id>`, or a legacy cache URL. The server
@@ -1851,7 +1850,7 @@ app.get('/api/dashboard/stats', adminAuth.requireAdmin, async (req, res) => {
 });
 
 // Song cache / cookie management was removed with server-side downloading.
-// Library management (delete songs, tokens, requests) lives on /admin.
+// Library management (delete songs, tokens, requests): libraryRoutes.js, /api/admin/*.
 
 // List all registered users (dashboard only)
 app.get('/api/dashboard/users', adminAuth.requireAdmin, async (req, res) => {
@@ -1948,9 +1947,11 @@ app.get('/youtube-playlist', (req, res) => {
   res.sendFile(path.join(frontendPath, 'youtube-playlist.html'));
 });
 
-// Serve dashboard page
-app.get('/dashboard', (req, res) => {
-  if (!adminAuth.isAdmin(req)) return res.redirect('/admin?next=/dashboard');
+// Dashboard page: the SPA shell, which holds no data. It asks /api/admin/status
+// and shows its login form until the la_admin cookie is set; everything it then
+// shows comes from APIs behind adminAuth.requireAdmin. 404 without ADMIN_PASSWORD.
+app.get('/dashboard', apiLimiter, (req, res) => {
+  if (!adminAuth.isEnabled()) return res.status(404).type('text/plain').send('Admin is disabled (ADMIN_PASSWORD not set)');
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 

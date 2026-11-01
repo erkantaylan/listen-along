@@ -1,7 +1,7 @@
 /**
  * CLI API tokens. Each token belongs to a user account (api_tokens.user_id):
  * approved users create and revoke their own from the profile page
- * (/api/tokens); the admin page lists and revokes every token. Tokens made
+ * (/api/tokens); the dashboard lists and revokes every token. Tokens made
  * before ownership existed have no owner (user_id NULL, "legacy") and keep
  * working under the name they were created with.
  *

@@ -5,7 +5,9 @@
 //   narrower (phones, tablets, small windows): a full-screen "Social" view at
 //     /social (router.js), never beside the page, which would squeeze it;
 //     opened from the chat button in the player bar (or on the pending card).
-// The player bar's chat button carries the unread badge.
+// #social-rail, from 1024px while the column is not on screen, is the labelled
+// way back: Chat and People, each opening that tab. The player bar's chat button
+// toggles the panel too. Both carry the unread badge.
 //
 // This module also reports what this browser plays (player.js events) as
 // presence:now-playing; the server keeps one entry per user.
@@ -86,6 +88,8 @@ function setCollapsed(value) {
   document.dispatchEvent(new CustomEvent('app:viewchange'));
 }
 
+const focusActiveTab = () => document.querySelector('[data-social-tab].active')?.focus();
+
 function selectTab(tab) {
   S.tab = tab === 'people' ? 'people' : 'chat';
   for (const b of document.querySelectorAll('[data-social-tab]')) {
@@ -120,6 +124,14 @@ export function toggleSocial() {
   if (isDesktop()) { setCollapsed(!collapsed()); return; }
   if (S.route) leaveRoute();
   else { S.cameFromApp = true; navigateTo('/social'); }
+}
+
+// The rail: open the panel on a given tab, wherever the panel lives at this width.
+function openSocial(tab) {
+  selectTab(tab);
+  if (isDesktop()) setCollapsed(false);
+  else if (!S.route) { S.cameFromApp = true; navigateTo('/social'); }
+  focusActiveTab();
 }
 
 // ------------------------------------------------------------------ chat
@@ -336,7 +348,7 @@ function cardHtml(p) {
   // The action: Listen along / Stop listening along, or why it is off.
   let hint = '';
   if (isMe) hint = t('social.cardSelf', 'This is you.');
-  else if (!S.hooks.listenAlong) hint = t('social.cardNeedsApproval', 'Listening along needs an approved account.');
+  else if (!S.hooks.listenAlong) hint = S.hooks.noListenHint || t('social.cardNeedsApproval', 'Listening along needs an approved account.');
   else if (!p.online) hint = t('social.cardOffline', 'They are offline.');
   else if (!np && !following) hint = t('social.cardIdle', 'They are not playing anything right now.');
   const label = following ? t('listen.stop', 'Stop listening along') : t('listen.listenAlong', 'Listen along');
@@ -472,6 +484,7 @@ export function setupSocial(socket, opts = {}) {
   S.hooks.listenAlong = opts.listenAlong || null;
   if (opts.isListeningWith) S.hooks.isListeningWith = opts.isListeningWith;
   S.hooks.stopListening = opts.stopListening || null;
+  S.hooks.noListenHint = opts.noListenHint || null;
   document.body.classList.add('has-social');
   const toggle = $('social-toggle');
   if (toggle) toggle.hidden = false;
@@ -515,7 +528,11 @@ export function setupSocial(socket, opts = {}) {
 
   // DOM wiring
   for (const b of document.querySelectorAll('[data-social-tab]')) b.addEventListener('click', () => selectTab(b.dataset.socialTab));
-  $('social-collapse')?.addEventListener('click', () => setCollapsed(true));
+  $('social-collapse')?.addEventListener('click', () => {
+    setCollapsed(true);
+    document.querySelector(`[data-social-open="${S.tab}"]`)?.focus();
+  });
+  for (const b of document.querySelectorAll('[data-social-open]')) b.addEventListener('click', () => openSocial(b.dataset.socialOpen));
   $('social-back')?.addEventListener('click', leaveRoute);
   $('social-toggle')?.addEventListener('click', toggleSocial);
   $('chat-form').addEventListener('submit', sendMessage);

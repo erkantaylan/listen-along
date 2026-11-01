@@ -668,8 +668,11 @@
   /* social.js. One #social-panel, shown by body classes (never [hidden]):
      desktop (>= 1200px): fixed right column above the player bar, pushing
      the page left; .social-collapsed hides it.
-     narrower: only on /social (.social-route), as a full-screen view. */
-  body { --app-social-width: 20rem; }
+     narrower: only on /social (.social-route), as a full-screen view.
+     #social-rail: the labelled opener at the right edge, from 1024px, whenever
+     the column is not there. --app-social-inset is what either takes. */
+  body { --app-social-width: 20rem; --app-rail-width: 3.5rem; }
+  .social-rail { display: none; }
   .social-panel {
     display: none;
     flex-direction: column;
@@ -691,8 +694,40 @@
   .social-chat[hidden],
   .social-people[hidden] { display: none; }
 
+  @media (width >= 1024px) {
+    body.has-social { --app-social-inset: var(--app-rail-width); padding-right: var(--app-social-inset); }
+    body.has-social .library-page { right: var(--app-social-inset); }
+    body.has-social .social-rail {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: var(--app-player-height, 0px);
+      z-index: var(--bs-z-fixed);
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      align-items: center;
+      width: var(--app-rail-width);
+      padding: 0.5rem 0.25rem;
+      background-color: var(--app-surface);
+      border-left: var(--bs-border-width) solid var(--bs-border-color);
+    }
+  }
+  .social-rail-btn {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    align-items: center;
+    width: 100%;
+    padding: 0.375rem 0;
+  }
+  .social-rail-btn svg { width: 1.25rem; height: 1.25rem; }
+  .social-rail-btn [data-online-count] { color: var(--app-text); background-color: var(--bs-bg-4); }
+  .social-rail-label { font-size: var(--bs-font-size-xs, 0.75rem); line-height: 1.2; }
   @media (width >= 1200px) {
-    body.has-social:not(.social-collapsed) { padding-right: var(--app-social-width); }
+    body.has-social:not(.social-collapsed) { --app-social-inset: var(--app-social-width); }
+    body.has-social:not(.social-collapsed) .social-rail { display: none; }
     body.has-social:not(.social-collapsed) .social-panel {
       position: fixed;
       top: 0;
@@ -703,7 +738,6 @@
       width: var(--app-social-width);
       border-left: var(--bs-border-width) solid var(--bs-border-color);
     }
-    body.has-social:not(.social-collapsed) .library-page { right: var(--app-social-width); }
     .social-back { display: none; }
   }
   @media (width < 1200px) {
@@ -862,6 +896,7 @@
   }
 
   /* ------------------------------------------------------------ Dashboard */
+  .dashboard-topbar .container-fluid { gap: 0.5rem; justify-content: flex-start; }
   .dashboard-layout { display: flex; flex: 1; min-height: 0; }
   .dashboard-sidebar {
     display: flex;
@@ -872,10 +907,19 @@
     border-right: var(--bs-border-width) solid var(--bs-border-color);
   }
   .sidebar-nav .list-group-item { display: flex; gap: 0.75rem; align-items: center; }
+  .sidebar-nav { flex: none; }
   .sidebar-overlay { display: none; }
   @media (width >= 1024px) {
     .sidebar-hamburger,
     .sidebar-close { display: none; }
+    /* Long sections scroll; the section list stays in reach. */
+    .dashboard-sidebar {
+      position: sticky;
+      top: 0;
+      align-self: flex-start;
+      height: calc(100dvh - var(--app-player-height, 0px) - 3.5rem);
+      overflow-y: auto;
+    }
   }
   @media (width < 1024px) {
     .dashboard-sidebar {
@@ -886,6 +930,7 @@
       z-index: var(--bs-z-drawer);
       box-shadow: var(--bs-box-shadow-lg);
       transform: translateX(-100%);
+      overflow-y: auto;
       transition: transform 0.2s ease;
     }
     .dashboard-sidebar.open { transform: none; }
@@ -907,11 +952,18 @@
   .dashboard-section.active { display: block; }
   .dashboard-stats {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
     gap: 1rem;
   }
+  /* One fact per line, never wrapped: the wide content is in .stat-meta lines. */
   .stat-card { gap: 0.25rem; }
-  .stat-card--disk { grid-column: 1 / -1; }
+  .stat-label,
+  .stat-value,
+  .stat-meta { display: block; white-space: nowrap; }
+  .stat-value { font-variant-numeric: tabular-nums; line-height: 1.2; }
+  .stat-warning { color: var(--app-warning); }
+  .adm-item { flex-wrap: wrap; }
+  .adm-item-main { flex-basis: 12rem; }
   .dashboard-lobby-item {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;

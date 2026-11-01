@@ -156,7 +156,7 @@ describe('per-user CLI tokens on Postgres', { skip, timeout: 180_000 }, () => {
     assert.equal((await req('POST', '/api/tokens', { cookie: cookies.bob, body: { label: 'Phone' } })).status, 201);
   });
 
-  it('/admin lists every token with its owner and revokes any; creation is gone', async () => {
+  it('the dashboard API lists every token with its owner and revokes any; creation is gone', async () => {
     const admin = adminCookie();
     assert.equal((await req('GET', '/api/admin/tokens', { cookie: cookies.alice })).status, 401);
     assert.equal((await req('POST', '/api/admin/tokens', { cookie: admin, body: { name: 'x' } })).status, 404);

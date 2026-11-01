@@ -1,10 +1,10 @@
 /**
- * HTTP API for the music library, song requests, the admin page (incl. the
+ * HTTP API for the music library, song requests, the dashboard (incl. the
  * list of all CLI tokens). Mounted by index.js; also mounted standalone in tests.
  *
  * CLI endpoints authenticate with `Authorization: Bearer <token>`. Read-only
  * endpoints (library list/song/file, requests list) take a Bearer token (CLI,
- * Android app), the admin cookie (admin page) or a logged-in approved web user
+ * Android app), the admin cookie (dashboard) or a logged-in approved web user
  * (hooks.requireWebUser); a token that IS sent must be valid. Without a
  * requireWebUser hook (standalone mounts in tests) web users get 401.
  */
@@ -435,7 +435,7 @@ function createLibraryRouter(hooks = {}) {
   });
 
   // Tokens are created by their owners on the profile page (/api/tokens,
-  // tokenRoutes.js); the admin page only lists and revokes them.
+  // tokenRoutes.js); the dashboard only lists and revokes them.
 
   router.post('/api/admin/tokens/:id/revoke', adminAuth.requireAdmin, requireDb, async (req, res) => {
     if (!library.isUuid(req.params.id)) return res.status(404).json({ error: 'Token not found' });

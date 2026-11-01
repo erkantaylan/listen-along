@@ -222,7 +222,7 @@ describe('auth guard against a running server (no database)', { timeout: 60_000 
   });
 
   it('public routes and static assets need no login', async () => {
-    for (const url of ['/health', '/api/version', '/api/changelog', '/changelog', '/admin', '/youtube-playlist',
+    for (const url of ['/health', '/api/version', '/api/changelog', '/changelog', '/youtube-playlist',
       '/api/youtube-playlist', '/app.js', '/theme.css', '/favicon.png', '/locales/en.json', '/api/auth/providers', '/api/admin/status']) {
       const r = await c.req('GET', url);
       assert.ok(r.status === 200 || (url === '/api/changelog' && r.status === 404), `${url} -> ${r.status}`);
@@ -271,10 +271,9 @@ describe('auth guard against a running server (no database)', { timeout: 60_000 
     }
     assert.equal((await c.req('GET', '/api/dashboard/stats', { cookie: admin })).status, 200);
     assert.equal((await c.req('DELETE', '/api/chat/messages/1', { cookie: alice })).status, 401);
-    let r = await c.req('GET', '/dashboard');
-    assert.equal(r.headers.get('location'), '/admin?next=/dashboard');
-    r = await c.req('GET', '/dashboard', { cookie: admin });
-    assert.equal(r.status, 200);
+    // The page is only the SPA shell (its login form asks for the admin password).
+    assert.equal((await c.req('GET', '/dashboard')).status, 200);
+    assert.equal((await c.req('GET', '/dashboard', { cookie: admin })).status, 200);
     // Library reads accept the admin cookie (the admin page lists and previews).
     assert.equal((await c.req('GET', '/api/library', { cookie: admin })).status, 503, 'past auth: no database here');
     assert.equal((await c.req('GET', '/api/library', { cookie: alice })).status, 503, 'past auth: no database here');

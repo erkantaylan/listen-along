@@ -1,15 +1,24 @@
-// Dashboard admin panel (public playlists, users). Library/token management is on /admin.
+// Admin dashboard: overview, public playlists, users, plus the sections in
+// dashboard-admin.js. Behind its own login (POST /api/admin/login, the la_admin
+// cookie); the page holds no data until that succeeds.
 import { state, elements, viewActivators, setDashboardInterval } from './state.js';
-import { showView, showToast, escapeHtml, formatUptime, formatAge, formatDuration, formatFileSize, toLower } from './ui.js';
+import { showView, showToast, escapeHtml, formatUptime, formatAge, formatDuration, formatFileSize, toLower, t, notifyViewChange } from './ui.js';
+import { startAdminSections, stopAdminSections } from './dashboard-admin.js';
 
 let dashboardUsers = [];
+let statsTimer = null;
+let onAdminReady = () => {};
+
+const $ = (id) => document.getElementById(id);
+// t() with {placeholders} filled in the fallback too (t returns it raw).
+const tf = (key, fallback, vars) => t(key, fallback, vars).replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
 
 function initSidebarNav() {
-  const sidebar = document.getElementById('dashboard-sidebar');
-  const overlay = document.getElementById('sidebar-overlay');
-  const hamburger = document.getElementById('sidebar-hamburger');
-  const closeBtn = document.getElementById('sidebar-close');
-  const titleEl = document.getElementById('dashboard-section-title');
+  const sidebar = $('dashboard-sidebar');
+  const overlay = $('sidebar-overlay');
+  const hamburger = $('sidebar-hamburger');
+  const closeBtn = $('sidebar-close');
+  const titleEl = $('dashboard-section-title');
 
   const openSidebar = () => { sidebar.classList.add('open'); overlay.classList.add('open'); };
   const closeSidebar = () => { sidebar.classList.remove('open'); overlay.classList.remove('open'); };
@@ -18,62 +27,154 @@ function initSidebarNav() {
   if (closeBtn) closeBtn.addEventListener('click', closeSidebar);
   if (overlay) overlay.addEventListener('click', closeSidebar);
 
+  const select = (link) => {
+    document.querySelectorAll('.sidebar-link').forEach(l => { l.classList.remove('active'); l.removeAttribute('aria-current'); });
+    link.classList.add('active');
+    link.setAttribute('aria-current', 'page');
+    document.querySelectorAll('.dashboard-section').forEach(s => s.classList.remove('active'));
+    const section = document.querySelector(`.dashboard-section[data-section="${link.dataset.section}"]`);
+    if (section) section.classList.add('active');
+    if (titleEl) titleEl.textContent = link.textContent.trim();
+  };
+
   document.querySelectorAll('.sidebar-link[data-section]').forEach(link => {
     link.addEventListener('click', (e) => {
       e.preventDefault();
-      const target = link.dataset.section;
-      document.querySelectorAll('.sidebar-link').forEach(l => l.classList.remove('active'));
-      link.classList.add('active');
-      document.querySelectorAll('.dashboard-section').forEach(s => s.classList.remove('active'));
-      const section = document.querySelector(`.dashboard-section[data-section="${target}"]`);
-      if (section) section.classList.add('active');
-      if (titleEl) titleEl.textContent = link.textContent.trim();
+      select(link);
+      history.replaceState(history.state, '', `#${link.dataset.section}`);
       closeSidebar();
     });
+  });
+  // #section survives a reload and can be linked to.
+  const fromHash = document.querySelector(`.sidebar-link[data-section="${CSS.escape(window.location.hash.slice(1))}"]`);
+  if (fromHash) select(fromHash);
+}
+
+// ---------------------------------------------------------------- login gate
+function setLocked(locked) {
+  $('adm-gate').hidden = !locked;
+  $('dashboard-layout').hidden = locked;
+  $('sidebar-hamburger').hidden = locked;
+  $('dashboard-section-title').textContent = locked ? t('dashboard.title', 'Dashboard') : (document.querySelector('.sidebar-link.active')?.textContent.trim() || '');
+  notifyViewChange();
+}
+
+function showLogin() {
+  clearInterval(statsTimer);
+  statsTimer = null;
+  setDashboardInterval(null);
+  stopAdminSections();
+  setLocked(true);
+  $('adm-disabled').hidden = true;
+  $('adm-login').hidden = false;
+  $('adm-username').focus();
+}
+
+function showDashboard() {
+  setLocked(false);
+  fetchDashboardStats();
+  clearInterval(statsTimer);
+  statsTimer = setInterval(fetchDashboardStats, 2000);
+  setDashboardInterval(statsTimer);
+  fetchDashboardUsers();
+  startAdminSections({ unauthorized: showLogin });
+  onAdminReady();
+}
+
+function setupLogin() {
+  $('adm-login').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errEl = $('adm-login-error');
+    errEl.hidden = true;
+    try {
+      const res = await fetch('/api/admin/login', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: $('adm-username').value, password: $('adm-password').value }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      $('adm-password').value = '';
+      showDashboard();
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.hidden = false;
+    }
+  });
+  $('adm-logout').addEventListener('click', async () => {
+    await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+    showLogin();
   });
 }
 
 // Register view activator
-viewActivators.dashboard = () => {
+viewActivators.dashboard = async () => {
   initSidebarNav();
-  fetchDashboardStats();
-  setDashboardInterval(setInterval(() => { fetchDashboardStats(); }, 2000));
-  fetchDashboardUsers();
+  setupLogin();
   if (elements.usersSearch) elements.usersSearch.addEventListener('input', renderDashboardUserList);
   if (elements.usersFilter) elements.usersFilter.addEventListener('change', renderDashboardUserList);
+  setLocked(true);
+  try {
+    const res = await fetch('/api/admin/status', { credentials: 'same-origin' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const status = await res.json();
+    if (!status.enabled) throw new Error('Admin is disabled (ADMIN_PASSWORD not set)');
+    if (status.authenticated) showDashboard(); else showLogin();
+  } catch (err) {
+    $('adm-disabled').textContent = `Could not open the dashboard: ${err.message}`;
+    $('adm-disabled').hidden = false;
+  }
 };
 
-export function checkUrlForDashboard() {
-  if (window.location.pathname === '/dashboard') {
+// onReady runs each time the admin login is confirmed.
+export function checkUrlForDashboard(onReady) {
+  if (/^\/dashboard\/?$/.test(window.location.pathname)) {
+    if (onReady) onAdminReady = onReady;
     showView('dashboard');
     return true;
   }
   return false;
 }
 
+function formatBytes(bytes) {
+  const mb = bytes / 1024 / 1024;
+  return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb.toFixed(1)} MB`;
+}
+
+function setMeta(el, text) {
+  if (!el) return;
+  el.textContent = text;
+  el.hidden = !text;
+}
+
 export function fetchDashboardStats() {
   fetch('/api/dashboard/stats', { credentials: 'include' })
     .then(res => {
-      // Admin session expired or logged out: log in again on /admin.
-      if (res.status === 401) { window.location.href = '/admin?next=/dashboard'; throw new Error('Admin login required'); }
+      // Admin session expired or logged out.
+      if (res.status === 401) { showLogin(); throw new Error('Admin login required'); }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
     })
     .then(data => {
-      if (elements.statLobbies) elements.statLobbies.textContent = data.privateLobbies ? `${data.totalLobbies} (${data.privateLobbies} private)` : data.totalLobbies;
-      if (elements.statUsers) elements.statUsers.textContent = data.totalUsers;
-      if (elements.statMemory) elements.statMemory.textContent = Math.round(data.memoryUsage.heapUsed / 1024 / 1024);
+      const n = (value) => Number(value).toLocaleString();
+      if (elements.statLobbies) elements.statLobbies.textContent = n(data.totalLobbies);
+      setMeta($('stat-lobbies-private'), data.privateLobbies ? tf('dashboard.privateCount', '{count} private', { count: n(data.privateLobbies) }) : '');
+      if (elements.statUsers) elements.statUsers.textContent = n(data.totalUsers);
+      if (elements.statMemory) elements.statMemory.textContent = n(Math.round(data.memoryUsage.heapUsed / 1024 / 1024));
       if (elements.statDisk) {
-        let diskText = `${(data.diskUsage.bytes / 1024 / 1024).toFixed(1)} MB (${data.diskUsage.fileCount} files)`;
-        if (data.diskUsage.unregisteredFiles > 0) {
-          diskText += ` — ⚠️ ${data.diskUsage.unregisteredFiles} unregistered (${(data.diskUsage.unregisteredBytes / 1024 / 1024).toFixed(1)} MB)`;
-        }
-        elements.statDisk.textContent = diskText;
+        elements.statDisk.textContent = formatBytes(data.diskUsage.bytes);
+        setMeta($('stat-disk-files'), tf('dashboard.files', '{count} files', { count: n(data.diskUsage.fileCount) }));
+        setMeta($('stat-disk-unregistered'), data.diskUsage.unregisteredFiles > 0
+          ? tf('dashboard.unregistered', '{count} unregistered ({size})', { count: n(data.diskUsage.unregisteredFiles), size: formatBytes(data.diskUsage.unregisteredBytes) })
+          : '');
       }
       if (elements.dashboardUptime) elements.dashboardUptime.textContent = `Uptime: ${formatUptime(data.uptime)}`;
       if (elements.dashboardLobbyList) updateDashboardLobbies(data.lobbies);
     })
-    .catch(err => console.error('Failed to fetch dashboard stats:', err));
+    .catch(err => { if (err.message !== 'Admin login required') console.error('Failed to fetch dashboard stats:', err); });
 }
 
 function updateDashboardLobbies(lobbies) {

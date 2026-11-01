@@ -34,12 +34,11 @@ where lobby persistence broke entirely on deployed instances.
   library.js (music library + m4a validation + legacy cache migration +
   duplicate checks + replace), songMatch.js (normalized "artist|title" key for
   probable duplicates; bump META_KEY_VERSION when changing it — boot recomputes),
-  requests.js (song requests), tokens.js (CLI tokens), adminAuth.js (/admin),
+  requests.js (song requests), tokens.js (CLI tokens), adminAuth.js (/dashboard),
   libraryRoutes.js (library/requests/admin HTTP API), songResolver.js
   (what a user typed -> library song or song request)
 - **The server does not download audio.** Songs are uploaded as m4a by the
-  listen-along CLI (`cli/`) with a Bearer token created on `/admin`
-  (`ADMIN_PASSWORD`). Anything queued that is not in the library becomes a song
+  listen-along CLI (`cli/`) with a Bearer token created on the profile page. Anything queued that is not in the library becomes a song
   request; uploads fulfil requests and auto-add the song to the requesting
   playlist. yt-dlp on the server is metadata-only (flat YouTube search, playlist
   listing). See `YTDLP-YOUTUBE.md` before touching song sourcing.
@@ -144,6 +143,7 @@ where lobby persistence broke entirely on deployed instances.
   playlist's changes go only to its owner's `userRoom`. Emit it from anything that
   creates, renames, deletes or changes the visibility of a playlist.
 - There is no per-playlist chat. There is one global chat plus a people panel
+  (web: column from 1200px, full-screen `/social` below; `#social-rail` is the opener from 1024px, DESIGN.md)
   (presence + now playing): `backend/src/social.js` (socket events, privacy),
   `chat.js` (store: Postgres `global_chat_messages`, in-memory without a DB;
   keyset pagination), `presence.js` (online = >= 1 socket, `users.last_seen`,
@@ -176,13 +176,16 @@ where lobby persistence broke entirely on deployed instances.
 - The CLI (`la`) authenticates with `Authorization: Bearer la_...` tokens
   (`tokens.js`). Each token belongs to a user (`api_tokens.user_id`): approved
   users create / revoke their own on the profile page (`/api/tokens`,
-  `tokenRoutes.js`); `/admin` lists and revokes all. `req.apiUser` =
+  `tokenRoutes.js`); `/dashboard` lists and revokes all. `req.apiUser` =
   `{ id, name, label, userId, user }`; a token stops working while its owner
   is not approved. Tokens from before ownership have `user_id` NULL ("legacy")
   and still work. Uploads record `library_songs.uploaded_by_user_id` (owner)
   plus the `uploaded_by` display-name snapshot the UI shows.
-- Admin (`/admin`, `/dashboard`) is a separate `la_admin` cookie
-  (`ADMIN_PASSWORD`, `adminAuth.js`), not a user account.
+- Admin (`/dashboard`; `/admin` 301s to it) is a separate `la_admin` cookie
+  (`ADMIN_PASSWORD`, `adminAuth.js`), not a user account. The page itself is the
+  data-free SPA shell with its own login form (404 without `ADMIN_PASSWORD`);
+  all admin data comes from APIs behind `adminAuth.requireAdmin`.
+  Frontend: `dashboard.js` + `dashboard-admin.js`.
 - Client IP (rate limits): `clientIp.js` trusts only private / loopback proxy
   hops (Traefik) and believes `CF-Connecting-IP` only from Cloudflare's ranges;
   use `req.clientIp`, not `req.ip`. Overrides: `TRUST_PROXY`, `CLOUDFLARE_IPS`.

@@ -242,7 +242,7 @@
   <div id="dashboard-view" class="view">
     <nav class="navbar app-navbar dashboard-topbar">
       <div class="container-fluid">
-        <button class="btn-text theme-secondary btn-icon sidebar-hamburger" id="sidebar-hamburger" type="button" aria-label="Open menu">
+        <button class="btn-text theme-secondary btn-icon sidebar-hamburger" id="sidebar-hamburger" type="button" aria-label="Open menu" hidden>
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
         </button>
         <span class="app-brand"><img src="/icon-192.png" alt=""><span class="d-none sm:d-inline">listen-along</span></span>
@@ -250,7 +250,27 @@
         <h1 class="h6 mb-0 text-truncate dashboard-topbar-title" id="dashboard-section-title">Overview</h1>
       </div>
     </nav>
-    <div class="dashboard-layout">
+    <!-- Shown instead of the dashboard until the admin login (la_admin cookie) succeeds. -->
+    <main id="adm-gate" class="app-main container app-narrow" hidden>
+      <p id="adm-disabled" class="alert theme-warning" hidden></p>
+      <form id="adm-login" class="card mx-auto app-form-narrow" hidden>
+        <div class="card-body vstack gap-4">
+          <h2 class="h5 mb-0">Log in</h2>
+          <div>
+            <label class="form-label" for="adm-username">Username</label>
+            <input id="adm-username" class="form-control" type="text" autocomplete="username" required>
+          </div>
+          <div>
+            <label class="form-label" for="adm-password">Password</label>
+            <input id="adm-password" class="form-control" type="password" autocomplete="current-password" required>
+          </div>
+          <button class="btn-solid theme-primary w-100" type="submit">Log in</button>
+          <p id="adm-login-error" class="fs-sm fg-danger mb-0" role="alert" hidden></p>
+          <a href="/" class="fs-sm text-center">← Back to app</a>
+        </div>
+      </form>
+    </main>
+    <div id="dashboard-layout" class="dashboard-layout" hidden>
       <aside class="dashboard-sidebar" id="dashboard-sidebar" aria-label="Dashboard sections">
         <div class="d-flex align-items-center justify-content-between p-4 sidebar-header">
           <span class="fw-semibold sidebar-title" data-i18n="dashboard.title">Dashboard</span>
@@ -259,39 +279,63 @@
           </button>
         </div>
         <nav class="list-group list-group-flush sidebar-nav">
-          <a href="#" class="list-group-item list-group-item-action sidebar-link active" data-section="overview">
+          <a href="#overview" class="list-group-item list-group-item-action sidebar-link active" data-section="overview">
             <svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
             Overview
           </a>
-          <a href="#" class="list-group-item list-group-item-action sidebar-link" data-section="lobbies">
+          <a href="#lobbies" class="list-group-item list-group-item-action sidebar-link" data-section="lobbies">
             <svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
             Playlists
           </a>
-          <a href="#" class="list-group-item list-group-item-action sidebar-link" data-section="users">
+          <a href="#users" class="list-group-item list-group-item-action sidebar-link" data-section="users">
             <svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
             Users
           </a>
-          <a href="/admin" class="list-group-item list-group-item-action sidebar-link">
+          <a href="#workers" class="list-group-item list-group-item-action sidebar-link" data-section="workers">
+            <svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/></svg>
+            Downloaders
+          </a>
+          <a href="#jobs" class="list-group-item list-group-item-action sidebar-link" data-section="jobs">
+            <svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+            Download jobs
+          </a>
+          <a href="#reports" class="list-group-item list-group-item-action sidebar-link" data-section="reports">
+            <svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+            Broken songs
+          </a>
+          <a href="#tokens" class="list-group-item list-group-item-action sidebar-link" data-section="tokens">
+            <svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
+            CLI tokens
+          </a>
+          <a href="#requests" class="list-group-item list-group-item-action sidebar-link" data-section="requests">
+            <svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
+            Song requests
+          </a>
+          <a href="#library" class="list-group-item list-group-item-action sidebar-link" data-section="library">
             <svg class="icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
-            Library &amp; tokens (/admin)
+            Library
           </a>
         </nav>
         <div class="vstack gap-2 p-4 mt-auto fs-sm sidebar-footer">
           <span id="dashboard-uptime" class="fg-3 dashboard-uptime"></span>
           <a href="/" class="sidebar-back-link">← Back to app</a>
+          <button id="adm-logout" class="btn btn-sm align-self-start" type="button">Log out</button>
         </div>
       </aside>
 
       <main class="dashboard-main">
         <section class="dashboard-section active" data-section="overview">
           <div class="dashboard-stats">
-            <div class="card card-body stat-card stat-card--disk">
-              <span class="fs-sm fg-3 stat-label">Disk Usage</span>
-              <span class="fs-lg fw-semibold stat-value" id="stat-disk">-</span>
+            <div class="card card-body stat-card">
+              <span class="fs-sm fg-3 stat-label" data-i18n="dashboard.diskUsage">Disk usage</span>
+              <span class="fs-2xl fw-semibold stat-value" id="stat-disk">-</span>
+              <span class="fs-xs fg-3 stat-meta" id="stat-disk-files" hidden></span>
+              <span class="fs-xs stat-meta stat-warning" id="stat-disk-unregistered" hidden></span>
             </div>
             <div class="card card-body stat-card">
               <span class="fs-sm fg-3 stat-label" data-i18n="dashboard.activeLobbies">Playlists</span>
               <span class="fs-2xl fw-semibold stat-value" id="stat-lobbies">0</span>
+              <span class="fs-xs fg-3 stat-meta" id="stat-lobbies-private" hidden></span>
             </div>
             <div class="card card-body stat-card">
               <span class="fs-sm fg-3 stat-label" data-i18n="dashboard.connectedUsers">Users</span>
@@ -330,6 +374,72 @@
           <ul id="dashboard-user-list" class="list-group dashboard-user-list">
             <li class="list-group-item app-empty dashboard-empty">No registered users</li>
           </ul>
+        </section>
+
+        <section class="dashboard-section" data-section="workers">
+          <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+            <h2 class="h5 mb-0 section-heading">Downloaders <span id="adm-workers-summary" class="fg-3 fw-normal fs-sm"></span></h2>
+            <button id="adm-workers-refresh" class="btn btn-sm" type="button">Refresh</button>
+          </div>
+          <p class="fs-sm fg-3 mb-4">Computers running <code>la worker</code> with someone's token. Host, OS, IP
+            and versions are shown here only; everyone else sees the name and owner.</p>
+          <ul id="adm-workers" class="list-group"></ul>
+        </section>
+
+        <section class="dashboard-section" data-section="jobs">
+          <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+            <h2 class="h5 mb-0 section-heading">Download jobs <span id="adm-jobs-counts" class="fg-3 fw-normal fs-sm"></span></h2>
+            <select id="adm-job-status" class="form-control form-control-sm w-auto" aria-label="Job status">
+              <option value="active">Waiting + running</option>
+              <option value="all">All</option>
+              <option value="failed">Failed</option>
+              <option value="done">Done</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+          <ul id="adm-jobs" class="list-group"></ul>
+        </section>
+
+        <section class="dashboard-section" data-section="reports">
+          <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+            <h2 class="h5 mb-0 section-heading">Broken songs <span id="adm-reports-summary" class="fg-3 fw-normal fs-sm"></span></h2>
+            <button id="adm-reports-refresh" class="btn btn-sm" type="button">Refresh</button>
+          </div>
+          <p class="fs-sm fg-3 mb-4">Songs people marked as broken. Replacing a song's audio (in the
+            library, or <code>la upload --replace</code>) resolves its reports; dismiss the ones that are wrong.</p>
+          <ul id="adm-reports" class="list-group"></ul>
+        </section>
+
+        <section class="dashboard-section" data-section="tokens">
+          <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+            <h2 class="h5 mb-0 section-heading">CLI tokens </h2>
+            
+          </div>
+          <p class="fs-sm fg-3 mb-4">Every token for the listen-along CLI. People create their own on
+            their profile page; uploads are credited to the token's owner. Legacy tokens predate
+            ownership and are credited to the name they were created with.</p>
+          <ul id="adm-tokens" class="list-group"></ul>
+        </section>
+
+        <section class="dashboard-section" data-section="requests">
+          <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+            <h2 class="h5 mb-0 section-heading">Song requests </h2>
+            <select id="adm-request-status" class="form-control form-control-sm w-auto" aria-label="Request status">
+              <option value="pending">Waiting</option>
+              <option value="fulfilled">Uploaded</option>
+              <option value="dismissed">Dismissed</option>
+              <option value="all">All</option>
+            </select>
+          </div>
+          <ul id="adm-requests" class="list-group"></ul>
+        </section>
+
+        <section class="dashboard-section" data-section="library">
+          <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+            <h2 class="h5 mb-0 section-heading">Library <span id="adm-library-total" class="fg-3 fw-normal fs-sm"></span></h2>
+            <input id="adm-library-search" class="form-control form-control-sm w-auto" type="search" placeholder="Search…" autocomplete="off" aria-label="Search library">
+          </div>
+          <ul id="adm-library" class="list-group"></ul>
         </section>
       </main>
     </div>
@@ -474,9 +584,23 @@
     <div id="plnav-list" class="plnav-scroll"></div>
   </nav>
 
-  <!-- Chat and people (social.js): right-hand sidebar on desktop (>= 1024px,
-       collapsible), the full-screen /social view on phones. Shown by body
-       classes (has-social, social-collapsed, social-route), not [hidden]. -->
+  <!-- Chat and people (social.js): right-hand column from 1200px (collapsible),
+       the full-screen /social view below that. Shown by body classes (has-social,
+       social-collapsed, social-route), not [hidden]. #social-rail is the labelled
+       opener at the right edge while the column is not on screen (from 1024px). -->
+  <nav id="social-rail" class="social-rail" aria-label="Open chat and people">
+    <button class="btn-text theme-secondary social-rail-btn" type="button" data-social-open="chat" aria-controls="social-panel" title="Open chat" aria-label="Open chat" data-i18n-title="social.openChat" data-i18n-aria-label="social.openChat">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/></svg>
+      <span class="social-rail-label" data-i18n="social.chat">Chat</span>
+      <span class="badge social-toggle-badge" data-social-unread hidden></span>
+    </button>
+    <button class="btn-text theme-secondary social-rail-btn" type="button" data-social-open="people" aria-controls="social-panel" title="Open people" aria-label="Open people" data-i18n-title="social.openPeople" data-i18n-aria-label="social.openPeople">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+      <span class="social-rail-label" data-i18n="social.people">People</span>
+      <span class="badge social-toggle-badge" data-online-count aria-hidden="true">0</span>
+    </button>
+  </nav>
+
   <aside id="social-panel" class="social-panel" aria-label="Chat and people">
     <div class="social-header">
       <button id="social-back" class="btn-text theme-secondary btn-icon social-back" type="button" aria-label="Back" title="Back">
@@ -484,10 +608,10 @@
       </button>
       <nav class="nav nav-underline social-tabs" role="tablist" aria-label="Chat and people">
         <button class="nav-link social-tab active" type="button" role="tab" aria-selected="true" aria-controls="social-chat" data-social-tab="chat">
-          Chat <span class="badge badge-subtle theme-primary" data-social-unread hidden></span>
+          <span data-i18n="social.chat">Chat</span> <span class="badge badge-subtle theme-primary" data-social-unread hidden></span>
         </button>
         <button class="nav-link social-tab" type="button" role="tab" aria-selected="false" aria-controls="social-people" data-social-tab="people">
-          People <span class="badge badge-subtle theme-secondary" data-online-count title="Online">0</span>
+          <span data-i18n="social.people">People</span> <span class="badge badge-subtle theme-secondary" data-online-count title="Online">0</span>
         </button>
       </nav>
       <button id="social-collapse" class="btn-text theme-secondary btn-icon social-collapse" type="button" aria-label="Hide chat and people" title="Hide chat and people" aria-controls="social-panel">

@@ -50,7 +50,7 @@ search, and anything not found becomes a **song request**.
    explicit `request_id`), and the song is **automatically added to the queue of
    each requesting lobby** (socket `request:fulfilled`, `queue:update`).
 5. Requests the CLI cannot find are dismissed (`POST /api/requests/:id/dismiss`,
-   also possible from `/admin`).
+   also possible from `/dashboard`).
 
 ## Upload rules
 
@@ -71,9 +71,9 @@ search, and anything not found becomes a **song request**.
 ## Tokens and admin
 
 - Set `ADMIN_PASSWORD` (and optionally `ADMIN_USER`, default `admin`) to enable
-  `/admin` and `/dashboard` (unset = both disabled).
-- On `/admin`, create a token per person (labelled with their display name).
-  The plaintext is shown once; only its SHA-256 is stored. Revoke any time.
+  `/dashboard` (unset = disabled).
+- Users create their own tokens on their profile page; `/dashboard` lists and
+  revokes all of them. The plaintext is shown once; only its SHA-256 is stored.
 - The CLI sends `Authorization: Bearer <token>`; uploads record `uploaded_by`
   = the token's name.
 

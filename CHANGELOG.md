@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- fix(web): a collapsed chat and people panel has a visible way back: a labelled rail at the right edge with **Chat** and **People**, from 1024px. Since the panel started docking at 1200px, windows of 1024-1199px had only the small chat icon in the player bar
+- feat(web): whoever is also signed in to the app gets the chat and people panel on `/dashboard`
+- change(admin): the `/admin` page moved into `/dashboard` (Downloaders, Download jobs, Broken songs, CLI tokens, Song requests, Library); `/dashboard` has its own login form and `/admin` redirects to it
+- fix(web): dashboard overview cards no longer wrap: wider cards, and private counts, file counts and unregistered files sit on their own small lines
 - feat(web): song menu (right-click, long-press, ⋮) has **Add to playlist**: a submenu on desktop and a bottom sheet on phones, with Turkish-aware search, pinned first, and New playlist that creates and adds without leaving the page
 - change(web): the source link moved from library rows and the player bar into the song menu (**Open on YouTube**, **Copy link**), so rows are shorter on phones
 - change(web): version, changelog and GitHub live in one place, the About card at the bottom of the profile page; they left every navbar and the line above the player, which gives the playlist queue that height back

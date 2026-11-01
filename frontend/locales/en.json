@@ -91,6 +91,10 @@
     "undo": "Undo"
   },
   "dashboard": {
+    "diskUsage": "Disk usage",
+    "files": "{count} files",
+    "unregistered": "{count} unregistered ({size})",
+    "privateCount": "{count} private",
     "title": "Dashboard",
     "activeLobbies": "Playlists",
     "connectedUsers": "Connected Users",
@@ -130,6 +134,11 @@
     "tr": "Turkish"
   },
   "social": {
+    "chat": "Chat",
+    "people": "People",
+    "openChat": "Open chat",
+    "openPeople": "Open people",
+    "cardListenInApp": "Open the app to listen along.",
     "open": "Chat and people",
     "aPlaylist": "a playlist",
     "lastSeen": "Last seen {when}",

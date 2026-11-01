@@ -91,6 +91,10 @@
     "undo": "Geri al"
   },
   "dashboard": {
+    "diskUsage": "Disk kullanımı",
+    "files": "{count} dosya",
+    "unregistered": "{count} kayıtsız ({size})",
+    "privateCount": "{count} özel",
     "title": "Kontrol Paneli",
     "activeLobbies": "Çalma listeleri",
     "connectedUsers": "Bağlı Kullanıcılar",
@@ -130,6 +134,11 @@
     "tr": "Türkçe"
   },
   "social": {
+    "chat": "Sohbet",
+    "people": "Kişiler",
+    "openChat": "Sohbeti aç",
+    "openPeople": "Kişileri aç",
+    "cardListenInApp": "Birlikte dinlemek için uygulamayı açın.",
     "open": "Sohbet ve kişiler",
     "aPlaylist": "bir çalma listesi",
     "lastSeen": "Son görülme {when}",

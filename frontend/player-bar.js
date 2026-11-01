@@ -37,12 +37,13 @@ const $ = (id) => document.getElementById(id);
 const tf = (key, fallback, vars) => t(key, fallback, vars).replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
 const CONTROL_IDS = ['repeat-btn', 'shuffle-btn', 'prev-btn', 'next-btn', 'progress-bar'];
 
-// Hidden only before sign-in (login / pending approval).
+// Hidden only before sign-in (login / pending approval, the admin login).
 function refreshVisibility() {
   const bar = $('player-bar');
   if (!bar) return;
   const signedOut = (elements.loginView && elements.loginView.classList.contains('active'))
-    || (elements.pendingView && elements.pendingView.classList.contains('active'));
+    || (elements.pendingView && elements.pendingView.classList.contains('active'))
+    || (elements.dashboardView && elements.dashboardView.classList.contains('active') && !$('adm-gate').hidden);
   bar.hidden = signedOut;
   document.body.classList.toggle('has-player-bar', !signedOut);
 }

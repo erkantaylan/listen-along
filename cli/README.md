@@ -134,7 +134,7 @@ la worker --json > events.ndjson   # one JSON event per line on stdout
 
 - **Visibility.** Everyone sees the worker as `<name> (<your name>)` (songs
   read "uploaded by living-room-pc (Ayşe)"). Hostname, OS, IP and versions
-  are shown to admins only (`/admin` → Downloaders).
+  are shown to admins only (`/dashboard` → Downloaders).
 - **Connection.** Reconnects by itself (1s, 2s, 4s … 60s, jittered) after a
   network drop or server restart; a running job keeps going and is reported
   after the reconnect (the hello names it). If a worker vanishes mid-job the

@@ -8,7 +8,7 @@
 //   /profile                   own profile
 //   /social                    chat + people (full-screen below 1200px; from
 //                              1200px the column beside the current page)
-//   /dashboard                 admin dashboard
+//   /dashboard                 admin dashboard (its own login form; /admin 301s here)
 //
 // Old /lobby/<id>[/library] URLs map to /playlist/... (legacyRedirect; the
 // server answers them with a 301 too).

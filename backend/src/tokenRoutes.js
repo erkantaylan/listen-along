@@ -8,7 +8,7 @@
  * Approved accounts only (pending users get chat / people and their profile,
  * nothing that reaches the library). Every query is scoped to the caller's
  * users.id, so nobody can see or revoke another user's (or a legacy) token:
- * those are simply "not found". The admin page manages all tokens through
+ * those are simply "not found". The dashboard manages all tokens through
  * /api/admin/tokens (libraryRoutes.js).
  */
 

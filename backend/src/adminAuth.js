@@ -1,5 +1,5 @@
 /**
- * Admin auth for /admin and /dashboard: ADMIN_USER (default "admin") and
+ * Admin auth for /dashboard: ADMIN_USER (default "admin") and
  * ADMIN_PASSWORD env vars. Logging in sets an HMAC-signed, expiring cookie.
  * The signing key is derived from the credentials, so changing either one logs
  * every admin session out. If ADMIN_PASSWORD is unset, admin is disabled
