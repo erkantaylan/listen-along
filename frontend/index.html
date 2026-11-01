@@ -207,6 +207,15 @@
               <div class="progress" role="progressbar" aria-label="Playlist download" style="--bs-progress-height: .375rem"><div id="pdl-bar-fill" class="progress-bar" style="width: 0%"></div></div>
             </div>
             <input type="search" id="queue-search-input" class="form-control form-control-sm mb-3 song-filter-input" placeholder="Filter songs..." aria-label="Filter songs" autocomplete="off">
+            <!-- Column labels (DESIGN.md "Song rows"): the cells say the same to a screen reader. -->
+            <div id="queue-head" class="queue-head fs-xs fg-3" aria-hidden="true" hidden>
+              <span class="queue-head-num">#</span>
+              <span data-i18n="queue.colTitle">Title</span>
+              <span class="queue-col-by" data-i18n="queue.colAddedBy">Added by</span>
+              <span class="queue-col-date" data-i18n="queue.colAdded">Added</span>
+              <span class="queue-col-dur" data-i18n="queue.colDuration">Duration</span>
+              <span></span>
+            </div>
             <ul id="queue-list" class="list-group queue-list">
               <li class="list-group-item app-empty queue-empty">
                 <p class="mb-1" data-i18n="queue.empty">Queue is empty</p>
@@ -560,15 +569,19 @@
   <div id="plnav-backdrop" class="plnav-backdrop" hidden></div>
   <nav id="app-sidebar" class="app-sidebar" aria-labelledby="plnav-title">
     <div class="d-flex align-items-center gap-1 plnav-head">
-      <a id="plnav-home" class="app-brand me-auto plnav-home" href="/" aria-label="Home" data-i18n-aria-label="sidebar.home"><img src="/icon-192.png" alt="">listen-along</a>
+      <a id="plnav-home" class="app-brand plnav-home" href="/" aria-label="Home" data-i18n-aria-label="sidebar.home"><img src="/icon-192.png" alt=""><span class="plnav-brand-name">listen-along</span></a>
       <button id="plnav-profile" class="btn-text theme-secondary btn-icon" type="button" aria-label="Profile" title="Profile">
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+      </button>
+      <button id="plnav-toggle" class="btn-text theme-secondary btn-icon plnav-toggle" type="button" aria-controls="app-sidebar" aria-expanded="true" aria-label="Collapse playlists" title="Collapse playlists">
+        <svg class="plnav-toggle-collapse" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+        <svg class="plnav-toggle-expand" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8.59 16.59 10 18l6-6-6-6-1.41 1.41L13.17 12z"/></svg>
       </button>
       <button id="plnav-close" class="btn-text theme-secondary btn-icon plnav-close-btn" type="button" aria-label="Close playlists" title="Close playlists" data-i18n-aria-label="sidebar.close" data-i18n-title="sidebar.close">
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
       </button>
     </div>
-    <div class="d-flex align-items-center justify-content-between gap-2 plnav-title-row">
+    <div class="d-flex align-items-center gap-2 plnav-title-row">
       <h2 id="plnav-title" class="h6 mb-0" data-i18n="landing.playlists">Playlists</h2>
       <button id="plnav-new" class="btn-text theme-secondary btn-icon btn-sm" type="button" aria-haspopup="dialog" aria-label="New playlist" title="New playlist" data-i18n-aria-label="landing.newPlaylist" data-i18n-title="landing.newPlaylist">
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
@@ -584,10 +597,10 @@
     <div id="plnav-list" class="plnav-scroll"></div>
   </nav>
 
-  <!-- Chat and people (social.js): right-hand column from 1200px (collapsible),
+  <!-- Chat and people (social.js): right-hand column from 1010px (collapsible),
        the full-screen /social view below that. Shown by body classes (has-social,
        social-collapsed, social-route), not [hidden]. #social-rail is the labelled
-       opener at the right edge while the column is not on screen (from 1024px). -->
+       opener at the right edge while the column is not on screen (from 1010px). -->
   <nav id="social-rail" class="social-rail" aria-label="Open chat and people">
     <button class="btn-text theme-secondary social-rail-btn" type="button" data-social-open="chat" aria-controls="social-panel" title="Open chat" aria-label="Open chat" data-i18n-title="social.openChat" data-i18n-aria-label="social.openChat">
       <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/></svg>

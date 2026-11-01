@@ -28,6 +28,7 @@ where lobby persistence broke entirely on deployed instances.
 - Backend: Node.js + Express + Socket.IO (`backend/src/`)
 - Frontend: Vanilla JS, single-page (`frontend/`)
 - UI is stock Bootstrap 6 (vendored in `frontend/vendor/`) with light theming; read `DESIGN.md` before changing any page or CSS
+- Column widths: `frontend/layout-rules.js` (pure, tested) decides when the sidebar is a rail and from where the chat docks; keep its numbers in step with `app.css` (DESIGN.md "Columns and breakpoints"). Queue entries' `artistName` is derived from the library on load (`Queue._loadArtists`), not a column; `title` stays "Title - Artist" for the CLI and Android
 - `index.js` is the main server (~1700 lines, handles all HTTP routes + socket events)
 - Domain modules: lobby.js, playlistAccess.js, queue.js, covers.js, db.js,
   workerHub.js / downloadJobs.js / jobRoutes.js (downloaders + jobs, see below),

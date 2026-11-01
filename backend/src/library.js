@@ -150,6 +150,11 @@ function toQueueEntry(song) {
   };
 }
 
+/** The artist as a queue row shows it, apart from the combined title. */
+function queueArtist(song) {
+  return song.artist && song.artist !== 'Unknown' ? song.artist : null;
+}
+
 function sha256File(filePath) {
   return new Promise((resolve, reject) => {
     const hash = crypto.createHash('sha256');
@@ -933,6 +938,7 @@ module.exports = {
   isQueued,
   toPublic,
   toQueueEntry,
+  queueArtist,
   sha256File,
   ffprobe,
   classifyM4a,

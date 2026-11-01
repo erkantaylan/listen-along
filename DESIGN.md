@@ -177,7 +177,8 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 - Secondary information: `fs-sm` / `fs-xs` with `fg-3`. Truncate long titles with `text-truncate`
   (parent needs `min-w-0` inside flex rows).
 - Spacing: Bootstrap utilities on the fine scale above. Page content uses `.container`
-  (`.app-narrow` = 40rem for forms/settings; the playlist page and library use 56rem).
+  (`.app-narrow` = 40rem for forms/settings; the library uses 56rem; the playlist page takes the whole column,
+  with only its add-song and filter inputs capped at 56rem).
   Vertical rhythm between cards: `mb-4`/`mb-5` or `vstack gap-6`.
 - Radii and shadows: Bootstrap defaults (buttons .5rem, cards .75rem). Shadows only on
   floating things (modals, drawer, toasts).
@@ -213,28 +214,41 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 
 ### Columns and breakpoints
 
-| Viewport | Playlists sidebar (`has-plnav`) | Page column | Chat panel (`has-social`) |
-| --- | --- | --- | --- |
-| < 768px | drawer, `min(20rem, 85vw)` | full width | only on `/social`, full-screen |
-| 768–1023px | fixed, 16.5rem | width − 264px | only on `/social`, full-screen; it covers the sidebar too |
-| 1024–1199px | fixed, 16.5rem | width − 320px | rail, 3.5rem; opens `/social`, full-screen |
-| 1200–1439px | fixed, 16.5rem | width − 584px (− 320px collapsed: rail) | fixed, 20rem, collapses to the rail |
-| >= 1440px | fixed, 19rem | width − 624px (− 360px collapsed: rail) | fixed, 20rem, collapses to the rail |
+Automatic widths, with nobody having touched the sidebar's toggle (L = sidebar, R = chat or its rail):
 
-- The chat panel docks only from 1200px, where the page column is still 616px. Below that it never sits beside
-  the page, whatever the user chose: the chat button opens the full-screen `/social` and closes it again, and
-  a remembered open or closed choice applies again from 1200px. From 1024px the rail is on screen whenever the column is not, so chat and people are never hidden behind one icon.
+| Viewport | Chat open: L / page / R | Chat closed: L / page / R |
+| --- | --- | --- |
+| < 768px | drawer / full width / only on `/social`, full-screen | same |
+| 768–879px | 72 / width − 72 / only on `/social`, full-screen, covering the sidebar too | same |
+| 880–1009px | 264 / width − 264 / only on `/social`, full-screen | same |
+| 1010–1159px | **72** / width − 352 / 280 docked | 264 / width − 320 / 56 rail |
+| 1160–1199px | 264 / width − 544 / 280 docked | 264 / width − 320 / 56 rail |
+| 1200–1439px | 264 / width − 584 / 320 docked | 264 / width − 320 / 56 rail |
+| >= 1440px | 304 / width − 624 / 320 docked | 304 / width − 360 / 56 rail |
+
+- **The library collapses first, the chat stays docked.** Modelled on Spotify's layout (the main column has a
+  floor and the right panel never overlays). `sidebarRail()` in `layout-rules.js` is the one rule: automatically,
+  the sidebar is a rail whenever expanding it would leave the page column under 616px. So opening or closing
+  the chat can change the sidebar too.
+- The user's toggle wins (`listen-sidebarMode` in localStorage: `rail`, `expanded`, absent = automatic) at every
+  width from 768px. The floor holds by construction: an expanded sidebar with the chat docked leaves 466px at 1010px,
+  the narrowest case, and 504px at 768px with no chat. The page column is never under 416px from 768px up.
+- The chat panel docks from 1010px (`DOCK_MIN`). Below that it never sits beside the page, whatever the user
+  chose: the chat button opens the full-screen `/social` and closes it again, and a remembered open or closed
+  choice applies again from 1010px. From 1010px the right rail is on screen whenever the column is not, so chat
+  and people are never hidden behind one icon.
 - Rules about what fits in the page column use `@container page (…)`: `#landing-view`, `#lobby-view`,
   `#profile-view` and `.library-page` are size containers, so a rule such as `width < 576px` fires
   in a column of 504px at 768px. `@media (width …)` is for what follows the viewport (the two columns, the
   player bar's slim form).
 - The 19rem step still takes 39px at 1440px with the chat open (855px at 1439px, 816px at 1440px), at a width where that
-  does no harm; it used to fall on 1280px.
+  does no harm; it used to fall on 1280px. The automatic step at 1160px drops the column from 807px to 616px.
 - With a mouse (`pointer: fine`) the page column scrolls, not the document, so the chat panel and the player
   bar never move and no scrollbar sits beyond them. The column's own scrollbar takes 15px from it when
   the page overflows. Touch keeps document scrolling. Bootstrap's `scrollbar-gutter: stable` is overridden
   (`theme.css`).
-- The narrowest page column with the sidebar is 504px at 768px. Check new page content there, not only on phones.
+- The narrowest page columns beside a sidebar: 616px automatically (880, 1160 and 1200px), 466px with the
+  sidebar kept expanded at 1010px. Check new page content there, not only on phones.
 - The player bar always spans the full viewport, and its centre zone is centred on the viewport, not
   on the page column. Login and the standalone pages have neither column; pending has only the chat panel;
   `/dashboard` has its own section list and, for someone also signed in to the app, the chat panel.
@@ -276,7 +290,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   navbar (back, name, a muted line with the "Private" badge (lock + text, same as the
   landing rows; nothing for public), owner and listener count; your own pin (same as the
   sidebar's; aria-pressed, `.active`), share, and the owner's
-  ⋮ menu: Copy link, Rename, Make private / public, Delete), scrolling body (56rem)
+  ⋮ menu: Copy link, Rename, Make private / public, Delete), scrolling body (full column)
   with the queue (no tabs: who is listening and what they play is the global people
   panel, your name/avatar is on the profile page). There is no per-playlist chat; there
   is one global chat (see "Chat and people panel"). Playback is the app-wide player bar, like
@@ -328,8 +342,8 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   requests + Download-box jobs, with status badge and "uploaded by <worker> (<owner>)"),
   Fulfilled (what your downloaders fulfilled, with "asked by"), Downloaders (yours: name, jobs done, online /
   busy / offline badge; never host, OS or IP) — and one list group below them.
-- **Social** (`/social`): below 1200px the chat-and-people panel as a full-screen view (over the
-  playlists sidebar too); from 1200px the URL just opens the chat panel beside the current page. See below.
+- **Social** (`/social`): below 1010px the chat-and-people panel as a full-screen view (over the
+  playlists sidebar too); from 1010px the URL just opens the chat panel beside the current page. See below.
 - **Dashboard** (`dashboard.js`, `dashboard-admin.js`; `/admin` 301s here): navbar (hamburger below 1024px),
   15rem section list (sticky, a drawer below 1024px; `#section` in the URL), main area up to 64rem. Until the admin login
   it shows only a centred login card (`#adm-gate`, no player bar, no sections); Log out is under the section list. Sections, one at a time, each `h2.h5` + a
@@ -356,10 +370,18 @@ the dashboard already owns `.sidebar-*`). Shown by body classes, never `[hidden]
 (approved account), `plnav-open` (drawer open). Present on landing, playlist, library overlay,
 profile and the desktop `/social`; not on login, pending or `/dashboard`.
 
-- **From 768px**: fixed left column, `--app-sidebar-width` (16.5rem, 19rem from 1440px), from the top
-  down to the player bar. `body` gets the same `padding-left`, and the library overlay's `left`
+- **From 768px**: fixed left column, `--app-sidebar-width` (16.5rem, 19rem from 1440px; 4.5rem as the rail),
+  from the top down to the player bar. `body` gets the same `padding-left`, and the library overlay's `left`
   follows it, as the chat panel does on the right.
-- **Below 768px**: a drawer (`min(20rem, 85vw)`) that stops at the player bar, with a backdrop,
+- **Rail** (`body.plnav-rail`, 72px, see "Columns and breakpoints" for when): the same list, re-styled. Brand icon,
+  profile, the toggle (`#plnav-toggle`, chevron, "Expand / Collapse playlists", `aria-expanded`), New playlist, then
+  one 2.5rem rounded-square avatar per playlist with its initials (`playlistInitials`, Turkish capitals; never
+  covers), the same order with a divider between groups instead of headings. Tooltip = `title`, and `aria-label` has
+  name, Private, owner and song count. Current = the usual tint + edge plus accent avatar; pinned = accent hairline
+  on the avatar. Click and Enter navigate; right-click and long-press open the same menu. No search or pin / ⋮
+  buttons: a running search is cleared on collapsing. A display utility on anything the rail hides would beat
+  `@layer custom`, so those parts carry none. Rail rules live inside `@media (width >= 768px)`: phones always get the full drawer.
+- **Below 768px** (unchanged by the toggle, which is hidden): a drawer (`min(20rem, 85vw)`) that stops at the player bar, with a backdrop,
   opened from the ☰ (`[data-plnav-open]`) in every navbar. ☰ replaces the playlist page's back button
   there (Home is in the drawer). Focus moves in and stays in; Escape, ×, the backdrop and any
   navigation close it; focus returns to the ☰.
@@ -419,13 +441,30 @@ Song lists behave like Spotify's. **Normal mode** (always the default):
   again resumes it if paused and never restarts it.
 - Rows stay clean: thumb, title (+ broken-report icon), one muted meta line, and only the ⋮ song
   menu button on the right (the library keeps its play / replace / Add buttons). No drag handles,
-  arrows, remove or play buttons. Buttons and links inside a row never trigger the row.
+  arrows or remove buttons. Buttons and links inside a row never trigger the row.
+- **Playlist rows are a table** (`queue.js`, "Song table" in `app.css`), about 56px high: `#` (position; on hover or
+  keyboard focus a play button, pause on the song sounding, whose number is an equaliser), Title with artist
+  under it (+ 2.5rem thumb, status badges, per-row progress), Added by, Added (date, full time in its `title`),
+  Duration, ⋮ at the far right (on hover / focus, always on touch; it keeps its place). The label row
+  `#queue-head` shares the grid and sticks to the top of `.lobby-body`; it is `aria-hidden`, the cells carry their own
+  visually hidden labels. Columns go by **page column** width, `@container page`, never the viewport:
+
+  | Page column | Columns |
+  | --- | --- |
+  | >= 800px | #, Title, Added by, Added, Duration, ⋮ |
+  | 650–799px | #, Title, Added by, Duration, ⋮ |
+  | 480–649px | #, Title, Duration, ⋮ |
+  | < 480px | compact: no head, no #; thumb, title, a line of artist / duration / added by, ⋮ |
+
+  Data: `addedBy` (a display name, never an id) and `addedAt` were always on queue entries; `artistName` is additive
+  (from the library song, not stored on the entry, null for requests) and only strips the artist off the combined title (`songParts`).
+  `anonymous` (the placeholder of old rows) and missing values show blank.
 - Right-click / long-press / ⋮ open the song menu as always (see "Context menu").
 
 **Edit mode** (playlist queue only; "Edit" → "Done" in the navbar, only for users who may edit;
 leaving the page always ends it; `queue-edit.js`):
 
-- Each row gets a drag handle on the left (`.queue-item-handle`, `.btn-text.theme-secondary.btn-icon.btn-sm`,
+- The handle takes the `#` cell, so nothing moves. Each row gets a drag handle on the left (`.queue-item-handle`, `.btn-text.theme-secondary.btn-icon.btn-sm`,
   `touch-action: none`) and a remove button on the right (`.queue-item-remove`, `.btn-text.theme-danger.btn-icon.btn-sm`,
   minus-circle). Handles and remove grow to 2.5rem on coarse pointers. The list always shows the real
   queue order (the sort select is disabled).
@@ -516,8 +555,8 @@ art, times, buttons).
     the middle; under them the seek `.form-range` with the current time and duration on either side (fixed
     width, so the track stays centred).
   - `.player-zone-right`, right-aligned: mute + volume, then chat at the very far right (`#social-toggle`,
-    unread badge on its corner; toggles the chat panel from 1200px, opens `/social` below that; the only opener
-    below 1024px, the rail is the labelled one above that). The slider is 4.75rem at 768px, growing with the
+    unread badge on its corner; toggles the chat panel from 1010px, opens `/social` below that; the only opener
+    below 1010px, the rail is the labelled one above that). The slider is 4.75rem at 768px, growing with the
     viewport to 7.8125rem at 1280px.
   - Focus order follows that: song, ⋮, transport, seek, mute, volume, chat.
 - Below 768px the zones dissolve (`display: contents`) into one row with the seek line wrapped under it, and the
@@ -542,20 +581,20 @@ One `aside#social-panel` in `index.html`, driven by `social.js` (pure helpers in
 never by `[hidden]`: `has-social` (signed in, socket up), `social-collapsed`
 (desktop, remembered in localStorage), `social-route` (the `/social` URL).
 
-- **Desktop (>= 1200px)**: fixed right column, `--app-social-width` (20rem) wide, from
+- **Desktop (>= 1010px)**: fixed right column, `--app-social-width` (17.5rem, 20rem from 1200px) wide, from
   the top of the page down to the player bar (`--app-player-height`). `body` gets the
   same `padding-right`, so every page (and the library overlay, via `right`) shifts left
   rather than sitting under it. Collapse with the chevron in its header. Present on every
   signed-in page (landing, playlist, library overlay, profile), next to the pending-approval
   card, and on `/dashboard` when the browser is also signed in to the app (the admin login alone is
   not an account; a chat-only socket as for pending users, so Listen along says to open the app).
-- **Rail (`#social-rail`, >= 1024px)**: whenever the column is not on screen (collapsed, or below 1200px), a fixed 3.5rem
+- **Rail (`#social-rail`, >= 1010px)**: whenever the column is not on screen (collapsed), a fixed 3.5rem
   column at the right edge, same surface and border as the column, mirroring the playlists sidebar. Two stacked
   icon-and-word buttons, **Chat** (unread badge) and **People** (neutral online count), each opens the panel on that
-  tab: the column from 1200px, `/social` below that. It takes page width like the column does
+  tab. It takes page width like the column does
   (`--app-social-inset`). Focus moves to the tab on open and back to the rail on collapse. Never hide
   the panel without leaving the rail: one small icon in the player bar is not enough of a way back.
-- **Below 1200px** (tablets and small windows too): hidden except on `/social`, where it covers the page and the
+- **Below 1010px** (tablets and small windows too): hidden except on `/social`, where it covers the page and the
   playlists sidebar above the player bar with a back arrow in its header (the collapse chevron is hidden).
 - Header: back (phones) | underline tabs **Chat** (unread badge) and **People** (online
   count) | collapse (desktop).
@@ -591,8 +630,8 @@ never by `[hidden]`: `has-social` (signed in, socket up), `social-collapsed`
   every `[data-social-unread]` badge (player-bar chat button, Chat tab, pending card) and
   reset when the chat is shown.
 
-All pages must work from 320px wide with no horizontal page scroll; check 320 and 375, and 768 and
-1200 (the narrowest page columns, see "Columns and breakpoints").
+All pages must work from 320px wide with no horizontal page scroll; check 320 and 375, and 768, 1010 and
+1200, with the sidebar expanded too (the narrowest page columns, see "Columns and breakpoints").
 
 ## Accessibility rules
 

@@ -1386,7 +1386,7 @@ async function addLibrarySongToLobby(lobbyId, librarySong, addedBy, { skipIfQueu
   const queue = await getQueueAsync(lobbyId);
   if (skipIfQueued && library.isQueued(queue.getSongs(), librarySong)) return null;
   const entry = library.toQueueEntry(librarySong);
-  const song = queue.addSong({ ...entry, addedBy: addedBy || 'anonymous' });
+  const song = queue.addSong({ ...entry, artistName: library.queueArtist(librarySong), addedBy: addedBy || 'anonymous' });
   if (entry.thumbnail) {
     covers.cacheCover(song.id, entry.thumbnail).catch(err => {
       console.error(`Failed to cache cover for ${song.id}:`, err.message);
@@ -1437,7 +1437,7 @@ async function handleLibrarySongReplaced(librarySong, previous) {
       const hits = queue.getSongs().filter(s => library.isQueued([s], previous));
       if (!hits.length) continue;
       for (const s of hits) {
-        queue.updateSong(s.id, entry);
+        queue.updateSong(s.id, { ...entry, artistName: library.queueArtist(librarySong) });
         if (entry.thumbnail) covers.cacheCover(s.id, entry.thumbnail).catch(() => {});
         rewritten++;
       }

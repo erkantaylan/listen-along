@@ -33,3 +33,11 @@ export function groupPlaylists(playlists, query = '') {
     others: shown.filter(p => !p.pinnedByMe && !p.isOwner).sort(byNewest),
   };
 }
+
+// One or two capitals for a playlist's rail avatar: first letters of the first
+// two words, whole characters only (emoji), Turkish dotted İ for a Turkish "i".
+export function playlistInitials(name, locale = 'tr') {
+  const words = String(name || '').normalize('NFC').trim().split(/\s+/).filter(Boolean);
+  const letters = words.slice(0, 2).map(w => Array.from(w)[0]).join('');
+  return letters.toLocaleUpperCase(locale) || '?';
+}

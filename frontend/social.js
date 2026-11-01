@@ -1,23 +1,24 @@
 // The global chat and the people panel (markup: #social-panel in index.html;
 // server: backend/src/social.js). One panel, two layouts:
-//   desktop (>= 1200px): a right-hand column on every signed-in page,
+//   desktop (>= 1010px): a right-hand column on every signed-in page,
 //     collapsible (remembered per browser);
 //   narrower (phones, tablets, small windows): a full-screen "Social" view at
 //     /social (router.js), never beside the page, which would squeeze it;
 //     opened from the chat button in the player bar (or on the pending card).
-// #social-rail, from 1024px while the column is not on screen, is the labelled
+// #social-rail, from 1010px while the column is not on screen, is the labelled
 // way back: Chat and People, each opening that tab. The player bar's chat button
 // toggles the panel too. Both carry the unread badge.
 //
 // This module also reports what this browser plays (player.js events) as
 // presence:now-playing; the server keeps one entry per user.
 import { formatMessageHtml, formatLastSeen, formatMessageTime, groupPeople, mergeMessages, escapeText } from './chat-format.js';
+import { DOCK_MIN } from './layout-rules.js';
 import { player } from './player.js';
 import { storageGet, storageSet } from './state.js';
 import { navigateTo, showToast, t } from './ui.js';
 import { openContextMenu, closeContextMenu, updateContextMenu } from './context-menu.js';
 
-const DESKTOP = '(min-width: 1200px)';
+const DESKTOP = `(min-width: ${DOCK_MIN}px)`;
 const COLLAPSED_KEY = 'listen-socialCollapsed';
 const GROUP_GAP_MS = 5 * 60 * 1000;
 const NEAR_BOTTOM_PX = 80;
@@ -103,8 +104,8 @@ function selectTab(tab) {
   if (S.tab === 'chat') scrollChatToBottom(false);
 }
 
-// The /social route (router.js). Below 1200px it is the full-screen Social
-// view; from 1200px it just makes sure the column is open.
+// The /social route (router.js). Below 1010px it is the full-screen Social
+// view; from 1010px it just makes sure the column is open.
 export function applySocialRoute(active, { fromApp = false } = {}) {
   S.route = !!active;
   if (active && fromApp) S.cameFromApp = true;
@@ -119,7 +120,7 @@ function leaveRoute() {
   else navigateTo('/');
 }
 
-// Chat button (player bar / pending card): the column from 1200px, else the view.
+// Chat button (player bar / pending card): the column from 1010px, else the view.
 export function toggleSocial() {
   if (isDesktop()) { setCollapsed(!collapsed()); return; }
   if (S.route) leaveRoute();

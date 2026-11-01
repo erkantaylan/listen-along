@@ -6,6 +6,7 @@ import { refreshLibraryAddButtons } from './library.js';
 import { player } from './player.js';
 import { refreshPlayerBar } from './player-bar.js';
 import { bindSongMenu, songMenuButtonHtml, reportIconHtml, reportsFor, onReportsChange } from './song-reports.js';
+import { addedByLabel, addedDateLabel, songParts } from './queue-format.js';
 import { isEditMode, setEditMode, onEditModeChange, isDragging, bindDragReorder } from './queue-edit.js';
 
 // A song marked broken anywhere: the queue's badges follow.
@@ -247,6 +248,7 @@ export function setupQueueInteractions() {
     return song ? { url: song.url, title: song.title } : null;
   });
   onEditModeChange(applyEditMode);
+  player.on('state', refreshPlayingCell);
   if (elements.editQueueBtn) {
     elements.editQueueBtn.textContent = t('queue.edit', 'Edit');
     elements.editQueueBtn.addEventListener('click', toggleEditMode);
@@ -260,6 +262,11 @@ export function setupQueueInteractions() {
     if (!row) return;
     const remove = e.target.closest('.queue-item-remove');
     if (remove) { removeSong(rowIndex(row)); return; }
+    if (e.target.closest('.queue-item-play')) {
+      if (row.classList.contains('playing') && player.isPlaying) player.pause();
+      else playSongAt(rowIndex(row));
+      return;
+    }
     // Buttons (⋮, broken report, handle) and links do their own thing.
     if (e.target.closest('button, a[href], input, select, textarea')) return;
     if (isEditMode()) return;
@@ -334,6 +341,35 @@ const DRAG_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="tru
 const REMOVE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 11v2h10v-2H7zm5-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>';
 const NOTE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>';
 
+const PLAY_PATH = 'M8 5v14l11-7z';
+const PAUSE_PATH = 'M6 19h4V5H6v14zm8-14v14h4V5h-4z';
+const EQ_HTML = '<span class="person-eq queue-item-eq" aria-hidden="true"><i></i><i></i><i></i></span>';
+
+// The # cell: the position, which becomes a play (or pause) button on hover and
+// focus. The song playing right now shows the equaliser instead of its number.
+function playCellHtml(position, isPlaying) {
+  const sounding = isPlaying && player.isPlaying;
+  return (sounding ? EQ_HTML : `<span class="queue-item-pos">${position}</span>`)
+    + `<svg class="queue-item-glyph" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="${sounding ? PAUSE_PATH : PLAY_PATH}"/></svg>`;
+}
+
+function playCellLabel(title, sounding) {
+  return sounding ? t('queue.pauseNamed', `Pause ${title}`, { title }) : t('queue.playNamed', `Play ${title}`, { title });
+}
+
+// Play and pause change only the playing row's # cell: a re-render would close
+// an open song menu.
+function refreshPlayingCell() {
+  const btn = elements.queueList.querySelector('.queue-item.playing .queue-item-play');
+  if (!btn) return;
+  btn.innerHTML = playCellHtml(btn.dataset.position, true);
+  const label = playCellLabel(btn.dataset.title, player.isPlaying);
+  btn.setAttribute('aria-label', label);
+  btn.setAttribute('title', label);
+}
+
+const addedLocale = () => (window.i18n && window.i18n.getLanguage && window.i18n.getLanguage()) || undefined;
+
 // A queue:update during a drag waits until the drop.
 let renderPending = false;
 
@@ -342,6 +378,8 @@ export function updateQueue() {
   renderPending = false;
   refreshLibraryAddButtons();
   refreshPlayerBar();
+  const head = document.getElementById('queue-head');
+  if (head) head.hidden = state.queue.length === 0;
   if (state.queue.length === 0) {
     elements.queueList.innerHTML = `<li class="list-group-item app-empty queue-empty"><p class="mb-1">${t('queue.empty', 'Queue is empty')}</p><p class="fs-sm mb-0 hint">${t('queue.emptyHint', 'Add a song to get started')}</p></li>`;
     return;
@@ -359,20 +397,34 @@ export function updateQueue() {
   const focusedRow = active && elements.queueList.contains(active) ? active.closest('.queue-item') : null;
   const focusedId = focusedRow ? focusedRow.dataset.songId : null;
   const focusedPart = !focusedRow || active === focusedRow ? null
-    : ['.queue-item-handle', '.queue-item-remove', '.song-menu-btn'].find((sel) => active.matches(sel)) || null;
-  elements.queueList.innerHTML = visibleSongs.map(({ song, index }) => {
+    : ['.queue-item-handle', '.queue-item-remove', '.queue-item-play', '.song-menu-btn'].find((sel) => active.matches(sel)) || null;
+  elements.queueList.innerHTML = visibleSongs.map(({ song, index }, shownAt) => {
     const thumbUrl = song.id ? getCoverUrl(song.id, song.thumbnail) : sanitizeUrl(song.thumbnail);
     const downloadHtml = getDownloadStatusHtml(state.downloadStatus[song.url]);
     const isPlaying = isContextOnScreen && !!player.track && player.track.id === song.id;
     const title = escapeHtml(song.title);
     const listenersHtml = editing ? '' : getQueueListenersHtml(song.title);
     const handle = editing ? `<button class="btn-text theme-secondary btn-icon btn-sm queue-item-handle" type="button" aria-label="Move ${title} (drag, or press up / down)" title="Drag to reorder (or focus and press ↑ / ↓)">${DRAG_ICON}</button>` : '';
+    const parts = songParts(song);
+    const shownTitle = escapeHtml(parts.title);
+    const artist = escapeHtml(parts.artist);
+    const addedBy = escapeHtml(addedByLabel(song.addedBy));
+    const addedOn = addedDateLabel(song.addedAt, addedLocale());
+    const duration = song.duration ? formatDuration(song.duration) : '';
+    const hiddenLabel = (key, fallback) => `<span class="visually-hidden">${escapeHtml(t(key, fallback))}: </span>`;
+    const playLabel = escapeHtml(playCellLabel(song.title, isPlaying && player.isPlaying));
+    const numCell = editing ? handle : `<button class="btn-text theme-secondary btn-icon btn-sm queue-item-play" type="button" data-position="${shownAt + 1}" data-title="${title}" aria-label="${playLabel}" title="${playLabel}">${playCellHtml(shownAt + 1, isPlaying)}</button>`;
     const remove = editing ? `<button class="btn-text theme-danger btn-icon btn-sm queue-item-remove" type="button" aria-label="Remove ${title}" title="Remove from playlist">${REMOVE_ICON}</button>` : '';
     return `<li class="list-group-item ${editing ? '' : 'list-group-item-action '}queue-item${isPlaying ? ' playing' : ''}" data-index="${index}" data-song-id="${escapeHtml(song.id)}" data-url="${escapeHtml(song.url)}" data-title="${toLower(title)}" tabindex="0"${isPlaying ? ' aria-current="true"' : ''}>`
-      + handle
+      + `<div class="queue-item-num${editing ? ' is-editing' : ''}">${numCell}</div>`
+      + `<div class="queue-item-main">`
       + `<div class="app-thumb queue-item-thumb">${thumbUrl ? `<img src="${escapeHtml(thumbUrl)}" alt="">` : NOTE_ICON}${downloadHtml.icon}</div>`
-      + `<div class="queue-item-info"><div class="d-flex align-items-center gap-1 min-w-0"><div class="queue-item-title">${title}</div>${reportIconHtml(reportsFor({ url: song.url }))}</div><div class="queue-item-meta"><span class="queue-item-duration">${song.duration ? formatDuration(song.duration) : ''}</span>${song.addedBy ? `<span class="queue-item-added-by">${escapeHtml(song.addedBy)}</span>` : ''}${downloadHtml.badge}</div>${downloadHtml.progressBar}</div>`
+      + `<div class="queue-item-info"><div class="d-flex align-items-center gap-1 min-w-0"><div class="queue-item-title" title="${title}">${shownTitle}</div>${reportIconHtml(reportsFor({ url: song.url }))}</div><div class="queue-item-meta">${artist ? `<span class="queue-item-artist">${artist}</span>` : ''}<span class="queue-item-compact queue-item-duration">${duration}</span>${addedBy ? `<span class="queue-item-compact queue-item-added-by">${addedBy}</span>` : ''}${downloadHtml.badge}</div>${downloadHtml.progressBar}</div>`
       + listenersHtml
+      + `</div>`
+      + `<div class="queue-col-by queue-cell" title="${addedBy}">${addedBy ? hiddenLabel('queue.colAddedBy', 'Added by') + addedBy : ''}</div>`
+      + `<div class="queue-col-date queue-cell" title="${addedOn ? escapeHtml(new Date(Number(song.addedAt)).toLocaleString(addedLocale())) : ''}">${addedOn ? hiddenLabel('queue.colAdded', 'Added') + escapeHtml(addedOn) : ''}</div>`
+      + `<div class="queue-col-dur queue-cell">${duration}</div>`
       + `<div class="queue-item-actions">${remove}${editing ? '' : songMenuButtonHtml(song.title)}</div></li>`;
   }).join('');
   applyQueueFilter();

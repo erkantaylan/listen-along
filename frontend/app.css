@@ -141,23 +141,29 @@
     min-height: 0;
     overflow-y: auto;
   }
-  .lobby-header > .container,
+  /* The song table takes the whole column; only the two inputs keep a cap. */
   .libpage-header > .container { max-width: 56rem; }
-  .lobby-container {
-    max-width: 56rem;
-    padding-block: 1rem;
-  }
+  .lobby-header > .container,
+  .lobby-container { max-width: none; }
+  .lobby-container { padding-block: 1rem; }
+  .add-song, .song-filter-input { max-width: 56rem; }
   .tab-panel { display: none; }
   .tab-panel.active { display: block; }
 
   /* Queue list */
+  /* Compact form first (phones): thumb, two lines of text, ⋮. From a 480px page
+     column the row and the sticky .queue-head share one grid, see "Song table". */
   .queue-item {
     display: flex;
     align-items: center;
-    gap: 0.625rem;
-    padding: 0.5rem 0.5rem 0.5rem 0.375rem;
+    gap: 0.5rem;
+    min-height: 3.5rem;
+    padding: 0.25rem 0.5rem;
   }
-  .queue-item-thumb { position: relative; width: 2.75rem; height: 2.75rem; }
+  .queue-item-main { display: flex; flex: 1; gap: 0.625rem; align-items: center; min-width: 0; }
+  .queue-head, .queue-item-num:not(.is-editing), .queue-cell { display: none; }
+  .queue-item-num { flex-shrink: 0; }
+  .queue-item-thumb { position: relative; flex-shrink: 0; width: 2.5rem; height: 2.5rem; }
   .queue-item-status {
     position: absolute;
     right: 2px;
@@ -178,13 +184,80 @@
   }
   .queue-item-meta {
     display: flex;
-    flex-wrap: wrap;
     gap: 0.125rem 0.5rem;
+    min-width: 0;
+    line-height: 1.25;
     align-items: center;
     font-size: var(--bs-font-size-xs);
     color: var(--bs-fg-3);
   }
-  .queue-item-meta .badge { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .queue-item-meta .badge { flex-shrink: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .queue-item-artist, .queue-item-added-by { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .queue-item-duration { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+  .queue-item-added-by { flex-shrink: 2; }
+
+  /* Song table. Which columns exist depends on the page column, not the viewport. */
+  .queue-item-pos { font-size: var(--bs-font-size-sm); font-variant-numeric: tabular-nums; color: var(--app-text-muted); }
+  .queue-item-glyph { display: none; }
+  .queue-item-eq { color: var(--app-accent-text); }
+  .queue-item.playing .queue-item-pos { color: var(--app-accent-text-strong); }
+  @media (hover: hover) {
+    .queue-item:hover .queue-item-pos, .queue-item:hover .queue-item-eq { display: none; }
+    .queue-item:hover .queue-item-glyph { display: block; }
+  }
+  .queue-item:focus-visible .queue-item-pos, .queue-item:focus-visible .queue-item-eq,
+  .queue-item:has(:focus-visible) .queue-item-pos, .queue-item:has(:focus-visible) .queue-item-eq { display: none; }
+  .queue-item:focus-visible .queue-item-glyph,
+  .queue-item:has(:focus-visible) .queue-item-glyph { display: block; }
+  /* ⋮: on hover and focus, always on touch; it keeps its place so nothing jumps. */
+  @media (hover: hover) {
+    .queue-item .song-menu-btn { opacity: 0; }
+    .queue-item:hover .song-menu-btn, .queue-item:focus-visible .song-menu-btn,
+    .queue-item:focus-within .song-menu-btn, .queue-item .song-menu-btn[aria-expanded="true"] { opacity: 1; }
+  }
+  .queue-head {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    align-items: center;
+    min-height: 2rem;
+    padding-inline: 0.5rem;
+    white-space: nowrap;
+    background-color: var(--app-surface);
+    border: var(--bs-border-width) solid var(--app-border);
+    border-bottom: 0;
+    border-radius: var(--bs-border-radius-lg) var(--bs-border-radius-lg) 0 0;
+    box-shadow: 0 var(--bs-border-width) 0 var(--app-border);
+  }
+  .queue-head > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .queue-head-num { text-align: center; }
+  .queue-head:not([hidden]) + .queue-list { border-top-left-radius: 0; border-top-right-radius: 0; }
+  .queue-head:not([hidden]) + .queue-list > :first-child { border-top-left-radius: 0; border-top-right-radius: 0; }
+  .queue-cell { overflow: hidden; font-size: var(--bs-font-size-sm); color: var(--app-text-muted); text-overflow: ellipsis; white-space: nowrap; }
+  .queue-col-dur { font-variant-numeric: tabular-nums; text-align: end; }
+  .queue-head .queue-col-by, .queue-head .queue-col-date { display: none; }
+  @container page (width >= 480px) {
+    .queue-head, .queue-item {
+      --queue-columns: 2.5rem minmax(0, 1fr) 4.25rem 2.5rem;
+      display: grid;
+      grid-template-columns: var(--queue-columns);
+      gap: 0.75rem;
+    }
+    .queue-item-num, .queue-item-num:not(.is-editing) { display: flex; justify-content: center; }
+    .queue-cell.queue-col-dur { display: block; }
+    .queue-item-compact { display: none; }
+    .queue-item-actions { justify-content: flex-end; }
+  }
+  @container page (width >= 650px) {
+    .queue-head, .queue-item { --queue-columns: 2.5rem minmax(0, 2fr) minmax(0, 1fr) 4.25rem 2.5rem; }
+    .queue-cell.queue-col-by { display: block; }
+    .queue-head .queue-col-by { display: inline; }
+  }
+  @container page (width >= 800px) {
+    .queue-head, .queue-item { --queue-columns: 2.5rem minmax(0, 2fr) minmax(0, 1fr) 6.5rem 4.25rem 2.5rem; }
+    .queue-cell.queue-col-date { display: block; }
+    .queue-head .queue-col-date { display: inline; }
+  }
   .queue-item-progress { --bs-progress-height: 0.25rem; margin-top: 0.25rem; }
   .queue-item-actions {
     display: flex;
@@ -231,8 +304,6 @@
   }
   body.app-dragging, body.app-dragging * { cursor: grabbing !important; user-select: none; }
   @container page (width < 576px) {
-    .queue-item { gap: 0.5rem; }
-    .queue-item-thumb { width: 2.5rem; height: 2.5rem; }
     .lobby-header .btn-icon:not(.btn-xs) { --bs-btn-min-height: 2rem; }
     .lobby-header .container { gap: 0.25rem; }
   }
@@ -455,8 +526,9 @@
   }
   .plnav-open-btn, .plnav-backdrop { display: none; }
   .plnav-head { flex-shrink: 0; min-height: 3.5rem; padding: env(safe-area-inset-top, 0px) 0.5rem 0 0.75rem; }
-  .plnav-home { color: inherit; text-decoration: none; }
-  .plnav-title-row { flex-shrink: 0; padding: 0.25rem 0.5rem 0.25rem 0.75rem; }
+  .plnav-home { margin-inline-end: auto; color: inherit; text-decoration: none; }
+  .plnav-avatar, .plnav-toggle, .plnav-toggle-expand { display: none; }
+  .plnav-title-row { flex-shrink: 0; justify-content: space-between; padding: 0.25rem 0.5rem 0.25rem 0.75rem; }
   .plnav-search-wrap { position: relative; flex-shrink: 0; padding: 0.25rem 0.75rem 0.5rem; }
   .plnav-search { padding-right: 2rem; }
   .plnav-search::-webkit-search-cancel-button { display: none; }
@@ -468,7 +540,8 @@
   .plnav-row:active { background-color: var(--bs-bg-2); }
   .plnav-link { flex: 1; min-width: 0; padding-block: 0.125rem; }
   .plnav-link:focus-visible { outline: 2px solid var(--app-focus); outline-offset: 0; border-radius: var(--bs-radius-3, 0.25rem); }
-  .plnav-name { font-size: var(--bs-font-size-sm); font-weight: var(--bs-font-weight-medium); }
+  .plnav-name { display: block; font-size: var(--bs-font-size-sm); font-weight: var(--bs-font-weight-medium); }
+  .plnav-meta { display: flex; gap: 0.25rem; align-items: center; }
   .plnav-row.is-current { background-color: var(--app-accent-subtle); box-shadow: inset 3px 0 0 var(--app-accent); }
   .plnav-row.is-current .plnav-name { color: var(--app-accent-text-strong); }
   /* Pin and ⋮: on hover / keyboard focus, always on touch; a pinned row always
@@ -496,6 +569,41 @@
     }
     body.has-plnav .library-page { left: var(--app-sidebar-width); }
     .plnav-close-btn { display: none; }
+    .plnav-toggle { display: inline-flex; flex-shrink: 0; }
+    /* The rail (sidebar.js): avatars instead of rows, the same list and menus. */
+    body.plnav-rail { --app-sidebar-width: 4.5rem; }
+    body.plnav-rail .plnav-toggle-collapse { display: none; }
+    body.plnav-rail .plnav-toggle-expand { display: block; }
+    body.plnav-rail .plnav-head { flex-direction: column; padding: calc(env(safe-area-inset-top, 0px) + 0.5rem) 0 0.25rem; }
+    body.plnav-rail .plnav-home { margin-inline-end: 0; }
+    body.plnav-rail .plnav-brand-name,
+    body.plnav-rail #plnav-title,
+    body.plnav-rail .plnav-search-wrap,
+    body.plnav-rail .plnav-meta,
+    body.plnav-rail .plnav-name,
+    body.plnav-rail .plnav-pin,
+    body.plnav-rail .plnav-menu-btn,
+    body.plnav-rail .plnav-empty,
+    body.plnav-rail #plnav-list .people-heading { display: none; }
+    body.plnav-rail .plnav-title-row { justify-content: center; padding-inline: 0; border-bottom: var(--bs-border-width) solid var(--bs-border-color); }
+    body.plnav-rail .plnav-scroll { padding-top: 0.25rem; scrollbar-width: none; }
+    body.plnav-rail .plnav-list ~ .plnav-list { padding-top: 0.25rem; margin-top: 0.25rem; border-top: var(--bs-border-width) solid var(--bs-border-color); }
+    body.plnav-rail .plnav-row { justify-content: center; padding: 0.1875rem 0; border: 0; }
+    body.plnav-rail .plnav-link { flex: none; padding: 0; border-radius: var(--bs-radius-5); }
+    body.plnav-rail .plnav-avatar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 2.5rem;
+      height: 2.5rem;
+      font-size: var(--bs-font-size-sm);
+      font-weight: var(--bs-font-weight-semibold);
+      color: var(--app-text-secondary);
+      background-color: var(--bs-bg-2);
+      border-radius: var(--bs-radius-5);
+    }
+    body.plnav-rail .plnav-row.is-current .plnav-avatar { color: var(--app-accent-text-strong); background-color: var(--app-accent-subtle); }
+    body.plnav-rail .plnav-row.is-pinned .plnav-avatar { box-shadow: inset 0 0 0 1px var(--app-accent-border); }
     /* The sidebar carries the brand and your playlists: the landing page is
        for browsing other people's. */
     body.has-plnav .landing-brand,
@@ -712,12 +820,13 @@
 
   /* ------------------------------------------------- Chat and people panel */
   /* social.js. One #social-panel, shown by body classes (never [hidden]):
-     desktop (>= 1200px): fixed right column above the player bar, pushing
-     the page left; .social-collapsed hides it.
+     desktop (>= 1010px): fixed right column above the player bar, pushing
+     the page left; .social-collapsed hides it. 17.5rem up to 1200px.
      narrower: only on /social (.social-route), as a full-screen view.
-     #social-rail: the labelled opener at the right edge, from 1024px, whenever
+     #social-rail: the labelled opener at the right edge, from 1010px, whenever
      the column is not there. --app-social-inset is what either takes. */
   body { --app-social-width: 20rem; --app-rail-width: 3.5rem; }
+  @media (width < 1200px) { body { --app-social-width: 17.5rem; } }
   .social-rail { display: none; }
   .social-panel {
     display: none;
@@ -740,7 +849,7 @@
   .social-chat[hidden],
   .social-people[hidden] { display: none; }
 
-  @media (width >= 1024px) {
+  @media (width >= 1010px) {
     body.has-social { --app-social-inset: var(--app-rail-width); padding-right: var(--app-social-inset); }
     body.has-social .library-page { right: var(--app-social-inset); }
     body.has-social .social-rail {
@@ -771,7 +880,7 @@
   .social-rail-btn svg { width: 1.25rem; height: 1.25rem; }
   .social-rail-btn [data-online-count] { color: var(--app-text); background-color: var(--bs-bg-4); }
   .social-rail-label { font-size: var(--bs-font-size-xs, 0.75rem); line-height: 1.2; }
-  @media (width >= 1200px) {
+  @media (width >= 1010px) {
     body.has-social:not(.social-collapsed) { --app-social-inset: var(--app-social-width); }
     body.has-social:not(.social-collapsed) .social-rail { display: none; }
     body.has-social:not(.social-collapsed) .social-panel {
@@ -786,7 +895,7 @@
     }
     .social-back { display: none; }
   }
-  @media (width < 1200px) {
+  @media (width < 1010px) {
     body.has-social.social-route .social-panel {
       position: fixed;
       inset: 0 0 var(--app-player-height, 0px);

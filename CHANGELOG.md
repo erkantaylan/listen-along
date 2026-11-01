@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- feat(web): the playlists sidebar collapses to a 72px rail of initials (pinned first, new playlist, tooltips, right-click menu) with a toggle that is remembered; automatically when the page column would drop under 616px
+- change(web): the chat panel stays docked down to 1010px wide (it was 1200px), 280px wide below 1200px, by collapsing the library first; below that the chat button still opens it full-screen. The page column never goes under 416px from 768px up
+- feat(web): playlist pages show a song table: #, title and artist, added by, added, duration, with a sticky header and ⋮ on hover. # turns into play on hover and focus. Added and Added by drop as the page column narrows; phones keep a compact row. The song list uses the full width on wide screens
+- feat(api): socket queue entries carry an additive `artistName`; nothing else changes for the CLI and the app
 - change(web): the player bar uses the full window from 768px, in three zones: cover and song at the far left, transport over the seek bar in the middle (times beside it, Play in the exact centre, repeat moved to the right of next), and the chat button to the right of the volume at the far right. It is about 14px shorter; phones keep their slim form
 - fix(web): a collapsed chat and people panel has a visible way back: a labelled rail at the right edge with **Chat** and **People**, from 1024px. Since the panel started docking at 1200px, windows of 1024-1199px had only the small chat icon in the player bar
 - feat(web): whoever is also signed in to the app gets the chat and people panel on `/dashboard`

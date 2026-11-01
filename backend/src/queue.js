@@ -27,7 +27,7 @@ class Queue {
     return this._dbChain;
   }
 
-  addSong({ url, title, duration, addedBy, thumbnail }) {
+  addSong({ url, title, duration, addedBy, thumbnail, artistName }) {
     const song = {
       id: uuidv4(),
       url,
@@ -35,6 +35,7 @@ class Queue {
       duration: duration || 0,
       addedBy: addedBy || 'anonymous',
       thumbnail: thumbnail || null,
+      artistName: artistName || null,
       addedAt: Date.now()
     };
     this.songs.push(song);
@@ -131,13 +132,14 @@ class Queue {
    * id, position and addedBy), e.g. after its library song was replaced.
    * @returns {object|null} the updated entry
    */
-  updateSong(songId, { url, title, duration, thumbnail }) {
+  updateSong(songId, { url, title, duration, thumbnail, artistName }) {
     const song = this.songs.find(s => s.id === songId);
     if (!song) return null;
     if (url) song.url = url;
     if (title) song.title = title;
     if (duration !== undefined) song.duration = duration || 0;
     if (thumbnail !== undefined) song.thumbnail = thumbnail || null;
+    if (artistName !== undefined) song.artistName = artistName || null;
     if (db.isAvailable()) {
       this._write('Failed to update song', () => db.query(
         'UPDATE queue_songs SET url = $2, title = $3, duration = $4, thumbnail = $5 WHERE id = $1',
@@ -157,6 +159,39 @@ class Queue {
     // Clear from database if available
     if (db.isAvailable()) {
       this._write('Failed to clear queue from DB', () => db.query('DELETE FROM queue_songs WHERE lobby_id = $1', [this.lobbyId]));
+    }
+  }
+
+  /**
+   * artistName is not stored on the entry (its title holds "Title - Artist"):
+   * it comes from the library song. Unmatched entries (requests) keep null.
+   */
+  async _loadArtists() {
+    const { isUuid, parseYoutubeId, queueArtist } = require('./library');
+    const ids = [];
+    const ytIds = [];
+    for (const s of this.songs) {
+      const url = String(s.url || '');
+      if (url.startsWith('library:') && isUuid(url.slice(8))) ids.push(url.slice(8));
+      const yt = parseYoutubeId(url);
+      if (yt) ytIds.push(yt);
+    }
+    if (!ids.length && !ytIds.length) return;
+    try {
+      const { rows } = await db.query(
+        `SELECT id::text AS id, youtube_id, artist FROM library_songs
+         WHERE id = ANY($1::uuid[]) OR youtube_id = ANY($2::text[])`,
+        [ids, ytIds]
+      );
+      const byId = new Map(rows.map(r => [r.id, r]));
+      const byYt = new Map(rows.filter(r => r.youtube_id).map(r => [r.youtube_id, r]));
+      for (const s of this.songs) {
+        const url = String(s.url || '');
+        const row = (url.startsWith('library:') && byId.get(url.slice(8))) || byYt.get(parseYoutubeId(url));
+        s.artistName = row ? queueArtist(row) : null;
+      }
+    } catch (err) {
+      console.error('Failed to load queue artists:', err.message);
     }
   }
 
@@ -181,6 +216,7 @@ class Queue {
         thumbnail: row.thumbnail,
         addedAt: parseInt(row.added_at)
       }));
+      await this._loadArtists();
     } catch (err) {
       console.error('Failed to load queue from DB:', err.message);
     }

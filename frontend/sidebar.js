@@ -1,10 +1,14 @@
 // The playlists sidebar ("Your Library"): a fixed left column from 768px, a
 // drawer opened from the navbars below that (DESIGN.md "Playlists sidebar").
+// The column is expanded or a 72px rail of avatars: the user's choice, else
+// automatic by the room left for the page (layout-rules.js).
 // The list comes from playlist-store.js, so everything here only navigates,
 // pins and filters; the server decides what may be seen.
 import { escapeHtml, navigateTo, t, trapFocus } from './ui.js';
 import { parseRoute, playlistPath } from './router.js';
-import { groupPlaylists } from './playlist-filter.js';
+import { groupPlaylists, playlistInitials } from './playlist-filter.js';
+import { DOCK_MIN, sidebarRail } from './layout-rules.js';
+import { storageGet, storageSet } from './state.js';
 import { getPlaylist, getPlaylists, isLoaded, loadPlaylists, onPlaylists, togglePlaylistPin } from './playlist-store.js';
 import { LOCK_SVG, playlistMenuItems } from './playlist-actions.js';
 import { bindContextMenu } from './context-menu.js';
@@ -17,6 +21,7 @@ const PLUS_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true
 
 const POLL_MS = 30000;
 const DRAWER_MQ = '(width < 768px)';
+const MODE_KEY = 'listen-sidebarMode';
 
 const $ = (id) => document.getElementById(id);
 let query = '';
@@ -37,9 +42,10 @@ function rowHtml(p, currentId) {
   const privateMark = p.visibility === 'private'
     ? `${LOCK_SVG.replace('<svg ', `<svg class="icon-sm flex-shrink-0" `)}<span class="visually-hidden">${escapeHtml(t('landing.private', 'Private'))}: </span>` : '';
   return `<li class="list-group-item plnav-row${current ? ' is-current' : ''}${p.pinnedByMe ? ' is-pinned' : ''}" data-playlist-id="${escapeHtml(p.id)}">`
-    + `<div class="plnav-link" role="link" tabindex="0" title="${escapeHtml(title)}"${current ? ' aria-current="page"' : ''}>`
-    + `<span class="d-block text-truncate plnav-name">${escapeHtml(title)}</span>`
-    + `<span class="d-flex align-items-center gap-1 fs-xs fg-3 plnav-meta">${privateMark}<span class="text-truncate">${escapeHtml(meta)}</span></span>`
+    + `<div class="plnav-link" role="link" tabindex="0" title="${escapeHtml(title)}" aria-label="${escapeHtml([title, p.visibility === 'private' ? t('landing.private', 'Private') : '', meta].filter(Boolean).join(', '))}"${current ? ' aria-current="page"' : ''}>`
+    + `<span class="plnav-avatar" aria-hidden="true">${escapeHtml(playlistInitials(title))}</span>`
+    + `<span class="text-truncate plnav-name">${escapeHtml(title)}</span>`
+    + `<span class="fs-xs fg-3 plnav-meta">${privateMark}<span class="text-truncate">${escapeHtml(meta)}</span></span>`
     + `</div>`
     + `<button type="button" class="btn-text theme-secondary btn-icon btn-sm plnav-pin${p.pinnedByMe ? ' active' : ''}" aria-pressed="${p.pinnedByMe ? 'true' : 'false'}" aria-label="${escapeHtml(pinLabel)}" title="${escapeHtml(pinLabel)}">${PIN_SVG}</button>`
     + `<button type="button" class="btn-text theme-secondary btn-icon btn-sm plnav-menu-btn" aria-haspopup="menu" aria-expanded="false" aria-label="${escapeHtml(menuLabel)}" title="${escapeHtml(menuLabel)}">${MORE_SVG}</button>`
@@ -92,9 +98,9 @@ function render() {
   if (focusedId && part) {
     const el = list.querySelector(`.plnav-row[data-playlist-id="${CSS.escape(focusedId)}"] .${part}`);
     if (el) el.focus({ preventScroll: true });
-    else $('plnav-search').focus({ preventScroll: true });
+    else listFallback().focus({ preventScroll: true });
   } else if (hadFocus) {
-    $('plnav-search').focus({ preventScroll: true });
+    listFallback().focus({ preventScroll: true });
   }
   const status = $('plnav-status');
   if (status) {
@@ -104,12 +110,49 @@ function render() {
   }
 }
 
+// Where focus goes when its row is gone; the rail has no search box.
+function listFallback() {
+  return document.body.classList.contains('plnav-rail') ? $('plnav-new') : $('plnav-search');
+}
+
 function setQuery(value) {
   query = value;
   const input = $('plnav-search');
   if (input.value !== value) input.value = value;
   $('plnav-search-clear').hidden = !value;
   render();
+}
+
+// ------------------------------------------------------------- rail
+
+let mode = null;
+
+function applyRail() {
+  const body = document.body;
+  const width = window.innerWidth;
+  const chatDocked = body.classList.contains('has-social') && !body.classList.contains('social-collapsed') && width >= DOCK_MIN;
+  const rail = sidebarRail({ width, pref: mode, chatDocked });
+  body.classList.toggle('plnav-rail', rail);
+  const toggle = $('plnav-toggle');
+  const label = rail ? t('sidebar.expand', 'Expand playlists') : t('sidebar.collapse', 'Collapse playlists');
+  toggle.setAttribute('aria-label', label);
+  toggle.setAttribute('title', label);
+  toggle.setAttribute('aria-expanded', rail ? 'false' : 'true');
+  if (rail && query) setQuery(''); // nowhere to see or clear it
+}
+
+function setupRail() {
+  const saved = storageGet(MODE_KEY);
+  mode = saved === 'rail' || saved === 'expanded' ? saved : null;
+  $('plnav-toggle').addEventListener('click', () => {
+    mode = document.body.classList.contains('plnav-rail') ? 'expanded' : 'rail';
+    storageSet(MODE_KEY, mode);
+    applyRail();
+  });
+  window.addEventListener('resize', applyRail);
+  document.addEventListener('app:viewchange', applyRail); // the chat panel opened or closed
+  window.addEventListener('languageChanged', applyRail);
+  applyRail();
 }
 
 // ------------------------------------------------------------- drawer
@@ -147,7 +190,7 @@ function menuItemsFor(row) {
   const id = row.dataset.playlistId;
   const pl = getPlaylist(id);
   if (!pl) return null;
-  const returnFocus = () => document.querySelector(`.plnav-row[data-playlist-id="${CSS.escape(id)}"] .plnav-menu-btn`) || $('plnav-search');
+  const returnFocus = () => document.querySelector(`.plnav-row[data-playlist-id="${CSS.escape(id)}"] .plnav-menu-btn`) || listFallback();
   return playlistMenuItems(pl, {
     returnFocus,
     onPlay: () => { closeDrawer(); quickPlayLobby(id); },
@@ -162,6 +205,7 @@ function menuItemsFor(row) {
 
 export function setupSidebar() {
   document.body.classList.add('has-plnav');
+  setupRail();
   onPlaylists(render);
   loadPlaylists();
   setInterval(() => { if (!document.hidden) loadPlaylists(); }, POLL_MS);

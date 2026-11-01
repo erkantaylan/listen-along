@@ -6,8 +6,8 @@
 //   /library                   music library (no playlist; Add is disabled)
 //   /playlist/<id>/library     music library over a playlist (Add targets it)
 //   /profile                   own profile
-//   /social                    chat + people (full-screen below 1200px; from
-//                              1200px the column beside the current page)
+//   /social                    chat + people (full-screen below 1010px; from
+//                              1010px the column beside the current page)
 //   /dashboard                 admin dashboard (its own login form; /admin 301s here)
 //
 // Old /lobby/<id>[/library] URLs map to /playlist/... (legacyRedirect; the

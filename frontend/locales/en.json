@@ -88,7 +88,13 @@
     "edit": "Edit",
     "done": "Done",
     "removed": "Removed \"{title}\"",
-    "undo": "Undo"
+    "undo": "Undo",
+    "colTitle": "Title",
+    "colAddedBy": "Added by",
+    "colAdded": "Added",
+    "colDuration": "Duration",
+    "playNamed": "Play {title}",
+    "pauseNamed": "Pause {title}"
   },
   "dashboard": {
     "diskUsage": "Disk usage",
@@ -217,7 +223,9 @@
     "unpinNamed": "Unpin {name}",
     "oneSong": "1 song",
     "songs": "{count} songs",
-    "homeHint": "Pick a playlist on the left, or start a new one."
+    "homeHint": "Pick a playlist on the left, or start a new one.",
+    "expand": "Expand playlists",
+    "collapse": "Collapse playlists"
   },
   "addTo": {
     "label": "Add to playlist",

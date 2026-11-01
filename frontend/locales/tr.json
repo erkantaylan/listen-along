@@ -88,7 +88,13 @@
     "edit": "Düzenle",
     "done": "Bitti",
     "removed": "\"{title}\" kaldırıldı",
-    "undo": "Geri al"
+    "undo": "Geri al",
+    "colTitle": "Şarkı",
+    "colAddedBy": "Ekleyen",
+    "colAdded": "Eklenme",
+    "colDuration": "Süre",
+    "playNamed": "{title} çal",
+    "pauseNamed": "{title} duraklat"
   },
   "dashboard": {
     "diskUsage": "Disk kullanımı",
@@ -217,7 +223,9 @@
     "unpinNamed": "{name} sabitlemesini kaldır",
     "oneSong": "1 şarkı",
     "songs": "{count} şarkı",
-    "homeHint": "Soldan bir çalma listesi seç ya da yeni bir tane başlat."
+    "homeHint": "Soldan bir çalma listesi seç ya da yeni bir tane başlat.",
+    "expand": "Çalma listelerini genişlet",
+    "collapse": "Çalma listelerini daralt"
   },
   "addTo": {
     "label": "Çalma listesine ekle",
