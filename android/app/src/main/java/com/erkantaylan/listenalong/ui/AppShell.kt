@@ -50,6 +50,8 @@ class AppActions(
     /** The source repository, the same link as the web footer. */
     val openSource: () -> Unit,
     val openExternal: (LocalSong) -> Unit,
+    /** Deleting a file an earlier install created: asks the system for the user's consent. */
+    val deleteWithConsent: (LocalSong) -> Unit,
     /** "music.etaylan.com", for hints. */
     val serverName: () -> String,
 )

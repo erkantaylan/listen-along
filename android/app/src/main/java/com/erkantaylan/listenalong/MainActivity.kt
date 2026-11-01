@@ -5,13 +5,16 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
@@ -43,6 +46,9 @@ import com.erkantaylan.listenalong.open.ExternalPlayer
 import com.erkantaylan.listenalong.player.PlayQueue
 import com.erkantaylan.listenalong.settings.SettingsStore
 import com.erkantaylan.listenalong.storage.LocalSong
+import com.erkantaylan.listenalong.storage.MediaStoreAudio
+import com.erkantaylan.listenalong.ui.LocalMusicAccess
+import com.erkantaylan.listenalong.ui.MusicAccessUi
 import com.erkantaylan.listenalong.ui.AddToPlaylistDialog
 import com.erkantaylan.listenalong.ui.AppActions
 import com.erkantaylan.listenalong.ui.AppShell
@@ -164,13 +170,29 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(config) {
             graph.reports.loadSaved()
             if (config.hasToken) runCatching { graph.reports.refresh() }
+            // Another server has another library: compare the folder afresh.
+            if (config.hasToken) foundInFolder(graph.downloads.reclaim(force = true))
         }
         LaunchedEffect(online) {
             if (online && config.hasToken) runCatching { graph.reports.refresh() }
         }
 
+        var musicAccess by remember { mutableStateOf(graph.sink.canSeeAllFiles) }
+        var musicPromptDismissed by remember {
+            mutableStateOf(graph.musicAccessPrefs.getBoolean(PREF_PROMPT_DISMISSED, false))
+        }
+
         LifecycleResumeEffect(Unit) {
-            scope.launch { graph.downloads.reconcile() }
+            // The permission can change in system settings while we were away.
+            val nowAllowed = graph.sink.canSeeAllFiles
+            val justAllowed = nowAllowed && !musicAccess
+            musicAccess = nowAllowed
+            scope.launch {
+                graph.downloads.reconcile()
+                if (graph.settings.config.value.hasToken) {
+                    foundInFolder(graph.downloads.reclaim(force = justAllowed))
+                }
+            }
             if (graph.settings.config.value.hasToken) scope.launch { runCatching { graph.reports.refresh() } }
             onPauseOrDispose { }
         }
@@ -199,7 +221,53 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        val openExternal: (LocalSong) -> Unit = { song ->
+        val dismissMusicPrompt = {
+            musicPromptDismissed = true
+            graph.musicAccessPrefs.edit().putBoolean(PREF_PROMPT_DISMISSED, true).apply()
+        }
+        val musicPermission = rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { granted ->
+            musicAccess = granted
+            if (granted) {
+                scope.launch { foundInFolder(graph.downloads.reclaim(force = true), announceNone = true) }
+            } else {
+                graph.musicAccessPrefs.edit().putBoolean(PREF_DECLINED, true).apply()
+                dismissMusicPrompt()
+                toast("Without music access, songs from an earlier install are not recognised, and downloading one again saves a second copy")
+            }
+        }
+        val requestMusicAccess = {
+            val declined = graph.musicAccessPrefs.getBoolean(PREF_DECLINED, false)
+            if (declined && !shouldShowRequestPermissionRationale(MediaStoreAudio.READ_PERMISSION)) {
+                // The system no longer shows its dialog: only its settings page can change this.
+                toast("Turn on Music and audio under Permissions")
+                runCatching {
+                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+                }
+                Unit
+            } else {
+                musicPermission.launch(MediaStoreAudio.READ_PERMISSION)
+            }
+        }
+
+        var deleteConsentFor by remember { mutableStateOf<LocalSong?>(null) }
+        val deleteConsent = rememberLauncherForActivityResult(
+            ActivityResultContracts.StartIntentSenderForResult()
+        ) { result ->
+            val song = deleteConsentFor
+            deleteConsentFor = null
+            if (song != null && result.resultCode == RESULT_OK) {
+                graph.index.remove(song.songId)
+                toast("Deleted")
+            }
+        }
+
+        val openExternal: (LocalSong) -> Unit = open@{ song ->
+            if (song.reclaimed && !graph.sink.canSeeAllFiles) {
+                toast("Needs music access: see Settings")
+                return@open
+            }
             scope.launch {
                 val present = withContext(Dispatchers.IO) {
                     runCatching { graph.sink.exists(song.uri) }.getOrDefault(true)
@@ -221,7 +289,7 @@ class MainActivity : ComponentActivity() {
                     val queue = PlayQueue.build(
                         songs = songs,
                         startIndex = index,
-                        downloaded = graph.index.entries.value,
+                        downloaded = graph.readableDownloads(),
                         streamUrl = if (graph.settings.config.value.hasToken) { id -> client.fileUrl(id).toString() } else null,
                         online = graph.connectivity.online.value,
                     )
@@ -247,6 +315,15 @@ class MainActivity : ComponentActivity() {
                 openProfile = { openInBrowser(SettingsStore.profileUrl(graph.settings.config.value.baseUrl)) },
                 openSource = { openInBrowser(AppInfo.SOURCE_URL) },
                 openExternal = openExternal,
+                deleteWithConsent = { song ->
+                    val request = graph.sink.deleteConsent(song.uri)
+                    if (request == null) {
+                        toast("This app cannot delete that file; use a file manager")
+                    } else {
+                        deleteConsentFor = song
+                        deleteConsent.launch(IntentSenderRequest.Builder(request).build())
+                    }
+                },
                 serverName = { graph.settings.config.value.baseUrl.host },
             )
         }
@@ -277,6 +354,13 @@ class MainActivity : ComponentActivity() {
             LocalReports provides reports,
             LocalOnline provides online,
             LocalReportActions provides reportActions,
+            LocalMusicAccess provides MusicAccessUi(
+                granted = musicAccess,
+                // Worth asking only when nothing is known to be here and a server can match files.
+                offerPrompt = !musicAccess && !musicPromptDismissed && config.hasToken && snapshot.downloaded.isEmpty(),
+                request = requestMusicAccess,
+                dismiss = dismissMusicPrompt,
+            ),
         ) {
         Box(Modifier.fillMaxSize()) {
             AppShell(
@@ -343,6 +427,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun foundInFolder(found: Int, announceNone: Boolean = false) {
+        when {
+            found > 0 -> toast(if (found == 1) "1 song found in Music/ListenAlong" else "$found songs found in Music/ListenAlong")
+            announceNone -> toast("No new songs found in the folder")
+        }
+    }
+
     private fun openInBrowser(url: String) {
         runCatching { startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
             .onFailure { toast("No browser to open $url") }
@@ -354,5 +445,7 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_OPEN_PLAYER = "open_player"
         const val EXTRA_DEBUG_SERVER = "server"
         const val EXTRA_DEBUG_TOKEN = "token"
+        private const val PREF_PROMPT_DISMISSED = "prompt_dismissed"
+        private const val PREF_DECLINED = "declined"
     }
 }

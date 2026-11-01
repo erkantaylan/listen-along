@@ -9,6 +9,7 @@ import com.erkantaylan.listenalong.storage.DownloadIndex
 import com.erkantaylan.listenalong.storage.MemoryTextStore
 import com.erkantaylan.listenalong.storage.PendingAudio
 import com.erkantaylan.listenalong.storage.SavedAudio
+import com.erkantaylan.listenalong.storage.SavedFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -68,7 +69,16 @@ private class FakeSink : AudioSink {
         return 0
     }
 
-    override fun exists(uri: String) = saved.containsKey(uri)
+    /** Files an earlier install left behind, with this install's access to them. */
+    val leftovers = java.util.concurrent.CopyOnWriteArrayList<SavedFile>()
+    var hasMediaAccess = true
+    override val canSeeAllFiles get() = hasMediaAccess
+    override fun listSaved(): List<SavedFile> = if (hasMediaAccess) leftovers.toList() else emptyList()
+
+    override fun exists(uri: String) =
+        saved.containsKey(uri) || (hasMediaAccess && leftovers.any { it.uri == uri })
+
+    // A leftover is not this install's to delete.
     override fun delete(uri: String) = saved.remove(uri) != null
 }
 
@@ -299,5 +309,120 @@ class DownloadsTest {
 
         assertTrue(d.delete(index["b"]!!))
         assertTrue(index.entries.value.isEmpty())
+    }
+
+    private fun leftover(id: Int, name: String, sec: Long = 200) =
+        SavedFile("content://old/$id", name, sec * 1000, 1234, "audio/mp4")
+
+    private fun library(vararg songs: Song) {
+        val body = songs.joinToString(",", "{\"songs\":[", "],\"total\":${songs.size}}") {
+            "{\"id\":\"${it.id}\",\"title\":\"${it.title}\",\"artist\":\"${it.artist}\",\"duration_sec\":${it.durationRaw}}"
+        }
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                libraryFetches.incrementAndGet()
+                return MockResponse.Builder().addHeader("Content-Type", "application/json").body(body).build()
+            }
+        }
+    }
+
+    private val libraryFetches = AtomicInteger()
+
+    @Test
+    fun `reclaim recognises leftover files and fetches the library only when something is new`() = runBlocking {
+        library(song("a"), song("b"))
+        sink.leftovers += leftover(1, "Artist - Title a.m4a")
+        sink.leftovers += leftover(2, "Artist - Title b (1).m4a")
+        sink.leftovers += leftover(3, "Someone Else - Mine.m4a")
+        val d = downloads()
+
+        assertEquals(1, d.reclaim())
+        val a = index["a"]!!
+        assertEquals("content://old/1", a.uri)
+        assertEquals("Artist - Title a.m4a", a.displayName)
+        assertEquals(1234L, a.bytes)
+        assertTrue(a.reclaimed)
+        assertFalse(index.contains("b"))
+
+        val fetches = libraryFetches.get()
+        assertEquals(0, d.reclaim())
+        assertEquals("unmatched files are not compared on every resume", fetches, libraryFetches.get())
+        sink.leftovers += leftover(4, "Artist - Title b.m4a")
+        assertEquals(1, d.reclaim())
+        assertEquals("content://old/4", index["b"]!!.uri)
+    }
+
+    @Test
+    fun `a reclaimed song is not downloaded again and no copy is made`() = runBlocking {
+        library(song("a"))
+        sink.leftovers += leftover(1, "Artist - Title a.m4a")
+        val d = downloads()
+        d.enqueue(listOf(song("a")))
+        d.drain()
+        assertEquals("content://old/1", index["a"]!!.uri)
+        assertTrue(sink.saved.isEmpty())
+        assertTrue(queue.pending.value.isEmpty())
+    }
+
+    @Test
+    fun `reclaim failing leaves things alone and tries again`() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) = MockResponse.Builder().code(500).build()
+        }
+        sink.leftovers += leftover(1, "Artist - Title a.m4a")
+        val d = downloads()
+        assertEquals(0, d.reclaim())
+        library(song("a"))
+        assertEquals(1, d.reclaim())
+    }
+
+    @Test
+    fun `no access is not proof a reclaimed file is gone, and access proves it`() = runBlocking {
+        library(song("a"))
+        sink.leftovers += leftover(1, "Artist - Title a.m4a")
+        val d = downloads()
+        d.reclaim()
+
+        sink.hasMediaAccess = false
+        assertEquals(0, d.reconcile())
+        assertTrue(index.contains("a"))
+
+        sink.hasMediaAccess = true
+        assertEquals(0, d.reconcile())
+        assertTrue(index.contains("a"))
+
+        sink.leftovers.clear()
+        assertEquals(1, d.reconcile())
+        assertFalse(index.contains("a"))
+    }
+
+    @Test
+    fun `found without access only own files exist, so absence still means deleted`() = runBlocking {
+        library(song("a"))
+        route { id -> audio(bytesFor(id)) }
+        val d = downloads()
+        d.enqueue(listOf(song("a")))
+        d.drain()
+        assertFalse(index["a"]!!.reclaimed)
+        sink.hasMediaAccess = false
+        sink.saved.clear()
+        assertEquals(1, d.reconcile())
+    }
+
+    @Test
+    fun `deleting a reclaimed file this app may not delete keeps the entry for the consent prompt`() = runBlocking {
+        library(song("a"))
+        sink.leftovers += leftover(1, "Artist - Title a.m4a")
+        val d = downloads()
+        d.reclaim()
+        val local = index["a"]!!
+
+        assertFalse(d.delete(local))
+        assertTrue(index.contains("a"))
+
+        // Gone by other means meanwhile: nothing left to ask about.
+        sink.leftovers.clear()
+        assertTrue(d.delete(local))
+        assertFalse(index.contains("a"))
     }
 }

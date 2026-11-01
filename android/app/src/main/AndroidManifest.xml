@@ -20,6 +20,14 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
 
+    <!-- Recognising files an earlier install left in Music/ListenAlong: after a
+         reinstall they no longer belong to this app. Optional, asked with a
+         notice in the app; saving never needs it. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
     <!-- Package visibility (Android 11+): which apps can play the files. -->
     <queries>
         <intent>

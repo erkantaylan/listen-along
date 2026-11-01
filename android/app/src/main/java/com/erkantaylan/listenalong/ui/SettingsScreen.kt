@@ -195,6 +195,25 @@ fun SettingsScreen(graph: AppGraph, snapshot: DownloadSnapshot, actions: AppActi
                 Field("Space used", formatBytes(snapshot.downloaded.values.sumOf { it.bytes }))
                 Field("Queued", "${snapshot.pending.size}")
                 Field("Folder", MediaStoreAudio.RELATIVE_PATH)
+                val access = LocalMusicAccess.current
+                Field("Music access", if (access.granted) "On" else "Off")
+                if (!access.granted) {
+                    Text(
+                        "Needed to recognise songs an earlier install left in the folder.",
+                        color = Palette.fg3, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp),
+                    )
+                    Box(Modifier.padding(top = 8.dp)) {
+                        SecondaryButton("Allow music access", access.request, tag = "music-access")
+                    }
+                }
+                Box(Modifier.padding(top = 8.dp)) {
+                    SecondaryButton("Find songs already in the folder", {
+                        scope.launch {
+                            val found = graph.downloads.reclaim(force = true)
+                            actions.message(if (found == 0) "No new songs found in the folder" else "$found songs found in the folder")
+                        }
+                    }, tag = "reclaim")
+                }
                 Box(Modifier.padding(top = 8.dp)) {
                     SecondaryButton("Forget files deleted elsewhere", {
                         scope.launch {

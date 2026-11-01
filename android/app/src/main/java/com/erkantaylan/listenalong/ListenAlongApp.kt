@@ -15,6 +15,7 @@ import com.erkantaylan.listenalong.settings.ServerConfig
 import com.erkantaylan.listenalong.settings.SettingsStore
 import com.erkantaylan.listenalong.storage.DownloadIndex
 import com.erkantaylan.listenalong.storage.FileTextStore
+import com.erkantaylan.listenalong.storage.LocalSong
 import com.erkantaylan.listenalong.storage.MediaStoreAudio
 import com.erkantaylan.listenalong.storage.PrefsTextStore
 import okhttp3.Interceptor
@@ -65,6 +66,16 @@ class AppGraph(context: Context) {
         clientProvider = ::client,
         kick = { DownloadScheduler.kick(app) },
     )
+
+    /** Downloaded songs this app can read right now; with no media access, an earlier install's files stream instead. */
+    fun readableDownloads(): Map<String, LocalSong> {
+        val all = index.entries.value
+        return if (sink.canSeeAllFiles) all else all.filterValues { !it.reclaimed }
+    }
+
+    /** "Not now" on the music access notice, and whether the system dialog was ever declined. */
+    val musicAccessPrefs: android.content.SharedPreferences =
+        app.getSharedPreferences("music_access", Context.MODE_PRIVATE)
 
     private val cacheDir = File(app.filesDir, "playlist-cache")
 

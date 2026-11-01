@@ -21,7 +21,27 @@ interface AudioSink {
      * mid-download. Only called when nothing is being written. Returns how many.
      */
     fun cleanupAbandoned(): Int = 0
+
+    /**
+     * Whether [listSaved] and [exists] can see every file in the folder, or
+     * only the ones this install created. Without media-read access an
+     * earlier install's file looks exactly like a deleted one.
+     */
+    val canSeeAllFiles: Boolean get() = true
+
+    /** The finished files visible in the app's folder. Does I/O. */
+    fun listSaved(): List<SavedFile> = emptyList()
 }
+
+/** A finished file in the app's folder, as the system describes it. */
+data class SavedFile(
+    val uri: String,
+    val displayName: String,
+    /** Null until the media scanner has read the file. */
+    val durationMs: Long?,
+    val bytes: Long,
+    val mimeType: String?,
+)
 
 interface PendingAudio {
     val output: OutputStream

@@ -97,7 +97,9 @@ where lobby persistence broke entirely on deployed instances.
   separate client of the HTTP API with a CLI Bearer token (stored encrypted, no
   socket, so no live updates). Library, playlists (edit mode), broken-song
   reports, background playback (`player/PlaybackService`), downloads as plain
-  files in `Music/ListenAlong` (MediaStore + WorkManager). Offline: downloaded
+  files in `Music/ListenAlong` (MediaStore + WorkManager; after a reinstall
+  `storage/FileMatcher` recognises them by name + duration, with the optional
+  music access permission). Offline: downloaded
   songs play; saved playlists and reports are read-only. `./dev.sh [--stub]`
   builds, installs and launches; `tools/stub_server.py` stands in for the
   server, so API or rule changes the app relies on belong there too. Tests:

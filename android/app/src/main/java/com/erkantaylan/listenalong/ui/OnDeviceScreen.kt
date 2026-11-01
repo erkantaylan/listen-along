@@ -83,14 +83,22 @@ fun OnDeviceScreen(
             modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 12.dp),
         )
 
+        MusicAccessPrompt(Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp))
+        MusicAccessOffNotice(
+            snapshot.downloaded.values.count { it.reclaimed },
+            Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp),
+        )
+
         PullToRefreshBox(
             isRefreshing = refreshing,
             onRefresh = {
                 refreshing = true
                 scope.launch {
                     val gone = downloads.reconcile()
+                    val found = downloads.reclaim(force = true)
                     refreshing = false
                     if (gone > 0) actions.message("$gone deleted outside the app — forgotten")
+                    if (found > 0) actions.message("$found songs found in the folder")
                 }
             },
             modifier = Modifier.fillMaxSize(),
@@ -179,8 +187,7 @@ fun OnDeviceScreen(
             onConfirm = {
                 deleting = null
                 scope.launch {
-                    val removed = downloads.delete(song)
-                    actions.message(if (removed) "Deleted" else "Forgotten (the file could not be deleted by this app)")
+                    if (downloads.delete(song)) actions.message("Deleted") else actions.deleteWithConsent(song)
                 }
             },
             onDismiss = { deleting = null },

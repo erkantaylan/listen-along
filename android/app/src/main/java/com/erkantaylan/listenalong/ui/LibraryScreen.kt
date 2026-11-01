@@ -118,6 +118,7 @@ fun LibraryScreen(
             } else null,
         )
         BrokenFilter(state.brokenOnly, LocalReports.current.size, viewModel::onBrokenOnlyChange)
+        MusicAccessPrompt(Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp))
         if (state.offline) {
             Alert(
                 "Offline — showing the ${state.songs.size} songs on this device.",

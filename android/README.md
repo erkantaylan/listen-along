@@ -118,6 +118,20 @@ placeholder artist `Unknown` is dropped.
 A small JSON index in SharedPreferences maps each song id to its MediaStore
 URI. That is how the app knows what is downloaded and avoids duplicates.
 
+The index does not survive a reinstall or a data clear, and uninstalling also
+takes away the app's ownership of its files. So when the folder holds a file
+the index does not know, the app compares it with the server's library
+(`storage/FileMatcher`, at start, on resume and before downloads): the file
+name rebuilt from the song's artist and title, and the duration within 3
+seconds. Anything that fits more than one way stays unmatched.
+
+Seeing files from an earlier install takes **music access**
+(`READ_MEDIA_AUDIO`, `READ_EXTERNAL_STORAGE` before Android 13), which is
+optional. A notice in Library and On device offers it while nothing is
+downloaded; Settings can ask later. Without it, such songs are kept in the list
+(an invisible file may still exist), stream when online and are left out
+offline. Deleting one needs the system's consent prompt; declining keeps it.
+
 ### Downloads
 
 A single WorkManager worker drains a persisted queue, **two songs at a time**,
@@ -203,9 +217,11 @@ tests against MockWebServer.
 
 ## Known limits
 
-- The download index lives in app storage. After a reinstall or a data
-  clear, the app no longer knows about files it saved earlier. Downloading
-  those songs again produces `Name (1).m4a`.
+- Recognising songs after a reinstall needs **music access**. If it is denied,
+  files from the earlier install stay invisible, and downloading one again
+  produces `Name (1).m4a`. A file only comes back when its name and duration
+  fit exactly one song: one whose title, artist or length changed on the
+  server stays unrecognised, and so does a song with no duration.
 - The play queue is not restored after the app process is killed.
 - There is no live socket: reports made elsewhere show up on the next
   refresh (resume, pull-to-refresh, reconnect), not instantly.

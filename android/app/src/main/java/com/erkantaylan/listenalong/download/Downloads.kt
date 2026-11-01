@@ -5,6 +5,7 @@ import com.erkantaylan.listenalong.api.LibraryClient
 import com.erkantaylan.listenalong.api.Song
 import com.erkantaylan.listenalong.storage.AudioSink
 import com.erkantaylan.listenalong.storage.DownloadIndex
+import com.erkantaylan.listenalong.storage.FileMatcher
 import com.erkantaylan.listenalong.storage.LocalSong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -18,6 +19,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
@@ -47,12 +50,17 @@ class Downloads(
     private val kick: () -> Unit,
     private val concurrency: Int = DEFAULT_CONCURRENCY,
     private val retryDelaysMs: List<Long> = listOf(2_000, 6_000),
+    private val now: () -> Long = System::currentTimeMillis,
 ) {
 
     private val downloader = SongDownloader(sink)
     private val progress = MutableStateFlow<Map<String, Progress>>(emptyMap())
     private val failures = MutableStateFlow<Map<String, String>>(emptyMap())
     private val jobs = ConcurrentHashMap<String, Job>()
+    private val reclaimLock = Mutex()
+
+    /** Files already compared with the library and not matched, so a resume does not fetch it again. */
+    private val unmatched = ConcurrentHashMap.newKeySet<String>()
 
     val snapshots: Flow<DownloadSnapshot> =
         combine(index.entries, queue.pending, progress, failures, ::DownloadSnapshot)
@@ -83,14 +91,70 @@ class Downloads(
 
     /** Forgets songs whose files were deleted outside the app. Returns how many. */
     suspend fun reconcile(): Int = withContext(Dispatchers.IO) {
-        index.reconcile { sink.exists(it.uri) }.size
+        index.reconcile { !isGone(it) }.size
     }
 
-    /** Deletes the file (when it is still ours to delete) and forgets it either way. */
+    /** With no media access, a file from an earlier install is invisible whether it exists or not. */
+    private fun isGone(local: LocalSong): Boolean =
+        !(local.reclaimed && !sink.canSeeAllFiles) && !sink.exists(local.uri)
+
+    /**
+     * Recognises files in the folder that the index does not know (after a
+     * reinstall or a data clear), by comparing them with the server's library.
+     * Only asks the server when there is a file it has not compared yet;
+     * [force] compares them again. A failure leaves everything as it was.
+     * Returns how many songs came back.
+     */
+    suspend fun reclaim(force: Boolean = false): Int = withContext(Dispatchers.IO) {
+        reclaimLock.withLock {
+            if (force) unmatched.clear()
+            val known = index.entries.value.values.mapTo(HashSet()) { it.uri }
+            val files = runCatching { sink.listSaved() }.getOrDefault(emptyList())
+                .filter { it.uri !in known && it.uri !in unmatched }
+            if (files.isEmpty()) return@withContext 0
+            val client = clientProvider() ?: return@withContext 0
+            val songs = try {
+                client.listAll()
+            } catch (c: CancellationException) {
+                throw c
+            } catch (_: Exception) {
+                return@withContext 0
+            }
+            val current = index.entries.value
+            val matches = FileMatcher.match(songs.filterNot { it.id in current }, files)
+            val hasAccess = sink.canSeeAllFiles
+            matches.forEach { (song, file) ->
+                index.put(LocalSong(
+                    songId = song.id,
+                    uri = file.uri,
+                    displayName = file.displayName,
+                    title = song.title,
+                    artist = song.artist,
+                    durationSec = song.durationSec,
+                    mimeType = file.mimeType ?: "audio/mp4",
+                    bytes = file.bytes,
+                    savedAt = now(),
+                    // Without media access only this install's own files are visible.
+                    reclaimed = hasAccess,
+                ))
+            }
+            val taken = matches.mapTo(HashSet()) { it.second.uri }
+            files.filter { it.uri !in taken }.mapTo(unmatched) { it.uri }
+            matches.size
+        }
+    }
+
+    /**
+     * Deletes the file and forgets it. Returns false, keeping the entry, when
+     * the file is still there and this app may not delete it: an earlier
+     * install's file needs the user's consent, and forgetting it instead would
+     * only have [reclaim] find it again.
+     */
     suspend fun delete(local: LocalSong): Boolean = withContext(Dispatchers.IO) {
         val removed = runCatching { sink.delete(local.uri) }.getOrDefault(false)
-        index.remove(local.songId)
-        removed
+        val gone = removed || runCatching { isGone(local) }.getOrDefault(false)
+        if (gone) index.remove(local.songId)
+        gone
     }
 
     /**
@@ -103,6 +167,10 @@ class Downloads(
         // nothing is being written yet: anything pending now is an orphan
         // from a process that died mid-download.
         if (jobs.isEmpty()) withContext(Dispatchers.IO) { sink.cleanupAbandoned() }
+
+        // A queued song whose file is already in the folder is not fetched
+        // again: runOne finds it in the index.
+        reclaim()
 
         val client = clientProvider()
         if (client == null) {

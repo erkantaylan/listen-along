@@ -1,8 +1,13 @@
 package com.erkantaylan.listenalong.storage
 
+import android.Manifest
+import android.app.RecoverableSecurityException
 import android.content.ContentResolver
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
+import android.content.IntentSender
+import android.content.pm.PackageManager
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
@@ -118,9 +123,72 @@ class MediaStoreAudio(private val context: Context) : AudioSink {
             resolver.query(parsed, arrayOf(MediaStore.MediaColumns._ID), null, null, null)
                 ?.use { it.moveToFirst() } ?: false
         } catch (_: SecurityException) {
-            false
+            true // Not allowed to look is not the same as gone.
         } catch (_: IllegalArgumentException) {
             false
+        }
+    }
+
+    override val canSeeAllFiles: Boolean
+        get() = context.checkSelfPermission(READ_PERMISSION) == PackageManager.PERMISSION_GRANTED
+
+    override fun listSaved(): List<SavedFile> {
+        val scoped = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        val collection = if (scoped) MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+                         else MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+        @Suppress("DEPRECATION")
+        val (selection, args) =
+            if (scoped) "${MediaStore.MediaColumns.RELATIVE_PATH} = ?" to arrayOf(RELATIVE_PATH)
+            else "${MediaStore.MediaColumns.DATA} LIKE ?" to arrayOf("%/${Environment.DIRECTORY_MUSIC}/$FOLDER/%")
+        val columns = arrayOf(
+            MediaStore.MediaColumns._ID,
+            MediaStore.MediaColumns.DISPLAY_NAME,
+            MediaStore.Audio.AudioColumns.DURATION,
+            MediaStore.MediaColumns.SIZE,
+            MediaStore.MediaColumns.MIME_TYPE,
+        )
+        return try {
+            resolver.query(collection, columns, selection, args, null)?.use { c ->
+                buildList {
+                    while (c.moveToNext()) {
+                        val name = c.getString(1) ?: continue
+                        add(SavedFile(
+                            uri = ContentUris.withAppendedId(collection, c.getLong(0)).toString(),
+                            displayName = name,
+                            durationMs = c.getLong(2).takeIf { it > 0 },
+                            bytes = c.getLong(3),
+                            mimeType = c.getString(4),
+                        ))
+                    }
+                }
+            }.orEmpty()
+        } catch (_: SecurityException) {
+            emptyList()
+        }
+    }
+
+    /**
+     * The system's "allow this app to delete?" prompt for a file another
+     * install created. Null when there is none (Android 9 and older, or
+     * Android 10 when the delete is simply refused).
+     */
+    fun deleteConsent(uri: String): IntentSender? {
+        val parsed = Uri.parse(uri)
+        if (parsed.scheme == ContentResolver.SCHEME_FILE) return null
+        return try {
+            when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ->
+                    MediaStore.createDeleteRequest(resolver, listOf(parsed)).intentSender
+                Build.VERSION.SDK_INT == Build.VERSION_CODES.Q -> try {
+                    resolver.delete(parsed, null, null)
+                    null
+                } catch (e: RecoverableSecurityException) {
+                    e.userAction.actionIntent.intentSender
+                }
+                else -> null
+            }
+        } catch (_: RuntimeException) {
+            null
         }
     }
 
@@ -130,8 +198,7 @@ class MediaStoreAudio(private val context: Context) : AudioSink {
             if (parsed.scheme == ContentResolver.SCHEME_FILE) File(parsed.path.orEmpty()).delete()
             else resolver.delete(parsed, null, null) > 0
         } catch (_: SecurityException) {
-            // Not ours any more (e.g. after a reinstall): the user can delete it
-            // from their file manager; we just forget it.
+            // Not ours any more (e.g. after a reinstall): see deleteConsent.
             false
         }
     }
@@ -181,6 +248,12 @@ class MediaStoreAudio(private val context: Context) : AudioSink {
 
     companion object {
         const val FOLDER = "ListenAlong"
+
+        /** What lets this app see files an earlier install left in the folder. */
+        val READ_PERMISSION: String =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.READ_MEDIA_AUDIO
+            else Manifest.permission.READ_EXTERNAL_STORAGE
+
         val RELATIVE_PATH = "${Environment.DIRECTORY_MUSIC}/$FOLDER/"
     }
 }

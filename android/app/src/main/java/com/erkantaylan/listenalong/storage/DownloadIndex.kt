@@ -20,6 +20,12 @@ data class LocalSong(
     val mimeType: String,
     val bytes: Long = 0,
     val savedAt: Long = 0,
+    /**
+     * Found in the folder rather than saved by this install, and possibly not
+     * this install's file: reading it needs media access, deleting it the
+     * user's consent, and with no access its absence proves nothing.
+     */
+    val reclaimed: Boolean = false,
 )
 
 /**
