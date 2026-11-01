@@ -235,7 +235,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   the page overflows. Touch keeps document scrolling. Bootstrap's `scrollbar-gutter: stable` is overridden
   (`theme.css`).
 - The narrowest page column with the sidebar is 504px at 768px. Check new page content there, not only on phones.
-- The player bar always spans the full viewport with its `.container` (56rem) centred on the viewport, not
+- The player bar always spans the full viewport, and its centre zone is centred on the viewport, not
   on the page column. Login and the standalone pages have neither column; pending has only the chat panel;
   `/dashboard` has its own section list and, for someone also signed in to the app, the chat panel.
 
@@ -508,12 +508,26 @@ art, times, buttons).
   listened to: "Ayşe and 2 others are listening along", no button. While listening
   along the second line reads "artist · Listening along with Ayşe" and the open button
   is disabled — never a playlist name (it may be private).
-- Desktop row: cover + title / "artist · context" (one button that opens the context:
-  the playlist page, or `/library`), repeat, shuffle, prev, play (`.btn-solid.theme-primary`
-  pill), next, chat (`#social-toggle`, unread badge on its corner; toggles the chat panel from
-  1200px, opens `/social` below that; the only opener below 1024px, the rail is the labelled one above that), mute + volume; seek `.form-range` with times below.
-- Below 768px the volume slider hides. Below 576px it is the slim form: cover, title,
-  play/pause, next, chat and a thin seek line (`.player-extra` and times hidden).
+- From 768px, full viewport width (1rem side padding), three zones in a `3fr 4fr 3fr` grid; the equal side
+  columns keep the centre, and the Play button, on the viewport's centre. About 87px tall.
+  - `.player-zone-left`: cover (3.5rem) + title / "artist · context" (one button that opens the context: the
+    playlist page, or `/library`; both lines truncate), broken-song icon and ⋮ right after the text.
+  - `.player-zone-center`: shuffle, prev, play (`.btn-solid.theme-primary` pill), next, repeat, so Play sits in
+    the middle; under them the seek `.form-range` with the current time and duration on either side (fixed
+    width, so the track stays centred).
+  - `.player-zone-right`, right-aligned: chat (`#social-toggle`, unread badge on its corner; toggles the chat
+    panel from 1200px, opens `/social` below that; the only opener below 1024px, the rail is the labelled one
+    above that), then mute + volume at the very far right. The slider is 4.75rem at 768px, growing with the
+    viewport to 7.8125rem at 1280px.
+  - Focus order follows that: song, ⋮, transport, seek, chat, mute, volume.
+- Below 768px the zones dissolve (`display: contents`) into one row with the seek line wrapped under it, and the
+  volume slider hides. The row reads song, ⋮, transport, chat, mute; the times are under the seek line. The seek
+  input stays in the centre zone's markup, so there Tab reaches it before chat.
+- Below 576px it is the slim form: cover, title, play/pause, next, chat and a thin seek line (`.player-extra`
+  and times hidden).
+- On coarse pointers the seek input keeps a 2.5rem hit area around its 20px of layout; the buttons in the row
+  stay above it, which leaves at least 34px under a button. Keep the zone's gap, and its bottom padding from
+  768px, or that shrinks.
 - Empty state (`.is-empty`): "Nothing playing", controls disabled (Play stays enabled on
   a playlist page whose queue has songs).
 - It sits above the library overlay (`--bs-z-fixed` + 1). Its measured height is
