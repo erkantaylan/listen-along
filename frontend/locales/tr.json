@@ -73,7 +73,24 @@
   "nav": {
     "queue": "Sıra"
   },
+  "stats": {
+    "label": "Çalma listesi istatistikleri",
+    "songOne": "{n} şarkı",
+    "songMany": "{n} şarkı",
+    "lengthHoursMinutes": "{h} sa {m} dk",
+    "lengthHours": "{h} sa",
+    "lengthMinutes": "{m} dk",
+    "lengthSeconds": "{s} sn",
+    "about": "yaklaşık {length}",
+    "aboutTitle": "{total} şarkının {known} tanesinin süresi biliniyor",
+    "artistOne": "{n} sanatçı",
+    "artistMany": "{n} sanatçı",
+    "topArtist": "En çok şarkısı olan: {name} ({n})",
+    "topAdder": "En çok ekleyen: {name} ({n})"
+  },
   "queue": {
+    "noMatch": "Eşleşen şarkı yok",
+    "noMatchHint": "Başka bir kelime deneyin veya filtreyi temizleyin",
     "searchPlaceholder": "YouTube URL yapıştır veya ara...",
     "addSong": "Şarkı ekle",
     "hideErrored": "Hatalı şarkıları gizle",

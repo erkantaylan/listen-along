@@ -140,6 +140,7 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    scroll-padding-top: 2rem; /* the sticky .queue-head covers that much */
   }
   /* The song table takes the whole column; only the two inputs keep a cap. */
   .libpage-header > .container { max-width: 56rem; }
@@ -150,7 +151,37 @@
   .tab-panel { display: none; }
   .tab-panel.active { display: block; }
 
+  /* Stats strip: one line that wraps between facts, never inside one. */
+  .playlist-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 1rem;
+    padding: 0;
+    margin: 0 0 0.75rem;
+    font-size: var(--bs-font-size-sm);
+    color: var(--app-text-muted);
+    list-style: none;
+  }
+  .playlist-stats li { display: flex; max-width: 100%; min-width: 0; white-space: pre; }
+  .playlist-stats b { font-weight: var(--bs-font-weight-medium); color: var(--app-text); }
+  .playlist-stat-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Windowed list (virtual-list.js): rows are placed by position in a list as tall
+     as all of them, so the scrollbar and the sticky header behave as if they were all there. */
+  .vlist { position: relative; height: calc(var(--vl-count) * var(--vl-row-height)); }
+  .vlist > .vlist-row {
+    position: absolute;
+    top: calc(var(--vl-pos) * var(--vl-row-height));
+    right: 0;
+    left: 0;
+    height: var(--vl-row-height);
+    overflow: hidden;
+  }
+
   /* Queue list */
+  .queue-list { --vl-row-height: 3.5rem; }
+  .queue-list.vlist > .queue-item { min-height: 0; border-radius: 0; }
+  .queue-list.vlist > .queue-item-last { border-bottom-right-radius: var(--bs-border-radius-lg); border-bottom-left-radius: var(--bs-border-radius-lg); }
   /* Compact form first (phones): thumb, two lines of text, ⋮. From a 480px page
      column the row and the sticky .queue-head share one grid, see "Song table". */
   .queue-item {
@@ -294,7 +325,6 @@
   .queue-item-handle:active { cursor: grabbing; }
   .queue-list.is-reordering .queue-item { transition: transform 0.15s ease; }
   .queue-list.is-reordering .queue-item.dragging {
-    position: relative;
     z-index: 2;
     background-color: var(--bs-bg-2);
     box-shadow: var(--bs-box-shadow);

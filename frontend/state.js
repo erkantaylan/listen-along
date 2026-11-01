@@ -118,6 +118,7 @@ export const state = {
   volumeBeforeMute: 1,
   hideErroredSongs: storageGet(STORAGE_KEYS.HIDE_ERRORED_SONGS) !== 'false',
   queueSort: storageGet(STORAGE_KEYS.QUEUE_SORT) || 'default',
+  revealPlayingIn: null,  // lobby id: bring the current song into view once its queue is here
   listeningAlong: false,  // listen-along.js drives the player
   lobbyName: null
 };

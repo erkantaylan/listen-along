@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- feat(web): playlist pages open with a line of stats: songs, total length ("about" when only some lengths are known), artists, top artist and who added the most. It updates live and counts the whole playlist, whatever the filter shows
+- change(web): long playlists stay fast. Only the rows near the view are in the page (2,500 songs: about 1,360 elements instead of 65,800, first rows in 0.23s instead of 1.5s), with the same scrollbar and sticky header. Playing, next and previous, the song menu and the filter still cover every song
+- feat(web): on a song row, ↑ / ↓, Page Up / Down and Home / End move through the whole playlist; clicking the song in the player bar shows it in its playlist
+- change(web): edit mode drags cross any distance, the auto-scroll speeds up as you hold it, and holding an arrow key moves a song as one move. Live edits by someone else no longer move what you are looking at
+- fix(web): the song filter finds titles with `&` and quotes, and says so when nothing matches
+- change(server): a playlist reorder saves in one statement instead of one per song
 - feat(web): the playlists sidebar has filter chips (All, Mine, Public, Private) and a sort menu (Name A-Z in Turkish alphabet order, Date created). Pinned stays on top, search combines with both, and the choices are remembered in this browser. The rail keeps the sort and lists everything
 - change(web, android): no more coloured edge bars. Selected, playing and current rows are a background tint with a stronger title; success and error toasts are a tinted fill; in the library rail the current playlist is a solid avatar and a pinned one a tinted avatar
 - feat(web): the playlists sidebar collapses to a 72px rail of initials (pinned first, new playlist, tooltips, right-click menu) with a toggle that is remembered; automatically when the page column would drop under 616px

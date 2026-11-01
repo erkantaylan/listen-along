@@ -480,6 +480,33 @@ Song lists behave like Spotify's. **Normal mode** (always the default):
   `anonymous` (the placeholder of old rows) and missing values show blank.
 - Right-click / long-press / ⋮ open the song menu as always (see "Context menu").
 
+**Stats strip** (`#playlist-stats`, `playlist-stats.js` + `queue.js`), at the top of the playlist page, above the add-song bar:
+one `fs-sm` line of plain facts that wraps between them and never inside one; muted words, the numbers and names in `--app-text`.
+No separators (a wrapped line would start with one), no cards. Always over the whole playlist, whatever the filter shows, and live.
+
+| Fact | Shown when |
+| --- | --- |
+| "2,500 songs" | always, requests included |
+| "6 h 12 min" (seconds below a minute, rounded minutes above) | always; "0 min" when empty; hidden when no song has a length; "about …" with a `title` saying how many are known when only some have one |
+| "72 artists" | some song has a known artist (from the library; a request has none) |
+| "Top artist: X (500)" | at least two artists, and X has at least two songs |
+| "Most added by: X (33)" | at least two people added songs, and X at least two; the `anonymous` placeholder is nobody |
+
+A tie goes to the first in playlist order. Only `addedBy` display names, never an id. Turkish takes no plural after a number
+(`stats.songOne` and `stats.songMany` read the same there); numbers use the page language's grouping (2.500).
+
+**Long lists** (`virtual-list.js`, styles `.vlist`). The playlist page holds the whole queue, because `queue:update` delivers it and
+the player, stats, Add to playlist and filter need it; only the **rows** are windowed, inside the existing `.lobby-body`
+scroller. No "load more", no pager, and the sticky head and scrollbar act as if every row were there.
+
+- Rows are exactly `--vl-row-height` (3.5rem = 56px) at every width, one fact per line and clipped, so never let a row grow.
+- The DOM has the rows in view plus 12 either side, and the row holding focus, wherever it has scrolled to.
+- Screen readers: `role="list"`, `aria-setsize` and `aria-posinset` on each row. `#` numbers survive a filter.
+- Keyboard: on a row, ↑ / ↓ walk rows, Page keys a screenful, Home / End the ends, rendered or not. Enter / Space plays. Tab goes through a row's buttons.
+- Someone else's edit keeps your place: the song at the top of the viewport stays put. Your own move or removal does not anchor, so the rows shift as they did under your hand.
+- The player bar's song opens its playlist and brings the current song to the centre. Playback never scrolls the list by itself.
+- For another long list (the planned Radio view) call `createVirtualList` and set `--vl-row-height`. The library keeps its 20-per-page pager: it is server-paged, so it holds no long list.
+
 **Edit mode** (playlist queue only; "Edit" → "Done" in the navbar, only for users who may edit;
 leaving the page always ends it; `queue-edit.js`):
 
@@ -489,8 +516,9 @@ leaving the page always ends it; `queue-edit.js`):
   queue order (the sort select is disabled).
 - Clicking a row does nothing. Drag the handle (pointer events: mouse, touch and pen alike) — the row
   lifts (`--bs-bg-2` + shadow) and the others slide out of its way; the list auto-scrolls near the
-  edges; Escape cancels. Keyboard: focus the handle and press ↑ / ↓ (Alt+↑ / ↓ anywhere on the row);
-  Delete removes the focused row. Focus stays on the moved row.
+  edges, speeding up the longer you hold there (up to six times), and a drag can cross any number of rows that were not
+  rendered when it began; Escape cancels. Keyboard: focus the handle and press ↑ / ↓ (Alt+↑ / ↓ anywhere on the row);
+  a run of presses goes to the server as one move, 250ms after the last. Delete removes the focused row. Focus stays on the moved row.
 - Moves and removals apply at once locally and go through `queue:reorder` / `queue:remove`, so every
   viewer updates live. A removal shows a toast with an **Undo** action (6s; `showToast(msg, type,
   { action, duration })` in `ui.js`) that sends `queue:restore` — the server puts the song back where

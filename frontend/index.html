@@ -171,6 +171,8 @@
         <div class="lobby-panels">
           <!-- Queue Tab -->
           <section id="queue-tab" class="tab-panel active" aria-label="Queue">
+            <!-- Filled by queue.js (DESIGN.md "Stats strip"). -->
+            <ul id="playlist-stats" class="playlist-stats" aria-label="Playlist stats" data-i18n-aria-label="stats.label"></ul>
             <div class="input-group mb-3 add-song">
               <input type="text" id="song-input" class="form-control" placeholder="Search the library, or paste a YouTube / Spotify link..." aria-label="Song search or link" autocomplete="off">
               <button id="add-song-btn" class="btn-solid theme-primary btn-icon" type="button" aria-label="Add song" title="Add song" data-i18n-aria-label="queue.addSong">
@@ -216,7 +218,7 @@
               <span class="queue-col-dur" data-i18n="queue.colDuration">Duration</span>
               <span></span>
             </div>
-            <ul id="queue-list" class="list-group queue-list">
+            <ul id="queue-list" class="list-group queue-list" role="list">
               <li class="list-group-item app-empty queue-empty">
                 <p class="mb-1" data-i18n="queue.empty">Queue is empty</p>
                 <p class="fs-sm mb-0 hint" data-i18n="queue.emptyHint">Add a song to get started</p>

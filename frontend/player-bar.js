@@ -132,7 +132,11 @@ export function setupPlayerBar() {
 export function setupPlayerBarControls() {
   $('player-open').addEventListener('click', () => {
     const path = contextPath(player.context);
-    if (path) navigateTo(path);
+    if (!path) return;
+    // The playlist page brings the current song into view (queue.js).
+    state.revealPlayingIn = player.context.lobbyId || null;
+    navigateTo(path);
+    document.dispatchEvent(new CustomEvent('app:reveal-playing'));
   });
   player.on('track', refreshPlayerBar);
   player.on('context', refreshPlayerBar);

@@ -73,7 +73,24 @@
   "nav": {
     "queue": "Queue"
   },
+  "stats": {
+    "label": "Playlist stats",
+    "songOne": "{n} song",
+    "songMany": "{n} songs",
+    "lengthHoursMinutes": "{h} h {m} min",
+    "lengthHours": "{h} h",
+    "lengthMinutes": "{m} min",
+    "lengthSeconds": "{s} sec",
+    "about": "about {length}",
+    "aboutTitle": "Length known for {known} of {total} songs",
+    "artistOne": "{n} artist",
+    "artistMany": "{n} artists",
+    "topArtist": "Top artist: {name} ({n})",
+    "topAdder": "Most added by: {name} ({n})"
+  },
   "queue": {
+    "noMatch": "No songs match",
+    "noMatchHint": "Try another word, or clear the filter",
     "searchPlaceholder": "Paste YouTube URL or search...",
     "addSong": "Add song",
     "hideErrored": "Hide errored songs",

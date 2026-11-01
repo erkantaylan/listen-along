@@ -108,23 +108,14 @@ class Queue {
     return true;
   }
 
+  // One statement: a playlist can hold thousands of songs and every move rewrites them all.
   async _updateSortOrders() {
-    const client = await db.getClient();
-    try {
-      await client.query('BEGIN');
-      for (let i = 0; i < this.songs.length; i++) {
-        await client.query(
-          'UPDATE queue_songs SET sort_order = $1 WHERE id = $2',
-          [i, this.songs[i].id]
-        );
-      }
-      await client.query('COMMIT');
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
+    await db.query(
+      `UPDATE queue_songs q SET sort_order = o.position - 1
+       FROM unnest($1::uuid[]) WITH ORDINALITY AS o(id, position)
+       WHERE q.id = o.id AND q.sort_order IS DISTINCT FROM o.position - 1`,
+      [this.songs.map(s => s.id)]
+    );
   }
 
   /**

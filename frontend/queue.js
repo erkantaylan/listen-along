@@ -7,6 +7,8 @@ import { player } from './player.js';
 import { refreshPlayerBar } from './player-bar.js';
 import { bindSongMenu, songMenuButtonHtml, reportIconHtml, reportsFor, onReportsChange } from './song-reports.js';
 import { addedByLabel, addedDateLabel, songParts } from './queue-format.js';
+import { playlistStats, lengthParts } from './playlist-stats.js';
+import { createVirtualList } from './virtual-list.js';
 import { isEditMode, setEditMode, onEditModeChange, isDragging, bindDragReorder } from './queue-edit.js';
 
 // A song marked broken anywhere: the queue's badges follow.
@@ -18,6 +20,8 @@ export function handleQueueUpdated(data) {
   const songs = data.songs || data.queue || [];
   player.updateQueue(data.lobbyId, songs);
   if (data.lobbyId && data.lobbyId !== state.lobbyId) return;
+  // This list is about to be out of date: the send below brings the final one.
+  if (pendingMove) return;
   state.queue = songs;
   updateQueue();
   // Quick play from the landing page: start this playlist from the top.
@@ -51,7 +55,7 @@ export function removeSong(index) {
   socket.emit('queue:remove', { lobbyId, songId: song.id });
   const next = rowAfter(index);
   state.queue = state.queue.filter((s) => s.id !== song.id);
-  updateQueue();
+  updateQueue({ anchor: false });
   if (next) focusRow(next.id, '.queue-item-remove');
   showToast(t('queue.removed', `Removed "${song.title}"`, { title: song.title }), 'info', {
     duration: 6000,
@@ -178,16 +182,37 @@ export async function downloadPlaylist() {
 }
 
 // Move a song (edit mode): applied locally at once, the server's queue:update
-// confirms it and tells everyone else.
-export function moveSong(fromIndex, toIndex) {
+// confirms it and tells everyone else. Arrow keys send one move for a whole run
+// of presses (settle: true): with a long list the echo of an earlier press would
+// otherwise arrive mid-run and put the row back where it was.
+const MOVE_SETTLE_MS = 250;
+let pendingMove = null;
+
+function sendPendingMove() {
+  if (!pendingMove) return;
+  const { lobbyId, songId, timer } = pendingMove;
+  clearTimeout(timer);
+  pendingMove = null;
+  const newIndex = state.queue.findIndex((s) => s.id === songId);
+  if (lobbyId === state.lobbyId && newIndex >= 0) socket.emit('queue:reorder', { lobbyId, songId, newIndex });
+}
+
+export function moveSong(fromIndex, toIndex, { settle = false } = {}) {
   const song = state.queue[fromIndex];
   if (!song || toIndex < 0 || toIndex >= state.queue.length || toIndex === fromIndex) return;
-  socket.emit('queue:reorder', { lobbyId: state.lobbyId, songId: song.id, newIndex: toIndex });
+  if (pendingMove && pendingMove.songId !== song.id) sendPendingMove();
+  if (settle) {
+    if (pendingMove) clearTimeout(pendingMove.timer);
+    pendingMove = { lobbyId: state.lobbyId, songId: song.id, timer: setTimeout(sendPendingMove, MOVE_SETTLE_MS) };
+  } else {
+    sendPendingMove();
+    socket.emit('queue:reorder', { lobbyId: state.lobbyId, songId: song.id, newIndex: toIndex });
+  }
   const songs = [...state.queue];
   songs.splice(fromIndex, 1);
   songs.splice(toIndex, 0, song);
   state.queue = songs;
-  updateQueue();
+  updateQueue({ anchor: false });
 }
 
 export function moveSongUp(index) { moveSong(index, index - 1); }
@@ -206,15 +231,19 @@ export function playSongAt(index) {
   player.playFrom(viewedContext(), state.queue, index);
 }
 
-function focusRow(songId, selector) {
-  const row = elements.queueList.querySelector(`.queue-item[data-song-id="${CSS.escape(songId)}"]`);
+// Focus a row by song, rendering it (and scrolling to it) if it is outside the window.
+function focusRow(songId, selector, { scroll = true } = {}) {
+  const pos = shown.findIndex(({ song }) => song.id === songId);
+  if (pos < 0) return;
+  const row = scroll ? listView().scrollToIndex(pos) : listView().rowAt(pos);
   if (!row) return;
   const target = (selector && row.querySelector(selector)) || row;
-  target.focus({ preventScroll: false });
+  target.focus({ preventScroll: true });
 }
 
 // Edit mode on/off: header button, toolbar, rows.
 function applyEditMode(on) {
+  sendPendingMove();
   const btn = elements.editQueueBtn;
   if (btn) {
     btn.textContent = on ? t('queue.done', 'Done') : t('queue.edit', 'Edit');
@@ -279,6 +308,8 @@ export function setupQueueInteractions() {
     const index = rowIndex(row);
     const onRow = e.target === row;
     const onHandle = !!e.target.closest('.queue-item-handle');
+    // Arrows, Home / End and Page keys walk the whole list, rendered or not.
+    if (onRow && !e.altKey && moveFocus(row, e)) { e.preventDefault(); return; }
     if (!isEditMode()) {
       if (onRow && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); playSongAt(index); }
       return;
@@ -288,7 +319,7 @@ export function setupQueueInteractions() {
       const to = index + (e.key === 'ArrowUp' ? -1 : 1);
       const song = state.queue[index];
       if (!song || to < 0 || to >= state.queue.length) return;
-      moveSong(index, to);
+      moveSong(index, to, { settle: true });
       focusRow(song.id, onHandle ? '.queue-item-handle' : null);
       return;
     }
@@ -298,13 +329,44 @@ export function setupQueueInteractions() {
     }
   });
 
-  bindDragReorder(list, {
+  applyDragShift = bindDragReorder(list, {
+    view: listView(),
     rowSelector: '.queue-item[data-index]',
     handleSelector: '.queue-item-handle',
     scroller: list.closest('.lobby-body'),
-    onDrop: (fromRow, toRow) => moveSong(rowIndex(fromRow), rowIndex(toRow)),
+    onDrop: (from, to) => moveShownSong(shown[from].song, shown[to].song),
     onEnd: () => { if (renderPending) updateQueue(); },
   });
+  document.addEventListener('app:reveal-playing', revealPlaying);
+}
+
+// By song, not by index: a queue:update may have landed during the drag.
+function moveShownSong(song, target) {
+  moveSong(state.queue.findIndex((s) => s.id === song.id), state.queue.findIndex((s) => s.id === target.id));
+}
+
+function moveFocus(row, e) {
+  const view = listView();
+  const pos = view.positionOf(row);
+  const steps = { ArrowDown: 1, ArrowUp: -1, PageDown: view.pageSize, PageUp: -view.pageSize };
+  let to;
+  if (e.key in steps) to = pos + steps[e.key];
+  else if (e.key === 'Home') to = 0;
+  else if (e.key === 'End') to = shown.length - 1;
+  else return false;
+  const song = shown[Math.max(0, Math.min(shown.length - 1, to))];
+  if (song) focusRow(song.song.id);
+  return true;
+}
+
+// The player bar's song opens its playlist: show the song that is playing, which
+// may be thousands of rows down. Waits here for the queue if it is still loading.
+function revealPlaying() {
+  const ctx = player.context;
+  if (!ctx || !player.track || ctx.lobbyId !== state.lobbyId || !shown.length) return;
+  const pos = shown.findIndex(({ song }) => song.id === player.track.id);
+  state.revealPlayingIn = null;
+  if (pos >= 0) listView().scrollToIndex(pos, { align: 'center' });
 }
 
 function getDownloadStatusHtml(downloadInfo) {
@@ -373,77 +435,157 @@ const addedLocale = () => (window.i18n && window.i18n.getLanguage && window.i18n
 // A queue:update during a drag waits until the drop.
 let renderPending = false;
 
-export function updateQueue() {
+// The rows on offer right now, in display order: { song, index in state.queue,
+// number shown in the # cell }. The DOM only holds those near the viewport.
+let shown = [];
+let applyDragShift = null;
+
+let view = null;
+function listView() {
+  if (!view) {
+    const scroller = elements.queueList.closest('.lobby-body');
+    view = createVirtualList({
+      list: elements.queueList,
+      scroller,
+      stickyTop: () => document.getElementById('queue-head')?.offsetHeight || 0,
+      onRender: () => { if (applyDragShift) applyDragShift(); },
+    });
+  }
+  return view;
+}
+
+function queueRowHtml(pos) {
+  const { song, index, number } = shown[pos];
+  const editing = isEditMode();
+  const isContextOnScreen = !!player.context && player.context.lobbyId === state.lobbyId;
+  const thumbUrl = song.id ? getCoverUrl(song.id, song.thumbnail) : sanitizeUrl(song.thumbnail);
+  const downloadHtml = getDownloadStatusHtml(state.downloadStatus[song.url]);
+  const isPlaying = isContextOnScreen && !!player.track && player.track.id === song.id;
+  const title = escapeHtml(song.title);
+  const listenersHtml = editing ? '' : getQueueListenersHtml(song.title);
+  const handle = editing ? `<button class="btn-text theme-secondary btn-icon btn-sm queue-item-handle" type="button" aria-label="Move ${title} (drag, or press up / down)" title="Drag to reorder (or focus and press ↑ / ↓)">${DRAG_ICON}</button>` : '';
+  const parts = songParts(song);
+  const shownTitle = escapeHtml(parts.title);
+  const artist = escapeHtml(parts.artist);
+  const addedBy = escapeHtml(addedByLabel(song.addedBy));
+  const addedOn = addedDateLabel(song.addedAt, addedLocale());
+  const duration = song.duration ? formatDuration(song.duration) : '';
+  const hiddenLabel = (key, fallback) => `<span class="visually-hidden">${escapeHtml(t(key, fallback))}: </span>`;
+  const playLabel = escapeHtml(playCellLabel(song.title, isPlaying && player.isPlaying));
+  const numCell = editing ? handle : `<button class="btn-text theme-secondary btn-icon btn-sm queue-item-play" type="button" data-position="${number}" data-title="${title}" aria-label="${playLabel}" title="${playLabel}">${playCellHtml(number, isPlaying)}</button>`;
+  const remove = editing ? `<button class="btn-text theme-danger btn-icon btn-sm queue-item-remove" type="button" aria-label="Remove ${title}" title="Remove from playlist">${REMOVE_ICON}</button>` : '';
+  return `<li class="list-group-item ${editing ? '' : 'list-group-item-action '}queue-item${isPlaying ? ' playing' : ''}${pos === shown.length - 1 ? ' queue-item-last' : ''}" data-index="${index}" data-song-id="${escapeHtml(song.id)}" data-url="${escapeHtml(song.url)}" tabindex="0"${isPlaying ? ' aria-current="true"' : ''}>`
+    + `<div class="queue-item-num${editing ? ' is-editing' : ''}">${numCell}</div>`
+    + `<div class="queue-item-main">`
+    + `<div class="app-thumb queue-item-thumb">${thumbUrl ? `<img src="${escapeHtml(thumbUrl)}" alt="">` : NOTE_ICON}${downloadHtml.icon}</div>`
+    + `<div class="queue-item-info"><div class="d-flex align-items-center gap-1 min-w-0"><div class="queue-item-title" title="${title}">${shownTitle}</div>${reportIconHtml(reportsFor({ url: song.url }))}</div><div class="queue-item-meta">${artist ? `<span class="queue-item-artist">${artist}</span>` : ''}<span class="queue-item-compact queue-item-duration">${duration}</span>${addedBy ? `<span class="queue-item-compact queue-item-added-by">${addedBy}</span>` : ''}${downloadHtml.badge}</div>${downloadHtml.progressBar}</div>`
+    + listenersHtml
+    + `</div>`
+    + `<div class="queue-col-by queue-cell" title="${addedBy}">${addedBy ? hiddenLabel('queue.colAddedBy', 'Added by') + addedBy : ''}</div>`
+    + `<div class="queue-col-date queue-cell" title="${addedOn ? escapeHtml(new Date(Number(song.addedAt)).toLocaleString(addedLocale())) : ''}">${addedOn ? hiddenLabel('queue.colAdded', 'Added') + escapeHtml(addedOn) : ''}</div>`
+    + `<div class="queue-col-dur queue-cell">${duration}</div>`
+    + `<div class="queue-item-actions">${remove}${editing ? '' : songMenuButtonHtml(song.title)}</div></li>`;
+}
+
+function emptyRowHtml(title, hint) {
+  return `<li class="list-group-item app-empty queue-empty"><p class="mb-1">${escapeHtml(title)}</p><p class="fs-sm mb-0 hint">${escapeHtml(hint)}</p></li>`;
+}
+
+// The stats strip above the table, always over the whole playlist (the page holds
+// every entry; only the rows are windowed), whatever the filter shows.
+function statsHtml(songs) {
+  const number = (n) => `<b>${escapeHtml(new Intl.NumberFormat(addedLocale()).format(n))}</b>`;
+  const item = (html, title = '') => `<li${title ? ` title="${escapeHtml(title)}"` : ''}>${html}</li>`;
+  const name = (value) => `<b class="playlist-stat-name">${escapeHtml(value)}</b>`;
+  const stats = playlistStats(songs);
+  const items = [item(stats.songs === 1
+    ? t('stats.songOne', '{n} song', { n: number(1) })
+    : t('stats.songMany', '{n} songs', { n: number(stats.songs) }))];
+  if (stats.lengthKnown) {
+    const { hours, minutes, seconds } = lengthParts(stats.totalSeconds);
+    const replacements = { h: number(hours), m: number(minutes), s: number(seconds) };
+    let length;
+    if (hours && minutes) length = t('stats.lengthHoursMinutes', '{h} h {m} min', replacements);
+    else if (hours) length = t('stats.lengthHours', '{h} h', replacements);
+    else if (minutes || !seconds) length = t('stats.lengthMinutes', '{m} min', replacements);
+    else length = t('stats.lengthSeconds', '{s} sec', replacements);
+    items.push(stats.lengthPartial
+      ? item(t('stats.about', 'about {length}', { length }), t('stats.aboutTitle', 'Length known for {known} of {total} songs', { known: stats.timed, total: stats.songs }))
+      : item(length));
+  }
+  if (stats.artists) items.push(item(stats.artists === 1
+    ? t('stats.artistOne', '{n} artist', { n: number(1) })
+    : t('stats.artistMany', '{n} artists', { n: number(stats.artists) })));
+  if (stats.topArtist) items.push(item(
+    t('stats.topArtist', 'Top artist: {name} ({n})', { name: name(stats.topArtist.name), n: number(stats.topArtist.count) }),
+    stats.topArtist.name));
+  if (stats.topAdder) items.push(item(
+    t('stats.topAdder', 'Most added by: {name} ({n})', { name: name(stats.topAdder.name), n: number(stats.topAdder.count) }),
+    stats.topAdder.name));
+  return items.join('');
+}
+
+function renderStats() {
+  const el = document.getElementById('playlist-stats');
+  if (!el) return;
+  const html = statsHtml(state.queue);
+  if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
+}
+
+function filterQuery() {
+  const input = document.getElementById('queue-search-input');
+  return input ? toLower(input.value).trim() : '';
+}
+
+export function updateQueue({ anchor = true } = {}) {
   if (isDragging()) { renderPending = true; return; }
   renderPending = false;
   refreshLibraryAddButtons();
   refreshPlayerBar();
+  renderStats();
   const head = document.getElementById('queue-head');
   if (head) head.hidden = state.queue.length === 0;
-  if (state.queue.length === 0) {
-    elements.queueList.innerHTML = `<li class="list-group-item app-empty queue-empty"><p class="mb-1">${t('queue.empty', 'Queue is empty')}</p><p class="fs-sm mb-0 hint">${t('queue.emptyHint', 'Add a song to get started')}</p></li>`;
-    return;
-  }
   const editing = isEditMode();
-  const isContextOnScreen = !!player.context && player.context.lobbyId === state.lobbyId;
   const songsWithIndices = state.queue.map((song, index) => ({ song, index }));
-  let visibleSongs = state.hideErroredSongs ? songsWithIndices.filter(({ song }) => { const di = state.downloadStatus[song.url]; return !di || di.status !== 'error'; }) : [...songsWithIndices];
+  const visibleSongs = state.hideErroredSongs ? songsWithIndices.filter(({ song }) => { const di = state.downloadStatus[song.url]; return !di || di.status !== 'error'; }) : songsWithIndices;
   // Edit mode always shows the real order (that is what gets reordered).
   if (!editing && state.queueSort === 'newest') visibleSongs.sort((a, b) => (b.song.addedAt || 0) - (a.song.addedAt || 0));
   else if (!editing && state.queueSort === 'oldest') visibleSongs.sort((a, b) => (a.song.addedAt || 0) - (b.song.addedAt || 0));
-  if (visibleSongs.length === 0) { elements.queueList.innerHTML = '<li class="list-group-item app-empty queue-empty"><p class="mb-1">All songs have errors</p><p class="fs-sm mb-0 hint">Uncheck "Hide unplayable songs" to see them</p></li>'; return; }
+  // A filtered row keeps its number.
+  const query = filterQuery();
+  const numbered = visibleSongs.map((entry, at) => ({ ...entry, number: at + 1 }));
+  const next = query ? numbered.filter(({ song }) => toLower(song.title || '').includes(query)) : numbered;
   // Keep keyboard focus on the same row (and the same handle / button) across re-renders.
   const active = document.activeElement;
   const focusedRow = active && elements.queueList.contains(active) ? active.closest('.queue-item') : null;
   const focusedId = focusedRow ? focusedRow.dataset.songId : null;
   const focusedPart = !focusedRow || active === focusedRow ? null
     : ['.queue-item-handle', '.queue-item-remove', '.queue-item-play', '.song-menu-btn'].find((sel) => active.matches(sel)) || null;
-  elements.queueList.innerHTML = visibleSongs.map(({ song, index }, shownAt) => {
-    const thumbUrl = song.id ? getCoverUrl(song.id, song.thumbnail) : sanitizeUrl(song.thumbnail);
-    const downloadHtml = getDownloadStatusHtml(state.downloadStatus[song.url]);
-    const isPlaying = isContextOnScreen && !!player.track && player.track.id === song.id;
-    const title = escapeHtml(song.title);
-    const listenersHtml = editing ? '' : getQueueListenersHtml(song.title);
-    const handle = editing ? `<button class="btn-text theme-secondary btn-icon btn-sm queue-item-handle" type="button" aria-label="Move ${title} (drag, or press up / down)" title="Drag to reorder (or focus and press ↑ / ↓)">${DRAG_ICON}</button>` : '';
-    const parts = songParts(song);
-    const shownTitle = escapeHtml(parts.title);
-    const artist = escapeHtml(parts.artist);
-    const addedBy = escapeHtml(addedByLabel(song.addedBy));
-    const addedOn = addedDateLabel(song.addedAt, addedLocale());
-    const duration = song.duration ? formatDuration(song.duration) : '';
-    const hiddenLabel = (key, fallback) => `<span class="visually-hidden">${escapeHtml(t(key, fallback))}: </span>`;
-    const playLabel = escapeHtml(playCellLabel(song.title, isPlaying && player.isPlaying));
-    const numCell = editing ? handle : `<button class="btn-text theme-secondary btn-icon btn-sm queue-item-play" type="button" data-position="${shownAt + 1}" data-title="${title}" aria-label="${playLabel}" title="${playLabel}">${playCellHtml(shownAt + 1, isPlaying)}</button>`;
-    const remove = editing ? `<button class="btn-text theme-danger btn-icon btn-sm queue-item-remove" type="button" aria-label="Remove ${title}" title="Remove from playlist">${REMOVE_ICON}</button>` : '';
-    return `<li class="list-group-item ${editing ? '' : 'list-group-item-action '}queue-item${isPlaying ? ' playing' : ''}" data-index="${index}" data-song-id="${escapeHtml(song.id)}" data-url="${escapeHtml(song.url)}" data-title="${toLower(title)}" tabindex="0"${isPlaying ? ' aria-current="true"' : ''}>`
-      + `<div class="queue-item-num${editing ? ' is-editing' : ''}">${numCell}</div>`
-      + `<div class="queue-item-main">`
-      + `<div class="app-thumb queue-item-thumb">${thumbUrl ? `<img src="${escapeHtml(thumbUrl)}" alt="">` : NOTE_ICON}${downloadHtml.icon}</div>`
-      + `<div class="queue-item-info"><div class="d-flex align-items-center gap-1 min-w-0"><div class="queue-item-title" title="${title}">${shownTitle}</div>${reportIconHtml(reportsFor({ url: song.url }))}</div><div class="queue-item-meta">${artist ? `<span class="queue-item-artist">${artist}</span>` : ''}<span class="queue-item-compact queue-item-duration">${duration}</span>${addedBy ? `<span class="queue-item-compact queue-item-added-by">${addedBy}</span>` : ''}${downloadHtml.badge}</div>${downloadHtml.progressBar}</div>`
-      + listenersHtml
-      + `</div>`
-      + `<div class="queue-col-by queue-cell" title="${addedBy}">${addedBy ? hiddenLabel('queue.colAddedBy', 'Added by') + addedBy : ''}</div>`
-      + `<div class="queue-col-date queue-cell" title="${addedOn ? escapeHtml(new Date(Number(song.addedAt)).toLocaleString(addedLocale())) : ''}">${addedOn ? hiddenLabel('queue.colAdded', 'Added') + escapeHtml(addedOn) : ''}</div>`
-      + `<div class="queue-col-dur queue-cell">${duration}</div>`
-      + `<div class="queue-item-actions">${remove}${editing ? '' : songMenuButtonHtml(song.title)}</div></li>`;
-  }).join('');
-  applyQueueFilter();
-  if (focusedId && !elements.queueList.contains(document.activeElement)) focusRow(focusedId, focusedPart);
-}
-
-// The "Filter songs" box (kept across re-renders).
-function applyQueueFilter() {
-  const input = document.getElementById('queue-search-input');
-  const query = input ? toLower(input.value) : '';
-  elements.queueList.querySelectorAll('.queue-item').forEach(el => {
-    el.style.display = !query || (el.dataset.title || '').includes(query) ? '' : 'none';
-  });
+  shown = next;
+  if (!next.length) {
+    if (state.queue.length === 0) listView().clear(emptyRowHtml(t('queue.empty', 'Queue is empty'), t('queue.emptyHint', 'Add a song to get started')));
+    else if (query) listView().clear(emptyRowHtml(t('queue.noMatch', 'No songs match'), t('queue.noMatchHint', 'Try another word, or clear the filter')));
+    else listView().clear(emptyRowHtml('All songs have errors', 'Uncheck "Hide unplayable songs" to see them'));
+    return;
+  }
+  let positions = null;
+  listView().setSource({
+    count: next.length,
+    keyOf: (pos) => next[pos].song.id,
+    indexOfKey: (id) => {
+      if (!positions) positions = new Map(next.map(({ song }, pos) => [song.id, pos]));
+      return positions.has(id) ? positions.get(id) : -1;
+    },
+    renderRow: queueRowHtml,
+  }, { anchor });
+  if (focusedId && !elements.queueList.contains(document.activeElement)) focusRow(focusedId, focusedPart, { scroll: false });
+  if (state.revealPlayingIn && state.revealPlayingIn === state.lobbyId) revealPlaying();
 }
 
 export function setupQueueSearch() {
   const searchInput = document.getElementById('queue-search-input');
   if (!searchInput) return;
-  searchInput.addEventListener('input', applyQueueFilter);
+  searchInput.addEventListener('input', () => updateQueue({ anchor: false }));
 }
 
 // The playlist header's listener count. Who is listening and what they play

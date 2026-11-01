@@ -143,6 +143,10 @@ where lobby persistence broke entirely on deployed instances.
   (`notifyPlaylistsChanged` in index.js). The signal carries no data; a private
   playlist's changes go only to its owner's `userRoom`. Emit it from anything that
   creates, renames, deletes or changes the visibility of a playlist.
+- The page holds the full queue (`queue:update`, about 230 bytes per song) and windows only the rows:
+  `frontend/virtual-list.js` (generic, reuse it for any long list), used by `queue.js`; `queue-edit.js` drags
+  by arithmetic over it. Anything reading rows from the DOM sees only the window: use `shown` / `state.queue`.
+  Stats are client-side over the full queue (`playlist-stats.js`). `/:id/songs` still returns everything.
 - There is no per-playlist chat. There is one global chat plus a people panel
   (web: column from 1200px, full-screen `/social` below; `#social-rail` is the opener from 1024px, DESIGN.md)
   (presence + now playing): `backend/src/social.js` (socket events, privacy),
