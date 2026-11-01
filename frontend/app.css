@@ -61,21 +61,6 @@
     color: var(--bs-fg-3);
   }
   .language-selector { width: auto; }
-  /* Version + GitHub link, filled by setupAppMeta() in ui.js. */
-  .app-meta {
-    display: flex;
-    flex-shrink: 0;
-    align-items: center;
-    gap: 0.25rem;
-  }
-  .app-meta-version {
-    padding: 0.25rem;
-    font-size: var(--bs-font-size-xs);
-    color: var(--app-text-muted);
-    text-decoration: none;
-    white-space: nowrap;
-  }
-  .app-meta-version:hover { color: var(--app-text); text-decoration: underline; }
 
   /* ---------------------------------------------------------------- Login */
   .login-card { max-width: 26rem; }
@@ -155,10 +140,6 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-  }
-  .lobby-meta {
-    justify-content: center;
-    border-top: var(--bs-border-width) solid var(--app-border-subtle);
   }
   .lobby-header > .container,
   .libpage-header > .container { max-width: 56rem; }
@@ -340,12 +321,6 @@
   .volume-range { width: 5.5rem; margin-left: 0.25rem; }
   .sticky-player-progress { margin-top: 0.125rem; }
   .time-display { margin-top: -0.125rem; }
-  .track-source-link {
-    display: inline-flex;
-    gap: 0.25rem;
-    align-items: center;
-    color: inherit;
-  }
   @media (pointer: coarse) {
     .btn-control { --bs-btn-min-height: 2.5rem; }
     /* A 40px hit area around the same 20px of layout: the track stays centred
@@ -552,12 +527,37 @@
     max-width: min(20rem, calc(100vw - 1rem));
   }
   .app-ctx-menu.show { display: flex; opacity: 1; transform: none; }
+  .app-ctx-menu[hidden] { display: none; transition: none; }
   .app-ctx-menu:focus { outline: none; }
   .app-ctx-menu .menu-item { white-space: normal; }
   .app-ctx-menu .menu-item:focus-visible { outline: 2px solid var(--bs-primary-fg); outline-offset: -2px; }
   .app-ctx-header { max-width: 100%; font-weight: var(--bs-font-weight-medium); }
   @media (pointer: coarse) {
     .app-ctx-menu .menu-item { min-height: 2.75rem; }
+  }
+  /* Submenu (context-menu.js): beside the menu, a bottom sheet on phones. */
+  .app-ctx-menu .menu-item .menu-item-content { min-width: 0; overflow-wrap: anywhere; }
+  .app-ctx-chevron { display: inline-flex; flex-shrink: 0; margin-inline-start: auto; color: var(--app-text-muted); }
+  .app-ctx-chevron svg { width: 1.25rem; height: 1.25rem; }
+  .app-ctx-sub {
+    width: 18rem;
+    max-height: min(26rem, calc(100dvh - 1rem));
+    flex-direction: column;
+  }
+  .app-ctx-sub.app-ctx-sheet { width: auto; max-height: 75dvh; }
+  .app-ctx-sub-head { display: flex; gap: 0.5rem; align-items: center; padding: 0 0.25rem 0.25rem; }
+  .app-ctx-sub-search { padding: 0.25rem 0.25rem 0.5rem; }
+  .app-ctx-sub-list {
+    flex: 1 1 auto;
+    min-height: 3rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .app-ctx-sub-footer {
+    flex-shrink: 0;
+    padding-top: 0.25rem;
+    margin-top: 0.25rem;
+    border-top: var(--bs-border-width) solid var(--app-border);
   }
   /* Reported song (song-reports.js): a small muted-warning icon button after
      the title; it opens the report details popover. */
@@ -615,7 +615,6 @@
   .libpage-item { display: flex; gap: 0.75rem; align-items: center; }
   .libpage-info { flex: 1; }
   .libpage-meta { overflow-wrap: anywhere; }
-  .libpage-source { color: inherit; text-decoration: underline; }
   .libpage-add { min-width: 4.5rem; }
   .libpage-add.added:disabled {
     --bs-btn-disabled-bg: var(--bs-success-bg-subtle);

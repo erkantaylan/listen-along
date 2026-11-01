@@ -6,7 +6,8 @@
   },
   "appMeta": {
     "changelog": "Changelog",
-    "source": "Source on GitHub"
+    "source": "GitHub",
+    "about": "About"
   },
   "landing": {
     "newPlaylist": "New playlist",
@@ -208,5 +209,21 @@
     "oneSong": "1 song",
     "songs": "{count} songs",
     "homeHint": "Pick a playlist on the left, or start a new one."
+  },
+  "addTo": {
+    "label": "Add to playlist",
+    "back": "Back",
+    "none": "No playlists to add to",
+    "notYet": "Not in the library yet",
+    "createAndAdd": "Create and add",
+    "added": "Added to “{name}”",
+    "already": "Already in “{name}”",
+    "alreadyMark": "Already added",
+    "notInLibrary": "This song is not in the library any more",
+    "failed": "Could not add to “{name}”: {error}"
+  },
+  "songMenu": {
+    "openOn": "Open on {host}",
+    "copyLink": "Copy link"
   }
 }

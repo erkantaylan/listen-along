@@ -187,7 +187,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Need | Use |
 | --- | --- |
 | Top bar | `nav.navbar.app-navbar > .container` (brand `.app-brand` or back button + `h1.h6`, actions on the right). |
-| Version + GitHub | `.app-meta[data-app-meta]`, filled by `setupAppMeta()` in `ui.js`: version link to `/changelog` + GitHub icon button. Right side of the navbar on landing, profile and library; a slim `footer.lobby-meta` line above the player bar on playlist pages. |
+| Version, changelog, GitHub | One place only: the About card at the bottom of the profile page (`#profile-about`). Links open a new tab so playback continues; `setupAppMeta()` in `ui.js` fills the version from `/api/version` and leaves it hidden on failure. Never in a navbar. |
 | Grouped content | `.card` with `.card-header` (h6) / `.card-body` / `.card-footer`. |
 | Lists of items (songs, playlists, users, tokens) | `ul.list-group` with `li.list-group-item` (flex row: `.app-thumb`, text block `min-w-0 flex-grow-1`, actions). Clickable rows: `.list-group-item-action` + `tabindex="0"` + Enter/Space handler. Empty state: `li.list-group-item.app-empty`. |
 | Song lists (playlist queue, library) | Normal vs edit mode, see "Song rows: normal and edit mode" below. |
@@ -243,7 +243,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   brand, so this page drops the brand, the tagline and the "Your playlists" card and is for browsing
   other people's public playlists (rich rows with listeners, age, quick play); with none of those it
   shows a one-line hint instead. Below 768px it is as follows, in full, because the list is the phone's
-  home screen. Navbar (☰, brand, version + GitHub, profile; the brand folds to its icon below 400px), narrow column. A
+  home screen. Navbar (☰, brand, profile; the brand folds to its icon below 400px), narrow column. A
   header row: `h1.h4` "Playlists" + muted tagline ("Your playlists and everyone's public
   ones.") on the left; on the right the outline secondary **"Music library & requests"**
   (folds to its icon when the page column is below 34rem; the actions wrap under the title rather than squeeze it) next to the view's one primary button **"New playlist"**
@@ -283,8 +283,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   audio. Users who may edit the playlist (public: every signed-in user; private: its owner —
   the server sends `canEdit` with `lobby:joined`) get a grey "Edit" text button in the navbar
   (solid primary "Done" while editing) and the add-song bar; the others see neither. Queue rows
-  follow "Song rows: normal and edit mode" below; there is no per-song YouTube button (the
-  player keeps the source link). The "Clear queue" button (danger icon button) shows only in edit mode.
+  follow "Song rows: normal and edit mode" below; a song's source link is in its menu. The "Clear queue" button (danger icon button) shows only in edit mode.
   A playlist you cannot see (missing, deleted, someone else's private one) shows a
   "Playlist not found" toast and returns to the landing page.
 - **Music library**: fixed full-screen layer over landing or a playlist: navbar (back, title, "adding
@@ -316,7 +315,8 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   the tab is not on screen. Song rows elsewhere in the library read "uploaded by
   <worker> (<owner>)" when a downloader uploaded them, plus "asked by <name>".
 - **Profile**: navbar with back; avatar + display-name card (the only place to edit your
-  name/avatar; the chat and people panel show them); connected-accounts card; Sign out.
+  name/avatar; the chat and people panel show them); connected-accounts card; Sign out; last, the
+  About card (version, Changelog, GitHub). The pending-approval card has no route here (app.js stops at it).
   Approved accounts also get a "CLI tokens" card: label input + grey "Create token"
   button (the display-name Save stays the one primary), a success alert that shows a new
   token once (read-only input + Copy, a `pre` "how to use" snippet that scrolls sideways,
@@ -443,6 +443,12 @@ Bootstrap 6 `.menu` / `.menu-item` / `.menu-header` / `.menu-divider` markup, no
   `[data-ctx-action]` buttons call `onAction` and close). `sheet: true` makes it a bottom
   sheet below 576px; `updateContextMenu(items)` re-renders the open box (live data) keeping
   focus; `returnFocus` may be a function (rows that re-render).
+- **Submenu**: an item `{ label, icon, submenu: { label, backLabel?, searchLabel?, items(query), footer?, emptyText?, onOpen? } }`
+  gets a chevron and opens a second box (`.app-ctx-sub`, 18rem) beside the menu, on the side that fits; below 576px
+  it replaces the menu as a bottom sheet with a back button, and sits above the on-screen keyboard. Mouse: on hover (150ms), and
+  hovering a sibling closes it (250ms). Click, Enter or → open it. In it, ↑/↓ cycle through the search box and items, Tab
+  switches between the box and the first item, Enter in the box takes the first match; Escape clears the search, then goes back, as ← does.
+  Touch does not focus the search box, so the keyboard does not cover the list. `refreshSubmenu()` re-renders it.
 - `bindContextMenu(root, { rowSelector, triggerSelector, getItems, label })` wires a list
   (delegated, rows may re-render): right-click, a 500ms long-press on touch/pen (cancelled by
   >10px movement; swallows the click that follows), the keyboard context-menu key / Shift+F10
@@ -451,12 +457,20 @@ Bootstrap 6 `.menu` / `.menu-item` / `.menu-header` / `.menu-divider` markup, no
   The browser's own menu is suppressed **only on rows**, and kept on links/inputs and with Shift held.
 - ARIA and keys: `role="menu"` + `role="menuitem"` buttons; ↑/↓ (wrapping), Home/End, Enter/Space;
   Escape and Tab close and return focus to the trigger/row; outside click, any scroll, resize and
-  window blur close it (on touch, the closing tap does not also press what is under it). Opened from the keyboard, focus goes to the first item. Coarse pointers get
+  window blur close it (the closing tap or click does not also press a song row, nor anything under a sheet; on touch, nothing under it at all). Opened from the keyboard, focus goes to the first item. Coarse pointers get
   2.75rem items.
 - Song rows use it through `song-reports.js` (`bindSongMenu`, `songMenuItems`): library rows,
   playlist queue rows and the player bar's current song (right-click / long-press on the song,
   plus `#player-menu-btn`, hidden in the slim phone bar where long-press is the way in). Add new
   song actions to `songMenuItems` — keep labels short ("Mark as broken", "Unmark broken").
+- Song menu order: **Add to playlist**, **Open on YouTube** (or `Open on <host>`) and **Copy link** (only with a
+  `youtube_id` or an http(s) source; new tab, `noopener`), divider, broken-song items. Song rows and the player bar
+  carry no source link of their own. A song not in the library: Add and Mark as broken are disabled, the source items remain.
+- **Add to playlist** (`add-to-playlist.js`, a submenu): search with `matchesQuery` (Turkish-aware), groups Pinned /
+  Your playlists / Public playlists from `playlist-store.js`, only `canEdit` playlists, and a fixed **New playlist** at the bottom (the usual
+  dialog, "Create and add"; it stays on the page). Rows say "by … · Private". "Already added" (disabled) is known only for
+  the playlist on screen and the one playing, whose queues the page holds; elsewhere the server's `already_in_playlist` becomes an
+  "Already in “X”" toast. Goes through `POST /api/playlists/:id/songs`; a toast names the playlist. Nothing here touches playback or navigates.
 
 **Broken songs ("needs replacement").** A reported song shows a small muted-warning icon button
 (`.song-broken-btn`, warning triangle, `aria-label` + `title` "Needs replacement — marked as broken

@@ -1,7 +1,9 @@
 // "New playlist" dialog (landing page). An .app-modal card: name (required,
 // 50 chars like the server), Public / Private, Cancel + primary Create.
 // Creating goes over the socket (lobby:create); lobby.js tells this module
-// how it went (newPlaylistCreated / newPlaylistFailed).
+// how it went (newPlaylistCreated / newPlaylistFailed). options.create replaces
+// that: it is awaited and the dialog closes without opening the new playlist
+// ("Add to playlist" in the song menu, which must not leave the page).
 import { state, socket } from './state.js';
 import { escapeHtml, t, trapFocus } from './ui.js';
 import { player } from './player.js';
@@ -26,7 +28,7 @@ export function closeNewPlaylistDialog() {
   if (target) target.focus({ preventScroll: true });
 }
 
-export function openNewPlaylistDialog(returnFocus = null) {
+export function openNewPlaylistDialog(returnFocus = null, { create = null, submitLabel = null } = {}) {
   closeNewPlaylistDialog();
   const d = document.createElement('div');
   d.id = 'new-playlist-dialog';
@@ -35,6 +37,7 @@ export function openNewPlaylistDialog(returnFocus = null) {
   d.setAttribute('aria-modal', 'true');
   d.setAttribute('aria-labelledby', 'new-playlist-title');
   d._returnFocus = returnFocus || document.activeElement;
+  d._submitLabel = submitLabel;
   const radio = (value, label, hint, checked) => `<label class="d-flex gap-3 align-items-start new-playlist-choice">
           <input type="radio" class="radio" name="new-playlist-visibility" value="${value}"${checked ? ' checked' : ''}>
           <span><span class="d-block fw-medium">${escapeHtml(label)}</span><span class="d-block fs-sm fg-3">${escapeHtml(hint)}</span></span>
@@ -62,7 +65,7 @@ export function openNewPlaylistDialog(returnFocus = null) {
     </div>
     <div class="card-footer d-flex justify-content-end gap-2">
       <button class="btn new-playlist-cancel" type="button">${escapeHtml(t('landing.cancel', 'Cancel'))}</button>
-      <button class="btn-solid theme-primary new-playlist-submit" type="submit">${escapeHtml(t('landing.createPlaylist', 'Create playlist'))}</button>
+      <button class="btn-solid theme-primary new-playlist-submit" type="submit">${escapeHtml(submitLabel || t('landing.createPlaylist', 'Create playlist'))}</button>
     </div>
   </form>`;
   document.body.appendChild(d);
@@ -95,6 +98,10 @@ export function openNewPlaylistDialog(returnFocus = null) {
     if (name.length > MAX_NAME) { showFieldError(t('error.nameTooLong', `Name must be ${MAX_NAME} characters or less`)); input.focus(); return; }
     const visibility = form.elements['new-playlist-visibility'].value === 'private' ? 'private' : 'public';
     setBusy(true);
+    if (create) {
+      create({ name, visibility }).then(closeNewPlaylistDialog, (err) => newPlaylistFailed(err.message));
+      return;
+    }
     socket.emit('lobby:create', { username: state.username, emoji: state.emoji, name, visibility, userId: state.userId, asViewer: !!player.context });
   });
   input.focus();
@@ -106,7 +113,7 @@ function setBusy(busy) {
   if (!d) return;
   const submit = d.querySelector('.new-playlist-submit');
   submit.disabled = busy;
-  submit.textContent = busy ? t('landing.creating', 'Creating…') : t('landing.createPlaylist', 'Create playlist');
+  submit.textContent = busy ? t('landing.creating', 'Creating…') : (d._submitLabel || t('landing.createPlaylist', 'Create playlist'));
   d.querySelector('form').setAttribute('aria-busy', String(busy));
   if (busy) d.querySelector('.new-playlist-error').hidden = true;
 }

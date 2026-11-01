@@ -122,19 +122,6 @@ function thumbHtml(youtubeId) {
   return '<div class="app-thumb libpage-thumb"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></div>';
 }
 
-// Small "source" link to where the song originally came from (e.g. YouTube).
-// Only http(s) links are rendered; anything else is dropped.
-function sourceLinkHtml(song) {
-  const url = song.source_url || (song.youtube_id ? `https://www.youtube.com/watch?v=${encodeURIComponent(song.youtube_id)}` : null);
-  if (!url || !/^https?:\/\//i.test(url)) return '';
-  let label = 'source';
-  try {
-    const host = new URL(url).hostname.replace(/^(www|m|music)\./, '');
-    label = host === 'youtube.com' || host === 'youtu.be' ? 'YouTube' : host;
-  } catch { return ''; }
-  return `<a class="libpage-source" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(url)}">${escapeHtml(label)} ↗</a>`;
-}
-
 // "added by Ayşe", or "uploaded by living-room-pc (Ayşe)" when a downloader
 // (`la worker`) did it; plus who asked for it, if anyone.
 function uploaderHtml(song) {
@@ -228,7 +215,6 @@ function renderSongs() {
         song.duration_sec ? formatDuration(song.duration_sec) : '',
         uploaderHtml(song),
         relativeDate(song.created_at),
-        sourceLinkHtml(song),
       ].filter(Boolean).join(' · ');
       return `<li class="list-group-item list-group-item-action libpage-item${isCurrentSong(song.id) ? ' is-playing' : ''}" data-id="${escapeHtml(song.id)}" tabindex="0">
         ${thumbHtml(song.youtube_id)}
@@ -667,7 +653,7 @@ export function setupLibraryPage() {
   // Right-click / long-press / ⋮ on a song row: the song menu (song-reports.js).
   bindSongMenu($('libpage-list'), '.libpage-item[data-id]', (row) => {
     const song = lib.songs.find((s) => s.id === row.dataset.id);
-    return song ? { songId: song.id, title: song.title, artist: song.artist } : null;
+    return song ? { songId: song.id, title: song.title, artist: song.artist, youtubeId: song.youtube_id, sourceUrl: song.source_url } : null;
   });
   page.querySelectorAll('.libpage-tab').forEach((b) => b.addEventListener('click', () => {
     if (b.dataset.libtab === lib.tab) return;

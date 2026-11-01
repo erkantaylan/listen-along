@@ -89,11 +89,6 @@ export function updateNowPlaying(track) {
   if (!track) { resetNowPlaying(); refreshPlayerBar(); return; }
   elements.trackTitle.textContent = track.title || 'Unknown Track';
   elements.trackArtist.textContent = track.artist || '';
-  const sourceLink = document.getElementById('track-source-link');
-  if (sourceLink) {
-    if (track.url && track.url.startsWith('http')) { sourceLink.href = track.url; sourceLink.hidden = false; }
-    else { sourceLink.hidden = true; }
-  }
   const thumbUrl = track.id ? getCoverUrl(track.id, track.thumbnail) : sanitizeUrl(track.thumbnail);
   if (thumbUrl) { elements.albumArt.innerHTML = `<img src="${escapeHtml(thumbUrl)}" alt="">`; }
   else { elements.albumArt.innerHTML = NOTE_ART; }
@@ -103,8 +98,6 @@ export function updateNowPlaying(track) {
 const NOTE_ART = '<span class="placeholder-art"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></span>';
 
 function resetNowPlaying() {
-  const sourceLink = document.getElementById('track-source-link');
-  if (sourceLink) sourceLink.hidden = true;
   elements.progressBar.value = 0;
   syncRangeFill(elements.progressBar);
   elements.currentTime.textContent = '0:00';

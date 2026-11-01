@@ -10,8 +10,9 @@
 // - songMenuItems(): the menu items for one song. Add new song actions here
 //   (e.g. "Replace with an alternative from YouTube…").
 // - bindSongMenu(): context menu on rows of a list.
-import { showToast } from './ui.js';
+import { showToast, t, copyToClipboard } from './ui.js';
 import { bindContextMenu, openContextMenu, closeContextMenu, isContextMenuOpen } from './context-menu.js';
+import { addToPlaylistItem } from './add-to-playlist.js';
 
 const MAX_REASON = 200;
 const PRESET_REASONS = ['Wrong song', 'Bad audio', 'Cut off', 'Too quiet / too loud'];
@@ -26,6 +27,7 @@ const store = {
 };
 const listeners = new Set();
 const resolved = new Map(); // queue url -> song id | null (cache of lookups)
+const songDetails = new Map(); // song id -> { youtube_id, source_url } (cache for the menu)
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -65,8 +67,10 @@ export async function loadReports() {
 }
 
 // library:updated (any change: upload, replace, delete, reports) -> reload, coalesced.
-export function handleReportsUpdated(payload) {
-  if (payload && payload.replaced) resolved.clear();
+export function handleReportsUpdated() {
+  // Also on uploads: a song that was "not in the library" may be there now.
+  resolved.clear();
+  songDetails.clear();
   clearTimeout(store.timer);
   store.timer = setTimeout(loadReports, 150);
 }
@@ -289,22 +293,73 @@ export function openReportDialog({ songId, title, artist, current = null, return
 // --- Menu ------------------------------------------------------------------
 
 const ICONS = {
+  open: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>',
+  link: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.9 12a3.1 3.1 0 0 1 3.1-3.1h4V7H7a5 5 0 0 0 0 10h4v-1.9H7A3.1 3.1 0 0 1 3.9 12zM8 13h8v-2H8v2zm9-6h-4v1.9h4a3.1 3.1 0 0 1 0 6.2h-4V17h4a5 5 0 0 0 0-10z"/></svg>',
   broken: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>',
   unmark: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/></svg>',
   edit: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>',
 };
 
+async function loadSongDetails(songId) {
+  if (songDetails.has(songId)) return songDetails.get(songId);
+  let details = {};
+  try {
+    const res = await fetch(`/api/library/${encodeURIComponent(songId)}`, { credentials: 'same-origin' });
+    if (res.ok) {
+      const data = await res.json();
+      details = data.song || data;
+      songDetails.set(songId, details);
+    }
+  } catch {}
+  return details;
+}
+
+/** Where a song came from: { url, host }, only ever a real http(s) link, or null. */
+export function songSourceLink({ youtubeId, sourceUrl, url }) {
+  if (youtubeId && /^[A-Za-z0-9_-]{11}$/.test(youtubeId)) return { url: `https://www.youtube.com/watch?v=${youtubeId}`, host: 'YouTube' };
+  for (const candidate of [sourceUrl, url]) {
+    try {
+      const parsed = new URL(candidate);
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') continue;
+      const host = parsed.hostname.replace(/^(www|m|music)\./, '');
+      return { url: parsed.href, host: host === 'youtube.com' || host === 'youtu.be' ? 'YouTube' : host };
+    } catch {}
+  }
+  return null;
+}
+
+function sourceItems(link) {
+  if (!link) return [];
+  return [
+    {
+      label: t('songMenu.openOn', `Open on ${link.host}`, { host: link.host }),
+      icon: ICONS.open,
+      onSelect: () => window.open(link.url, '_blank', 'noopener,noreferrer'),
+    },
+    { label: t('songMenu.copyLink', 'Copy link'), icon: ICONS.link, onSelect: () => copyToClipboard(link.url) },
+  ];
+}
+
 /**
- * Menu items for one song. song: { songId?, url?, title, artist }.
+ * Menu items for one song. song: { songId?, url?, title, artist, youtubeId?, sourceUrl? }.
  * Resolves the library song first (a playlist entry may be a YouTube url).
  */
 export async function songMenuItems(song, { returnFocus = null } = {}) {
   const items = [{ header: song.title || 'Song' }];
   const songId = await resolveSongId(song);
   if (!songId) {
-    items.push({ label: 'Not in the library yet', description: 'It can be reported once it is uploaded', disabled: true });
+    items.push(addToPlaylistItem({}));
+    items.push(...sourceItems(songSourceLink(song)));
+    items.push({ divider: true });
+    items.push({ label: 'Mark as broken', icon: ICONS.broken, description: 'It can be reported once it is uploaded', disabled: true });
     return items;
   }
+  // The row may not know them: a queue entry is only a url, the player a track.
+  const details = song.youtubeId || song.sourceUrl ? {} : await loadSongDetails(songId);
+  const known = { youtubeId: song.youtubeId || details.youtube_id, sourceUrl: song.sourceUrl || details.source_url, url: song.url };
+  items.push(addToPlaylistItem({ ...known, songId, title: song.title }));
+  items.push(...sourceItems(songSourceLink(known)));
+  items.push({ divider: true });
   const reports = reportsFor({ songId });
   const mine = reports.find((r) => r.mine);
   const target = { songId, title: song.title, artist: song.artist, returnFocus };

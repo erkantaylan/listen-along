@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- feat(web): song menu (right-click, long-press, ⋮) has **Add to playlist**: a submenu on desktop and a bottom sheet on phones, with Turkish-aware search, pinned first, and New playlist that creates and adds without leaving the page
+- change(web): the source link moved from library rows and the player bar into the song menu (**Open on YouTube**, **Copy link**), so rows are shorter on phones
+- change(web): version, changelog and GitHub live in one place, the About card at the bottom of the profile page; they left every navbar and the line above the player, which gives the playlist queue that height back
+- fix(web): clicking away from a song menu with a mouse no longer plays the row under the pointer
+- fix(web): a song uploaded while the page is open can be used from the song menu without a reload
 - feat(android): downloads survive a reinstall or data clear: files in Music/ListenAlong are recognised by name and duration instead of being downloaded again as `Name (1).m4a` (optional music access permission; deleting such a file asks for consent)
 - feat(cli): `la upload` / `la download` show upload percent on a terminal; files are streamed from disk with a byte count
 - fix(cli): uploads no longer hold the whole file in memory (a 600 MB file: 669 MB of memory before, 77 MB now)

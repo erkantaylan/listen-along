@@ -6,7 +6,8 @@
   },
   "appMeta": {
     "changelog": "Değişiklik günlüğü",
-    "source": "GitHub'da kaynak kodu"
+    "source": "GitHub",
+    "about": "Hakkında"
   },
   "landing": {
     "newPlaylist": "Yeni çalma listesi",
@@ -208,5 +209,21 @@
     "oneSong": "1 şarkı",
     "songs": "{count} şarkı",
     "homeHint": "Soldan bir çalma listesi seç ya da yeni bir tane başlat."
+  },
+  "addTo": {
+    "label": "Çalma listesine ekle",
+    "back": "Geri",
+    "none": "Eklenecek çalma listesi yok",
+    "notYet": "Henüz kütüphanede değil",
+    "createAndAdd": "Oluştur ve ekle",
+    "added": "“{name}” listesine eklendi",
+    "already": "Zaten “{name}” listesinde",
+    "alreadyMark": "Zaten ekli",
+    "notInLibrary": "Bu şarkı artık kütüphanede değil",
+    "failed": "“{name}” listesine eklenemedi: {error}"
+  },
+  "songMenu": {
+    "openOn": "{host} ile aç",
+    "copyLink": "Bağlantıyı kopyala"
   }
 }
