@@ -1,6 +1,6 @@
 {
   "name": "listen-along-cli",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "la - command-line client for a listen-along music library server (download with yt-dlp, upload, fulfill requests)",
   "main": "src/cli.js",
   "bin": {

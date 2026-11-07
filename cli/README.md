@@ -58,8 +58,8 @@ Every command has detailed `--help` with examples (`la <command> --help`).
 
 | command | what it does |
 |---|---|
-| `la download <url-or-query>...` | YouTube video URLs, playlist URLs, `yt:<id>` or free-text search → m4a → upload |
-| `la upload <file-or-dir>...` | upload local files; non-m4a is converted to AAC m4a (192k) first |
+| `la download <url-or-query>...` | YouTube video URLs, playlist URLs, `yt:<id>` or free-text search → Opus (`.opus`, or m4a when a video has no Opus) → upload |
+| `la upload <file-or-dir>...` | upload local files; m4a and Opus as they are, anything else converted to AAC m4a (192k) first |
 | `la download <url-or-query> --replace <song-id>` | fix a wrong upload: the download replaces that library song's audio + metadata (same id) |
 | `la upload <file> --replace <song-id>` | same, from a local file |
 | `la requests [list]` | pending song requests (`--status pending\|fulfilled\|all`) |
@@ -119,7 +119,7 @@ for download jobs:
   title, artist and album; only the duration comes from the new file. A file
   that is already another song's fails the job, and nothing changes.
 
-Each job runs the `la download` pipeline (m4a without re-encoding, tags,
+Each job runs the `la download` pipeline (Opus or m4a without re-encoding, tags,
 cover, duplicate checks) and uploads with the job id, so the server records
 which worker did it, whose worker it is and who asked. Progress and the
 result are shown live to whoever asked ("downloading on living-room-pc
@@ -236,7 +236,8 @@ Forms combine; a song is fetched once per folder. Options: `--dir DIR`
 
 - **Names** match `la download --keep`: `<Artist> - <Title> [<youtube_id>].m4a`,
   or `[<library id>]` when the song has no YouTube id; the extension follows the
-  server's Content-Type (`.mp3`, `.webm`, `.ogg` for the odd non-m4a file).
+  server's Content-Type: `.m4a`, `.ogg` for Opus songs (`audio/ogg`), `.mp3` /
+  `.webm` for the odd legacy file.
   Names are made valid on every OS: `< > " / \ | ? *` and control characters are
   replaced or dropped (`a: b` → `a - b`, `AC/DC` → `AC-DC`), no trailing dots or
   spaces, no leading dot, reserved Windows names (`CON`, `NUL`, `COM1`, …) get a
@@ -338,21 +339,28 @@ behaviour are exactly as before.
 
 ### How downloads work
 
-- Format `140/bestaudio[ext=m4a]`: YouTube's AAC audio stream saved as m4a
-  **without re-encoding** (the audio packets are bit-identical to YouTube's).
+- Format `251/140/bestaudio[ext=m4a]` with `-x --audio-format best`: YouTube's
+  Opus stream (251, ~130-160 kbps VBR) copied from WebM into an Ogg `.opus`
+  file, or, when a video has no Opus, its AAC stream (140) kept as m4a.
+  **Never re-encoded**: the audio packets are bit-identical to YouTube's.
+- The library is mixed (m4a songs from before la 0.3 stay as they are). The
+  server says what it takes in `GET /api/me` (`upload_formats`); against an
+  older server, which takes m4a only, `la` downloads `140/bestaudio[ext=m4a]`
+  as la 0.2 did.
 - Tags via yt-dlp `--embed-metadata`: title/artist from YouTube Music's
   track/artist fields; otherwise "Artist - Title" video titles are split and
   "(Official Video)"-style suffixes dropped; otherwise the channel name (minus
   " - Topic") is the artist. The thumbnail is embedded as cover art by `la`
-  with ffmpeg (yt-dlp's own `--embed-thumbnail` fails for m4a unless mutagen or
-  AtomicParsley is installed).
+  with ffmpeg (yt-dlp's own `--embed-thumbnail` fails for m4a and Ogg unless
+  mutagen or AtomicParsley is installed): an attached picture in m4a, a
+  `METADATA_BLOCK_PICTURE` comment in `.opus`.
 - Search queries look at the top 5 results and prefer "Topic" channels and
   "official audio", penalising live/cover/remix/lyrics/sped-up/demo uploads.
 - Resumable: the library is listed once and every `youtube_id` already present
   is skipped; a `409` from the server also counts as skipped (see
   [Duplicates](#duplicates) for the hash / metadata checks). With `--keep`,
-  a local copy `<Artist> - <Title> [<id>].m4a` is reused instead of
-  re-downloading.
+  a local copy `<Artist> - <Title> [<id>].opus` (or `.m4a`) is reused instead
+  of re-downloading (an `.opus` copy only when the server takes Opus).
 - Every upload carries a `source_url`, the original link shown in the web
   library: the video's watch URL for downloads.
 - `--sleep` seconds between downloads (default 3).
@@ -360,10 +368,10 @@ behaviour are exactly as before.
 ### Uploading earlier downloads (`--no-upload` / `--keep` files)
 
 `la download --no-upload` (or `--keep`) leaves
-`<Artist> - <Title> [<11-char id>].m4a` in the keep dir, with the watch URL in
-the file's `comment` tag (yt-dlp's `--embed-metadata` writes `webpage_url`
-there; m4a has no `purl` tag). `la upload <dir>` detects both automatically,
-with no flags needed:
+`<Artist> - <Title> [<11-char id>].opus` (or `.m4a`) in the keep dir, with the
+watch URL in the file's `comment` tag (yt-dlp's `--embed-metadata` writes
+`webpage_url` there, and `purl` too in Ogg). `la upload <dir>` detects both
+automatically, with no flags needed:
 
 - `youtube_id`: `--youtube-id`, else the id in `--source-url`, else a YouTube
   URL in the comment/purl/description tags, else the `[<id>]` file-name suffix.
@@ -434,14 +442,15 @@ partial results are still printed with an `aborted` entry.
 
 All requests send `Authorization: Bearer <token>`.
 
-- `GET /api/me` → `{ name, user: { id, name } | null, token: { label, legacy } }`
-  (`user` is null for an old token created before tokens had owners)
+- `GET /api/me` → `{ name, user: { id, name } | null, token: { label, legacy }, upload_formats }`
+  (`user` is null for an old token created before tokens had owners;
+  `upload_formats` is `["m4a","opus"]`, missing on servers that take m4a only)
 - `GET /api/library?q=&limit=&offset=&youtube_id=` → `{ songs: [...], total }`
 - `GET /api/library/:id` → `{ song }` (`la pull`)
 - `GET|HEAD /api/library/:id/file` → the audio; `Range: bytes=N-` → `206` (`la pull` resume)
 - `POST /api/library/check {youtube_id?, sha256?, title?, artist?, duration_sec?, exclude_id?}`
   → `{ duplicate, match, matches: [{reason: already_in_library|duplicate_hash|duplicate_metadata, exact, message, song}] }`
-- `POST /api/library/upload` (multipart: `file` m4a, `title`, `artist`,
+- `POST /api/library/upload` (multipart: `file` m4a or `.opus` (Ogg Opus), `title`, `artist`,
   `album`, `youtube_id`, `source_url`, `duration_sec`, `request_id`,
   `allow_similar`) → `201 {song}`, `409 {error, code, exact, song}` duplicate,
   `400` bad input

@@ -100,6 +100,23 @@ class ApiClient {
     return (await this.request('GET', '/api/me')).data;
   }
 
+  /**
+   * Upload formats the server takes (GET /api/me `upload_formats`): 'm4a'
+   * (AAC in MP4) and, on newer servers, 'opus' (Opus in Ogg). A server that
+   * does not say takes m4a only. Asked once per client.
+   * @returns {Promise<string[]>}
+   */
+  async uploadFormats() {
+    if (!this.uploadFormatsPromise) {
+      this.uploadFormatsPromise = this.me().then((me) => {
+        const list = me && Array.isArray(me.upload_formats) ? me.upload_formats.map(String) : [];
+        return list.length ? list : ['m4a'];
+      });
+      this.uploadFormatsPromise.catch(() => { this.uploadFormatsPromise = null; });
+    }
+    return this.uploadFormatsPromise;
+  }
+
   /** One page of library songs. */
   async library({ q, limit, offset } = {}) {
     const { data } = await this.request('GET', '/api/library', { query: { q, limit, offset } });
@@ -163,7 +180,8 @@ class ApiClient {
    * an error instead of being followed (see request()).
    */
   async sendFile(p, file, fields, onProgress, opts) {
-    const body = await fileFormBody(file, fields, { type: 'audio/mp4', onProgress });
+    const type = /\.opus$/i.test(file) ? 'audio/ogg' : 'audio/mp4';
+    const body = await fileFormBody(file, fields, { type, onProgress });
     try {
       return await this.request('POST', p, {
         ...opts,
@@ -191,7 +209,7 @@ class ApiClient {
   }
 
   /**
-   * Upload one m4a file.
+   * Upload one m4a or (newer servers, see uploadFormats) Ogg Opus `.opus` file.
    * @returns {{ status: 'uploaded'|'duplicate', song: object, code?: string }}
    *   code (newer servers): already_in_library | duplicate_hash | duplicate_metadata
    * Throws ApiError for 400/other failures.

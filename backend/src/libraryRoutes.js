@@ -164,9 +164,12 @@ function createLibraryRouter(hooks = {}) {
   // --- CLI identity -------------------------------------------------------
   // name: who uploads are credited to (the owner's display name, or a legacy
   // token's name). user: the owning account, null for a legacy token.
+  // upload_formats: what /api/library/upload and /replace take (m4a = AAC in
+  // MP4, opus = Opus in Ogg). A server without it takes m4a only, and the CLI
+  // then downloads and converts to m4a as it always did.
   router.get('/api/me', tokens.requireToken, (req, res) => {
     const { name, label, user } = req.apiUser;
-    res.json({ name, user, token: { label, legacy: !user } });
+    res.json({ name, user, token: { label, legacy: !user }, upload_formats: Object.keys(library.UPLOAD_FORMATS) });
   });
 
   // --- Library ------------------------------------------------------------

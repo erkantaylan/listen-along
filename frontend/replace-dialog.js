@@ -125,8 +125,8 @@ function renderDialog(initial, jobInfo, back) {
         <div class="fs-sm mt-1 fg-3 replace-link-note" id="replace-link-note" aria-live="polite"></div>
         <div class="alert theme-warning fs-sm mb-0 mt-2 replace-link-warning" role="alert" hidden></div>
       </div>
-      <div><label class="form-label" for="replace-file">Audio file <span class="fg-3">(optional, .m4a AAC)</span></label>
-        <input class="form-control" type="file" id="replace-file" accept=".m4a,audio/mp4">
+      <div><label class="form-label" for="replace-file">Audio file <span class="fg-3">(optional, .m4a AAC or .opus)</span></label>
+        <input class="form-control" type="file" id="replace-file" accept=".m4a,.opus,audio/mp4,audio/ogg">
         <div class="fs-xs fg-3 mt-1">A file is used at once, instead of downloading the link; the link then only says where it came from.</div></div>
       <div class="alert theme-danger fs-sm mb-0 replace-error" role="alert" hidden></div>
     </div>
@@ -405,7 +405,7 @@ function renderDialog(initial, jobInfo, back) {
   }
 
   async function uploadFile(v) {
-    if (!/\.m4a$/i.test(v.file.name)) throw new Error('Only .m4a (AAC) files are accepted.');
+    if (!/\.(m4a|opus)$/i.test(v.file.name)) throw new Error('Only .m4a (AAC) and .opus (Opus) files are accepted.');
     if (v.link && !/^https?:\/\//i.test(v.link)) throw new Error('The source link must start with http:// or https://');
     const fd = new FormData();
     fd.append('file', v.file, v.file.name);

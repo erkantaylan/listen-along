@@ -155,6 +155,29 @@ describe('la worker', () => {
     assert.equal(started.job.replace.song_id, 'song-9');
   });
 
+  test('a replace job against a server that takes Opus replaces with the .opus', async () => {
+    server.state.songs.push({ id: 'song-9', title: 'Old Title', artist: 'Old Band' });
+    server.state.me = { ...server.state.me, upload_formats: ['m4a', 'opus'] };
+    hub = stubHub(server, { jobs: [REPLACE_JOB, { ...REPLACE_JOB, id: 'job-r2' }] });
+    const d = deps();
+    const p = run(['worker', '--name', 'test-box', '--json'], { server, deps: d.deps });
+    try {
+      const done = await until(() => hub.done[1], 'two jobs done');
+      assert.equal(done.result.summary.replaced, 1);
+      assert.equal(server.state.replaces.length, 2);
+      for (const r of server.state.replaces) {
+        assert.equal(r.fileContent, 'OPUS:aaaaaaaaaa1');
+        assert.match(r.fileName, /\.opus$/);
+        assert.equal(r.fileType, 'audio/ogg');
+      }
+      assert.deepEqual(d.y.calls.downloadOpts.map((o) => o.opus), [true, true]);
+      d.signals.emit('SIGINT');
+      assert.equal((await p).code, 0);
+    } finally {
+      delete server.state.me.upload_formats;
+    }
+  });
+
   test('a replace the server refuses is a failed job with its code, not a release', async () => {
     server.state.failReplace = () => ({ status: 409, body: { error: 'This file is already in the library as another song', code: 'duplicate_hash' } });
     hub = stubHub(server, { jobs: [REPLACE_JOB] });

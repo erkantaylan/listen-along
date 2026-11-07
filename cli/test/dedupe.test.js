@@ -45,7 +45,8 @@ describe('download --json output shape (no new flags)', () => {
         assert.equal(skipped.reason, 'already in library');
         for (const k of ['input', 'youtube_id', 'url']) assert.ok(k in skipped, k);
         assert.deepEqual(skipped.duplicate_of, { id: 1, title: 'Digital Love', artist: 'Daft Punk', youtube_id: 'aaaaaaaaaa1', match: 'already_in_library' }, 'additive');
-        assert.deepEqual(Object.keys(uploaded).sort(), ['artist', 'input', 'song', 'source_url', 'status', 'title', 'url', 'youtube_id']);
+        assert.deepEqual(Object.keys(uploaded).sort(), ['artist', 'format', 'input', 'song', 'source_url', 'status', 'title', 'url', 'youtube_id']);
+        assert.equal(uploaded.format, 'm4a', 'additive: the uploaded file\'s format');
         assert.equal(uploaded.status, 'uploaded');
         assert.deepEqual(Object.keys(failed).sort(), ['code', 'error', 'input', 'status', 'url', 'youtube_id']);
         assert.equal(server.state.uploads[0].fields.allow_similar, undefined, 'no allow_similar unless asked');

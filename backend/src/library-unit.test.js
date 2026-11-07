@@ -60,6 +60,36 @@ describe('library.classifyM4a', () => {
   });
 });
 
+describe('library.classifyUpload (m4a or Ogg Opus, by content)', () => {
+  const probe = (format_name, streams) => ({ format: { format_name, duration: '12.5' }, streams });
+
+  it('AAC in MP4 is stored as .m4a, served as audio/mp4', () => {
+    const r = library.classifyUpload(probe('mov,mp4,m4a,3gp,3g2,mj2', [{ codec_type: 'audio', codec_name: 'aac' }]));
+    assert.deepEqual(r, { ok: true, duration: 12.5, format: 'm4a', ext: '.m4a', mime: 'audio/mp4' });
+  });
+
+  it('Opus in Ogg is stored as .opus, served as audio/ogg; a cover picture is fine', () => {
+    const r = library.classifyUpload(probe('ogg', [
+      { codec_type: 'audio', codec_name: 'opus' },
+      { codec_type: 'video', codec_name: 'mjpeg', disposition: { attached_pic: 1 } },
+    ]));
+    assert.deepEqual(r, { ok: true, duration: 12.5, format: 'opus', ext: '.opus', mime: 'audio/ogg' });
+  });
+
+  it('refuses Vorbis or FLAC in Ogg, Theora video, Opus in WebM, mp3 and non-media', () => {
+    assert.match(library.classifyUpload(probe('ogg', [{ codec_type: 'audio', codec_name: 'vorbis' }])).reason, /Opus/);
+    assert.match(library.classifyUpload(probe('ogg', [{ codec_type: 'audio', codec_name: 'flac' }])).reason, /Opus/);
+    assert.match(library.classifyUpload(probe('ogg', [
+      { codec_type: 'audio', codec_name: 'opus' },
+      { codec_type: 'video', codec_name: 'theora', disposition: { attached_pic: 0 } },
+    ])).reason, /video/);
+    assert.match(library.classifyUpload(probe('matroska,webm', [{ codec_type: 'audio', codec_name: 'opus' }])).reason, /container/);
+    assert.equal(library.classifyUpload(probe('mp3', [{ codec_type: 'audio', codec_name: 'mp3' }])).ok, false);
+    assert.equal(library.classifyUpload(probe('ogg', [])).ok, false);
+    assert.equal(library.classifyUpload(null).ok, false);
+  });
+});
+
 describe('library.validateUploadFields', () => {
   it('requires title and artist', () => {
     assert.throws(() => library.validateUploadFields({ artist: 'a' }), /title is required/);
@@ -127,12 +157,16 @@ describe('library source_url', () => {
 });
 
 describe('library.validateUploadFileMeta', () => {
-  it('requires a .m4a file with an audio/mp4-ish content type', () => {
+  it('requires a .m4a or .opus file with an audio-ish content type', () => {
     assert.throws(() => library.validateUploadFileMeta(undefined), /file is required/);
     assert.throws(() => library.validateUploadFileMeta({ originalname: 'a.mp3', mimetype: 'audio/mpeg' }), /\.m4a/);
+    assert.throws(() => library.validateUploadFileMeta({ originalname: 'a.webm', mimetype: 'audio/webm' }), /\.opus/);
     assert.throws(() => library.validateUploadFileMeta({ originalname: 'a.m4a', mimetype: 'text/plain' }), /content type/);
     for (const mimetype of ['audio/mp4', 'audio/x-m4a', 'audio/m4a', 'application/octet-stream', '']) {
       assert.doesNotThrow(() => library.validateUploadFileMeta({ originalname: 'Song.M4A', mimetype }));
+    }
+    for (const mimetype of ['audio/ogg', 'audio/opus', 'application/ogg', 'application/octet-stream', '']) {
+      assert.doesNotThrow(() => library.validateUploadFileMeta({ originalname: 'Song.opus', mimetype }));
     }
   });
 });

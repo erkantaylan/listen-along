@@ -5,8 +5,11 @@
 **The server no longer downloads audio from YouTube.** The production server's
 IP kept getting blocked ("Sign in to confirm you're not a bot"), so downloading
 moved to the **listen-along CLI** (`cli/`), which runs on a home machine (a
-residential IP YouTube does not block), downloads songs as **m4a (AAC)** and
-uploads them to the server's **music library**.
+residential IP YouTube does not block), downloads songs as **Opus** (YouTube
+format 251, copied without re-encoding into an Ogg `.opus` file) or, when a
+video has no Opus stream, **m4a (AAC, format 140)**, and uploads them to the
+server's **music library**. The library is mixed: every song from before la
+0.3 is m4a and stays exactly as it is (no conversion, no re-download).
 
 The server is now a library host:
 
@@ -14,8 +17,8 @@ The server is now a library host:
   home machine                          server (docker-compose.prod.yml)
   ┌──────────────────────┐   HTTPS     ┌────────────────────────────────────┐
   │ listen-along CLI      │──────────▶ │ app (Node 22)                       │
-  │  yt-dlp + ffmpeg      │  Bearer    │  POST /api/library/upload (m4a)     │
-  │  GET /api/requests    │  token     │  ffprobe validation (AAC in MP4)    │
+  │  yt-dlp + ffmpeg      │  Bearer    │  POST /api/library/upload (m4a/opus)│
+  │  GET /api/requests    │  token     │  ffprobe: AAC in MP4 / Opus in Ogg  │
   │  POST .../upload      │            │  library_songs + files in SONGS_PATH│
   └──────────────────────┘            │  postgres                           │
                                        └────────────────────────────────────┘
@@ -52,12 +55,35 @@ search, and anything not found becomes a **song request**.
 5. Requests the CLI cannot find are dismissed (`POST /api/requests/:id/dismiss`,
    also possible from `/dashboard`).
 
+## Audio formats
+
+| | Opus (preferred) | m4a (fallback) |
+|---|---|---|
+| YouTube format | 251 (~130-160 kbps VBR, WebM) | 140 (AAC-LC 128k), else `bestaudio[ext=m4a]` |
+| CLI | `-f 251/140/bestaudio[ext=m4a] -x --audio-format best`: the Opus stream is copied into Ogg (`.opus`), an m4a is left as is | same run |
+| Tags | Vorbis comments (yt-dlp `--embed-metadata`) | MP4 atoms |
+| Cover | `METADATA_BLOCK_PICTURE` comment, written by the CLI through an ffmetadata file (ffmpeg's ogg muxer refuses a picture stream) | attached picture (mp4 muxer) |
+| Stored as | `SONGS_PATH/library/<id>.opus`, `mime_type` `audio/ogg` | `<id>.m4a`, `audio/mp4` |
+| Served as | `Content-Type: audio/ogg` | `audio/mp4` |
+
+Nothing is ever transcoded lossy -> lossy. Chrome, Firefox and Android
+(ExoPlayer) play Ogg Opus; Safari / iOS are not a target.
+
+Old and new clients: `GET /api/me` lists `upload_formats` (`["m4a","opus"]`).
+A CLI (la >= 0.3) facing a server without that field downloads with
+`140/bestaudio[ext=m4a]` and converts local Opus files to AAC m4a, exactly as
+la 0.2 did. Old CLIs keep uploading m4a to a new server.
+
 ## Upload rules
 
-- `.m4a` only (extension + content type `audio/mp4`/`audio/x-m4a`/`audio/m4a`/
-  `audio/aac`/`application/octet-stream`), **and** ffprobe must report an MP4
-  container with an AAC audio stream and no real video stream (embedded cover
-  art is fine). The server never transcodes.
+- `.m4a` or `.opus` (extension + content type `audio/mp4`/`audio/x-m4a`/
+  `audio/m4a`/`audio/aac`/`audio/ogg`/`audio/opus`/`application/ogg`/
+  `application/octet-stream`), **and** ffprobe must report either an MP4
+  container with an AAC audio stream, or an Ogg container with one Opus audio
+  stream, and no real video stream (embedded cover art is fine). The format
+  is taken from the content, not the name. The server never transcodes.
+  Replace may change a song's format (m4a -> Opus or back); the extension and
+  `mime_type` follow the new file.
 - Max 50 MB (413 if larger).
 - Dedupe: same `youtube_id` → 409; identical bytes (sha256) → 409. The 409 body
   includes the existing `song`.
@@ -87,7 +113,7 @@ plus rows of the legacy `songs` table) into `library_songs` with
 so existing queue entries keep playing. A boot-time migration also backfills
 `source_url` from `youtube_id` for any library row that has none. It is idempotent (skips known paths and
 known hashes). Files keep their format (mp3); tags are not rewritten. New
-uploads are stored in `SONGS_PATH/library/<id>.m4a`. Library songs are never
+uploads are stored in `SONGS_PATH/library/<id>.m4a` or `<id>.opus`. Library songs are never
 expired (the old 7-day cache cleanup is gone).
 
 ## Removed from the server
@@ -108,7 +134,7 @@ expired (the old 7-day cache cleanup is gone).
 |---|---|---|
 | `Sign in to confirm you're not a bot` | Datacenter IP is blocked | Run yt-dlp from a home IP (the CLI); PO token as a last resort |
 | `Signature solving failed` / `n challenge solving failed` | No JS runtime for YouTube's challenges | Install a JS runtime (Deno/Node ≥ 22) + `yt-dlp-ejs` |
-| `Requested format is not available` | Client only offers SABR audio | Try another `player_client` (e.g. `tv`) |
+| `Requested format is not available` (CLI code `NO_M4A_FORMAT`, kept for scripts) | Client only offers SABR audio, or no Opus/AAC stream | Try another `player_client` (e.g. `tv`) |
 | `Sign in to confirm your age` | Age-restricted | Cookies from a logged-in browser |
 
 Stale yt-dlp is the most common cause of sudden breakage — update it first.

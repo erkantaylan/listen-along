@@ -63,7 +63,7 @@ The song is then uploaded with request_id=<id> so the server can mark the reques
 fulfilled. Requests are not skipped based on the library: if the server already
 has the song it answers 409 and the item is reported as skipped.
 
-Same download behaviour/options as \`la download\` (m4a without re-encoding, tags,
+Same download behaviour/options as \`la download\` (Opus or m4a without re-encoding, tags,
 cover, --sleep throttling, --keep, --dry-run, --ytdlp-args).`,
   options: {
     all: { type: 'boolean', desc: 'Fulfill every pending request' },

@@ -9,7 +9,7 @@ const { PLAYLIST_OPTIONS, preparePlaylistTarget, attachPlaylist, playlistSummary
 /** Options shared by `la download` and `la requests fulfill`. */
 const DOWNLOAD_OPTIONS = {
   sleep: { type: 'string', value: 'SEC', desc: 'Seconds to wait between YouTube downloads (config `sleep`, default 3)' },
-  keep: { type: 'boolean', desc: 'Also keep a local copy "<Artist> - <Title> [<id>].m4a" in the keep dir' },
+  keep: { type: 'boolean', desc: 'Also keep a local copy "<Artist> - <Title> [<id>].opus" (or .m4a) in the keep dir' },
   'keep-dir': { type: 'string', value: 'DIR', desc: 'Directory for --keep / --no-upload copies (config `keep-dir`, default ~/Music/listen-along)' },
   'dry-run': { type: 'boolean', desc: 'Resolve URLs/searches and check the library, but download/upload nothing' },
   'ytdlp-args': { type: 'string', multiple: true, value: 'ARGS', desc: 'Extra yt-dlp arguments, shell-quoted; use the = form: --ytdlp-args="--cookies-from-browser firefox"' },
@@ -73,8 +73,11 @@ module.exports = {
                                uploads lose (unless your query asks for them).
   - any other URL              handed to yt-dlp as-is
 
-For every video: yt-dlp downloads the AAC audio stream as m4a WITHOUT re-encoding
-(format 140, fallback bestaudio[ext=m4a]), embeds title/artist (from the YouTube
+For every video: yt-dlp downloads the best audio WITHOUT re-encoding: the Opus
+stream (format 251, ~130-160 kbps) copied into an Ogg .opus file, or, when the
+video has no Opus, the AAC stream as m4a (format 140, fallback
+bestaudio[ext=m4a]). A server that takes m4a only (older than la 0.3; it does
+not list upload_formats in /api/me) gets m4a as before. yt-dlp embeds title/artist (from the YouTube
 Music track/artist fields, else "Artist - Title" parsed from the video title, else
 the channel) and the thumbnail as cover art, then the file is uploaded with its
 youtube_id, source_url (the video's watch URL, shown as the song's source link
@@ -84,8 +87,8 @@ file's comment tag, so --keep / --no-upload copies can later be bulk-uploaded wi
 
 Resumable: the library is listed once up front and every video whose youtube_id is
 already there is skipped (a 409 from the server also counts as "skipped"). With
---keep, an existing local copy "... [<id>].m4a" in the keep dir is reused instead
-of downloading again. Downloads are throttled by --sleep.
+--keep, an existing local copy "... [<id>].opus" or ".m4a" in the keep dir is reused
+instead of downloading again. Downloads are throttled by --sleep.
 
 Needs yt-dlp and ffmpeg/ffprobe on PATH (exit 6 with an install hint if missing).
 A home/residential IP normally needs no PO token or cookies; pass anything else
@@ -128,7 +131,8 @@ creates it public (like the web app) or private with --private. Not with
   output: `Progress on stderr. stdout: a summary (or --json document):
 { "summary": { "total", "uploaded", "skipped", "failed", ["would_download"|"downloaded"] },
   "results": [ { "input", "status": "uploaded|skipped|failed|would_download|downloaded",
-                 "youtube_id", "url", "source_url"?, "title", "artist", "reason"?, "error"?, "code"?,
+                 "youtube_id", "url", "source_url"?, "title", "artist", "format"?: "opus|m4a",
+                 "reason"?, "error"?, "code"?,
                  "song"?: <server song object>, "local_file"?, "matched"?: {title, channel},
                  "duplicate_of"?: {id, title, artist, youtube_id?, match} } ],
   "aborted"?: { "code", "message" } }
@@ -143,7 +147,8 @@ With --playlist, also "playlist": { "id", "name", "visibility", "created", "adde
 Exit 0 if nothing failed, 1 if any item (or playlist add) failed, 4/5/6 if the batch was aborted.
 --playlist problems before the batch starts: exit 1 (PLAYLIST_NOT_FOUND, AMBIGUOUS).
 Failure codes include BOT_CHECK, AGE_RESTRICTED, VIDEO_UNAVAILABLE, VIDEO_PRIVATE,
-REGION_BLOCKED, NO_M4A_FORMAT, NOT_FOUND, MISSING_TAGS, HTTP_400, NETWORK, YTDLP_FAILED.`,
+REGION_BLOCKED, NO_M4A_FORMAT (no Opus or AAC stream), NOT_FOUND, MISSING_TAGS, HTTP_400,
+NETWORK, YTDLP_FAILED.`,
   examples: [
     'la download https://www.youtube.com/watch?v=dQw4w9WgXcQ',
     'la download "Daft Punk - Digital Love" "Justice - D.A.N.C.E."',

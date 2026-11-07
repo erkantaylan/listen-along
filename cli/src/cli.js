@@ -49,8 +49,9 @@ function rootHelp() {
   const width = Math.max(...COMMANDS.map((c) => c.name.length));
   return `la ${pkg.version} — command-line client for a listen-along music library server
 
-Downloads songs from YouTube with yt-dlp on this machine (as AAC m4a, no
-re-encoding, with title/artist/cover tags) and uploads them to the server's
+Downloads songs from YouTube with yt-dlp on this machine (as Opus, or AAC m4a
+when a video has no Opus; never re-encoded; with title/artist/cover tags) and
+uploads them to the server's
 library; uploads local audio files; fulfills listeners' song requests;
 manages server playlists; pulls library songs down to this computer; runs
 as a downloader (\`la worker\`) that takes download jobs from the server.

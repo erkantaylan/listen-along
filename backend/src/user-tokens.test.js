@@ -101,7 +101,7 @@ describe('per-user CLI tokens on Postgres', { skip, timeout: 180_000 }, () => {
 
     const me = await req('GET', '/api/me', { headers: bearer(r.body.token) });
     assert.equal(me.status, 200);
-    assert.deepEqual(me.body, { name: 'Alice', user: { id: ids.alice, name: 'Alice' }, token: { label: 'Desktop', legacy: false } });
+    assert.deepEqual(me.body, { name: 'Alice', user: { id: ids.alice, name: 'Alice' }, token: { label: 'Desktop', legacy: false }, upload_formats: ['m4a', 'opus'] });
 
     const list = await req('GET', '/api/tokens', { cookie: cookies.alice });
     assert.equal(list.status, 200);
@@ -141,7 +141,7 @@ describe('per-user CLI tokens on Postgres', { skip, timeout: 180_000 }, () => {
   it('a legacy token without an owner still authenticates the CLI', async () => {
     const me = await req('GET', '/api/me', { headers: bearer(legacyToken) });
     assert.equal(me.status, 200);
-    assert.deepEqual(me.body, { name: 'erkan', user: null, token: { label: 'erkan', legacy: true } });
+    assert.deepEqual(me.body, { name: 'erkan', user: null, token: { label: 'erkan', legacy: true }, upload_formats: ['m4a', 'opus'] });
     assert.equal((await req('GET', '/api/library?limit=1', { headers: bearer(legacyToken) })).status, 200);
     assert.equal((await req('GET', '/api/requests', { headers: bearer(legacyToken) })).status, 200);
   });

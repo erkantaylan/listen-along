@@ -111,7 +111,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       assert.equal((await getJson('/api/me', auth('la_wrong'))).status, 401);
       const ok = await getJson('/api/me', auth());
       assert.equal(ok.status, 200);
-      assert.deepEqual(ok.body, { name: 'Alice', user: null, token: { label: 'Alice', legacy: true } }, 'a legacy token (no owner)');
+      assert.deepEqual(ok.body, { name: 'Alice', user: null, token: { label: 'Alice', legacy: true }, upload_formats: ['m4a', 'opus'] }, 'a legacy token (no owner)');
     });
 
     it('upload and every read require a token here (no web-user hook); a bad token is refused', async () => {
@@ -225,6 +225,82 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       // clean up so later dedupe/request tests see the same library as before
       await library.remove(r.body.song.id);
     });
+
+    it('accepts Opus in Ogg as is: stored as .opus, served as audio/ogg, same caching rules', async () => {
+      const opus = makeAudio('o.opus', 1110, ['-c:a', 'libopus', '-b:a', '96k']);
+      const r = await upload(opus, { title: 'Song O', artist: 'Artist', youtube_id: 'OOOOOOOOOOO' }, { type: 'audio/ogg' });
+      assert.equal(r.status, 201, JSON.stringify(r.body));
+      const s = r.body.song;
+      assert.ok(s.duration_sec > 1.5 && s.duration_sec < 2.5, 'duration from ffprobe');
+      const row = (await db.query('SELECT file_path, mime_type, sha256 FROM library_songs WHERE id = $1', [s.id])).rows[0];
+      assert.equal(row.mime_type, 'audio/ogg');
+      assert.equal(path.extname(row.file_path), '.opus');
+      assert.ok(fs.readFileSync(row.file_path).equals(fs.readFileSync(opus)), 'stored byte for byte');
+
+      const full = await fetch(`${base}/api/library/${s.id}/file`, { headers: auth() });
+      assert.equal(full.status, 200);
+      assert.equal(full.headers.get('content-type'), 'audio/ogg');
+      assert.equal(full.headers.get('cache-control'), 'no-cache');
+      assert.equal((await full.arrayBuffer()).byteLength, fs.statSync(opus).size);
+      const versioned = await fetch(`${base}/api/library/${s.id}/file?v=${s.file_version}`, { headers: auth() });
+      assert.match(versioned.headers.get('cache-control'), /immutable/);
+      await versioned.arrayBuffer();
+      const dl = await fetch(`${base}/api/library/${s.id}/file?dl=1`, { headers: auth() });
+      assert.match(dl.headers.get('content-disposition'), /filename="Artist - Song O\.opus"/);
+      await dl.arrayBuffer();
+
+      // Same bytes again: the sha256 dedupe applies to Opus too.
+      const again = await upload(opus, { title: 'Other', artist: 'X' }, { type: 'audio/ogg' });
+      assert.equal(again.status, 409);
+      assert.equal(again.body.code, 'duplicate_hash');
+
+      // Vorbis in Ogg, or Opus in WebM, named .opus: refused (never transcoded).
+      const vorbis = makeAudio('v.ogg', 1220, ['-c:a', 'libvorbis']);
+      const vr = await upload(vorbis, { title: 't', artist: 'a' }, { name: 'v.opus', type: 'audio/ogg' });
+      assert.equal(vr.status, 400);
+      assert.match(vr.body.error, /Opus/);
+      const webm = makeAudio('w.webm', 1330, ['-c:a', 'libopus']);
+      const wr = await upload(webm, { title: 't', artist: 'a' }, { name: 'w.opus', type: 'audio/ogg' });
+      assert.equal(wr.status, 400);
+      assert.equal(fs.readdirSync(library.UPLOAD_TMP_DIR).length, 0, 'temp files are cleaned up');
+      await library.remove(s.id);
+    });
+
+    it('replace switches a song between m4a and Opus (file, extension and Content-Type follow)', async () => {
+      const m4a = makeAudio('r.m4a', 1440, ['-c:a', 'aac']);
+      const opus = makeAudio('r.opus', 1550, ['-c:a', 'libopus']);
+      const r = await upload(m4a, { title: 'Song R', artist: 'Artist' });
+      assert.equal(r.status, 201);
+      const id = r.body.song.id;
+      const replace = async (file, type) => {
+        const fd = new FormData();
+        fd.append('file', new Blob([fs.readFileSync(file)], { type }), path.basename(file));
+        fd.append('title', 'Song R');
+        fd.append('artist', 'Artist');
+        const res = await fetch(`${base}/api/library/${id}/replace`, { method: 'POST', headers: auth(), body: fd });
+        return { status: res.status, body: await res.json() };
+      };
+      const oldPath = (await db.query('SELECT file_path FROM library_songs WHERE id = $1', [id])).rows[0].file_path;
+      const toOpus = await replace(opus, 'audio/ogg');
+      assert.equal(toOpus.status, 200, JSON.stringify(toOpus.body));
+      let row = (await db.query('SELECT file_path, mime_type FROM library_songs WHERE id = $1', [id])).rows[0];
+      assert.equal(row.mime_type, 'audio/ogg');
+      assert.equal(path.extname(row.file_path), '.opus');
+      assert.equal(fs.existsSync(oldPath), false, 'old m4a deleted');
+      let res = await fetch(`${base}/api/library/${id}/file`, { headers: auth() });
+      assert.equal(res.headers.get('content-type'), 'audio/ogg');
+      await res.arrayBuffer();
+
+      const back = await replace(m4a, 'audio/mp4');
+      assert.equal(back.status, 200, JSON.stringify(back.body));
+      row = (await db.query('SELECT file_path, mime_type FROM library_songs WHERE id = $1', [id])).rows[0];
+      assert.equal(row.mime_type, 'audio/mp4');
+      assert.equal(path.extname(row.file_path), '.m4a');
+      res = await fetch(`${base}/api/library/${id}/file`, { headers: auth() });
+      assert.equal(res.headers.get('content-type'), 'audio/mp4');
+      await res.arrayBuffer();
+      await library.remove(id);
+    });
   });
 
   describe('token owners', () => {
@@ -242,7 +318,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
     it('/api/me names the owning account', async () => {
       const me = await getJson('/api/me', auth(ownerToken));
       assert.equal(me.status, 200);
-      assert.deepEqual(me.body, { name: 'Deejay', user: { id: owner, name: 'Deejay' }, token: { label: 'Desktop', legacy: false } });
+      assert.deepEqual(me.body, { name: 'Deejay', user: { id: owner, name: 'Deejay' }, token: { label: 'Desktop', legacy: false }, upload_formats: ['m4a', 'opus'] });
     });
 
     it("an upload records the owner's account and display name", async () => {

@@ -194,7 +194,7 @@ comes from a song request (someone queued a song the library does not have) or
 from the web app's Download box (a YouTube video / playlist link, a Spotify
 track link, or a search), or from the song dialog's new YouTube link, which
 replaces that song's audio and keeps its title, artist and album. Each job runs the same pipeline as \`la download\`
-(yt-dlp m4a without re-encoding, tags, cover, duplicate checks) and uploads the
+(yt-dlp Opus or m4a without re-encoding, tags, cover, duplicate checks) and uploads the
 result; a request's song is then added to the playlist it was requested from,
 a Download-box job's songs to the playlist the requester chose.
 

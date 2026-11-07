@@ -7,9 +7,9 @@ const path = require('path');
 const { classify, findVideoId, pickBest, isHttpUrl } = require('../src/youtube');
 const { splitArgs } = require('../src/proc');
 const config = require('../src/config');
-const { YtDlp, parseError, FORMAT } = require('../src/ytdlp');
+const { YtDlp, parseError, FORMAT, M4A_FORMAT } = require('../src/ytdlp');
 const { Media, expandInputs } = require('../src/media');
-const { safeName, pickSourceUrl, uploadFields } = require('../src/pipeline');
+const { safeName, pickSourceUrl, uploadFields, uploadPlan, findKept } = require('../src/pipeline');
 const { tmpDir } = require('./helpers');
 
 describe('youtube.classify', () => {
@@ -146,9 +146,9 @@ describe('YtDlp invocation layer', () => {
     return { calls, run };
   }
 
-  test('download: m4a format 140, no re-encode flags, tags, target after --', async () => {
+  test('download: Opus 251 copied into .opus (-x, audio format best), m4a fallback, tags, target after --', async () => {
     const dir = tmpDir();
-    const file = path.join(dir, 'abcdefghijk.m4a');
+    const file = path.join(dir, 'abcdefghijk.opus');
     fs.writeFileSync(file, 'x');
     fs.writeFileSync(path.join(dir, 'abcdefghijk.jpg'), 'j');
     const { calls, run } = recorder({ code: 0, stdout: `${JSON.stringify({ id: 'abcdefghijk', title: 'T', filepath: file })}\n`, stderr: '' });
@@ -159,14 +159,30 @@ describe('YtDlp invocation layer', () => {
     const args = calls[0].args;
     assert.equal(calls[0].bin, 'yt-dlp');
     assert.equal(args[args.indexOf('-f') + 1], FORMAT);
-    assert.match(FORMAT, /^140\//);
-    for (const flag of ['--embed-metadata', '--write-thumbnail', '--no-playlist']) assert.ok(args.includes(flag), flag);
-    assert.ok(!args.includes('-x') && !args.includes('--extract-audio') && !args.includes('--audio-format'), 'must not transcode');
+    assert.equal(FORMAT, '251/140/bestaudio[ext=m4a]');
+    for (const flag of ['--embed-metadata', '--write-thumbnail', '--no-playlist', '-x']) assert.ok(args.includes(flag), flag);
+    // "best" = copy the stream (Opus -> .opus, an m4a stays): never re-encode.
+    assert.equal(args[args.indexOf('--audio-format') + 1], 'best', 'must not transcode');
+    assert.ok(!args.includes('--audio-quality') && !args.includes('--recode-video'));
     const dd = args.indexOf('--');
     assert.ok(dd > args.indexOf('--cookies'), 'extra args go before --');
     assert.deepEqual(args.slice(dd + 1), ['https://www.youtube.com/watch?v=abcdefghijk']);
     // No deno on PATH -> node is used as the JS runtime.
     assert.ok(args.includes('--js-runtimes'));
+  });
+
+  test('download with opus: false (a server that takes m4a only): format 140, no -x, as la 0.2', async () => {
+    const dir = tmpDir();
+    const file = path.join(dir, 'abcdefghijk.m4a');
+    fs.writeFileSync(file, 'x');
+    const { calls, run } = recorder({ code: 0, stdout: `${JSON.stringify({ id: 'abcdefghijk', title: 'T', filepath: file })}\n`, stderr: '' });
+    const res = await new YtDlp({ run, env: { PATH: '' } }).download('https://www.youtube.com/watch?v=abcdefghijk', { outDir: dir, opus: false });
+    assert.equal(res.file, file);
+    assert.equal(res.thumbnail, null);
+    const args = calls[0].args;
+    assert.equal(args[args.indexOf('-f') + 1], M4A_FORMAT);
+    assert.equal(M4A_FORMAT, '140/bestaudio[ext=m4a]');
+    assert.ok(!args.includes('-x') && !args.includes('--extract-audio') && !args.includes('--audio-format'), 'must not transcode');
   });
 
   test('search uses ytsearchN: with flat JSON', async () => {
@@ -205,6 +221,44 @@ describe('media', () => {
     assert.ok(Media.isAacM4a({ format: 'mov,mp4,m4a,3gp,3g2,mj2', codec: 'aac' }, 'a.m4a'));
     assert.ok(!Media.isAacM4a({ format: 'mp3', codec: 'mp3' }, 'a.mp3'));
     assert.ok(!Media.isAacM4a({ format: 'mov,mp4,m4a,3gp,3g2,mj2', codec: 'alac' }, 'a.m4a'));
+  });
+
+  test('uploadFormat / isOggOpus', () => {
+    assert.equal(Media.uploadFormat({ format: 'mov,mp4,m4a,3gp,3g2,mj2', codec: 'aac' }, 'a.m4a'), 'm4a');
+    assert.equal(Media.uploadFormat({ format: 'ogg', codec: 'opus' }, 'a.opus'), 'opus');
+    assert.equal(Media.uploadFormat({ format: 'ogg', codec: 'opus' }, 'a.ogg'), null, 'named .opus only');
+    assert.equal(Media.uploadFormat({ format: 'ogg', codec: 'vorbis' }, 'a.opus'), null);
+    assert.equal(Media.uploadFormat({ format: 'matroska,webm', codec: 'opus' }, 'a.webm'), null);
+    assert.ok(Media.isOggOpus({ format: 'ogg', codec: 'opus' }));
+    assert.ok(!Media.isOggOpus({ format: 'matroska,webm', codec: 'opus' }));
+  });
+
+  test('uploadPlan: no lossy re-encode where it can be avoided; an m4a-only server gets m4a', () => {
+    const both = ['m4a', 'opus'];
+    const m4aOnly = ['m4a'];
+    const aac = { format: 'mov,mp4,m4a,3gp,3g2,mj2', codec: 'aac' };
+    const oggOpus = { format: 'ogg', codec: 'opus' };
+    const webmOpus = { format: 'matroska,webm', codec: 'opus' };
+    const mp3 = { format: 'mp3', codec: 'mp3' };
+    assert.equal(uploadPlan(aac, 'a.m4a', both), 'as-is');
+    assert.equal(uploadPlan(aac, 'a.m4a', m4aOnly), 'as-is');
+    assert.equal(uploadPlan(oggOpus, 'a.opus', both), 'as-is');
+    assert.equal(uploadPlan(oggOpus, 'a.ogg', both), 'copy');
+    assert.equal(uploadPlan(webmOpus, 'a.webm', both), 'remux');
+    assert.equal(uploadPlan(mp3, 'a.mp3', both), 'transcode');
+    assert.equal(uploadPlan(oggOpus, 'a.opus', m4aOnly), 'transcode', 'as la 0.2 did');
+    assert.equal(uploadPlan(webmOpus, 'a.webm', m4aOnly), 'transcode');
+    assert.equal(uploadPlan({ format: 'ogg', codec: 'vorbis' }, 'a.ogg', both), 'transcode');
+  });
+
+  test('findKept finds .m4a and .opus copies, only of formats the server takes', () => {
+    const dir = tmpDir();
+    fs.writeFileSync(path.join(dir, 'A - B [abcdefghijk].opus'), '');
+    fs.writeFileSync(path.join(dir, 'C - D [bcdefghijkl].m4a'), '');
+    assert.equal(findKept(dir, 'abcdefghijk'), path.join(dir, 'A - B [abcdefghijk].opus'));
+    assert.equal(findKept(dir, 'abcdefghijk', ['m4a']), null);
+    assert.equal(findKept(dir, 'bcdefghijkl', ['m4a']), path.join(dir, 'C - D [bcdefghijkl].m4a'));
+    assert.equal(findKept(dir, 'zzzzzzzzzzz'), null);
   });
 
   test('expandInputs walks directories for audio files only', () => {

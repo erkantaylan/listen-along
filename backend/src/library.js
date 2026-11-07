@@ -1,5 +1,6 @@
 /**
- * Music library: songs uploaded by the listen-along CLI (m4a/AAC), plus the
+ * Music library: songs uploaded by the listen-along CLI (AAC in m4a, or Opus
+ * in Ogg: `.opus`, stored and served as uploaded), plus the
  * legacy yt-dlp cache migrated in on boot. The server never downloads audio —
  * it only stores, probes and serves what it is given.
  */
@@ -20,7 +21,17 @@ const UPLOAD_TMP_DIR = path.join(SONGS_PATH, '.upload-tmp');
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 const YOUTUBE_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const ALLOWED_UPLOAD_MIME = new Set(['audio/mp4', 'audio/x-m4a', 'audio/m4a', 'audio/aac', 'application/octet-stream']);
+const ALLOWED_UPLOAD_MIME = new Set([
+  'audio/mp4', 'audio/x-m4a', 'audio/m4a', 'audio/aac',
+  'audio/ogg', 'audio/opus', 'audio/x-opus+ogg', 'application/ogg',
+  'application/octet-stream',
+]);
+// Upload kinds: what ffprobe must find, and how the file is stored and served.
+const UPLOAD_FORMATS = {
+  m4a: { ext: '.m4a', mime: 'audio/mp4' },
+  opus: { ext: '.opus', mime: 'audio/ogg' },
+};
+const UPLOAD_EXTS = new Set(Object.values(UPLOAD_FORMATS).map((f) => f.ext));
 
 const PUBLIC_COLUMNS = 'id, youtube_id, title, artist, album, duration_sec, source_url, uploaded_by, created_at, sha256, replaced_at, uploaded_by_worker, requested_by';
 const MAX_SOURCE_URL_LENGTH = 2048;
@@ -221,6 +232,57 @@ function classifyM4a(probe) {
 
 async function probeM4a(filePath) {
   return classifyM4a(await ffprobe(filePath));
+}
+
+/**
+ * Decide whether ffprobe output describes Opus audio in an Ogg container (an
+ * `.opus` file, as `la download` makes from YouTube's Opus stream without
+ * re-encoding). Cover art (METADATA_BLOCK_PICTURE, which ffprobe shows as an
+ * attached picture) is allowed; a real video stream (Theora) is not.
+ * @returns {{ok: boolean, reason?: string, duration?: number}}
+ */
+function classifyOpus(probe) {
+  if (!probe || !probe.format) return { ok: false, reason: 'File is not a readable media file' };
+  const formatName = String(probe.format.format_name || '');
+  if (!/(^|,)ogg(,|$)/.test(formatName)) {
+    return { ok: false, reason: `Container must be Ogg (got ${formatName || 'unknown'})` };
+  }
+  const streams = probe.streams || [];
+  const audio = streams.filter((s) => s.codec_type === 'audio');
+  if (audio.length === 0) return { ok: false, reason: 'File has no audio stream' };
+  if (audio.length > 1) return { ok: false, reason: 'File has more than one audio stream' };
+  if (audio[0].codec_name !== 'opus') {
+    return { ok: false, reason: `Audio codec must be Opus (got ${audio[0].codec_name || 'unknown'})` };
+  }
+  const realVideo = streams.filter((s) => s.codec_type === 'video' && !(s.disposition && s.disposition.attached_pic));
+  if (realVideo.length > 0) return { ok: false, reason: 'File contains a video stream; upload audio only' };
+  const duration = parseFloat(probe.format.duration);
+  return { ok: true, duration: Number.isFinite(duration) ? duration : undefined };
+}
+
+/**
+ * What an uploaded file is, by its content (never by its name): AAC in MP4
+ * (stored as `.m4a`, served as audio/mp4) or Opus in Ogg (`.opus`,
+ * audio/ogg). The server never transcodes.
+ * @returns {{ok: true, format: 'm4a'|'opus', ext: string, mime: string, duration?: number}
+ *   |{ok: false, reason: string}}
+ */
+function classifyUpload(probe) {
+  if (!probe || !probe.format) return { ok: false, reason: 'File is not a readable media file' };
+  const formatName = String(probe.format.format_name || '');
+  const isOgg = /(^|,)ogg(,|$)/.test(formatName);
+  const isMp4 = /(^|,)(mp4|m4a|mov)(,|$)/.test(formatName);
+  if (!isOgg && !isMp4) {
+    return { ok: false, reason: `File must be AAC in MP4/M4A or Opus in Ogg (got container ${formatName || 'unknown'})` };
+  }
+  const format = isOgg ? 'opus' : 'm4a';
+  const r = isOgg ? classifyOpus(probe) : classifyM4a(probe);
+  if (!r.ok) return r;
+  return { ...r, format, ...UPLOAD_FORMATS[format] };
+}
+
+async function probeUpload(filePath) {
+  return classifyUpload(await ffprobe(filePath));
 }
 
 // ---------------------------------------------------------------------------
@@ -564,10 +626,10 @@ function removeUploadTmp(file) {
 function validateUploadFileMeta(file) {
   if (!file) throw new UploadError(400, 'file is required (multipart field "file")');
   const ext = path.extname(file.originalname || '').toLowerCase();
-  if (ext !== '.m4a') throw new UploadError(400, 'Only .m4a files are accepted');
+  if (!UPLOAD_EXTS.has(ext)) throw new UploadError(400, 'Only .m4a (AAC) and .opus (Opus in Ogg) files are accepted');
   const mime = String(file.mimetype || '').toLowerCase();
   if (mime && !ALLOWED_UPLOAD_MIME.has(mime)) {
-    throw new UploadError(400, `Unsupported content type ${mime}; expected audio/mp4`);
+    throw new UploadError(400, `Unsupported content type ${mime}; expected audio/mp4 or audio/ogg`);
   }
 }
 
@@ -585,7 +647,7 @@ async function ingestUpload(file, fields, uploader) {
   const tmpPath = uploadTmpPath(file);
   let finalPath = null;
   try {
-    const probe = await probeM4a(tmpPath);
+    const probe = await probeUpload(tmpPath);
     if (!probe.ok) throw new UploadError(400, probe.reason);
 
     const sha = await sha256File(tmpPath);
@@ -603,7 +665,7 @@ async function ingestUpload(file, fields, uploader) {
 
     ensureDirs();
     const id = crypto.randomUUID();
-    finalPath = path.join(LIBRARY_DIR, `${id}.m4a`);
+    finalPath = path.join(LIBRARY_DIR, `${id}${probe.ext}`);
     fs.renameSync(tmpPath, finalPath);
     const size = fs.statSync(finalPath).size;
     const row = {
@@ -614,7 +676,7 @@ async function ingestUpload(file, fields, uploader) {
       album: fields.album,
       duration_sec: duration,
       file_path: finalPath,
-      mime_type: 'audio/mp4',
+      mime_type: probe.mime,
       size_bytes: size,
       sha256: sha,
       source_url: fields.source_url || (fields.youtube_id ? youtubeUrl(fields.youtube_id) : null),
@@ -685,13 +747,14 @@ async function replaceSong(id, file, fields, actor) {
   let newPath = null;
   try {
     if (!isUuid(id) || !(await getById(id))) throw new UploadError(404, 'Song not found', null, 'not_found');
-    const probe = await probeM4a(tmpPath);
+    const probe = await probeUpload(tmpPath);
     if (!probe.ok) throw new UploadError(400, probe.reason);
     const sha = await sha256File(tmpPath);
 
     ensureDirs();
     // A new file name: the old file stays untouched until the row points here.
-    newPath = path.join(LIBRARY_DIR, `${id}-${crypto.randomBytes(4).toString('hex')}.m4a`);
+    // The format may change (an m4a song replaced by an Opus file, or back).
+    newPath = path.join(LIBRARY_DIR, `${id}-${crypto.randomBytes(4).toString('hex')}${probe.ext}`);
     fs.renameSync(tmpPath, newPath);
     const size = fs.statSync(newPath).size;
 
@@ -714,11 +777,11 @@ async function replaceSong(id, file, fields, actor) {
       const r = await client.query(
         `UPDATE library_songs SET
            youtube_id = $2, title = $3, artist = $4, album = $5, duration_sec = $6,
-           file_path = $7, mime_type = 'audio/mp4', size_bytes = $8, sha256 = $9, source_url = $10,
+           file_path = $7, mime_type = $13, size_bytes = $8, sha256 = $9, source_url = $10,
            meta_key = $11, meta_key_version = $12, replaced_at = now()
          WHERE id = $1 RETURNING *`,
         [id, fields.youtube_id || null, fields.title, fields.artist, fields.album || null, duration,
-          newPath, size, sha, sourceUrl, songMatch.metaKey(fields.title, fields.artist), songMatch.META_KEY_VERSION]
+          newPath, size, sha, sourceUrl, songMatch.metaKey(fields.title, fields.artist), songMatch.META_KEY_VERSION, probe.mime]
       );
       updated = r.rows[0];
       await client.query(
@@ -1010,6 +1073,10 @@ module.exports = {
   ffprobe,
   classifyM4a,
   probeM4a,
+  classifyOpus,
+  classifyUpload,
+  probeUpload,
+  UPLOAD_FORMATS,
   getById,
   getByYoutubeId,
   getBySha256,

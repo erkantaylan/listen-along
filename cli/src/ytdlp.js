@@ -6,10 +6,15 @@ const { run: defaultRun, missingDependency } = require('./proc');
 const { CliError } = require('./errors');
 
 /**
- * Format selection: YouTube's AAC-LC 128k audio-only stream (itag 140) is an
- * m4a we can keep byte-for-byte (no re-encode). Fall back to any m4a audio.
+ * Format selection: YouTube's best freely available audio, the Opus stream
+ * (itag 251, ~130-160 kbps VBR in WebM). yt-dlp's -x (audio format "best")
+ * copies it into an Ogg `.opus` file without re-encoding. A video without it
+ * falls back to the AAC-LC 128k stream (itag 140) or any m4a audio, kept as
+ * m4a (-x leaves an m4a alone). Nothing is ever transcoded.
  */
-const FORMAT = '140/bestaudio[ext=m4a]';
+const FORMAT = '251/140/bestaudio[ext=m4a]';
+/** For a server that takes m4a only (from before Opus uploads): as la 0.2. */
+const M4A_FORMAT = '140/bestaudio[ext=m4a]';
 
 /**
  * Metadata massaging done inside yt-dlp so the tags it embeds are good:
@@ -58,7 +63,8 @@ function parseError(stderr, exitCode) {
     return mk('REGION_BLOCKED', 'Video is not available in your country');
   }
   if (lower.includes('requested format is not available')) {
-    return mk('NO_M4A_FORMAT', 'No m4a/AAC audio format offered for this video (try updating yt-dlp; or pass --ytdlp-args "--extractor-args youtube:player_client=default")');
+    // The code predates Opus downloads; kept for scripts.
+    return mk('NO_M4A_FORMAT', 'No Opus or m4a/AAC audio format offered for this video (try updating yt-dlp; or pass --ytdlp-args "--extractor-args youtube:player_client=default")');
   }
   if (lower.includes('signature solving failed') || lower.includes('n challenge solving failed') || lower.includes('js runtime')) {
     return mk('JS_CHALLENGE', 'yt-dlp could not solve YouTube\'s JS challenge: update yt-dlp and make sure a JS runtime (deno or node >= 22) is available');
@@ -173,17 +179,25 @@ class YtDlp {
   }
 
   /**
-   * Download one video's audio as m4a (no re-encode) with embedded tags into
-   * `outDir`, plus a JPEG thumbnail next to it (embed with Media.embedCover).
+   * Download one video's audio without re-encoding, with embedded tags, into
+   * `outDir`: Opus as an Ogg `.opus` file when there is an Opus stream, else
+   * AAC as `.m4a`; with `opus: false` (a server that takes m4a only) m4a
+   * only, as before. Plus a JPEG thumbnail next to it (embed with
+   * Media.embedCover).
+   * @param {string} url
+   * @param {{ outDir: string, opus?: boolean }} opts
    * @returns {Promise<{ file: string, thumbnail: string|null, info: object }>}
    */
-  async download(url, { outDir }) {
+  async download(url, { outDir, opus = true }) {
     const args = [
       '--no-playlist',
-      '-f', FORMAT,
+      '-f', opus ? FORMAT : M4A_FORMAT,
+      // WebM Opus -> Ogg .opus by stream copy ("best" never re-encodes Opus or
+      // AAC; an m4a is left as it is).
+      ...(opus ? ['-x', '--audio-format', 'best'] : []),
       '--embed-metadata',
       // Cover is written next to the file and embedded by Media.embedCover:
-      // yt-dlp's --embed-thumbnail needs mutagen/AtomicParsley for m4a.
+      // yt-dlp's --embed-thumbnail needs mutagen/AtomicParsley for m4a and ogg.
       '--write-thumbnail',
       '--convert-thumbnails', 'jpg',
       ...METADATA_ARGS,
@@ -208,4 +222,4 @@ class YtDlp {
   }
 }
 
-module.exports = { YtDlp, parseError, FORMAT, METADATA_ARGS, jsRuntimeArgs, onPath };
+module.exports = { YtDlp, parseError, FORMAT, M4A_FORMAT, METADATA_ARGS, jsRuntimeArgs, onPath };

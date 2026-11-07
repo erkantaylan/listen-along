@@ -242,13 +242,55 @@ describe('download', () => {
     } finally { await server.close(); }
   });
 
-  test('--no-upload works without a server', async () => {
+  test('--no-upload works without a server (Opus, as a .opus file)', async () => {
     const keepDir = tmpDir('la-keep-');
     const d = deps();
     const r = await run(['download', '--no-upload', '--keep-dir', keepDir, 'yt:aaaaaaaaaa3', '--json'], { deps: d.deps });
     assert.equal(r.code, 0, r.stderr);
     assert.equal(r.json.results[0].status, 'downloaded');
-    assert.ok(fs.existsSync(path.join(keepDir, 'Boards of Canada - Roygbiv [aaaaaaaaaa3].m4a')));
+    assert.equal(r.json.results[0].format, 'opus');
+    assert.ok(fs.existsSync(path.join(keepDir, 'Boards of Canada - Roygbiv [aaaaaaaaaa3].opus')));
+  });
+
+  test('a server that takes Opus: downloads Opus as .opus (cover embedded), m4a when a video has none', async () => {
+    const server = await startServer({ me: { name: 'owner', upload_formats: ['m4a', 'opus'] } });
+    const keepDir = tmpDir('la-keep-');
+    const d = deps({ ytdlp: { videos: { ...VIDEOS, aaaaaaaaaa3: { ...VIDEOS.aaaaaaaaaa3, noOpus: true } } } });
+    try {
+      const r = await run(['download', '--keep', '--keep-dir', keepDir, 'yt:aaaaaaaaaa1', 'yt:aaaaaaaaaa3', '--json'], { server, deps: d.deps });
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(d.y.calls.downloadOpts, [{ id: 'aaaaaaaaaa1', opus: true }, { id: 'aaaaaaaaaa3', opus: true }]);
+      assert.deepEqual(r.json.results.map((x) => x.format), ['opus', 'm4a']);
+      const [opus, m4a] = server.state.uploads;
+      assert.equal(opus.fileName, 'Daft Punk - Digital Love [aaaaaaaaaa1].opus');
+      assert.equal(opus.fileType, 'audio/ogg');
+      assert.equal(opus.fileContent, 'OPUS:aaaaaaaaaa1', 'uploaded as downloaded');
+      assert.equal(opus.fields.title, 'Digital Love');
+      assert.equal(m4a.fileName, 'Boards of Canada - Roygbiv [aaaaaaaaaa3].m4a');
+      assert.equal(m4a.fileType, 'audio/mp4');
+      assert.ok(d.m.calls.embedCover.some((c) => c.file.endsWith('aaaaaaaaaa1.opus')), 'cover embedded into the .opus');
+      assert.equal(d.m.calls.toM4a.length + d.m.calls.toOpus.length, 0, 'nothing converted');
+      // The kept .opus is reused on a later run.
+      server.state.songs.length = 0;
+      const again = await run(['download', '--keep', '--keep-dir', keepDir, 'yt:aaaaaaaaaa1', '--json'], { server, deps: d.deps });
+      assert.equal(again.json.results[0].status, 'uploaded');
+      assert.equal(d.y.calls.download.length, 2, 'not downloaded again');
+    } finally { await server.close(); }
+  });
+
+  test('a server that takes m4a only (no upload_formats in /api/me): downloads m4a exactly as before', async () => {
+    const server = await startServer();
+    const keepDir = tmpDir('la-keep-');
+    fs.writeFileSync(path.join(keepDir, 'Daft Punk - Digital Love [aaaaaaaaaa1].opus'), 'OPUS:aaaaaaaaaa1');
+    const d = deps();
+    try {
+      const r = await run(['download', '--keep', '--keep-dir', keepDir, 'yt:aaaaaaaaaa1', '--json'], { server, deps: d.deps });
+      assert.equal(r.code, 0, r.stderr);
+      assert.deepEqual(d.y.calls.downloadOpts, [{ id: 'aaaaaaaaaa1', opus: false }], 'a kept .opus is not used for it');
+      assert.equal(server.state.uploads[0].fileType, 'audio/mp4');
+      assert.match(server.state.uploads[0].fileName, /\.m4a$/);
+      assert.equal(server.state.calls.filter((c) => c.path === '/api/me').length, 1, 'asked once');
+    } finally { await server.close(); }
   });
 
   test('--no-upload files bulk-upload later with youtube_id and source_url auto-detected', async () => {
@@ -344,6 +386,48 @@ describe('upload', () => {
       const r2 = await run(['upload', path.join(dir, 'sub', 'untagged.mp3'), '--title', 'T', '--artist', 'A', '--request-id', '5', '--json'], { server, deps: d.deps });
       assert.equal(r2.code, 0, r2.stderr);
       assert.deepEqual(server.state.uploads.at(-1).fields, { title: 'T', artist: 'A', duration_sec: '10', request_id: '5' });
+    } finally { await server.close(); }
+  });
+
+  test('Opus: .opus as is to a server that takes it; .ogg Opus copied, WebM Opus remuxed (never re-encoded); m4a-only server converts', async () => {
+    const dir = tmpDir('la-files-');
+    fs.writeFileSync(path.join(dir, 'a.opus'), 'OGGOPUS');
+    fs.writeFileSync(path.join(dir, 'b.ogg'), 'OGGOPUS2');
+    fs.writeFileSync(path.join(dir, 'c.webm'), 'WEBMOPUS');
+    const files = {
+      OGGOPUS: { format: 'ogg', codec: 'opus', duration: 100, tags: { title: 'A', artist: 'Band' } },
+      OGGOPUS2: { format: 'ogg', codec: 'opus', duration: 110, tags: { title: 'B', artist: 'Band' } },
+      WEBMOPUS: { format: 'matroska,webm', codec: 'opus', duration: 120, tags: { title: 'C', artist: 'Band' } },
+    };
+    let server = await startServer({ me: { name: 'owner', upload_formats: ['m4a', 'opus'] } });
+    let d = deps({ media: { files } });
+    try {
+      const dry = await run(['upload', dir, '--dry-run', '--json'], { server, deps: d.deps });
+      assert.equal(dry.code, 0, dry.stderr);
+      assert.match(dry.json.results.find((x) => x.file.endsWith('c.webm')).reason, /no re-encode/);
+      const r = await run(['upload', dir, '--json'], { server, deps: d.deps });
+      assert.equal(r.code, 0, r.stderr);
+      const byName = Object.fromEntries(r.json.results.map((x) => [path.basename(x.file), x]));
+      assert.equal(byName['a.opus'].converted, false);
+      assert.equal(byName['b.ogg'].converted, false);
+      assert.equal(byName['c.webm'].converted, false);
+      assert.equal(byName['c.webm'].remuxed, true);
+      const up = Object.fromEntries(server.state.uploads.map((u) => [u.fields.title, u]));
+      assert.deepEqual([up.A.fileName, up.A.fileType, up.A.fileContent], ['a.opus', 'audio/ogg', 'OGGOPUS']);
+      assert.deepEqual([up.B.fileName, up.B.fileType, up.B.fileContent], ['b.opus', 'audio/ogg', 'OGGOPUS2']);
+      assert.deepEqual([up.C.fileName, up.C.fileType, up.C.fileContent], ['c.opus', 'audio/ogg', 'REMUXED:WEBMOPUS']);
+      assert.equal(d.m.calls.toM4a.length, 0, 'no lossy re-encode');
+      assert.equal(d.m.calls.toOpus.length, 1);
+    } finally { await server.close(); }
+
+    // An older server takes m4a only: converted to AAC m4a as la 0.2 did.
+    server = await startServer();
+    d = deps({ media: { files } });
+    try {
+      const r = await run(['upload', path.join(dir, 'a.opus'), '--json'], { server, deps: d.deps });
+      assert.equal(r.code, 0, r.stderr);
+      assert.equal(r.json.results[0].converted, true);
+      assert.deepEqual([server.state.uploads[0].fileName, server.state.uploads[0].fileType], ['a.m4a', 'audio/mp4']);
     } finally { await server.close(); }
   });
 

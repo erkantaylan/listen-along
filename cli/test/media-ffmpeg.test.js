@@ -5,6 +5,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { Media } = require('../src/media');
@@ -63,4 +64,64 @@ test('real ffmpeg: a `la download`-style m4a yields youtube_id + source_url from
   assert.equal(meta.youtube_id, 'saHMo3zV_iA');
   assert.equal(meta.source_url, 'https://www.youtube.com/watch?v=saHMo3zV_iA');
   assert.equal(meta.title, 'Misirlou');
+});
+
+/** md5 of a file's audio packets: equal = the same Opus data, not re-encoded. */
+function audioMd5(file) {
+  const p = spawnSync(ffmpeg, ['-v', 'error', '-i', file, '-map', '0:a', '-c', 'copy', '-f', 'md5', '-']);
+  assert.equal(p.status, 0, String(p.stderr));
+  return String(p.stdout).trim();
+}
+
+test('real ffmpeg: WebM Opus -> Ogg .opus by stream copy, cover embedded as METADATA_BLOCK_PICTURE, tags kept', { skip: !hasFfmpeg && 'ffmpeg/ffprobe not installed' }, async () => {
+  const dir = tmpDir('la-ff-');
+  const webm = path.join(dir, 'tone.webm');
+  const jpg = path.join(dir, 'cover.jpg');
+  let p = spawnSync(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2', '-c:a', 'libopus', '-b:a', '128k',
+    '-metadata', 'title=Tone', '-metadata', 'artist=Generator', '-metadata', 'comment=https://www.youtube.com/watch?v=saHMo3zV_iA', webm]);
+  if (p.status !== 0) return; // an ffmpeg without libopus: nothing to test here
+  p = spawnSync(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', 'color=c=red:s=64x48', '-frames:v', '1', jpg]);
+  assert.equal(p.status, 0, String(p.stderr));
+
+  const media = new Media();
+  const src = await media.probe(webm);
+  assert.equal(src.codec, 'opus');
+  assert.equal(Media.uploadFormat(src, webm), null);
+
+  const out = path.join(dir, 'tone.opus');
+  await media.toOpus(webm, out);
+  const ogg = await media.probe(out);
+  assert.equal(Media.uploadFormat(ogg, out), 'opus', JSON.stringify(ogg));
+  assert.equal(ogg.tags.title, 'Tone');
+  assert.equal(ogg.tags.artist, 'Generator');
+  assert.equal(audioMd5(out), audioMd5(webm), 'the Opus packets are copied, not re-encoded');
+
+  await media.embedCover(out, jpg);
+  const withCover = await media.probe(out);
+  assert.equal(withCover.hasCover, true);
+  assert.equal(Media.uploadFormat(withCover, out), 'opus');
+  assert.equal(withCover.tags.title, 'Tone');
+  assert.equal(withCover.tags.artist, 'Generator');
+  assert.ok(Math.abs(withCover.duration - 2) < 0.2);
+  assert.equal(audioMd5(out), audioMd5(webm), 'still the same Opus packets');
+  const meta = await readMeta(media, out);
+  assert.equal(meta.youtube_id, 'saHMo3zV_iA', 'from the comment tag, as with m4a');
+  assert.ok(!fs.readdirSync(dir).some((f) => f.includes('.cover.')), 'no temp files left');
+});
+
+test('flacPictureBlock reads the JPEG size', () => {
+  const { flacPictureBlock, jpegSize, escapeFfmeta } = require('../src/media');
+  // Minimal JPEG header: SOI, APP0 (len 16), SOF0 with height 48, width 64.
+  const app0 = Buffer.from([0xff, 0xe0, 0x00, 0x10, ...Buffer.alloc(14)]);
+  const sof = Buffer.from([0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x30, 0x00, 0x40, 0x03, ...Buffer.alloc(9)]);
+  const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8]), app0, sof, Buffer.from([0xff, 0xd9])]);
+  assert.deepEqual(jpegSize(jpeg), { width: 64, height: 48 });
+  const block = flacPictureBlock(jpeg);
+  assert.equal(block.readUInt32BE(0), 3, 'front cover');
+  assert.equal(block.subarray(8, 18).toString(), 'image/jpeg');
+  assert.equal(block.readUInt32BE(22), 64);
+  assert.equal(block.readUInt32BE(26), 48);
+  assert.equal(block.readUInt32BE(38), jpeg.length);
+  assert.deepEqual(jpegSize(Buffer.from('nope')), { width: 0, height: 0 });
+  assert.equal(escapeFfmeta('a=b;c#d\\e\nf'), 'a\\=b\\;c\\#d\\\\e\\\nf');
 });

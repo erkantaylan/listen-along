@@ -11,14 +11,18 @@ const { DEDUPE_OPTIONS, checkReplace } = require('./download');
 module.exports = {
   name: 'upload',
   aliases: ['up'],
-  summary: 'Upload local audio files or directories to the library (converts non-m4a to AAC m4a)',
+  summary: 'Upload local audio files or directories to the library (m4a and Opus as is, others converted to AAC m4a)',
   usage: 'la upload [options] <file-or-dir>...',
   description: `Uploads local audio files. Directories are scanned recursively for audio files
 (${[...AUDIO_EXTS].join(' ')}); hidden files are ignored.
 
-The server only accepts m4a: AAC-in-MP4 files (.m4a/.mp4) are uploaded as-is; anything
-else (mp3, flac, opus, ...) is converted locally with ffmpeg to AAC m4a at --bitrate
-(default 192k), keeping tags and cover art. Your original files are never modified.
+The server takes AAC m4a and Opus: AAC-in-MP4 files (.m4a/.mp4) and Ogg Opus files
+(.opus) are uploaded as-is; Ogg Opus named .ogg/.oga is uploaded as the same bytes
+under a .opus name; Opus in WebM/Matroska is copied into .opus without re-encoding
+(cover art is not carried over). Anything else (mp3, flac, vorbis, ...) is converted
+locally with ffmpeg to AAC m4a at --bitrate (default 192k), keeping tags and cover
+art. A server that takes m4a only (older than la 0.3) gets Opus converted to AAC
+m4a too, as before. Your original files are never modified.
 
 Metadata comes from the file's tags via ffprobe: title, artist (falls back to
 album_artist/composer), album, duration. --title/--artist/--album override the tags.
@@ -63,7 +67,8 @@ song to that server playlist; see \`la download --help\` for the lookup rules,
   output: `Progress on stderr. stdout: a summary (or --json document):
 { "summary": { "total", "uploaded", "skipped", "failed", ["would_upload"] },
   "results": [ { "file", "status": "uploaded|skipped|failed|would_upload", "title", "artist",
-                 "youtube_id"?, "source_url"?, "converted": bool, "song"?, "fields"? (dry-run), "reason"?,
+                 "youtube_id"?, "source_url"?, "converted": bool (re-encoded to AAC m4a),
+                 "remuxed"?: true (Opus copied into .opus), "song"?, "fields"? (dry-run), "reason"?,
                  "error"?, "code"?, "duplicate_of"?, "playlist_status"?, "playlist_error"? } ],
   "playlist"?: { "id", "name", "visibility", "created", "added", "already_in_playlist", "failed" } }
 Exit 0 if nothing failed, 1 if any file (or playlist add) failed or the --playlist

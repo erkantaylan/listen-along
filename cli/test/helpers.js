@@ -138,7 +138,7 @@ async function startServer(overrides = {}) {
       for (const [k, v] of form.entries()) if (typeof v === 'string') fields[k] = v;
       const file = form.get('file');
       const fileContent = file ? Buffer.from(await file.arrayBuffer()).toString() : null;
-      state.replaces.push({ id: rm[1], fields, fileContent });
+      state.replaces.push({ id: rm[1], fields, fileContent, fileName: file && file.name, fileType: file && file.type });
       if (state.failReplace) {
         const f = state.failReplace(rm[1], fields);
         if (f) return send(f.status, f.body);
@@ -294,12 +294,14 @@ async function run(argv, { env = {}, deps = {}, server } = {}) {
 }
 
 /**
- * Fake yt-dlp layer. `videos` maps id -> { title, artist, album, duration, fail? }.
+ * Fake yt-dlp layer. `videos` maps id -> { title, artist, album, duration, fail?, noOpus? }.
  * `searches` maps query -> [entries]; `playlists` maps listId -> [ids].
- * download() writes a small fake m4a whose content is "AUDIO:<id>".
+ * download() writes a small fake m4a whose content is "AUDIO:<id>", or, when
+ * asked for Opus (opus: true, a server that takes it) and the video has it
+ * (not noOpus), a fake "<id>.opus" whose content is "OPUS:<id>".
  */
 function fakeYtdlp({ videos = {}, searches = {}, playlists = {}, missing = false, version = '2026.01.01', gate = null } = {}) {
-  const calls = { download: [], search: [], playlist: [], extraArgs: null };
+  const calls = { download: [], downloadOpts: [], search: [], playlist: [], extraArgs: null };
   const factory = (opts) => {
     calls.extraArgs = opts.extraArgs;
     return {
@@ -319,17 +321,19 @@ function fakeYtdlp({ videos = {}, searches = {}, playlists = {}, missing = false
         const list = new URL(url).searchParams.get('list');
         return (playlists[list] || []).map((id) => ({ id, title: videos[id]?.title, url: `https://www.youtube.com/watch?v=${id}` }));
       },
-      async download(url, { outDir }) {
+      async download(url, { outDir, opus }) {
         const id = new URL(url).searchParams.get('v');
         calls.download.push(id);
+        calls.downloadOpts.push({ id, opus });
         if (gate) await gate(id);
         const v = videos[id];
         if (!v || v.fail) {
           const { CliError } = require('../src/errors');
           throw new CliError(v?.fail || 'Video is unavailable', { code: v?.failCode || 'VIDEO_UNAVAILABLE' });
         }
-        const file = path.join(outDir, `${id}.m4a`);
-        fs.writeFileSync(file, `AUDIO:${id}`);
+        const asOpus = !!opus && !v.noOpus;
+        const file = path.join(outDir, `${id}.${asOpus ? 'opus' : 'm4a'}`);
+        fs.writeFileSync(file, `${asOpus ? 'OPUS' : 'AUDIO'}:${id}`);
         const thumb = path.join(outDir, `${id}.jpg`);
         fs.writeFileSync(thumb, 'JPEG');
         return { file, thumbnail: thumb, info: { id, title: v.title, track: v.title, artist: v.artist, album: v.album, duration: v.duration, filepath: file, webpage_url: `https://www.youtube.com/watch?v=${id}` } };
@@ -344,7 +348,7 @@ function fakeYtdlp({ videos = {}, searches = {}, playlists = {}, missing = false
  * content, or are parsed from fake m4a content "AUDIO:<id>" via `videos`.
  */
 function fakeMedia({ videos = {}, files = {}, missing = false } = {}) {
-  const calls = { probe: [], toM4a: [], embedCover: [] };
+  const calls = { probe: [], toM4a: [], toOpus: [], embedCover: [] };
   const factory = () => ({
     async check() {
       if (missing) {
@@ -356,12 +360,13 @@ function fakeMedia({ videos = {}, files = {}, missing = false } = {}) {
       calls.probe.push(file);
       const content = fs.readFileSync(file, 'utf8');
       if (files[content]) return files[content];
-      const m = /^AUDIO:(.+)$/.exec(content);
-      if (m && videos[m[1]]) {
-        const v = videos[m[1]];
+      const m = /^(AUDIO|OPUS):(.+)$/.exec(content);
+      if (m && videos[m[2]]) {
+        const v = videos[m[2]];
+        const opus = m[1] === 'OPUS';
         return {
-          format: 'mov,mp4,m4a,3gp,3g2,mj2', codec: 'aac', duration: v.duration, hasCover: true,
-          tags: { title: v.title, artist: v.artist, album: v.album, comment: `https://www.youtube.com/watch?v=${m[1]}` },
+          format: opus ? 'ogg' : 'mov,mp4,m4a,3gp,3g2,mj2', codec: opus ? 'opus' : 'aac', duration: v.duration, hasCover: true,
+          tags: { title: v.title, artist: v.artist, album: v.album, comment: `https://www.youtube.com/watch?v=${m[2]}` },
         };
       }
       return { format: 'mov,mp4,m4a,3gp,3g2,mj2', codec: 'aac', duration: 100, hasCover: false, tags: {} };
@@ -369,6 +374,11 @@ function fakeMedia({ videos = {}, files = {}, missing = false } = {}) {
     async toM4a(input, output, opts) {
       calls.toM4a.push({ input, output, opts });
       fs.writeFileSync(output, `CONVERTED:${fs.readFileSync(input, 'utf8')}`);
+      return output;
+    },
+    async toOpus(input, output) {
+      calls.toOpus.push({ input, output });
+      fs.writeFileSync(output, `REMUXED:${fs.readFileSync(input, 'utf8')}`);
       return output;
     },
     async embedCover(file, cover) {

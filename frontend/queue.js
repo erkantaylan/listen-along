@@ -119,9 +119,13 @@ export function cancelPlaylistDownload() {
 }
 
 // File extension for a downloaded song. Library uploads are AAC m4a
-// (audio/mp4); only migrated legacy cache files are mp3.
-const AUDIO_EXTENSIONS = { 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/m4a': 'm4a', 'audio/aac': 'm4a', 'audio/mpeg': 'mp3', 'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/wav': 'wav', 'audio/x-wav': 'wav' };
-function audioExtension(contentType) {
+// (audio/mp4) or Opus (.opus, served as audio/ogg); migrated legacy cache files
+// are mp3. The server's file name (Content-Disposition) knows best; the
+// Content-Type is the fallback.
+const AUDIO_EXTENSIONS = { 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/m4a': 'm4a', 'audio/aac': 'm4a', 'audio/mpeg': 'mp3', 'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/opus': 'opus', 'audio/wav': 'wav', 'audio/x-wav': 'wav' };
+function audioExtension(contentType, disposition) {
+  const named = /filename="[^"]*\.([a-z0-9]{2,5})"/i.exec(String(disposition || ''));
+  if (named) return named[1].toLowerCase();
   const type = String(contentType || '').split(';')[0].trim().toLowerCase();
   return AUDIO_EXTENSIONS[type] || 'm4a';
 }
@@ -151,7 +155,7 @@ export async function downloadPlaylist() {
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const blob = await res.blob();
-      const ext = audioExtension(blob.type);
+      const ext = audioExtension(blob.type, res.headers.get('Content-Disposition'));
 
       const objUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');

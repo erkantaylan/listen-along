@@ -27,13 +27,47 @@ function safeName(s) {
   return String(s).replace(/[\/\\\0]/g, '-').replace(/[\x00-\x1f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 150) || 'untitled';
 }
 
-/** Find a previously kept copy "<anything> [<id>].m4a" in keepDir. */
-function findKept(keepDir, id) {
+/** File extension of each upload format (as the server names them). */
+const FORMAT_EXT = { m4a: '.m4a', opus: '.opus' };
+/** Every format this CLI can make; a server may take fewer (uploadFormats). */
+const ALL_FORMATS = Object.keys(FORMAT_EXT);
+
+/**
+ * Find a previously kept copy "<anything> [<id>].m4a" (or ".opus") in keepDir,
+ * of one of `formats` (what the server takes).
+ */
+function findKept(keepDir, id, formats = ALL_FORMATS) {
   if (!keepDir || !id) return null;
   let names;
   try { names = fs.readdirSync(keepDir); } catch { return null; }
-  const hit = names.find((n) => n.endsWith(`[${id}].m4a`));
+  const ends = formats.filter((f) => FORMAT_EXT[f]).map((f) => `[${id}]${FORMAT_EXT[f]}`);
+  const hit = names.find((n) => ends.some((e) => n.endsWith(e)));
   return hit ? path.join(keepDir, hit) : null;
+}
+
+/**
+ * The upload formats the server takes: ['m4a', 'opus'] from a server that
+ * says so in GET /api/me (upload_formats), else ['m4a'] (an older server).
+ */
+async function serverFormats(api) {
+  if (!api || typeof api.uploadFormats !== 'function') return ['m4a'];
+  const formats = await api.uploadFormats();
+  return ALL_FORMATS.filter((f) => formats.includes(f));
+}
+
+/**
+ * What `la upload` does with a local file before uploading it, given what the
+ * server takes. Never a lossy -> lossy re-encode when it can be avoided:
+ *   'as-is'     already m4a, or an Ogg Opus `.opus` the server takes
+ *   'copy'      Ogg Opus under another name (.ogg/.oga): the same bytes as .opus
+ *   'remux'     Opus in WebM/Matroska: the stream copied into Ogg .opus
+ *   'transcode' anything else, or Opus for a server that takes m4a only: AAC m4a
+ */
+function uploadPlan(probe, file, formats) {
+  const fmt = Media.uploadFormat(probe, file);
+  if (fmt && formats.includes(fmt)) return 'as-is';
+  if (probe.codec === 'opus' && formats.includes('opus')) return Media.isOggOpus(probe) ? 'copy' : 'remux';
+  return 'transcode';
 }
 
 /**
@@ -245,6 +279,8 @@ async function downloadAndUpload(ctx, inputs, opts, batch) {
   }
 
   const replacing = opts.replace !== undefined && opts.replace !== null;
+  // Opus unless the server takes m4a only (then exactly as la 0.2 did).
+  const formats = api && !opts.dryRun ? await serverFormats(api) : ALL_FORMATS;
   // Resume: one library listing, then skip anything we already have.
   let have = new Map();
   if (api && !opts.skipLibraryCheck && !replacing) {
@@ -285,7 +321,7 @@ async function downloadAndUpload(ctx, inputs, opts, batch) {
         continue;
       }
     }
-    const kept = findKept(keepDir, t.id);
+    const kept = findKept(keepDir, t.id, formats);
     if (opts.dryRun) {
       const status = replacing ? 'would_replace' : 'would_download';
       batch.add({ ...base, status, reason: kept ? `local copy exists: ${kept}` : undefined, local_file: kept || undefined, ...(replacing ? { replaced_id: opts.replace } : {}) });
@@ -304,7 +340,7 @@ async function downloadAndUpload(ctx, inputs, opts, batch) {
         downloadsDone++;
         tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'la-dl-'));
         out.info(`Downloading ${t.label}…`);
-        const dl = await ytdlp.download(t.url, { outDir: tmpDir });
+        const dl = await ytdlp.download(t.url, { outDir: tmpDir, opus: formats.includes('opus') });
         file = dl.file;
         info = dl.info || {};
         if (dl.thumbnail) {
@@ -329,9 +365,12 @@ async function downloadAndUpload(ctx, inputs, opts, batch) {
         meta.artist = opts.keepMeta.artist;
         meta.album = opts.keepMeta.album || null;
       }
-      if (!Media.isAacM4a(meta.probe, file)) {
-        throw Object.assign(new Error(`Downloaded file is not AAC m4a (${meta.probe.codec} in ${meta.probe.format})`), { code: 'NOT_M4A' });
+      const format = Media.uploadFormat(meta.probe, file);
+      if (!format || !formats.includes(format)) {
+        const want = formats.includes('opus') ? 'AAC m4a or Ogg Opus' : 'AAC m4a';
+        throw Object.assign(new Error(`Downloaded file is not ${want} (${meta.probe.codec} in ${meta.probe.format})`), { code: 'NOT_M4A' });
       }
+      base.format = format;
       if (!meta.title || !meta.artist) {
         throw Object.assign(new Error('Could not determine title/artist from the video'), { code: 'MISSING_TAGS' });
       }
@@ -344,7 +383,7 @@ async function downloadAndUpload(ctx, inputs, opts, batch) {
       // Keep before upload so a failed upload doesn't lose the download.
       if (keepDir && file !== kept) {
         fs.mkdirSync(keepDir, { recursive: true });
-        const dest = path.join(keepDir, safeName(`${meta.artist} - ${meta.title}`) + (meta.youtube_id ? ` [${meta.youtube_id}]` : '') + '.m4a');
+        const dest = path.join(keepDir, safeName(`${meta.artist} - ${meta.title}`) + (meta.youtube_id ? ` [${meta.youtube_id}]` : '') + FORMAT_EXT[format]);
         fs.copyFileSync(file, dest);
         file = dest;
         base.local_file = dest;
@@ -380,7 +419,9 @@ async function downloadAndUpload(ctx, inputs, opts, batch) {
 }
 
 /**
- * Upload local files (converting non-m4a to AAC m4a first). Before each
+ * Upload local files: m4a and (to a server that takes it) Ogg Opus as they
+ * are, Opus in another container remuxed to .opus, anything else converted to
+ * AAC m4a first (uploadPlan). Before each
  * upload the server is asked for duplicates (youtube_id, hash of the bytes
  * that would be uploaded, normalized artist + title ±3s); a probable
  * (metadata) match is skipped unless opts.allowSimilar. With opts.replace
@@ -391,6 +432,7 @@ async function uploadFiles(ctx, files, opts, batch) {
   const { out, media } = ctx;
   const api = ctx.getApi();
   await media.check();
+  const formats = await serverFormats(api);
   let have = null; // lazily fetched library youtube_id -> song
   const replacing = opts.replace !== undefined && opts.replace !== null;
 
@@ -407,8 +449,11 @@ async function uploadFiles(ctx, files, opts, batch) {
       }
       base.title = meta.title;
       base.artist = meta.artist;
-      const needsConvert = !Media.isAacM4a(meta.probe, file);
-      base.converted = needsConvert;
+      const plan = uploadPlan(meta.probe, file, formats);
+      // The bytes change (so the hash is known only afterwards).
+      const needsConvert = plan === 'remux' || plan === 'transcode';
+      base.converted = plan === 'transcode';
+      if (plan === 'remux') base.remuxed = true;
 
       // Also on --dry-run, so the preview matches what a real run would skip.
       const checks = !replacing && opts.requestId === undefined;
@@ -432,17 +477,29 @@ async function uploadFiles(ctx, files, opts, batch) {
       }
       const fields = uploadFields(meta, { request_id: opts.requestId, allow_similar: !replacing && opts.allowSimilar });
       if (opts.dryRun) {
-        const r = { ...base, status: replacing ? 'would_replace' : 'would_upload', fields, reason: needsConvert ? `would convert ${meta.probe.codec} → aac m4a` : undefined };
+        const reason = plan === 'transcode' ? `would convert ${meta.probe.codec} → aac m4a`
+          : plan === 'remux' ? 'would copy the opus stream into .opus (no re-encode)' : undefined;
+        const r = { ...base, status: replacing ? 'would_replace' : 'would_upload', fields, reason };
         if (replacing) r.replaced_id = opts.replace;
         batch.add(r);
         continue;
       }
       let uploadPath = file;
-      if (needsConvert) {
+      if (plan !== 'as-is') {
         tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'la-up-'));
-        uploadPath = path.join(tmpDir, `${safeName(path.parse(file).name)}.m4a`);
-        out.info(`Converting ${path.basename(file)} (${meta.probe.codec}) → AAC m4a…`);
-        await media.toM4a(file, uploadPath, { bitrate: opts.bitrate });
+        const name = safeName(path.parse(file).name);
+        if (plan === 'transcode') {
+          uploadPath = path.join(tmpDir, `${name}.m4a`);
+          out.info(`Converting ${path.basename(file)} (${meta.probe.codec}) → AAC m4a…`);
+          await media.toM4a(file, uploadPath, { bitrate: opts.bitrate });
+        } else if (plan === 'remux') {
+          uploadPath = path.join(tmpDir, `${name}.opus`);
+          out.info(`Copying the Opus audio of ${path.basename(file)} into .opus (no re-encode)…`);
+          await media.toOpus(file, uploadPath);
+        } else {
+          uploadPath = path.join(tmpDir, `${name}.opus`);
+          fs.copyFileSync(file, uploadPath);
+        }
       }
       if (replacing) {
         out.info(`Replacing library song ${opts.replace} with ${meta.artist} - ${meta.title}…`);
@@ -468,5 +525,5 @@ async function uploadFiles(ctx, files, opts, batch) {
 
 module.exports = {
   downloadAndUpload, uploadFiles, resolveTargets, readMeta, pickSourceUrl, uploadFields, safeName, findKept, isFatal,
-  guessArtistTitle, duplicateSkip, preCheck, sha256File,
+  guessArtistTitle, duplicateSkip, preCheck, sha256File, serverFormats, uploadPlan, ALL_FORMATS, FORMAT_EXT,
 };
