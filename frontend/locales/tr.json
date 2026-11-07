@@ -328,5 +328,28 @@
     "openTokens": "Profilimde CLI token'larını aç",
     "revokeTitle": "İptal etme.",
     "revokeBody": "Token sizin adınıza işlem yapar; gizli tutun ve her cihaz için ayrı bir tane kullanın. Bir cihazın erişimini kesmek için profilinizde token'ının yanındaki “Revoke” düğmesine basın; uygulama yenisini alana kadar “Token rejected” der."
+  },
+  "artists": {
+    "title": "Sanatçılar",
+    "kind": "Sanatçı",
+    "showAll": "Tümünü göster",
+    "showAllArtists": "Tüm sanatçılar",
+    "back": "Geri",
+    "search": "Sanatçı ara",
+    "scrollBack": "Geri kaydır",
+    "scrollOn": "İleri kaydır",
+    "play": "{name} çal",
+    "oneSong": "1 şarkı",
+    "songCount": "{count} şarkı",
+    "oneArtist": "1 sanatçı",
+    "artistCount": "{count} sanatçı",
+    "matchCount": "{shown} / {total}",
+    "noMatch": "Aramanla eşleşen sanatçı yok",
+    "emptyTitle": "Henüz sanatçı yok",
+    "loadFailed": "Sanatçılar yüklenemedi",
+    "loadOneFailed": "Bu sanatçı yüklenemedi",
+    "notFound": "Bu sanatçının şarkısı yok",
+    "statsLabel": "Sanatçı istatistikleri",
+    "anArtist": "bir sanatçı"
   }
 }

@@ -37,6 +37,7 @@ const downloadJobs = require('./downloadJobs');
 const { createWorkerHub } = require('./workerHub');
 const { createJobRouter } = require('./jobRoutes');
 const { createStationRouter } = require('./stations');
+const { createArtistRouter } = require('./artists');
 const resolver = createResolver();
 const QRCode = require('qrcode');
 const pkg = require('../package.json');
@@ -426,6 +427,9 @@ app.use(createLibraryRouter({
 
 // Radio stations (stations.js). Approved accounts only, by the guard's default.
 app.use(createStationRouter());
+
+// Artists: read-only song lists per library artist (artists.js). Approved accounts only, by the guard's default.
+app.use(createArtistRouter());
 
 // The caller's own CLI tokens (profile page). Approved accounts only.
 app.use(createTokenRouter({
@@ -1965,7 +1969,7 @@ app.get(['/lobby/:id', '/lobby/:id/library'], (req, res) => {
 });
 
 // SPA views (auth guard applied above; the client routes them, see frontend/router.js)
-app.get(['/playlist/:id', '/playlist/:id/library', '/library', '/radio', '/profile', '/social', '/app'], (req, res) => {
+app.get(['/playlist/:id', '/playlist/:id/library', '/library', '/radio', '/artists', '/artist/:key', '/profile', '/social', '/app'], (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 

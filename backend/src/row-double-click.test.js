@@ -49,6 +49,14 @@ describe('row-double-click', () => {
     assert.equal(up.stopped, false);
   });
 
+  it('an artist card plays as artist:<key>', () => {
+    const card = { id: '', dataset: { artistKey: 'barismanco' }, closest(sel) { return sel.startsWith('button') ? null : this; } };
+    assert.deepEqual(m.rowTarget(card), { id: 'artist:barismanco' });
+    press(card);
+    press(card, 2);
+    assert.deepEqual(played, ['artist:barismanco']);
+  });
+
   it('a double-click plays once and takes the second press', () => {
     press(el());
     const { down, up } = press(el(), 2);

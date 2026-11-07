@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- feat(web): **Artists**. The landing page has a row of the library's artists with the most songs, and **Show all** opens `/artists`, every artist A-Z with a search. An artist opens a read-only list of their songs at `/artist/<name>`: Play starts at the top, a row plays from there, and the song menu works as usual. The card's play button, or a double-click, plays an artist straight away. Spellings like "Barış Manço", "barismanco" and "Barış Manço - Topic" count as one artist; songs marked broken stay out. The people panel names the artist as the source
+- feat(api): `GET /api/artists` and `GET /api/artists/:key/songs` for approved web accounts; the now-playing context may be `{ type: 'artist', key, name }`
 - feat(android): signed release builds, published as GitHub Releases from a tag `android-vX.Y.Z` (`listen-along-X.Y.Z.apk` plus its SHA-256). versionName and versionCode come from the tag, and every release installs over the one before. The first one is `android-v0.2.0`
 - feat(web): **Android app** page at `/app`: download the latest APK with its version, size and SHA-256, how to install it (unknown sources, Play Protect, updates), and how to connect it with a token. In English and Turkish, linked from the About card and the CLI tokens card, and open to accounts still waiting for approval. `/profile#tokens` goes straight to the tokens
 - feat(api): `GET /api/app/latest` reads the release from GitHub, cached for 10 minutes; when GitHub is down the page still works and links to the releases page

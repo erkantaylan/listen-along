@@ -18,7 +18,7 @@
   /* The page column is a size container: rules about what fits in it use
      @container page, because the sidebar and chat panel take a viewport-sized
      guess out of it. Not the dashboard: it has fixed children of its own. */
-  #landing-view, #lobby-view, #radio-view, #profile-view, #app-view, .library-page { container: page / inline-size; }
+  #landing-view, #lobby-view, #radio-view, #artists-view, #artist-view, #profile-view, #app-view, .library-page { container: page / inline-size; }
 
   /* With a mouse the page column scrolls instead of the document, so the fixed
      chat panel and player bar never move when a page starts or stops overflowing
@@ -27,12 +27,12 @@
      with it) and has overlay scrollbars. */
   @media (pointer: fine) {
     html, body { overflow: hidden; }
-    .view.active:not(#lobby-view, #radio-view) {
+    .view.active:not(#lobby-view, #radio-view, #artist-view) {
       height: 100dvh;
       min-height: 0;
       overflow: hidden auto;
     }
-    body.has-player-bar .view.active:not(#lobby-view, #radio-view) {
+    body.has-player-bar .view.active:not(#lobby-view, #radio-view, #artist-view) {
       height: calc(100dvh - var(--app-player-height, 0px));
       padding-bottom: 0;
     }
@@ -132,8 +132,79 @@
     transform: translateX(-50%);
   }
 
+  /* -------------------------------------------------------------- Artists */
+  /* Cards (artists.js): a round cover, the name and a song count. The whole card
+     is its link (a stretched ::after); the play button sits over the cover's
+     corner, on hover / focus, always on touch. The artist playing is the usual
+     selection tint with an accent name, no edge. */
+  .artist-shelf, .artist-grid { padding: 0; margin: 0; list-style: none; }
+  .artist-shelf {
+    display: grid;
+    grid-auto-columns: 8.5rem;
+    grid-auto-flow: column;
+    gap: 0.25rem;
+    padding: 0.5rem;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    scroll-padding-inline: 0.5rem;
+    scrollbar-width: thin;
+  }
+  .artist-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: 0.25rem; }
+  @container page (width < 400px) {
+    .artist-shelf { grid-auto-columns: 7.25rem; }
+    .artist-grid { grid-template-columns: repeat(auto-fill, minmax(7.25rem, 1fr)); }
+  }
+  .artist-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding: 0.625rem;
+    cursor: pointer;
+    user-select: none; /* a double-click plays */
+    border-radius: var(--bs-border-radius-lg);
+    scroll-snap-align: start;
+  }
+  .artist-card:hover { background-color: var(--bs-bg-1); }
+  .artist-card:active { background-color: var(--bs-bg-2); }
+  .artist-card.is-current { background-color: var(--app-accent-subtle); }
+  .artist-card-media { position: relative; margin-bottom: 0.5rem; }
+  .app-thumb.artist-card-art { width: 100%; height: auto; aspect-ratio: 1; border-radius: 50%; }
+  .artist-card-play {
+    position: absolute;
+    right: 0.25rem;
+    bottom: 0.25rem;
+    z-index: 1;
+    border-radius: 50%;
+    box-shadow: var(--bs-box-shadow);
+    opacity: 0;
+  }
+  .artist-card:hover .artist-card-play, .artist-card:focus-within .artist-card-play { opacity: 1; }
+  @media (hover: none) { .artist-card-play { opacity: 1; } }
+  .artist-card-link {
+    min-width: 0;
+    font-size: var(--bs-font-size-sm);
+    font-weight: var(--bs-font-weight-medium);
+    color: var(--app-text);
+    text-decoration: none;
+  }
+  .artist-card-link::after { position: absolute; inset: 0; content: ""; border-radius: inherit; }
+  .artist-card-link:focus-visible { outline: none; }
+  .artist-card-link:focus-visible::after { outline: 2px solid var(--app-focus); outline-offset: -2px; }
+  .artist-card-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .artist-card.is-current .artist-card-link { font-weight: var(--bs-font-weight-semibold); color: var(--app-accent-text-strong); }
+  .artist-card-meta { overflow: hidden; font-size: var(--bs-font-size-xs); color: var(--app-text-muted); text-overflow: ellipsis; white-space: nowrap; }
+  .artists-empty { grid-column: 1 / -1; padding-block: 2rem; text-align: center; }
+  .artists-search { max-width: 24rem; }
+  /* The shelf's arrows: only for a mouse, and only while the row overflows (artists.js). */
+  .artists-shelf-nav { display: none; }
+  @media (hover: hover) and (pointer: fine) { .artists-shelf-nav:not([hidden]) { display: inline-flex; } }
+  .artists-show-all { white-space: nowrap; }
+  .app-thumb.artist-nav-cover { flex-shrink: 0; width: 2.25rem; height: 2.25rem; border-radius: 50%; }
+
   /* ---------------------------------------------------------------- Lobby */
-  #lobby-view.active, #radio-view.active {
+  #lobby-view.active, #radio-view.active, #artist-view.active {
     height: 100vh;
     height: 100dvh;
     min-height: 0;
@@ -293,9 +364,10 @@
     .queue-cell.queue-col-date { display: block; }
     .queue-head .queue-col-date { display: inline; }
   }
-  /* Radio's table has no Added by / Added, whatever the width. */
+  /* Radio's and an artist's tables have no Added by / Added, whatever the width. */
   @container page (width >= 480px) {
-    .radio-table .queue-head, .radio-table .queue-item { --queue-columns: 2.5rem minmax(0, 1fr) 4.25rem 2.5rem; }
+    .radio-table .queue-head, .radio-table .queue-item,
+    .artist-table .queue-head, .artist-table .queue-item { --queue-columns: 2.5rem minmax(0, 1fr) 4.25rem 2.5rem; }
   }
   .queue-item-progress { --bs-progress-height: 0.25rem; margin-top: 0.25rem; }
   .queue-item-actions {
@@ -716,7 +788,7 @@
   @media (width < 768px) {
     body.has-plnav .plnav-open-btn { display: inline-flex; flex-shrink: 0; }
     /* The drawer holds Home, so the playlist page's ☰ takes the back button's place. */
-    body.has-plnav #back-btn, body.has-plnav .radio-back { display: none; }
+    body.has-plnav #back-btn, body.has-plnav .radio-back, body.has-plnav .artists-back, body.has-plnav .artist-back { display: none; }
     body.has-plnav .app-sidebar {
       position: fixed;
       top: 0;

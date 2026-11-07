@@ -328,5 +328,28 @@
     "openTokens": "Open CLI tokens on my profile",
     "revokeTitle": "Revoking.",
     "revokeBody": "The token acts as you, so keep it private and use one per device. To cut a device off, press “Revoke” next to its token on your profile; the app then gets “Token rejected” until it has a new one."
+  },
+  "artists": {
+    "title": "Artists",
+    "kind": "Artist",
+    "showAll": "Show all",
+    "showAllArtists": "All artists",
+    "back": "Back",
+    "search": "Search artists",
+    "scrollBack": "Scroll back",
+    "scrollOn": "Scroll on",
+    "play": "Play {name}",
+    "oneSong": "1 song",
+    "songCount": "{count} songs",
+    "oneArtist": "1 artist",
+    "artistCount": "{count} artists",
+    "matchCount": "{shown} of {total}",
+    "noMatch": "No artist matches your search",
+    "emptyTitle": "No artists yet",
+    "loadFailed": "Could not load the artists",
+    "loadOneFailed": "Could not load this artist",
+    "notFound": "No songs by this artist",
+    "statsLabel": "Artist stats",
+    "anArtist": "an artist"
   }
 }

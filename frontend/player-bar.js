@@ -8,7 +8,7 @@
 import { state, elements } from './state.js';
 import { navigateTo, t } from './ui.js';
 import { player } from './player.js';
-import { playlistPath } from './router.js';
+import { artistPath, playlistPath } from './router.js';
 import { listenState, onListenChange, followersText, stopListenAlong } from './listen-along.js';
 import { bindSongMenu, bindReportIcons, reportIconHtml, reportsFor, onReportsChange } from './song-reports.js';
 
@@ -53,6 +53,7 @@ export function contextLabel(ctx) {
   if (!ctx) return '';
   if (ctx.type === 'library') return t('player.fromLibrary', 'Music Library');
   if (ctx.type === 'radio') return t('radio.title', 'Radio');
+  if (ctx.type === 'artist') return ctx.name || ctx.key;
   if (ctx.type === 'listen') {
     // Only while actually listening along (the track stays after stopping).
     const { leader } = listenState();
@@ -65,6 +66,7 @@ function contextPath(ctx) {
   if (!ctx) return null;
   if (ctx.type === 'library') return '/library';
   if (ctx.type === 'radio') return '/radio';
+  if (ctx.type === 'artist') return artistPath(ctx.key);
   if (ctx.type === 'listen') return null;
   return playlistPath(ctx.lobbyId);
 }
@@ -96,7 +98,9 @@ export function refreshPlayerBar() {
     elements.trackArtist.textContent = t('player.pickSong', 'Pick a song in a playlist or the library');
     return;
   }
-  elements.trackArtist.textContent = [track.artist, contextLabel(ctx)].filter(Boolean).join(' · ');
+  // From an artist's page the context is usually the song's own artist: say it once.
+  const from = contextLabel(ctx);
+  elements.trackArtist.textContent = (from && from === track.artist ? [from] : [track.artist, from]).filter(Boolean).join(' · ');
 }
 
 // The strip above the bar's row: following someone, or being listened to.

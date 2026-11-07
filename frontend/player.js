@@ -4,7 +4,8 @@
 //
 // "Context" is what playback was last started from: a lobby queue
 // ({ type: 'lobby', lobbyId, name }), the music library list
-// ({ type: 'library' }), Radio ({ type: 'radio', stationId }), or another user while listening along
+// ({ type: 'library' }), Radio ({ type: 'radio', stationId }), an artist's songs
+// ({ type: 'artist', key, name }, artist-page.js), or another user while listening along
 // ({ type: 'listen', leaderId, name }, no songs), plus its songs. It stays current while other pages
 // (and other lobbies) are shown, and changes only when play is pressed on a
 // song somewhere else (playFrom).
@@ -76,6 +77,7 @@ function normalizeContext(ctx) {
   if (!ctx) return null;
   if (ctx.type === 'library') return { type: 'library', name: ctx.name || null };
   if (ctx.type === 'radio') return { type: 'radio', stationId: ctx.stationId || null, name: ctx.name || null };
+  if (ctx.type === 'artist') return ctx.key ? { type: 'artist', key: ctx.key, name: ctx.name || null } : null;
   if (ctx.type === 'listen') return ctx.leaderId ? { type: 'listen', leaderId: ctx.leaderId, name: ctx.name || null } : null;
   if (!ctx.lobbyId) return null;
   return { type: 'lobby', lobbyId: ctx.lobbyId, name: ctx.name || null };
@@ -85,6 +87,7 @@ function sameContext(a, b) {
   if (!a || !b || a.type !== b.type) return false;
   if (a.type === 'listen') return a.leaderId === b.leaderId;
   if (a.type === 'radio') return a.stationId === b.stationId;
+  if (a.type === 'artist') return a.key === b.key;
   return a.type === 'library' || a.lobbyId === b.lobbyId;
 }
 

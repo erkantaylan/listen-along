@@ -280,6 +280,7 @@ function contextLabel(np) {
   if (!c) return '';
   if (c.type === 'library') return t('player.fromLibrary', 'Music Library');
   if (c.type === 'radio') return t('radio.title', 'Radio');
+  if (c.type === 'artist') return c.name || t('artists.anArtist', 'an artist');
   return c.name || t('social.aPlaylist', 'a playlist');
 }
 
@@ -445,6 +446,15 @@ async function loadPeople() {
 // ---------------------------------------------------------- now playing
 
 let reportTimer = null;
+
+// What the server may tell others about where the song comes from (presence.js checks it again).
+function presenceContext(ctx) {
+  if (!ctx) return null;
+  if (ctx.type === 'library' || ctx.type === 'radio') return { type: ctx.type };
+  if (ctx.type === 'artist') return { type: 'artist', key: ctx.key, name: ctx.name || null };
+  if (ctx.type === 'lobby') return { type: 'lobby', lobbyId: ctx.lobbyId };
+  return null;
+}
 // Also the listen-along heartbeat (listen-along.js) while someone listens along.
 export function reportNowPlaying() {
   clearTimeout(reportTimer);
@@ -454,7 +464,7 @@ export function reportNowPlaying() {
     const ctx = player.context;
     S.socket.emit('presence:now-playing', tr ? {
       track: { id: tr.id || null, title: tr.title, artist: tr.artist || null, thumbnail: tr.thumbnail || null, url: tr.url || null },
-      context: ctx ? (ctx.type === 'library' || ctx.type === 'radio' ? { type: ctx.type } : { type: 'lobby', lobbyId: ctx.lobbyId }) : null,
+      context: presenceContext(ctx),
       playing: player.isPlaying,
       position: player.currentTime,
       duration: player.duration,

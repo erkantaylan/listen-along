@@ -1,4 +1,5 @@
-// Double-click on a playlist row (sidebar, rail, landing) or Radio's row plays it.
+// Double-click on a playlist row (sidebar, rail, landing), Radio's row or an
+// artist card (landing shelf, /artists) plays it.
 //
 // The first click navigates as always, so by the second press the row may have
 // been re-rendered or, on the landing page, replaced by the playlist page: that
@@ -8,15 +9,15 @@
 // clicked, no text is selected, nothing navigates twice. A mouse only: a tap,
 // also a double tap, stays one navigation. A row's own controls keep their clicks.
 
-const ROWS = '#plnav-radio, .plnav-row[data-playlist-id], .lobby-card[data-playlist-id]';
+const ROWS = '#plnav-radio, .plnav-row[data-playlist-id], .lobby-card[data-playlist-id], .artist-card[data-artist-key]';
 const CONTROLS = 'button, input, textarea, select, [contenteditable="true"]';
 const SLOP_PX = 8;
 
-/** What a click on `el` would start: { id } (id 'radio' for Radio), with control: true on a row's own control, or null. */
+/** What a click on `el` would start: { id } (id 'radio' for Radio, 'artist:<key>' for an artist), with control: true on a row's own control, or null. */
 export function rowTarget(el) {
   const row = el && el.closest ? el.closest(ROWS) : null;
   if (!row) return null;
-  const id = row.id === 'plnav-radio' ? 'radio' : row.dataset.playlistId;
+  const id = row.id === 'plnav-radio' ? 'radio' : row.dataset.artistKey ? `artist:${row.dataset.artistKey}` : row.dataset.playlistId;
   return el.closest(CONTROLS) ? { id, control: true } : { id };
 }
 

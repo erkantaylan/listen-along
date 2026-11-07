@@ -63,4 +63,4 @@ function createStationRouter() {
   return router;
 }
 
-module.exports = { createStationRouter };
+module.exports = { createStationRouter, toStationSong };

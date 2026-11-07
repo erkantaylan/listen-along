@@ -5,11 +5,11 @@ const assert = require('node:assert/strict');
 const path = require('path');
 const { pathToFileURL } = require('url');
 
-let parseRoute, libraryPath, basePath, legacyRedirect, LIBRARY_DEFAULTS;
+let parseRoute, libraryPath, basePath, legacyRedirect, artistPath, LIBRARY_DEFAULTS;
 
 before(async () => {
   const routerPath = path.join(__dirname, '..', '..', 'frontend', 'router.js');
-  ({ parseRoute, libraryPath, basePath, legacyRedirect, LIBRARY_DEFAULTS } = await import(pathToFileURL(routerPath).href));
+  ({ parseRoute, libraryPath, basePath, legacyRedirect, artistPath, LIBRARY_DEFAULTS } = await import(pathToFileURL(routerPath).href));
 });
 
 describe('frontend router: parseRoute', () => {
@@ -23,6 +23,19 @@ describe('frontend router: parseRoute', () => {
     assert.deepEqual(parseRoute('/app'), { view: 'app', lobbyId: null, library: null });
     assert.equal(basePath({ view: 'app' }), '/app');
     assert.deepEqual(parseRoute('/playlist/abc-123'), { view: 'lobby', lobbyId: 'abc-123', library: null });
+  });
+
+  it('maps the artist views, with encoded keys both ways', () => {
+    assert.deepEqual(parseRoute('/artists'), { view: 'artists', lobbyId: null, library: null });
+    assert.deepEqual(parseRoute('/artists/'), { view: 'artists', lobbyId: null, library: null });
+    assert.deepEqual(parseRoute('/artist/barismanco'), { view: 'artist', lobbyId: null, library: null, artistKey: 'barismanco' });
+    assert.deepEqual(parseRoute('/artist/%D0%BA%D0%B8%D0%BD%D0%BE/'), { view: 'artist', lobbyId: null, library: null, artistKey: 'кино' });
+    assert.equal(parseRoute('/artist/%E0%A4%A').view, 'landing');
+    assert.equal(parseRoute('/artist/').view, 'landing');
+    assert.equal(parseRoute('/artist/a/b').view, 'landing');
+    assert.equal(basePath({ view: 'artists' }), '/artists');
+    assert.equal(basePath({ view: 'artist', artistKey: 'кино' }), '/artist/%D0%BA%D0%B8%D0%BD%D0%BE');
+    assert.equal(artistPath('barismanco'), '/artist/barismanco');
   });
 
   it('falls back to the landing page for unknown paths and bad lobby ids', () => {

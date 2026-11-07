@@ -115,6 +115,20 @@
           <li class="list-group-item app-empty fg-3" data-i18n="landing.loading">Loading…</li>
         </ul>
       </section>
+      <!-- Artists: a shelf of the library's artists, read-only (artists.js) -->
+      <section id="artists-section" class="card mb-5 artists-section" aria-labelledby="artists-title" hidden>
+        <div class="card-header flex-row d-flex align-items-center gap-2">
+          <h2 id="artists-title" class="h6 mb-0 me-auto" data-i18n="artists.title">Artists</h2>
+          <button id="artists-shelf-prev" class="btn-text theme-secondary btn-icon btn-sm artists-shelf-nav" type="button" aria-label="Scroll back" title="Scroll back" data-i18n-aria-label="artists.scrollBack" data-i18n-title="artists.scrollBack" disabled>
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+          </button>
+          <button id="artists-shelf-next" class="btn-text theme-secondary btn-icon btn-sm artists-shelf-nav" type="button" aria-label="Scroll on" title="Scroll on" data-i18n-aria-label="artists.scrollOn" data-i18n-title="artists.scrollOn">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+          </button>
+          <a id="artists-show-all" class="btn-text theme-secondary btn-sm artists-show-all" href="/artists" data-i18n="artists.showAll">Show all</a>
+        </div>
+        <ul id="artists-shelf" class="artist-shelf" role="list" aria-labelledby="artists-title"></ul>
+      </section>
       <section id="lobbies-section" class="card mb-5 lobbies-section" aria-labelledby="public-playlists-title" hidden>
         <div class="card-header"><h2 id="public-playlists-title" class="h6 mb-0" data-i18n="landing.publicPlaylists">Public playlists</h2></div>
         <ul id="lobbies-list" class="list-group list-group-flush lobbies-list"></ul>
@@ -265,6 +279,63 @@
           <span></span>
         </div>
         <ul id="radio-list" class="list-group queue-list" role="list" aria-label="Radio" data-i18n-aria-label="radio.title"></ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Artists: every artist in the library (artists.js) -->
+  <div id="artists-view" class="view">
+    <nav class="navbar app-navbar">
+      <div class="container">
+        <button class="btn-text theme-secondary btn-icon plnav-open-btn" type="button" data-plnav-open aria-controls="app-sidebar" aria-expanded="false" aria-label="Open playlists" title="Open playlists" data-i18n-aria-label="sidebar.open" data-i18n-title="sidebar.open">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+        </button>
+        <button id="artists-back" class="btn-text theme-secondary btn-icon artists-back" type="button" aria-label="Back" title="Back" data-i18n-aria-label="artists.back" data-i18n-title="artists.back">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+        </button>
+        <h1 class="h6 mb-0 me-auto" data-i18n="artists.title">Artists</h1>
+      </div>
+    </nav>
+    <main class="app-main container">
+      <div class="d-flex flex-wrap align-items-center gap-3 mb-5 artists-toolbar">
+        <input id="artists-search" type="search" class="form-control artists-search" placeholder="Search artists" aria-label="Search artists" data-i18n-placeholder="artists.search" data-i18n-aria-label="artists.search" autocomplete="off" spellcheck="false">
+        <span id="artists-count" class="fs-sm fg-3" role="status"></span>
+      </div>
+      <ul id="artists-grid" class="artist-grid" role="list" aria-label="Artists" data-i18n-aria-label="artists.title"></ul>
+    </main>
+  </div>
+
+  <!-- One artist's songs, read-only (artist-page.js) -->
+  <div id="artist-view" class="view">
+    <nav class="navbar app-navbar lobby-header">
+      <div class="container">
+        <button class="btn-text theme-secondary btn-icon plnav-open-btn" type="button" data-plnav-open aria-controls="app-sidebar" aria-expanded="false" aria-label="Open playlists" title="Open playlists" data-i18n-aria-label="sidebar.open" data-i18n-title="sidebar.open">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
+        </button>
+        <button id="artist-back" class="btn-text theme-secondary btn-icon artist-back" type="button" aria-label="Back" title="Back" data-i18n-aria-label="artists.back" data-i18n-title="artists.back">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+        </button>
+        <span id="artist-cover" class="app-thumb artist-nav-cover" aria-hidden="true"></span>
+        <div class="lobby-info min-w-0 me-auto">
+          <h1 id="artist-name" class="h6 mb-0 text-truncate"></h1>
+          <span class="d-block fs-xs fg-3" data-i18n="artists.kind">Artist</span>
+        </div>
+        <button id="artist-play" class="btn-solid theme-primary flex-shrink-0" type="button" disabled>
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+          <span id="artist-play-label">Play</span>
+        </button>
+      </div>
+    </nav>
+    <div id="artist-body" class="lobby-body">
+      <div class="container lobby-container artist-table">
+        <ul id="artist-stats" class="playlist-stats" aria-label="Artist stats" data-i18n-aria-label="artists.statsLabel"></ul>
+        <div id="artist-head" class="queue-head fs-xs fg-3" aria-hidden="true" hidden>
+          <span class="queue-head-num">#</span>
+          <span data-i18n="queue.colTitle">Title</span>
+          <span class="queue-col-dur" data-i18n="queue.colDuration">Duration</span>
+          <span></span>
+        </div>
+        <ul id="artist-list" class="list-group queue-list" role="list" aria-labelledby="artist-name"></ul>
       </div>
     </div>
   </div>

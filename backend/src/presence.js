@@ -25,7 +25,11 @@
  * listen-along can resolve the library file; kept out of `track` and never
  * sent to clients by viewNowPlaying(). updatedAt = server time of the report,
  * the anchor for `position`.
- * context = { type: 'library' } | { type: 'radio' } | { type: 'lobby', lobbyId } | null
+ * context = { type: 'library' } | { type: 'radio' } | { type: 'artist', key, name }
+ *         | { type: 'lobby', lobbyId } | null
+ * An artist context is public to every viewer (artists.js lists them for all
+ * approved accounts): the key is checked, the name is the client's text, like
+ * the track's own title and artist.
  *
  * A lobby context is the raw playlist id. Never send an entry to a client as
  * it is: viewNowPlaying() drops the playlist unless the viewer may see it.
@@ -34,6 +38,8 @@
 const { EventEmitter } = require('events');
 
 const MAX_FIELD = 300;
+// artists.js keys: songMatch.normalizeArtist, letters and digits only.
+const ARTIST_KEY_RE = /^[\p{L}\p{N}]{1,200}$/u;
 
 function str(v, max = MAX_FIELD) {
   if (typeof v !== 'string') return null;
@@ -65,7 +71,9 @@ function normalizeReport(report) {
   const c = report.context;
   if (c && c.type === 'library') context = { type: 'library' };
   else if (c && c.type === 'radio') context = { type: 'radio' };
-  else if (c && c.type === 'lobby' && typeof c.lobbyId === 'string' && /^[a-zA-Z0-9-]{1,64}$/.test(c.lobbyId)) {
+  else if (c && c.type === 'artist' && typeof c.key === 'string' && ARTIST_KEY_RE.test(c.key)) {
+    context = { type: 'artist', key: c.key, name: str(c.name, 200) };
+  } else if (c && c.type === 'lobby' && typeof c.lobbyId === 'string' && /^[a-zA-Z0-9-]{1,64}$/.test(c.lobbyId)) {
     context = { type: 'lobby', lobbyId: c.lobbyId };
   }
   return {
@@ -196,6 +204,8 @@ function viewNowPlaying(entry, lobbyFor) {
     context = { type: 'library' };
   } else if (entry.context && entry.context.type === 'radio') {
     context = { type: 'radio' };
+  } else if (entry.context && entry.context.type === 'artist') {
+    context = { type: 'artist', key: entry.context.key, name: entry.context.name || null };
   } else if (entry.context && entry.context.type === 'lobby') {
     const l = lobbyFor(entry.context.lobbyId);
     if (l) context = { type: 'lobby', lobbyId: l.id, name: l.name || null, socketId: entry.socketId };

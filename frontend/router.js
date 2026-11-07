@@ -6,6 +6,8 @@
 //   /library                   music library (no playlist; Add is disabled)
 //   /playlist/<id>/library     music library over a playlist (Add targets it)
 //   /radio                     Radio: every song, shuffled (radio.js)
+//   /artists                   every artist in the library (artists.js)
+//   /artist/<key>              one artist's songs, read-only (artist-page.js)
 //   /app                       Android app: download, install, connect (app-page.js)
 //   /profile                   own profile
 //   /social                    chat + people (full-screen below 1010px; from
@@ -26,6 +28,7 @@ export const REQUEST_STATUSES = ['pending', 'fulfilled', 'dismissed', 'all'];
 export const LIBRARY_DEFAULTS = Object.freeze({ tab: 'library', query: '', sort: 'recent', page: 0, requestStatus: 'pending' });
 
 const LOBBY_RE = /^\/playlist\/([a-zA-Z0-9-]+)(\/library)?\/?$/;
+const ARTIST_RE = /^\/artist\/([^/]+)\/?$/;
 const LEGACY_LOBBY_RE = /^\/lobby\/([a-zA-Z0-9-]+)(\/library)?\/?$/;
 
 // The /playlist/... path for an old /lobby/... path (search kept), else null.
@@ -39,8 +42,18 @@ export function playlistPath(lobbyId) {
   return `/playlist/${lobbyId}`;
 }
 
-// pathname + search -> { view, lobbyId, library }. library is null when the
-// library overlay is closed, else its state ({ tab, query, sort, page, requestStatus }).
+// An artist's key is songMatch.normalizeArtist (letters and digits, maybe not Latin).
+export function artistPath(key) {
+  return `/artist/${encodeURIComponent(key)}`;
+}
+
+function decodeSegment(s) {
+  try { return decodeURIComponent(s); } catch { return null; }
+}
+
+// pathname + search -> { view, lobbyId, library } (+ artistKey on the artist
+// view). library is null when the library overlay is closed, else its state
+// ({ tab, query, sort, page, requestStatus }).
 export function parseRoute(pathname, search = '') {
   const params = new URLSearchParams(search);
   let view = 'landing';
@@ -56,6 +69,11 @@ export function parseRoute(pathname, search = '') {
     withLibrary = true;
   } else if (/^\/radio\/?$/.test(pathname)) {
     view = 'radio';
+  } else if (/^\/artists\/?$/.test(pathname)) {
+    view = 'artists';
+  } else if (ARTIST_RE.test(pathname)) {
+    const key = decodeSegment(ARTIST_RE.exec(pathname)[1]);
+    if (key) return { view: 'artist', lobbyId: null, library: null, artistKey: key };
   } else if (/^\/app\/?$/.test(pathname)) {
     view = 'app';
   } else if (/^\/profile\/?$/.test(pathname)) {
@@ -84,9 +102,11 @@ function parseLibraryParams(params) {
 }
 
 // The path for a view without the library overlay.
-export function basePath({ view, lobbyId }) {
+export function basePath({ view, lobbyId, artistKey }) {
   if (view === 'lobby' && lobbyId) return playlistPath(lobbyId);
   if (view === 'radio') return '/radio';
+  if (view === 'artists') return '/artists';
+  if (view === 'artist' && artistKey) return artistPath(artistKey);
   if (view === 'app') return '/app';
   if (view === 'profile') return '/profile';
   if (view === 'social') return '/social';

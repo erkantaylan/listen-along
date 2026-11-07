@@ -213,6 +213,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Playlist navigation | The one `#app-sidebar` (see "Playlists sidebar"). Never add a second playlist nav. |
 | Chat / people | The one `#social-panel` (see "Chat and people panel"). Never add a second chat or people list. |
 | Radio | The one `#plnav-radio` row and `#radio-view` (see "Radio"). A future station is another rule in `stations.js`, not another page. |
+| Artists | The landing shelf `#artists-section`, `#artists-view` (`/artists`) and `#artist-view` (`/artist/<key>`), see "Artists". Cards are `.artist-card` (`artists.js` `cardHtml`); never a second artist list. |
 | Player | The one app-wide `#player-bar` (`section.sticky-player.player-bar` in `index.html`, outside the views): see "Player bar" below. Never add a second player or a per-page `<audio>`. |
 | Context menu / small popover | `context-menu.js` (see "Context menu" below). Never a second menu implementation. |
 | Icons | Inline SVG (Material paths), `fill="currentColor"`, `aria-hidden="true"`. Inside buttons they are sized automatically (1.25rem, 1rem in `.btn-sm`); elsewhere add `.icon` or `.icon-sm`. |
@@ -386,6 +387,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   `.stat-meta` lines (`fs-xs`) for what used to be crammed into the value: "1,234 private", "1,234 files", the warning-coloured
   "12 unregistered (1.2 GB)". Longer facts get a `.stat-meta` line, not a wider value.
 - **Radio** (`/radio`, `radio.js`, approved accounts): see "Radio" below.
+- **Artists** (`/artists`, `/artist/<key>`, the landing shelf; approved accounts): see "Artists" below.
 - **Android app** (`/app`, `app-page.js`; `a[data-spa-link]` is its in-app link, so playback continues): navbar (☰, back, `h1.h6`), `.app-narrow` column, no art, three cards.
   **Download**: the view's primary "Download APK" (GitHub's asset URL, new tab), a line of version · size · date, the SHA-256 with a grey Copy, a ghost link to all releases and "Needs Android 8 or newer". While checking, or when GitHub cannot be reached, a muted line replaces the button and the releases link stays.
   **Install**: numbered steps (`.app-steps`), then short notes with a bold lead-in: Play Protect, Updates, Developer builds. **Connect your account**: numbered steps quoting the app's Settings labels exactly (the app is English only, so the Turkish text keeps them in English; keep them in step with `SettingsScreen.kt`), the Address step showing this site's origin, a grey link to `/profile#tokens` and a Revoking note.
@@ -445,8 +447,8 @@ profile and the desktop `/social`; not on login, pending or `/dashboard`.
   too). Shown on hover / focus-within, always on touch, and they keep their space so names do not
   jump. A pinned row always shows its pin, as a plain accent icon rather than the usual toggled box.
   `aria-pressed` + a label naming the playlist.
-- **Double-click** (`row-double-click.js`, mouse only): a sidebar row, a rail avatar, a landing row or Radio's row plays, as Play does (`quickPlayLobby`,
-  `playRadioFromTop`): from the top, shuffle taking over after the first song; the one already playing is left alone, or resumed if paused; empty gives the usual toast. The first click opens without any delay
+- **Double-click** (`row-double-click.js`, mouse only): a sidebar row, a rail avatar, a landing row, Radio's row or an artist card plays, as Play does (`quickPlayLobby`,
+  `playRadioFromTop`, `playArtistFromTop`): from the top, shuffle taking over after the first song; the one already playing is left alone, or resumed if paused; empty gives the usual toast. The first click opens without any delay
   and the second press is taken whole, whatever is under it by then. Row controls keep their clicks. No hint, no keyboard equivalent (Enter opens; Play is in ⋮ and on landing rows), no double tap. Rows are `user-select: none`.
 - **Live**: refetches on socket `playlists:changed`, on `queue:update`, on reconnect and every 30s.
   It only touches the DOM when the markup changed, and focus follows the control when a row moves.
@@ -470,6 +472,32 @@ Every song in the listener's own shuffled order, separate from the library, whic
   Player bar: "artist · Radio", which opens `/radio`; the shuffle button is disabled (the list is the shuffle).
 - **Broken songs** (a default we can reverse): songs with an open report are not in Radio. Marked while it plays, the song on air finishes first.
 - **Library changes** (`library:updated`): songs that left go away, new ones land at a random place after the current song, nothing else moves.
+
+### Artists
+
+Every artist of the library as a read-only "album" of their songs (`artists.js`, `artist-page.js`, rules in `artist-rules.js`). An artist is
+the songs whose artist normalizes to the same key on the server (`songMatch.normalizeArtist`: "Barış Manço", "barismanco" and
+"Barış Manço - Topic" are one); the name shown is the spelling most of them use, without channel suffixes. Songs with an open report are left out, as in Radio.
+
+- **Card** (`.artist-card`, Spotify's artist tile): a round cover (the newest song's YouTube thumbnail, else the music-note placeholder), the name
+  (`fs-sm`, medium, one line) and "12 songs" (`fs-xs` muted). The whole card is one link to `/artist/<key>` (a stretched `::after`, so
+  middle-click and Ctrl-click open a tab); the focus ring is drawn on the card. A round tonal play button sits on the cover's corner, on hover /
+  focus, always on touch; it opens the artist and plays from the top (the artist already on air resumes). Hover and press are the grey row fills;
+  the artist the player plays from is `.is-current`: the selection tint and an accent semibold name, no edge. A double-click plays, as on playlist rows.
+- **Landing shelf** (`#artists-section`, a card between "Your playlists" and "Public playlists"): "Artists" with **Show all** on the right and,
+  for a mouse while the row overflows, ghost ‹ › buttons. One row that scrolls sideways (8.5rem columns, 7.25rem in a column under 400px,
+  snap to cards): the 20 artists with the most songs, leaving out one-song artists unless nobody has more. Hidden while there are none.
+- **/artists**: navbar with ☰ / back and `h1.h6` "Artists"; a search box (every word, Turkish-aware, as in the sidebar; Escape clears)
+  with a muted count ("310 artists", "3 of 310"); then every artist A–Z (Turkish alphabet) in a grid of the same cards,
+  `repeat(auto-fill, minmax(8.5rem, 1fr))`. No match: a muted line and a grey "Clear search".
+- **/artist/<key>**: like Radio without the shuffle. Navbar with ☰ / back (to `/artists` when opened from there, else Home), a small round
+  cover, `h1.h6` name over a muted "Artist", and the view's primary Play / Pause. Then the stats strip (songs, total length) and the
+  same song table as Radio (#, Title + artist, Duration, ⋮), windowed with `virtual-list.js`, in title order. No edit mode, remove,
+  reorder or add. The song menu works as on any song row (it acts on the library song, never on this list).
+- **Behaviour**: opening plays nothing; Play starts at the top, a row plays from there (the song already playing is resumed). The player
+  context is `{ type: 'artist', key, name }`: the player bar reads "artist · name" (once, when they are the same) and opens the page; the
+  player's own shuffle and repeat apply. Library changes update the list on screen and the one playing; a song that left while on air
+  finishes first. Presence shows "from <artist>" to everyone.
 
 ### Modal dialogs
 
