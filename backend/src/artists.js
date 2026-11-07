@@ -1,10 +1,13 @@
 /**
  * Artists: every artist in the music library as a read-only list of songs
  * (the landing page's "Artists" shelf, /artists and /artist/<key>). Nothing is
- * stored: an artist is the songs whose `artist` normalizes to the same key
- * (songMatch.normalizeArtist: folded, featured artists and channel suffixes
- * dropped, the primary artist only, no spaces), so "Barış Manço",
- * "barismanco" and "Barış Manço - Topic" are one artist with key "barismanco".
+ * stored: an artist is every song whose credit names them. A credit is split
+ * into its artists by artistCredits.js ("RAYE, 070 Shake" is on RAYE's page
+ * and on 070 Shake's; "Earth, Wind & Fire" stays one band), and each artist's
+ * key is artistCredits.artistNameKey (folded, channel suffixes dropped, no
+ * spaces), so "Barış Manço", "barismanco" and "Barış Manço - Topic" are one
+ * artist with key "barismanco". songMatch.normalizeArtist (the primary artist
+ * only, for duplicate detection) is not used here.
  *
  * Like Radio's `all` station, songs with an open report are left out: these
  * pages are for listening, and a broken song comes back once it is fixed.
@@ -20,32 +23,21 @@
 const express = require('express');
 const db = require('./db');
 const { OPEN_REPORT_EXISTS_SQL } = require('./songReports');
-const { normalizeArtist } = require('./songMatch');
+const { splitArtistCredit, knownArtistKeys, MAX_KEY } = require('./artistCredits');
 const { toStationSong } = require('./stations');
 
-const MAX_KEY = 200;
-
-// normalizeArtist is a handful of regexes; a library repeats the same few
-// hundred artist strings, so remember them (bounded, cleared when full).
-const keyCache = new Map();
-function artistKey(artist) {
-  const raw = String(artist ?? '');
-  let key = keyCache.get(raw);
-  if (key === undefined) {
-    key = normalizeArtist(raw).slice(0, MAX_KEY);
-    if (keyCache.size >= 5000) keyCache.clear();
-    keyCache.set(raw, key);
-  }
-  return key;
-}
-
-/** The artist as shown: the upload's own spelling without YouTube channel suffixes. */
-function displayName(artist) {
-  return String(artist ?? '').trim()
-    .replace(/\s*-\s*topic$/i, '')
-    .replace(/\s*vevo$/i, '')
-    .replace(/\s+official(?:\s+channel)?$/i, '')
-    .trim();
+/**
+ * Every distinct credit of the library -> its artists ([{ key, name }]). A
+ * library repeats the same few hundred credit strings, so each is split once;
+ * "&" splits depend on the whole library (artistCredits.knownArtistKeys).
+ */
+function creditArtists(rows) {
+  const credits = new Map();
+  for (const row of rows) credits.set(String(row.artist ?? ''), null);
+  const known = knownArtistKeys(credits.keys());
+  const isKnown = (key) => known.has(key);
+  for (const credit of credits.keys()) credits.set(credit, splitArtistCredit(credit, isKnown));
+  return credits;
 }
 
 const byTitle = (a, b) => String(a.title).localeCompare(String(b.title), 'tr', { sensitivity: 'base', numeric: true })
@@ -54,27 +46,28 @@ const byTitle = (a, b) => String(a.title).localeCompare(String(b.title), 'tr', {
 /**
  * rows (library_songs: id, youtube_id, title, artist, duration_sec, sha256,
  * created_at) -> Map key -> { key, name, count, duration_sec, cover_youtube_id, rows }.
- * Songs whose artist normalizes to nothing are left out. The name is the
- * spelling most of the artist's songs use (ties: the shorter, then A-Z); the
- * cover is the newest song with a YouTube id.
+ * A song is in the group of every artist its credit names (artistCredits.js)
+ * and keeps its full credit; songs whose credit names nobody are left out.
+ * The name is the spelling most of the artist's songs use (ties: the
+ * shorter, then A-Z); the cover is the newest song with a YouTube id.
  */
 function groupArtists(rows) {
+  const credits = creditArtists(rows);
   const groups = new Map();
   for (const row of rows) {
-    const key = artistKey(row.artist);
-    if (!key) continue;
-    let g = groups.get(key);
-    if (!g) {
-      g = { key, names: new Map(), rows: [], duration_sec: 0, cover: null };
-      groups.set(key, g);
-    }
-    g.rows.push(row);
-    const name = displayName(row.artist) || String(row.artist).trim();
-    g.names.set(name, (g.names.get(name) || 0) + 1);
-    if (row.duration_sec !== null && row.duration_sec !== undefined) g.duration_sec += Number(row.duration_sec) || 0;
-    if (row.youtube_id) {
-      const at = row.created_at ? new Date(row.created_at).getTime() : 0;
-      if (!g.cover || at > g.cover.at) g.cover = { id: row.youtube_id, at };
+    for (const { key, name } of credits.get(String(row.artist ?? ''))) {
+      let g = groups.get(key);
+      if (!g) {
+        g = { key, names: new Map(), rows: [], duration_sec: 0, cover: null };
+        groups.set(key, g);
+      }
+      g.rows.push(row);
+      g.names.set(name, (g.names.get(name) || 0) + 1);
+      if (row.duration_sec !== null && row.duration_sec !== undefined) g.duration_sec += Number(row.duration_sec) || 0;
+      if (row.youtube_id) {
+        const at = row.created_at ? new Date(row.created_at).getTime() : 0;
+        if (!g.cover || at > g.cover.at) g.cover = { id: row.youtube_id, at };
+      }
     }
   }
   const out = new Map();
@@ -136,4 +129,4 @@ function createArtistRouter() {
   return router;
 }
 
-module.exports = { createArtistRouter, groupArtists, listArtists, displayName, artistKey };
+module.exports = { createArtistRouter, groupArtists, listArtists };

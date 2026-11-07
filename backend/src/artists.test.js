@@ -9,7 +9,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { cookieFor, startServer, requester } = require('./testServer');
 const { policyFor } = require('./userAuth');
-const { groupArtists, listArtists, displayName } = require('./artists');
+const { groupArtists, listArtists } = require('./artists');
 const { normalizeReport, viewNowPlaying } = require('./presence');
 
 let PostgreSqlContainer;
@@ -27,17 +27,36 @@ describe('artists: grouping', () => {
       row('Barış Manço'), row('barismanco'), row('Barış Manço - Topic'), row('BARIŞ MANÇO feat. Someone'),
       row('Barış Manço & Kurtalan Ekspres'), row('The Beatles'), row('Beatles'),
     ]);
-    assert.deepEqual([...groups.keys()].sort(), ['barismanco', 'beatles']);
+    assert.deepEqual([...groups.keys()].sort(), ['barismanco', 'beatles', 'kurtalanekspres', 'someone']);
     assert.equal(groups.get('barismanco').count, 5);
     assert.equal(groups.get('beatles').count, 2);
+    assert.equal(groups.get('kurtalanekspres').name, 'Kurtalan Ekspres');
+  });
+
+  it('a song with several artists is on each one\'s page, with its full credit', () => {
+    const raye = row('RAYE', { title: 'Oscar Winning Tears.' });
+    const duet = row('RAYE, 070 Shake', { title: 'Escapism.' });
+    const groups = groupArtists([raye, duet, row('Earth, Wind & Fire'), row('Earth, Wind & Fire, The Emotions'),
+      row('Simon & Garfunkel'), row('Tyler, The Creator, Kali Uchis')]);
+    assert.deepEqual(groups.get('raye').rows, [raye, duet]);
+    assert.deepEqual(groups.get('070shake').rows, [duet]);
+    assert.equal(groups.get('070shake').rows[0].artist, 'RAYE, 070 Shake');
+    assert.equal(groups.get('earthwindandfire').count, 2);
+    assert.equal(groups.get('earthwindandfire').name, 'Earth, Wind & Fire');
+    assert.equal(groups.get('emotions').name, 'The Emotions');
+    assert.equal(groups.get('simonandgarfunkel').name, 'Simon & Garfunkel');
+    assert.ok(!groups.has('simon') && !groups.has('earth') && !groups.has('tyler'));
+    assert.equal(groups.get('tylerthecreator').count, 1);
+    // A credit naming the same artist twice counts the song once.
+    assert.equal(groupArtists([row('RAYE, raye')]).get('raye').count, 1);
   });
 
   it('names the artist the way most of its songs do, without channel suffixes', () => {
     const groups = groupArtists([row('TarkanVEVO'), row('Tarkan - Topic'), row('tarkan'), row('Tarkan')]);
     assert.equal(groups.get('tarkan').name, 'Tarkan');
-    assert.equal(displayName('Sezen Aksu - Topic'), 'Sezen Aksu');
-    assert.equal(displayName('AdeleVEVO'), 'Adele');
-    assert.equal(displayName('Duman Official'), 'Duman');
+    const more = groupArtists([row('Sezen Aksu - Topic'), row('AdeleVEVO'), row('Duman Official'), row('RAYE, Sezen Aksu - Topic')]);
+    assert.deepEqual(['sezenaksu', 'adele', 'duman'].map((k) => more.get(k).name), ['Sezen Aksu', 'Adele', 'Duman']);
+    assert.equal(more.get('sezenaksu').count, 2);
   });
 
   it('adds up lengths, takes the newest YouTube cover, and skips artists that normalize to nothing', () => {
@@ -121,6 +140,18 @@ describe('artists API', { skip, timeout: 180_000 }, () => {
     await addSong('Ahmet Bey', 'Barış Manço - Topic', 100, null);
     await addSong('Çoban', 'barismanco', null, null);
     await addSong('Kuzu', 'Duman', 180, 'vid2');
+  });
+
+  it('a song crediting several artists is on each page, showing the full credit', async () => {
+    const duet = await addSong('Düet', 'Barış Manço, Kurtalan Ekspres', 60);
+    const list = (await req('GET', '/api/artists', { cookie: cookies.alice })).body.artists;
+    assert.equal(list.find((a) => a.key === 'barismanco').count, 4);
+    assert.equal(list.find((a) => a.key === 'kurtalanekspres').count, 1);
+    const ke = await req('GET', '/api/artists/kurtalanekspres/songs', { cookie: cookies.alice });
+    assert.equal(ke.status, 200);
+    assert.equal(ke.body.name, 'Kurtalan Ekspres');
+    assert.deepEqual(ke.body.songs.map((s) => [s.title, s.artist]), [['Düet', 'Barış Manço, Kurtalan Ekspres']]);
+    await pg.query('DELETE FROM library_songs WHERE id = $1', [duet]);
   });
 
   after(async () => {

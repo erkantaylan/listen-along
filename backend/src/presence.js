@@ -38,7 +38,7 @@
 const { EventEmitter } = require('events');
 
 const MAX_FIELD = 300;
-// artists.js keys: songMatch.normalizeArtist, letters and digits only.
+// artists.js keys: artistCredits.artistNameKey, letters and digits only.
 const ARTIST_KEY_RE = /^[\p{L}\p{N}]{1,200}$/u;
 
 function str(v, max = MAX_FIELD) {

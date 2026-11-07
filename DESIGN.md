@@ -476,8 +476,10 @@ Every song in the listener's own shuffled order, separate from the library, whic
 ### Artists
 
 Every artist of the library as a read-only "album" of their songs (`artists.js`, `artist-page.js`, rules in `artist-rules.js`). An artist is
-the songs whose artist normalizes to the same key on the server (`songMatch.normalizeArtist`: "Barış Manço", "barismanco" and
-"Barış Manço - Topic" are one); the name shown is the spelling most of them use, without channel suffixes. Songs with an open report are left out, as in Radio.
+every song whose credit names them, as on Spotify: the server splits a credit into its artists (`backend/src/artistCredits.js`), so
+"RAYE, 070 Shake" is on both pages while "Earth, Wind & Fire" and "Simon & Garfunkel" stay one artist, and spellings fold to one key
+("Barış Manço", "barismanco" and "Barış Manço - Topic" are one). The name shown is the spelling most of their songs use, without channel
+suffixes; a song row always shows the song's full credit. Songs with an open report are left out, as in Radio.
 
 - **Card** (`.artist-card`, Spotify's artist tile): a round cover (the newest song's YouTube thumbnail, else the music-note placeholder), the name
   (`fs-sm`, medium, one line) and "12 songs" (`fs-xs` muted). The whole card is one link to `/artist/<key>` (a stretched `::after`, so

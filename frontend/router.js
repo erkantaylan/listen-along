@@ -42,7 +42,7 @@ export function playlistPath(lobbyId) {
   return `/playlist/${lobbyId}`;
 }
 
-// An artist's key is songMatch.normalizeArtist (letters and digits, maybe not Latin).
+// An artist's key is artistCredits.artistNameKey on the server (letters and digits, maybe not Latin).
 export function artistPath(key) {
   return `/artist/${encodeURIComponent(key)}`;
 }

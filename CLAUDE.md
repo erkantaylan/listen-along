@@ -128,9 +128,14 @@ where lobby persistence broke entirely on deployed instances.
 - **Artists** (landing shelf, `/artists`, `/artist/<key>`): read-only song lists
   per library artist, nothing stored. `artists.js` (`GET /api/artists`,
   `GET /api/artists/:key/songs`, approved accounts by the guard's default, no
-  tokens) groups songs by `songMatch.normalizeArtist` (the key, computed per
-  request, so nothing to backfill) and, like station `all`, leaves out songs
-  with an open report. Frontend:
+  tokens) puts a song on the page of EVERY artist its credit names, like
+  Spotify: `artistCredits.js` (pure, tested) splits a credit (always on ",",
+  feat. / ft. / featuring, vs., lower-case x, ";", " / "; on "&" / "and" / "ve"
+  only next to an artist known on their own elsewhere in the library and not
+  before "the …" / "Sons"; names in its `BANDS` list never split) and keys each
+  artist with `artistNameKey` (computed per request, so nothing to backfill).
+  Not `songMatch.normalizeArtist`: that stays primary-artist-only for meta_key.
+  Like station `all`, it leaves out songs with an open report. Frontend:
   `artists.js` (shelf + grid), `artist-page.js` (song table through
   `virtual-list.js`), pure rules in `artist-rules.js` (tested). Player context
   `{ type: 'artist', key, name }`; presence keeps a checked key and the name.
