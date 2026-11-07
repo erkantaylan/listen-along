@@ -77,4 +77,10 @@ class FileMatcherTest {
         val songs = listOf(song("a", "A", "T", 100.0), song("b", "A", "T", 300.0))
         assertEquals(listOf("b" to "u1"), ids(songs, listOf(file(1, "A - T.m4a", 300))))
     }
+    @Test
+    fun `opus songs saved as ogg, or copied in as opus, are recognised`() {
+        val songs = listOf(song("a", "A", "T"), song("b", "B", "U", 180.0))
+        val files = listOf(file(1, "A - T.ogg", 199), file(2, "B - U.opus", 181))
+        assertEquals(listOf("a" to "u1", "b" to "u2"), ids(songs, files))
+    }
 }

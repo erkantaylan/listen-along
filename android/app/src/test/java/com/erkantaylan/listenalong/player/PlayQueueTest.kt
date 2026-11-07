@@ -1,8 +1,10 @@
 package com.erkantaylan.listenalong.player
 
+import androidx.media3.common.PlaybackException
 import com.erkantaylan.listenalong.api.Song
 import com.erkantaylan.listenalong.storage.LocalSong
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -44,5 +46,67 @@ class PlayQueueTest {
         val q = PlayQueue.build(songs, 0, emptyMap(), streamUrl = null, online = true)
         assertTrue(q.entries.isEmpty())
         assertEquals(5, q.skipped)
+    }
+
+    // --- Skipping what cannot play (the connection went away after the queue was built) ---
+
+    /** Play order 0..n-1, -1 past the end (repeat off). */
+    private fun linear(n: Int): (Int) -> Int = { i -> if (i + 1 < n) i + 1 else -1 }
+    private fun backwards(): (Int) -> Int = { i -> i - 1 }
+    private fun loop(n: Int): (Int) -> Int = { i -> (i + 1) % n }
+
+    @Test
+    fun `offline skip goes to the next downloaded entry`() {
+        val local = setOf(0, 3, 5)
+        assertEquals(3, PlayQueue.nextPlayable(0, 6, linear(6)) { it in local })
+        assertEquals(5, PlayQueue.nextPlayable(3, 6, linear(6)) { it in local })
+    }
+
+    @Test
+    fun `nothing downloaded after the current entry gives -1 with repeat off`() {
+        assertEquals(-1, PlayQueue.nextPlayable(5, 6, linear(6)) { it == 0 })
+    }
+
+    @Test
+    fun `previous walks backwards to the nearest downloaded entry`() {
+        val local = setOf(0, 3)
+        assertEquals(3, PlayQueue.nextPlayable(5, 6, backwards()) { it in local })
+        assertEquals(-1, PlayQueue.nextPlayable(0, 6, backwards()) { it in local })
+    }
+
+    @Test
+    fun `repeat all wraps to an earlier downloaded entry`() {
+        assertEquals(1, PlayQueue.nextPlayable(4, 6, loop(6)) { it == 1 })
+    }
+
+    @Test
+    fun `repeat all with nothing downloaded ends instead of looping`() {
+        assertEquals(-1, PlayQueue.nextPlayable(2, 6, loop(6)) { false })
+        // The only downloaded entry is the current one: there is nowhere else to go.
+        assertEquals(-1, PlayQueue.nextPlayable(2, 6, loop(6)) { it == 2 })
+    }
+
+    @Test
+    fun `shuffled play order is followed, not the list order`() {
+        val order = listOf(4, 1, 5, 0, 2, 3)
+        val next: (Int) -> Int = { i -> order.getOrNull(order.indexOf(i) + 1) ?: -1 }
+        // From 4 the order goes 1, 5, 0...: 0 is downloaded but 5 comes first.
+        assertEquals(5, PlayQueue.nextPlayable(4, 6, next) { it == 5 || it == 0 })
+    }
+
+    @Test
+    fun `network failures and server errors mean the server is unreachable`() {
+        assertTrue(PlayQueue.meansUnreachable(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED, null))
+        assertTrue(PlayQueue.meansUnreachable(PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT, null))
+        assertTrue(PlayQueue.meansUnreachable(PlaybackException.ERROR_CODE_IO_UNSPECIFIED, null))
+        assertTrue(PlayQueue.meansUnreachable(PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS, 502))
+    }
+
+    @Test
+    fun `a missing song, a rejected token or a bad file are about that song only`() {
+        assertFalse(PlayQueue.meansUnreachable(PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS, 404))
+        assertFalse(PlayQueue.meansUnreachable(PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS, 401))
+        assertFalse(PlayQueue.meansUnreachable(PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND, null))
+        assertFalse(PlayQueue.meansUnreachable(PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED, null))
     }
 }

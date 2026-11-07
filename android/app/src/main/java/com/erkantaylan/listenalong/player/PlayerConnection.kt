@@ -2,11 +2,7 @@ package com.erkantaylan.listenalong.player
 
 import android.content.ComponentName
 import android.content.Context
-import android.os.Bundle
 import androidx.core.content.ContextCompat
-import androidx.core.net.toUri
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
@@ -108,7 +104,7 @@ class PlayerConnection(private val context: Context) {
      */
     fun play(queue: BuiltQueue, contextLabel: String, shuffle: Boolean = false) {
         if (queue.entries.isEmpty()) return
-        val items = queue.entries.map { mediaItem(it, contextLabel) }
+        val items = queue.entries.map { MediaItems.forEntry(it, contextLabel) }
         val start = if (shuffle) items.indices.random() else queue.startIndex
         withController { c ->
             if (shuffle) c.shuffleModeEnabled = true
@@ -181,30 +177,6 @@ class PlayerConnection(private val context: Context) {
         )
     }
 
-    private fun mediaItem(entry: QueueEntry, contextLabel: String): MediaItem {
-        val song = entry.song
-        val local = entry.source is PlaySource.Local
-        val metadata = MediaMetadata.Builder()
-            .setTitle(song.title.ifBlank { "Untitled" })
-            .setArtist(song.artist.takeIf { it.isNotBlank() && it != "Unknown" })
-            .setAlbumTitle(song.album)
-            .apply {
-                // The notification's cover for a stream; a downloaded file's
-                // own embedded art is preferred when the player finds it.
-                song.youtubeId?.takeIf { !local }?.let { setArtworkUri("https://i.ytimg.com/vi/$it/hqdefault.jpg".toUri()) }
-            }
-            .setExtras(Bundle().apply {
-                putString(EXTRA_CONTEXT, contextLabel)
-                putBoolean(EXTRA_LOCAL, local)
-            })
-            .build()
-        return MediaItem.Builder()
-            .setMediaId(song.id)
-            .setUri(entry.source.uri)
-            .setMediaMetadata(metadata)
-            .build()
-    }
-
     private fun describe(error: PlaybackException): String = when (error.errorCode) {
         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "no connection"
@@ -221,8 +193,8 @@ class PlayerConnection(private val context: Context) {
         else -> error.errorCodeName.removePrefix("ERROR_CODE_").lowercase().replace('_', ' ')
     }
 
-    companion object {
-        private const val EXTRA_CONTEXT = "listenalong.context"
-        private const val EXTRA_LOCAL = "listenalong.local"
+    private companion object {
+        const val EXTRA_CONTEXT = MediaItems.EXTRA_CONTEXT
+        const val EXTRA_LOCAL = MediaItems.EXTRA_LOCAL
     }
 }

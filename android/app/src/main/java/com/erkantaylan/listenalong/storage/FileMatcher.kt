@@ -47,9 +47,9 @@ object FileMatcher {
         return setOf(title, clean).mapTo(LinkedHashSet()) { nfc(FileNames.baseName(artist, it)) }
     }
 
+    /** The name without its extension, for any audio file the app knows (`.ogg` and `.opus` included). */
     private fun baseOf(displayName: String): String? {
-        val extension = displayName.substringAfterLast('.', "").lowercase()
-        if (AudioFormat.entries.none { it.extension == extension }) return null
+        AudioFormat.fromFileName(displayName) ?: return null
         return nfc(displayName.substringBeforeLast('.'))
     }
 

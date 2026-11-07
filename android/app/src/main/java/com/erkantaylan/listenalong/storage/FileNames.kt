@@ -2,16 +2,22 @@ package com.erkantaylan.listenalong.storage
 
 /**
  * The container a downloaded song is saved as. Chosen from the response's
- * Content-Type, never from what we expect: new uploads are m4a, but legacy
- * songs migrated from the old cache keep their format. The server registers
- * `.mp3`, `.webm` and `.ogg`/`.opus` files there and serves them as
- * `audio/mpeg`, `audio/webm` and `audio/ogg` (see MIME_BY_EXT in the
- * backend's library.js).
+ * Content-Type, never from what we expect: the library is mixed. Songs are
+ * uploaded as AAC in MP4 (`.m4a`, `audio/mp4`) or Opus in Ogg (`.opus` on the
+ * server, `audio/ogg`), and legacy songs migrated from the old cache keep
+ * their format: `.mp3`, `.webm` and `.ogg`/`.opus`, served as `audio/mpeg`,
+ * `audio/webm` and `audio/ogg` (see MIME_BY_EXT in the backend's library.js).
  *
  * [mimeType] is what MediaStore is told, so it must be a type MediaStore
  * accepts for the Audio collection. It rejects `audio/webm` outright
  * ("Unsupported MIME type"), so WebM, which is a subset of Matroska, is saved
  * as `.mka` / `audio/x-matroska`; the bytes are unchanged.
+ *
+ * Every `audio/ogg` song is saved as `.ogg`, Opus included. The Content-Type
+ * cannot tell Opus from a legacy Vorbis file, `.ogg` is right for both, and it
+ * is the Ogg extension every Android version's MediaStore and every player
+ * knows. A `.opus` file a user copied into the folder is still recognised
+ * ([fromFileName]).
  */
 enum class AudioFormat(val extension: String, val mimeType: String) {
     M4A("m4a", "audio/mp4"),
@@ -27,17 +33,45 @@ enum class AudioFormat(val extension: String, val mimeType: String) {
                 "audio/webm", "video/webm" -> WEBM
                 "audio/ogg", "audio/opus", "audio/x-opus", "audio/vorbis", "application/ogg" -> OGG
                 // audio/mp4, audio/m4a, audio/x-m4a, audio/aac and anything
-                // unexpected (application/octet-stream): the server stores m4a.
+                // unexpected (application/octet-stream): m4a, the server's
+                // default and every song from before Opus uploads.
                 else -> M4A
             }
         }
 
         fun fromMimeType(mimeType: String?): AudioFormat = fromContentType(mimeType)
+
+        /**
+         * The format a file in the folder is, from its name. Besides the
+         * extensions the app saves, it knows the usual other names of the same
+         * containers (a `.opus` or `.webm` a user copied in). Null when the
+         * file is not audio the app knows.
+         */
+        fun fromFileName(displayName: String): AudioFormat? {
+            if ('.' !in displayName) return null
+            return when (displayName.substringAfterLast('.').lowercase()) {
+                "m4a", "mp4", "aac" -> M4A
+                "mp3" -> MP3
+                "mka", "webm" -> WEBM
+                "ogg", "opus", "oga" -> OGG
+                else -> null
+            }
+        }
+
+        /**
+         * The type to describe a saved file with (to another player, in the
+         * index): the one its name implies, which is what it was saved as,
+         * else what the system reported, else any audio.
+         */
+        fun mimeTypeOf(displayName: String, reported: String? = null): String =
+            fromFileName(displayName)?.mimeType
+                ?: reported?.takeIf { it.startsWith("audio/") }
+                ?: "audio/*"
     }
 }
 
 /**
- * Display names for saved songs: `"<Artist> - <Title>.m4a"`, made safe for
+ * Display names for saved songs: `"<Artist> - <Title>.<ext>"`, made safe for
  * every filesystem the file might end up on (FAT/exFAT SD cards included,
  * which reject more characters than ext4 does).
  */

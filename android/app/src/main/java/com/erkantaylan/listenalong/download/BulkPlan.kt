@@ -17,8 +17,13 @@ data class BulkPlan(
     val count: Int get() = toDownload.size
 
     companion object {
-        /** Roughly what the server's m4a encodes come to. */
-        const val MB_PER_MINUTE = 1.0
+        /**
+         * Between the library's two formats: AAC m4a (128 kbit/s, about
+         * 0.96 MB a minute) and Opus (YouTube's ~130-160 kbit/s VBR, about
+         * 1.0-1.2). The song list does not say which a song is, so one figure
+         * for both, on the high side so the estimate does not fall short.
+         */
+        const val MB_PER_MINUTE = 1.1
         const val ASSUMED_MINUTES = 4.0
 
         fun of(songs: List<Song>, snapshot: DownloadSnapshot): BulkPlan {

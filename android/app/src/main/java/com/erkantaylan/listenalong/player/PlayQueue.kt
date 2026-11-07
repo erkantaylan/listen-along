@@ -1,5 +1,6 @@
 package com.erkantaylan.listenalong.player
 
+import androidx.media3.common.PlaybackException
 import com.erkantaylan.listenalong.api.Song
 import com.erkantaylan.listenalong.storage.LocalSong
 
@@ -27,6 +28,11 @@ data class BuiltQueue(val entries: List<QueueEntry>, val startIndex: Int, val sk
  * waiting, and it works offline. Everything else streams. With no connection,
  * songs that are not downloaded are left out (they could only fail), and the
  * start moves to the nearest playable song at or after the one asked for.
+ *
+ * The connection can also go away after the queue was built (a tunnel, a car
+ * hotspot with no uplink): then the player skips the streamed entries with
+ * [nextPlayable] instead of stopping on them, and [meansUnreachable] tells a
+ * dead server from one bad song.
  */
 object PlayQueue {
 
@@ -63,5 +69,35 @@ object PlayQueue {
         local != null -> PlaySource.Local(local.uri)
         online && streamUrl != null -> PlaySource.Stream(streamUrl(song.id))
         else -> null
+    }
+
+    /**
+     * Walks the play order from [from] (not included), one [next] at a time
+     * (-1 past the end), and returns the first index [playable] accepts, or -1.
+     * At most [count] steps, so a repeat-all loop with nothing playable ends.
+     * [next] is the player's order: shuffle and repeat included, forwards or
+     * backwards.
+     */
+    fun nextPlayable(from: Int, count: Int, next: (Int) -> Int, playable: (Int) -> Boolean): Int {
+        var i = from
+        repeat(count) {
+            i = next(i)
+            if (i < 0 || i == from) return -1
+            if (playable(i)) return i
+        }
+        return -1
+    }
+
+    /**
+     * Whether a failed stream means the server cannot be reached right now
+     * (no route, DNS, timeouts, a dropped connection, a 5xx), as opposed to
+     * something about this one song (a 404, a rejected token, a bad file).
+     */
+    fun meansUnreachable(errorCode: Int, httpStatus: Int?): Boolean = when (errorCode) {
+        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
+        PlaybackException.ERROR_CODE_IO_UNSPECIFIED -> true
+        PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> httpStatus == null || httpStatus >= 500
+        else -> false
     }
 }

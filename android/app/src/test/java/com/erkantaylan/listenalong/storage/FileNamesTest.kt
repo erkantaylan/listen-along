@@ -2,6 +2,7 @@ package com.erkantaylan.listenalong.storage
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -108,5 +109,35 @@ class FileNamesTest {
         // MediaStore rejects audio/webm; WebM is Matroska.
         assertEquals("audio/x-matroska", AudioFormat.WEBM.mimeType)
         assertEquals("audio/ogg", AudioFormat.OGG.mimeType)
+    }
+    @Test
+    fun `opus songs are saved as ogg`() {
+        // The server serves Opus uploads (.opus on its disk) as audio/ogg.
+        val format = AudioFormat.fromContentType("audio/ogg")
+        assertEquals("Daft Punk - One More Time.ogg", FileNames.displayName("Daft Punk", "One More Time", format))
+        assertEquals("audio/ogg", format.mimeType)
+        assertEquals(AudioFormat.OGG, AudioFormat.fromContentType("audio/opus"))
+    }
+
+    @Test
+    fun `a file's format comes from its name, other names of the same containers included`() {
+        assertEquals(AudioFormat.M4A, AudioFormat.fromFileName("A - T.m4a"))
+        assertEquals(AudioFormat.MP3, AudioFormat.fromFileName("A - T.MP3"))
+        assertEquals(AudioFormat.OGG, AudioFormat.fromFileName("A - T.ogg"))
+        assertEquals(AudioFormat.OGG, AudioFormat.fromFileName("A - T.opus"))
+        assertEquals(AudioFormat.WEBM, AudioFormat.fromFileName("A - T.mka"))
+        assertEquals(AudioFormat.WEBM, AudioFormat.fromFileName("A - T.webm"))
+        assertNull(AudioFormat.fromFileName("A - T.txt"))
+        assertNull(AudioFormat.fromFileName("no extension"))
+    }
+
+    @Test
+    fun `a saved file's type follows its name, then what the system says`() {
+        assertEquals("audio/ogg", AudioFormat.mimeTypeOf("A - T.opus", null))
+        // An older index recorded audio/mp4 for any file the system gave no type.
+        assertEquals("audio/ogg", AudioFormat.mimeTypeOf("A - T.ogg", "audio/mp4"))
+        assertEquals("audio/mp4", AudioFormat.mimeTypeOf("A - T.m4a", null))
+        assertEquals("audio/flac", AudioFormat.mimeTypeOf("A - T.flac", "audio/flac"))
+        assertEquals("audio/*", AudioFormat.mimeTypeOf("A - T.flac", "application/octet-stream"))
     }
 }

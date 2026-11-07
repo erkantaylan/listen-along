@@ -4,6 +4,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import com.erkantaylan.listenalong.storage.AudioFormat
 import com.erkantaylan.listenalong.storage.LocalSong
 
 /**
@@ -19,8 +20,11 @@ object ExternalPlayer {
     }
 
     fun open(context: Context, song: LocalSong): Result {
+        // The file's own type (an Opus song is audio/ogg), even for an index
+        // entry recorded before the type was derived from the name.
+        val mimeType = AudioFormat.mimeTypeOf(song.displayName, song.mimeType)
         val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(Uri.parse(song.uri), song.mimeType)
+            setDataAndType(Uri.parse(song.uri), mimeType)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         return try {
@@ -29,7 +33,7 @@ object ExternalPlayer {
             context.startActivity(intent)
             Result.Opened
         } catch (_: ActivityNotFoundException) {
-            Result.NoHandler(song.mimeType)
+            Result.NoHandler(mimeType)
         }
     }
 }

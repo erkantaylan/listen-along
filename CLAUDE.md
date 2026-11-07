@@ -32,14 +32,21 @@ where lobby persistence broke entirely on deployed instances.
 - `index.js` is the main server (~1700 lines, handles all HTTP routes + socket events)
 - Domain modules: lobby.js, playlistAccess.js, queue.js, covers.js, db.js,
   workerHub.js / downloadJobs.js / jobRoutes.js (downloaders + jobs, see below),
-  library.js (music library + m4a validation + legacy cache migration +
+  library.js (music library + upload validation (m4a / Ogg Opus) + legacy cache migration +
   duplicate checks + replace), songMatch.js (normalized "artist|title" key for
   probable duplicates; bump META_KEY_VERSION when changing it — boot recomputes),
   requests.js (song requests), tokens.js (CLI tokens), adminAuth.js (/dashboard),
   libraryRoutes.js (library/requests/admin HTTP API), songResolver.js
   (what a user typed -> library song or song request)
-- **The server does not download audio.** Songs are uploaded as m4a by the
-  listen-along CLI (`cli/`) with a Bearer token created on the profile page. Anything queued that is not in the library becomes a song
+- **The server does not download audio.** Songs are uploaded by the
+  listen-along CLI (`cli/`) with a Bearer token created on the profile page.
+  The library is mixed and stays so: AAC m4a (`.m4a`, `audio/mp4`; every song
+  before la 0.3, YouTube 140) and Opus in Ogg (`.opus`, `audio/ogg`; new
+  downloads, YouTube 251 stream-copied, m4a when a video has no Opus). The
+  format is decided by ffprobe on the content (`classifyUpload`) and kept in
+  `library_songs.mime_type` + the file extension; never transcode, never
+  convert existing songs. `GET /api/me` lists `upload_formats`; a CLI facing a
+  server without it downloads / converts to m4a as before. Anything queued that is not in the library becomes a song
   request; uploads fulfil requests and auto-add the song to the requesting
   playlist. yt-dlp on the server is metadata-only (flat YouTube search, playlist
   listing). See `YTDLP-YOUTUBE.md` before touching song sourcing.
@@ -118,6 +125,15 @@ where lobby persistence broke entirely on deployed instances.
   reshuffle, a next round or `library:updated` (`reconcile`, which keeps the
   playing song and puts new songs after it). Presence reports `{ type: 'radio' }`.
   Followers need nothing: `listen:sync` carries the song alone.
+- **Artists** (landing shelf, `/artists`, `/artist/<key>`): read-only song lists
+  per library artist, nothing stored. `artists.js` (`GET /api/artists`,
+  `GET /api/artists/:key/songs`, approved accounts by the guard's default, no
+  tokens) groups songs by `songMatch.normalizeArtist` (the key, computed per
+  request, so nothing to backfill) and, like station `all`, leaves out songs
+  with an open report. Frontend:
+  `artists.js` (shelf + grid), `artist-page.js` (song table through
+  `virtual-list.js`), pure rules in `artist-rules.js` (tested). Player context
+  `{ type: 'artist', key, name }`; presence keeps a checked key and the name.
 - Android releases: a tag `android-vX.Y.Z` runs `.github/workflows/android-release.yml`
   (signed APK on a GitHub Release; version from the tag; key and backup rules in
   `android/README.md`). The web page `/app` (`frontend/app-page.js`) offers the latest
@@ -127,11 +143,18 @@ where lobby persistence broke entirely on deployed instances.
 - Android app (`android/`, see its README): Kotlin + Compose + Media3, a
   separate client of the HTTP API with a CLI Bearer token (stored encrypted, no
   socket, so no live updates). Library, playlists (edit mode), broken-song
-  reports, background playback (`player/PlaybackService`), downloads as plain
-  files in `Music/ListenAlong` (MediaStore + WorkManager; after a reinstall
+  reports, background playback (`player/PlaybackService`, a Media3
+  `MediaLibraryService`: previous/next only, never seek ±; Android Auto browses
+  `player/CarLibrary` over the `player/CarTree` ids; MediaItems never set a mime
+  type, ExoPlayer sniffs m4a / Ogg Opus), downloads as plain
+  files in `Music/ListenAlong` (the server's bytes, extension from the
+  Content-Type, `storage/FileNames`: Opus is saved as `.ogg`;
+  MediaStore + WorkManager; after a reinstall
   `storage/FileMatcher` recognises them by name + duration, with the optional
-  music access permission). Offline: downloaded
-  songs play; saved playlists and reports are read-only. `./dev.sh [--stub]`
+  music access permission). Offline (`net/Connectivity`: a VALIDATED network
+  and no failed stream in the last minute): downloaded songs play, streamed
+  entries are skipped (`PlayQueue.nextPlayable`); saved playlists and reports
+  are read-only. `./dev.sh [--stub]`
   builds, installs and launches; `tools/stub_server.py` stands in for the
   server, so API or rule changes the app relies on belong there too. Tests:
   `./gradlew :app:testDebugUnitTest`.

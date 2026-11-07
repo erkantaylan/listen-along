@@ -3,6 +3,7 @@ package com.erkantaylan.listenalong.download
 import com.erkantaylan.listenalong.api.ApiException
 import com.erkantaylan.listenalong.api.LibraryClient
 import com.erkantaylan.listenalong.api.Song
+import com.erkantaylan.listenalong.storage.AudioFormat
 import com.erkantaylan.listenalong.storage.AudioSink
 import com.erkantaylan.listenalong.storage.DownloadIndex
 import com.erkantaylan.listenalong.storage.FileMatcher
@@ -131,7 +132,7 @@ class Downloads(
                     title = song.title,
                     artist = song.artist,
                     durationSec = song.durationSec,
-                    mimeType = file.mimeType ?: "audio/mp4",
+                    mimeType = AudioFormat.mimeTypeOf(file.displayName, file.mimeType),
                     bytes = file.bytes,
                     savedAt = now(),
                     // Without media access only this install's own files are visible.

@@ -311,8 +311,8 @@ class DownloadsTest {
         assertTrue(index.entries.value.isEmpty())
     }
 
-    private fun leftover(id: Int, name: String, sec: Long = 200) =
-        SavedFile("content://old/$id", name, sec * 1000, 1234, "audio/mp4")
+    private fun leftover(id: Int, name: String, sec: Long = 200, mime: String? = "audio/mp4") =
+        SavedFile("content://old/$id", name, sec * 1000, 1234, mime)
 
     private fun library(vararg songs: Song) {
         val body = songs.joinToString(",", "{\"songs\":[", "],\"total\":${songs.size}}") {
@@ -350,6 +350,16 @@ class DownloadsTest {
         sink.leftovers += leftover(4, "Artist - Title b.m4a")
         assertEquals(1, d.reclaim())
         assertEquals("content://old/4", index["b"]!!.uri)
+    }
+
+    @Test
+    fun `a reclaimed opus file keeps its own type`() = runBlocking {
+        library(song("a"), song("b"))
+        sink.leftovers += leftover(1, "Artist - Title a.ogg", mime = null)
+        sink.leftovers += leftover(2, "Artist - Title b.opus", mime = "application/octet-stream")
+        assertEquals(2, downloads().reclaim())
+        assertEquals("audio/ogg", index["a"]!!.mimeType)
+        assertEquals("audio/ogg", index["b"]!!.mimeType)
     }
 
     @Test

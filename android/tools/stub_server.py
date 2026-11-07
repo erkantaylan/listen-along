@@ -2,7 +2,8 @@
 """A stand-in for the listen-along library API, for working on the app
 without the real server (which needs PostgreSQL).
 
-Serves every .m4a / .mp3 under --music as a library song:
+Serves every .m4a / .opus / .ogg / .mp3 under --music as a library song
+(a mixed library like the real one: AAC m4a and Ogg Opus, plus legacy mp3):
 
   GET /api/library?q=&limit=&offset=&sort=&reported=1
                                              search, paging, sort, broken only;
@@ -12,7 +13,8 @@ Serves every .m4a / .mp3 under --music as a library song:
                                              withdraw your own report (seeded
                                              with one report by "Ayşe")
   GET /api/library/<id>/file                 the bytes, with Range support
-  GET /api/me                                needs --token; 401 otherwise
+  GET /api/me                                needs --token; 401 otherwise;
+                                             lists upload_formats
   /api/playlists...                          list, songs, create, rename,
                                              visibility, delete, add, remove,
                                              move (in memory, seeded with two
@@ -39,7 +41,11 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-MIME = {".m4a": "audio/mp4", ".mp3": "audio/mpeg"}
+# As the server serves them (MIME_BY_EXT in backend/src/library.js).
+MIME = {".m4a": "audio/mp4", ".opus": "audio/ogg", ".ogg": "audio/ogg", ".mp3": "audio/mpeg"}
+
+# GET /api/me upload_formats, like the server's UPLOAD_FORMATS.
+UPLOAD_FORMATS = ["m4a", "opus"]
 
 
 def probe_duration(path):
@@ -85,7 +91,7 @@ def scan(music_dir):
 
 
 def make_samples(target):
-    """A handful of short tagged files, including an mp3 and awkward names."""
+    """A handful of short tagged files: m4a, an Ogg Opus, a legacy mp3, awkward names."""
     if not shutil.which("ffmpeg"):
         sys.exit("ffmpeg is needed to make samples")
     os.makedirs(target, exist_ok=True)
@@ -95,13 +101,18 @@ def make_samples(target):
         ("AC/DC", "What? Why: Live", "m4a", 330),
         ("Legacy Artist", "An Old MP3", "mp3", 392),
         ("Unknown", "No Artist Here", "m4a", 294),
+        ("Opus Artist", "A New Opus Song", "opus", 349),
     ]
     for i, (artist, title, ext, freq) in enumerate(samples):
         safe = re.sub(r'[\\/:*?"<>|]', " ", f"{artist} - {title}")
         out = os.path.join(target, f"{safe}.{ext}")
         if os.path.exists(out):
             continue
-        codec = ["-c:a", "aac", "-b:a", "128k"] if ext == "m4a" else ["-c:a", "libmp3lame", "-b:a", "128k"]
+        codec = {
+            "m4a": ["-c:a", "aac", "-b:a", "128k"],
+            "opus": ["-c:a", "libopus", "-b:a", "128k"],
+            "mp3": ["-c:a", "libmp3lame", "-b:a", "128k"],
+        }[ext]
         subprocess.run(
             ["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi",
              "-i", f"sine=frequency={freq}:duration={20 + i * 10}",
@@ -180,7 +191,8 @@ class Handler(BaseHTTPRequestHandler):
             if not authed:
                 return self.send_json(401, {"error": "Missing API token"})
             return self.send_json(200, {"name": ME, "user": {"id": "u-me", "name": ME},
-                                        "token": {"label": "stub", "legacy": False}})
+                                        "token": {"label": "stub", "legacy": False},
+                                        "upload_formats": UPLOAD_FORMATS})
 
         if parts[:2] == ["api", "playlists"]:
             if not authed:
@@ -441,7 +453,7 @@ def main():
     here = os.path.dirname(os.path.abspath(__file__))
     default_music = os.path.join(here, "..", "build", "stub-music")
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--music", default=default_music, help="folder of .m4a/.mp3 files")
+    parser.add_argument("--music", default=default_music, help="folder of .m4a/.opus/.ogg/.mp3 files")
     parser.add_argument("--port", type=int, default=8091)
     parser.add_argument("--bind", default="127.0.0.1")
     parser.add_argument("--token", help="accept this API token (enables /api/me)")

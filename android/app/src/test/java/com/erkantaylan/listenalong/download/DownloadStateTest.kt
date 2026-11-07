@@ -155,14 +155,15 @@ class BulkPlanTest {
     private fun song(id: String, seconds: Double?) = Song(id = id, title = id, durationRaw = seconds)
 
     @Test
-    fun `estimates about one MB per minute`() {
+    fun `estimates about one MB per minute, enough for m4a and opus`() {
         val songs = listOf(song("a", 180.0), song("b", 240.0), song("c", 60.0))
-        assertEquals(8, BulkPlan.estimateMb(songs))
+        // 8 minutes: 128k AAC is ~7.7 MB, YouTube Opus ~8-9.6 MB.
+        assertEquals(9, BulkPlan.estimateMb(songs))
     }
 
     @Test
     fun `songs with no duration count as four minutes`() {
-        assertEquals(8, BulkPlan.estimateMb(listOf(song("a", null), song("b", 0.0))))
+        assertEquals(9, BulkPlan.estimateMb(listOf(song("a", null), song("b", 0.0))))
     }
 
     @Test
@@ -181,7 +182,7 @@ class BulkPlanTest {
         assertEquals(2, plan.count)
         assertEquals(2, plan.alreadyHave)
         assertEquals(1, plan.unknownDurations)
-        assertEquals(6, plan.estimatedMb) // 2 min + 4 min assumed
+        assertEquals(7, plan.estimatedMb) // (2 min + 4 min assumed) x 1.1 MB
     }
 
     @Test

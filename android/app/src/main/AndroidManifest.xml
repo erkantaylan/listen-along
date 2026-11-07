@@ -64,16 +64,28 @@
             android:name=".download.CancelDownloadsReceiver"
             android:exported="false" />
 
-        <!-- Exported so the system, Bluetooth and Android Auto style
-             controllers can find the media session. -->
+        <!-- Exported so the system, Bluetooth and Android Auto can find the
+             media session and browse the library (MediaLibraryService; the
+             MediaBrowserService action is what Android Auto looks for). -->
         <service
             android:name=".player.PlaybackService"
             android:exported="true"
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>
+                <action android:name="androidx.media3.session.MediaLibraryService" />
                 <action android:name="androidx.media3.session.MediaSessionService" />
+                <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
         </service>
+
+        <!-- Android Auto: this is a media app. Sideloaded builds also need
+             "Unknown sources" in Android Auto's developer settings. -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+        <meta-data
+            android:name="com.google.android.gms.car.notification.SmallIcon"
+            android:resource="@drawable/ic_stat_music" />
 
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"

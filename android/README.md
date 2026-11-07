@@ -65,13 +65,18 @@ web (**Open my profile**), create a token under "CLI tokens", copy it, tap
 
 ## Player
 
-`player/PlaybackService` is a Media3 `MediaSessionService` around one
+`player/PlaybackService` is a Media3 `MediaLibraryService` around one
 ExoPlayer; the UI only talks to it through a `MediaController`
-(`player/PlayerConnection`, one per process in `AppGraph`).
+(`player/PlayerConnection`, one per process in `AppGraph`), Android Auto
+through the same session (see [Android Auto](#android-auto)).
 
 - Plays in the background with the media notification, lock-screen and
   headset/Bluetooth controls that Media3 builds from the session; tapping the
   notification opens the full player.
+- Those controls are **previous / play / next**. The session does not offer
+  seek back / seek forward (`CarLibrary.onConnectAsync` removes them): with
+  them it also advertised rewind / fast-forward, and car screens showed
+  "−15 s / +15 s" where previous and next belong.
 - Audio focus is handled by ExoPlayer (calls and other players pause it);
   unplugging headphones pauses (`setHandleAudioBecomingNoisy`).
 - Each queued song is resolved once (`player/PlayQueue`): a downloaded song
@@ -80,15 +85,30 @@ ExoPlayer; the UI only talks to it through a `MediaController`
   Bearer token, only for the configured server. Range requests make seeking
   in a stream cheap.
 - A song that fails (deleted file, 404, connection lost) is skipped and a
-  toast says why.
+  toast says why. A stream that fails because the server cannot be reached
+  (no route, timeout, a dropped connection, a 5xx) also marks the server
+  unreachable for a minute, and the player goes on with the next
+  **downloaded** song (see Offline).
 - UI: a mini player above the tabs (cover from the file's embedded art,
   title, "artist · from", previous / play / next, progress line) and a full
   player (seek bar, shuffle, repeat off/all/one).
 
 ## Offline
 
+- "Offline" (`net/Connectivity`) means no **validated** network (Android
+  has not reached the internet through it: a car hotspot with no uplink, a
+  captive portal, mobile data with no signal all count), or a stream failed
+  in the last minute because the server could not be reached. It ends early
+  when the phone moves to another network or a stream starts.
 - Downloaded songs play with no connection; the player's queue then leaves out
   songs that are not on the phone (and says how many it skipped).
+- If the connection goes away **after** the queue was built (with streams in
+  it), the player skips the streamed entries instead of stopping on them:
+  on "next", at the end of a song, and when a stream runs out of buffer it
+  goes to the nearest downloaded entry in play order (backwards after
+  "previous"), and pauses if there is none. Offline, failed loads are not
+  retried, so this happens at once rather than after a minute of retries.
+  Once back online the same queue streams again.
 - **Library** falls back to the downloaded songs (searched and sorted
   locally) with an "Offline" notice, and reloads when the connection returns.
 - **Playlists** keeps the last list and the last song list of every playlist
@@ -106,12 +126,16 @@ ExoPlayer; the UI only talks to it through a `MediaController`
 
 ### Where the files go
 
-`Music/ListenAlong/<Artist> - <Title>.m4a` is saved through MediaStore, so
+`Music/ListenAlong/<Artist> - <Title>.<ext>` is saved through MediaStore, so
 the files are public and every app sees them. The server's bytes are stored
-**unchanged**, so its tags and cover art come along. The extension comes
-from the response `Content-Type`: legacy songs migrated from the old cache
-can be `.mp3` (`audio/mpeg`), `.ogg` (`audio/ogg`) or WebM (`audio/webm`),
-which is saved as `.mka` because MediaStore refuses `audio/webm`. Names are
+**unchanged**, so its tags and cover art come along. The library is mixed and
+the extension comes from the response `Content-Type`: AAC songs are `.m4a`
+(`audio/mp4`), Opus songs `.ogg` (`audio/ogg`; the server's `.opus`, but
+`audio/ogg` cannot tell Opus from a legacy Vorbis file and `.ogg` suits both
+and every MediaStore version), legacy songs migrated from the old cache
+`.mp3` (`audio/mpeg`), `.ogg` or WebM (`audio/webm`), which is saved as `.mka`
+because MediaStore refuses `audio/webm`. The player is never told a type: it
+sniffs the container, from a file or a stream alike. Names are
 sanitised for FAT/exFAT and capped at 200 UTF-8 bytes. The server's
 placeholder artist `Unknown` is dropped.
 
@@ -122,7 +146,8 @@ The index does not survive a reinstall or a data clear, and uninstalling also
 takes away the app's ownership of its files. So when the folder holds a file
 the index does not know, the app compares it with the server's library
 (`storage/FileMatcher`, at start, on resume and before downloads): the file
-name rebuilt from the song's artist and title, and the duration within 3
+name rebuilt from the song's artist and title (any audio extension the app knows,
+`.ogg` and a copied-in `.opus` included), and the duration within 3
 seconds. Anything that fits more than one way stays unmatched.
 
 Seeing files from an earlier install takes **music access**
@@ -141,6 +166,51 @@ app closed; after a process death WorkManager restarts the worker and the
 unfinished songs are fetched again. A network error or a 5xx is retried twice;
 a 4xx fails at once and the row offers a retry. Song and playlist downloads
 use the same queue.
+
+## Android Auto
+
+The app is an Android Auto media app: `PlaybackService` is a
+`MediaLibraryService`, the manifest declares
+`com.google.android.gms.car.application` (`res/xml/automotive_app_desc.xml`,
+`<uses name="media"/>`) and the `android.media.browse.MediaBrowserService`
+action. `player/CarLibrary` is the session callback, `player/CarTree` the
+media ids (pure, tested). In the car:
+
+- **Playlists** → a playlist → *Shuffle*, then its songs.
+- **On device** → *Shuffle*, then the downloaded songs (artist, title).
+- **Recently added** → *Shuffle*, then the 200 newest library songs.
+- **Search** (voice or typed): the library search; offline, the downloads.
+
+Tapping a song plays its whole list from that song, with the same queue
+rules as the app (`PlayQueue.build`: downloaded songs from the file, the rest
+streamed, offline only the downloaded ones). Downloaded songs carry the car's
+download mark. The data comes from the same places as the app's screens —
+`PlaylistRepository` (saved copies offline), the download index, the library
+API with the Bearer token — and nothing waits on the network when offline:
+playlists come from the saved copies (only those opened in the app before),
+*Recently added* shows the downloads, and songs that are not on the phone
+are left out of the lists. Browsing is allowed for this app, Android Auto /
+Automotive and trusted system controllers only, since it shows playlist names.
+
+### Using it with the sideloaded APK
+
+Android Auto hides media apps that were not installed from Google Play until
+you allow them, once, on the phone:
+
+1. Open **Android Auto settings** on the phone (Settings → Connected devices →
+   Connection preferences → Android Auto, or the Android Auto app).
+2. Scroll to **Version** and tap it **10 times** until it says developer
+   settings are enabled; confirm the dialog.
+3. ⋮ (top right) → **Developer settings** → turn on **Unknown sources**.
+4. Back in Android Auto settings → **Customise launcher**: tick
+   **Listen Along** if it is not shown.
+5. Disconnect and reconnect the phone (or restart Android Auto) so the car's
+   launcher picks it up.
+
+Playlists appear once the app has a server and token (Settings in the app);
+for offline playlists, open them once in the app while online. To test without
+a car, use the Desktop Head Unit (DHU) from the SDK's extras, with "Start head
+unit server" in the same developer settings.
 
 ## Build and install
 
@@ -203,14 +273,15 @@ ANDROID_SERIAL=emulator-5554 ./dev.sh --stub   # pick the device explicitly
 ```
 
 `tools/stub_server.py` (Python standard library only) stands in for the real
-server, which needs PostgreSQL. It serves every `.m4a`/`.mp3` in a folder
-through the same API — search, paging, sort, `Range`, `/api/me` — plus
+server, which needs PostgreSQL. It serves every `.m4a`/`.opus`/`.ogg`/`.mp3`
+in a folder through the same API — search, paging, sort, `Range`, `/api/me`
+(with `upload_formats`) — plus
 in-memory playlists seeded with one private playlist of yours and one public
 playlist of someone else's (with a YouTube-only entry), with the server's
 owner rules (`canEdit` too) and error answers, and broken-song reports
 (`?reported=1`, `POST`/`DELETE /api/library/:id/report`, seeded with one
-report by someone else). `--samples` makes five short test songs with
-ffmpeg; `--throttle KBPS` slows transfers down.
+report by someone else). `--samples` makes six short test songs with
+ffmpeg (m4a, one Ogg Opus, one mp3); `--throttle KBPS` slows transfers down.
 
 `./dev.sh --stub` starts it, tunnels it to the phone's `localhost:8091` with
 `adb reverse`, and launches the app with `--es server http://localhost:8091
@@ -236,8 +307,9 @@ app/src/main/java/com/erkantaylan/listenalong/
 ├── playlists/   PlaylistRepository + PlaylistCache (offline copies),
 │                PlaylistEdits (edit mode: drag reorder, remove + Undo)
 ├── reports/     ReportStore (broken-song reports, saved per server), ReportReasons
-├── player/      PlaybackService (Media3), PlayerConnection, PlayQueue
-├── net/         connectivity hint
+├── player/      PlaybackService (Media3 MediaLibraryService), PlayerConnection,
+│                PlayQueue, MediaItems, CarLibrary + CarTree (Android Auto)
+├── net/         Connectivity (validated network + server reachability)
 ├── storage/     MediaStore sink, filenames, the song-id → URI index
 ├── download/    queue, state, the drain loop, WorkManager worker + notification
 ├── open/        hand-off to an external player
@@ -256,7 +328,12 @@ tests against MockWebServer.
   produces `Name (1).m4a`. A file only comes back when its name and duration
   fit exactly one song: one whose title, artist or length changed on the
   server stays unrecognised, and so does a song with no duration.
-- The play queue is not restored after the app process is killed.
+- The play queue is not restored after the app process is killed, so the car's
+  play button with nothing queued does nothing (no playback resumption yet).
+- Android Auto: list rows have no cover art (only the playing song has, from
+  the YouTube thumbnail or the file); a playlist that was never opened in the
+  app is empty in the car while offline; no "Broken" marks or playlist
+  editing in the car.
 - There is no live socket: reports made elsewhere show up on the next
   refresh (resume, pull-to-refresh, reconnect), not instantly.
 - Edit mode assumes nobody else edits the same playlist at the same time;
