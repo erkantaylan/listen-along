@@ -14,6 +14,24 @@ describe('spotify', () => {
       assert.deepStrictEqual(result, { type: 'track', id: '4cOdK2wGLETKBW3PvgPWqT' });
     });
 
+    it('parses a track URL with a locale prefix', () => {
+      assert.deepStrictEqual(
+        parseSpotifyUrl('https://open.spotify.com/intl-tr/track/4cOdK2wGLETKBW3PvgPWqT?si=abcdef123456'),
+        { type: 'track', id: '4cOdK2wGLETKBW3PvgPWqT' }
+      );
+      assert.deepStrictEqual(
+        parseSpotifyUrl('https://open.spotify.com/intl-pt-BR/track/4cOdK2wGLETKBW3PvgPWqT'),
+        { type: 'track', id: '4cOdK2wGLETKBW3PvgPWqT' }
+      );
+    });
+
+    it('returns null for a playlist or artist URL, also with a locale prefix', () => {
+      assert.strictEqual(parseSpotifyUrl('https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M'), null);
+      assert.strictEqual(parseSpotifyUrl('https://open.spotify.com/intl-tr/album/abc123'), null);
+      assert.strictEqual(parseSpotifyUrl('https://open.spotify.com/artist/4tZwfgrHOc3mvqYlEYSvVi'), null);
+      assert.strictEqual(parseSpotifyUrl('https://open.spotify.com/intl-tr'), null);
+    });
+
     it('returns null for YouTube URLs', () => {
       assert.strictEqual(parseSpotifyUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ'), null);
     });

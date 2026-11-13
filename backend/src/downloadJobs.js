@@ -23,6 +23,7 @@
 const db = require('./db');
 const library = require('./library');
 const ytdlp = require('./ytdlp');
+const spotify = require('./spotify');
 
 const STATUSES = ['queued', 'assigned', 'done', 'failed', 'cancelled'];
 const ACTIVE = ['queued', 'assigned'];
@@ -71,7 +72,12 @@ function classifyInput(raw) {
     if (id) return { kind: 'video', input: library.youtubeUrl(id), youtubeId: id };
     let host = '';
     try { host = new URL(text).hostname.toLowerCase(); } catch {}
-    if (host === 'open.spotify.com') return { kind: 'spotify', input: text };
+    if (host === 'open.spotify.com') {
+      // Tracks only, as in the queue (songResolver): a playlist, album or
+      // artist page would become a search for its name.
+      if (spotify.parseSpotifyUrl(text)) return { kind: 'spotify', input: text };
+      return { error: 'Only Spotify track links are supported. Paste the link of a single song.' };
+    }
     return { error: 'Unsupported link. Paste a YouTube video or playlist link, a Spotify track link, or type a song name.' };
   }
   const id = library.parseYoutubeId(text);

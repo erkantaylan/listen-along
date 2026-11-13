@@ -68,6 +68,29 @@ describe('downloadJobs input rules', () => {
     assert.equal(downloadJobs.classifyInput('https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=RDdQw4w9WgXcQ').kind, 'video');
     assert.equal(downloadJobs.classifyInput('https://open.spotify.com/track/abc').kind, 'spotify');
     assert.equal(downloadJobs.classifyInput('Daft Punk - Digital Love').kind, 'search');
+  });
+  it('takes Spotify track links only', () => {
+    const id = '4cOdK2wGLETKBW3PvgPWqT';
+    for (const url of [
+      `https://open.spotify.com/track/${id}`,
+      `https://open.spotify.com/track/${id}?si=abcdef123456`,
+      `https://open.spotify.com/intl-tr/track/${id}?si=abcdef123456`,
+    ]) {
+      assert.deepEqual(downloadJobs.classifyInput(url), { kind: 'spotify', input: url });
+    }
+    for (const url of [
+      'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M',
+      'https://open.spotify.com/album/4aawyAB9vmqN3uQ7FjRGTy?si=abc',
+      'https://open.spotify.com/artist/4tZwfgrHOc3mvqYlEYSvVi',
+      'https://open.spotify.com/intl-tr/playlist/37i9dQZF1DXcBWIGoYBM5M',
+      'https://open.spotify.com/',
+    ]) {
+      const what = downloadJobs.classifyInput(url);
+      assert.equal(what.kind, undefined, url);
+      assert.match(what.error, /Only Spotify track links are supported/, url);
+    }
+  });
+  it('refuses other sites and empty input', () => {
     assert.ok(downloadJobs.classifyInput('https://soundcloud.com/x/y').error);
     assert.ok(downloadJobs.classifyInput('   ').error);
   });

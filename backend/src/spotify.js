@@ -7,6 +7,8 @@ function parseSpotifyUrl(url) {
     const parsed = new URL(url);
     if (parsed.hostname !== 'open.spotify.com') return null;
     const parts = parsed.pathname.split('/').filter(Boolean);
+    // Shared links often carry a locale first: /intl-tr/track/<id>
+    if (parts.length && /^intl-[a-z]{2,3}(-[a-z0-9]{2,4})?$/i.test(parts[0])) parts.shift();
     if (parts.length < 2) return null;
     const type = parts[0];
     const id = parts[1];
