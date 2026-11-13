@@ -49,6 +49,7 @@ is respected, `LA_CONFIG` overrides the path). Precedence:
 | `keep-dir`   | `LA_KEEP_DIR`   | `~/Music/listen-along` (also `la pull`'s default `--dir`) |
 | `sleep`      | `LA_SLEEP`      | `3` (seconds)           |
 | `ytdlp-args` | `LA_YTDLP_ARGS` | (none)                  |
+| `auto-update` | `LA_AUTO_UPDATE` | `true` (`la worker` updates itself; see [Updates](#updates)) |
 
 Tool paths: `LA_YTDLP_BIN`, `LA_FFMPEG_BIN`, `LA_FFPROBE_BIN`.
 
@@ -77,6 +78,7 @@ Every command has detailed `--help` with examples (`la <command> --help`).
 | `la playlist move <playlist> <song> <position>` | reorder |
 | `la pull <library-id\|yt:ID>...` | download library songs to this computer (`--search`, `--playlist`, `--all --yes`); see [Pulling songs](#pulling-songs-to-this-computer-la-pull) |
 | `la worker [--name NAME]` | run as a downloader: take download jobs from the server, upload the songs; see [Downloader](#downloader-la-worker) |
+| `la update [--check]` | install the la the server ships (`--check`: only report); see [Updates](#updates) |
 | `la whoami` | whose token this is (your account name) |
 | `la config set\|get\|unset\|list\|path` | configuration |
 
@@ -145,6 +147,8 @@ la worker --json > events.ndjson   # one JSON event per line on stdout
   after the reconnect (the hello names it). If a worker vanishes mid-job the
   server hands the job to another worker after ~20s. Starting a second
   `la worker` with the same name replaces the first (it exits 1).
+- **Updates.** The worker updates itself from the server and restarts when
+  idle; see [Updates](#updates).
 - **Stopping.** Ctrl+C (SIGTERM; Ctrl+Break on Windows) finishes the current
   job, reports it and exits 0. A second Ctrl+C kills the download and gives
   the job back to the server (exit 130). yt-dlp/ffmpeg run in their own
@@ -212,10 +216,55 @@ systemctl --user restart listen-along-worker   # or stop / status
 journalctl --user -u listen-along-worker -f    # logs
 ```
 
+`la worker` is two processes: the one systemd starts (the main PID, a small
+supervisor) and the downloader it runs as a child, which it restarts after a
+self-update. SIGTERM to the main PID reaches the downloader (finish the job,
+exit 0); `KillMode=mixed` as above, or the default `control-group`, both work.
+The user running the unit must be able to write the `cli/` folder for
+self-updates (otherwise it logs a warning and keeps running the old version).
+
 Use an absolute node path (`command -v node`; nvm paths work). Setting
 `LA_YTDLP_BIN` keeps the worker from prompting to install yt-dlp; otherwise it
 only warns when not on a terminal. On macOS use a launchd agent
 (`~/Library/LaunchAgents`), on Windows Task Scheduler or NSSM.
+
+### Updates
+
+The server ships the la it was built with. When it is newer than yours:
+
+- **`la worker` (0.4.0+) updates itself.** The welcome from the server names
+  the version (`cli_latest`); the worker downloads it from the same server
+  with your token (`GET /api/cli/bundle`, no redirects), checks its sha256
+  against what the server announced, and while idle (after the running job,
+  so no job is given back) replaces `bin/`, `src/`, `package.json` and
+  `README.md` in its own folder (the one holding `bin/la.js`; `test/` and
+  other files stay). The new files are written next to the old ones first,
+  then swapped in by renames; if anything fails the old files are put back
+  and the worker keeps running the old version (it tries again after its next
+  restart). Then it restarts itself: `la worker` runs the downloader as a
+  child process and starts it again from the new files (logs: "Updated la
+  0.4.0 → 0.4.1; restarting…"). Never an older or the same version, and
+  nothing from the download runs except by that restart.
+- **`la update`** does the same by hand (`la update --check` only reports).
+  Restart a running worker afterwards.
+- **Other commands** say once a day, on a terminal, ``la X.Y.Z is available
+  (this is …); run `la update` `` (never with `--json` / `-q`).
+- **Turn it off:** `la worker --no-auto-update`, `la config set auto-update
+  false` or `LA_AUTO_UPDATE=false`; the worker then only logs that an update
+  is available.
+- **A git checkout** (you cloned the repo and run `cli/` from it) is updated
+  too, so `git status` shows `cli/` files as changed (or new). If a later
+  `git pull` complains about them, set them aside with `git stash -u` and pull
+  again (the pull brings the same files).
+- **la 0.3.0 and older** have no updater: update them by hand **once**
+  (replace the `cli/` folder, or `git pull`). Until then the server closes
+  their connection once a day while they are idle, with a reason they print:
+  `Disconnected from the server (4010: la 0.3.0 is out of date; this server
+  has la 0.4.0. Replace your cli/ folder once: la 0.4+ updates itself);
+  reconnecting…`. They reconnect a second later and keep taking jobs.
+
+Trust: the update comes from the server your token is configured for, the
+same one that decides which jobs your worker runs.
 
 ### Pulling songs to this computer (`la pull`)
 
@@ -434,6 +483,7 @@ link for a single file. Check first with `la upload --dry-run --json <dir>`.
 | 5 | server error or unreachable |
 | 6 | missing dependency (yt-dlp / ffmpeg / ffprobe; `la worker`: Node < 22) |
 | 130 | `la worker` stopped by a second Ctrl+C (job given back) |
+| 75 | internal: the downloader process asking `la worker` to restart it after an update |
 
 Auth errors, an unreachable server or a missing tool abort a batch; the
 partial results are still printed with an `aborted` entry.
@@ -462,17 +512,20 @@ All requests send `Authorization: Bearer <token>`.
 - Upload records (`la worker`): the upload also sends `job_id` and
   `worker_id`; the server keeps them (if the worker is the token's own) with
   the requester, and songs carry `uploaded_by_worker` and `requested_by`.
+- `GET /api/cli/latest` → `{ version, sha256, size, url }` (404 `NO_CLI_BUNDLE`: no updates);
+  `GET /api/cli/bundle` → `gzip(JSON {format: "la-cli-bundle", format_version: 1, version,
+  files: [{path, mode, size, sha256, data (base64)}]})` (`la update`, `la worker`)
 - `GET /api/requests?status=pending|fulfilled|all` → `{ requests: [...] }`
 - `POST /api/requests/:id/dismiss`
 - Worker WebSocket `GET /api/workers/connect` (upgrade). JSON messages:
   worker → `hello {token, name, hostname, platform, arch, os_release,
-  cli_version, node_version, ytdlp_version, current_job_id?}`, `pong`,
+  cli_version, node_version, ytdlp_version, capabilities: ["replace", "update"], current_job_id?}`, `pong`,
   `job:progress {job_id, stage, message}` (at most about one per second;
   uploads: stage `uploading`, message `Uploading <song>… 42%`), `job:done {job_id, result:
   {summary, results}}`, `job:release {job_id, reason}`, `drain`; server →
-  `welcome {worker, owner, heartbeat_ms}`, `ping`, `job {job: {id, kind,
+  `welcome {worker, owner, heartbeat_ms, cli_latest?: {version, sha256, url}}`, `ping`, `job {job: {id, kind,
   input, title, request_id, requested_by, no_playlist}}`. Close codes 4001
-  bad token, 4003 replaced, 4005 no database. Full spec:
+  bad token, 4003 replaced, 4005 no database, 4010 outdated (reconnects). Full spec:
   `backend/src/workerHub.js`.
 - Playlists (also at `/api/lobbies/...`; errors are `{error, code}` with code
   `NOT_FOUND`, `FORBIDDEN`, `CONFLICT`, `BAD_REQUEST`, `SONG_NOT_FOUND`):
@@ -501,4 +554,6 @@ Layout: `bin/la.js` (entry), `src/cli.js` (dispatch, help, global options),
 `src/commands/*` (one file per command), `src/pipeline.js` (download/upload
 batch logic), `src/pull.js` (`la pull` file naming, skip/resume, .m3u8), `src/playlists.js` (playlist lookup, `--playlist` hook), `src/api.js`, `src/ytdlp.js`, `src/media.js`, `src/config.js`, `src/worker.js`
 (worker connection / reconnect / job hand-off), `src/tools.js` (tools dir,
-standalone yt-dlp install, version age).
+standalone yt-dlp install, version age), `src/update.js` (self-update: bundle
+checks, the file swap with rollback, the daily hint), `src/supervisor.js`
+(`la worker`'s parent process: restart on exit 75, signal forwarding).

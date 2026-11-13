@@ -40,14 +40,16 @@ const failToast = (prefix) => (err) => showToast(`${prefix}: ${err.message}`, 'e
 async function loadWorkers() {
   const list = $('adm-workers');
   try {
-    const { workers, online, busy } = await api('GET', '/api/admin/workers');
+    const { workers, online, busy, cli_latest: cliLatest } = await api('GET', '/api/admin/workers');
     $('adm-workers-summary').textContent = `(${online} online${busy ? `, ${busy} busy` : ''})`;
     if (!workers.length) { list.innerHTML = emptyRow('No downloader has connected yet.'); return; }
     list.innerHTML = workers.map((w) => {
       const state = w.online ? (w.busy ? '<span class="badge badge-subtle theme-primary">busy</span>' : '<span class="badge badge-subtle theme-success">online</span>') : '<span class="badge badge-subtle theme-secondary">offline</span>';
       const owner = w.owner ? esc(w.owner) : '<span class="badge badge-subtle theme-warning">legacy token</span>';
       const machine = [w.hostname, [w.platform, w.arch].filter(Boolean).join('/'), w.os_release].filter(Boolean).map(esc).join(' · ');
-      const versions = [`la ${w.cli_version || '?'}`, `yt-dlp ${w.ytdlp_version || '?'}`, `node ${w.node_version || '?'}`].map(esc).join(' · ');
+      // Older than the la this server ships: from la 0.4.0 it updates itself; before, its owner must once.
+      const outdated = w.cli_outdated && cliLatest ? ` <span class="badge badge-subtle theme-warning" title="${esc(`This server offers la ${cliLatest}`)}">outdated</span>` : '';
+      const versions = [esc(`la ${w.cli_version || '?'}`) + outdated, esc(`yt-dlp ${w.ytdlp_version || '?'}`), esc(`node ${w.node_version || '?'}`)].join(' · ');
       return `
       <li class="list-group-item d-flex align-items-center gap-3 adm-item adm-worker">
         <div class="min-w-0 flex-grow-1 adm-item-main">

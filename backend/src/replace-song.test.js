@@ -91,6 +91,7 @@ describe('replace with… on Postgres', { skip, timeout: 300_000 }, () => {
     srv = await startServer({
       DATABASE_URL: dbUrl, SONGS_PATH: path.join(tmp, 'songs'), COVERS_DIR: path.join(tmp, 'covers'),
       WORKER_REQUEUE_GRACE_MS: '300', WORKER_HEARTBEAT_MS: '60000',
+      WORKER_OUTDATED_NUDGE_MS: '0', // stand-in workers say la 0.1.0 / 0.2.0 (close 4010: cli-release.test.js)
       PATH: `${stubDir}:${process.env.PATH}`, NODE_OPTIONS: `--require ${path.join(stubDir, 'oembed-stub.cjs')}`,
     });
     req = requester(srv.base);

@@ -27,6 +27,7 @@ const access = require('./playlistAccess');
 const playlistPins = require('./playlistPins');
 const spotify = require('./spotify');
 const { createAppRelease } = require('./appRelease');
+const { createCliRelease, createCliRouter } = require('./cliRelease');
 const { createUserAuth, policyFor, parseCookie, isBlocked, COOKIE_NAME: AUTH_COOKIE, MAX_AGE_MS: AUTH_MAX_AGE_MS } = require('./userAuth');
 const youtubePlaylist = require('./youtubePlaylist');
 const chat = require('./chat');
@@ -369,8 +370,14 @@ async function addJobSongsToPlaylist(job, songs) {
     io.to(job.playlist_id).emit('queue:update', { lobbyId: job.playlist_id, songs: queue.getSongs() });
   }
 }
+// The la CLI this image ships (cli/): offered to workers in the welcome and
+// through /api/cli/latest|bundle so they update themselves (cliRelease.js).
+const cliRelease = createCliRelease();
+cliRelease.load();
+app.use(createCliRouter({ release: cliRelease, requireToken: tokens.requireToken, limiter: apiLimiter }));
 let workersChangedTimer = null;
 const workerHub = createWorkerHub({
+  cliLatest: () => cliRelease.latest(),
   verifyToken: (token) => tokens.verifyToken(token),
   ipOf: upgradeIp,
   dbAvailable: () => db.isAvailable(),
@@ -448,6 +455,7 @@ app.use(createJobRouter({
   requireUser: withAccount('approved'),
   requireMember: withAccount('member'),
   hub: workerHub,
+  cliLatest: () => cliRelease.latest(),
   editablePlaylist: async (playlistId, userId) => {
     const l = await lobby.getLobbyAsync(playlistId);
     return access.canEdit(l, userId) ? l : null;

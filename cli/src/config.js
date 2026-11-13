@@ -48,12 +48,26 @@ const KEYS = {
     description: 'Extra arguments always passed to yt-dlp (shell-style string)',
     parse: (v) => v,
   },
+  'auto-update': {
+    env: 'LA_AUTO_UPDATE',
+    description: '`la worker` updates itself from the server when it offers a newer la (true/false, default true)',
+    parse: (v) => parseBool(v, 'auto-update'),
+  },
 };
+
+function parseBool(v, key) {
+  if (typeof v === 'boolean') return v;
+  const s = String(v).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(s)) return true;
+  if (['0', 'false', 'no', 'off'].includes(s)) return false;
+  throw new UsageError(`${key} must be true or false, got: ${v}`);
+}
 
 const DEFAULTS = {
   'keep-dir': path.join(os.homedir(), 'Music', 'listen-along'),
   sleep: 3,
   'ytdlp-args': '',
+  'auto-update': true,
 };
 
 /** Resolve the config file path (LA_CONFIG > $XDG_CONFIG_HOME > ~/.config). */

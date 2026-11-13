@@ -14,6 +14,9 @@ const { startServer, run, tmpDir, fakeYtdlp, fakeMedia, TOKEN } = require('./hel
 const { attachWsStub } = require('./wsStub');
 const tools = require('../src/tools');
 const { workerUrl } = require('../src/worker');
+const update = require('../src/update');
+const { RESTART_EXIT_CODE } = require('../src/supervisor');
+const { makeBundle, fakeInstall, snapshot } = require('./updateFixtures');
 
 const VIDEOS = {
   aaaaaaaaaa1: { title: 'Digital Love', artist: 'Daft Punk', duration: 301 },
@@ -131,7 +134,7 @@ describe('la worker', () => {
     const d = deps();
     const p = run(['worker', '--name', 'test-box', '--json'], { server, deps: d.deps });
     const done = await until(() => hub.done[0], 'job:done');
-    assert.deepEqual(hub.conns[0].hello.capabilities, ['replace']);
+    assert.deepEqual(hub.conns[0].hello.capabilities, ['replace', 'update']);
     assert.equal(done.type, 'job:done');
     assert.equal(done.result.summary.replaced, 1);
     assert.equal(done.result.results[0].status, 'replaced');
@@ -304,6 +307,127 @@ describe('la worker', () => {
   test('ws url follows the server scheme', () => {
     assert.equal(workerUrl('https://listen.example.com/'), 'wss://listen.example.com/api/workers/connect');
     assert.equal(workerUrl('http://127.0.0.1:3000'), 'ws://127.0.0.1:3000/api/workers/connect');
+  });
+});
+
+describe('la worker self-update', () => {
+  const NEWER = '99.0.0';
+  let server;
+  let hub;
+  beforeEach(async () => { server = await startServer({ checkEnabled: true }); });
+  afterEach(async () => { await server.close(); });
+
+  /** Hub whose welcome carries cli_latest; the server also serves the bundle. */
+  function updateHub(bundle, { jobs = [], latest = bundle && bundle.latest } = {}) {
+    if (bundle) server.state.cli = { latest: bundle.latest, buffer: bundle.buffer };
+    const h = stubHub(server, { jobs });
+    h.onHello = (conn, msg) => {
+      conn.ws.send({ type: 'welcome', worker: { id: WORKER_ID, name: msg.name }, owner: 'owner', heartbeat_ms: 25000, ...(latest ? { cli_latest: { version: latest.version, sha256: latest.sha256, url: latest.url } } : {}) });
+      if (!msg.current_job_id) h.next(conn);
+    };
+    return h;
+  }
+  const events = (r) => r.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+
+  test('idle: downloads, verifies, swaps the files and exits with the restart code', async () => {
+    const root = fakeInstall(require('../package.json').version);
+    hub = updateHub(makeBundle(NEWER));
+    const d = deps({ deps: { supervised: true, installRoot: root } });
+    const r = await run(['worker', '--name', 'u', '--json'], { server, deps: d.deps });
+    assert.equal(r.code, RESTART_EXIT_CODE, r.stderr);
+    assert.deepEqual(hub.conns[0].hello.capabilities, ['replace', 'update']);
+    assert.equal(snapshot(root)['src/cli.js'], `// cli ${NEWER}\n`);
+    assert.equal(snapshot(root)['test/keep.test.js'], '// mine\n');
+    assert.ok(hub.messages.some((m) => m.type === 'drain'), 'told the server it takes no more jobs');
+    const ev = events(r);
+    assert.deepEqual(ev.find((e) => e.event === 'updated'), { event: 'updated', from: require('../package.json').version, to: NEWER });
+    assert.equal(ev.at(-1).event, 'stopped');
+    assert.equal(ev.at(-1).exit_code, RESTART_EXIT_CODE);
+    assert.match(r.stderr, /Updated la .* → 99\.0\.0; restarting/);
+  });
+
+  test('busy: the running job finishes and is reported first, then the update', async () => {
+    const root = fakeInstall(require('../package.json').version);
+    let release;
+    const gateOpen = new Promise((res) => { release = res; });
+    hub = updateHub(makeBundle(NEWER), { jobs: [{ id: 'job-u', kind: 'video', input: 'https://www.youtube.com/watch?v=aaaaaaaaaa1', title: 'Daft Punk - Digital Love' }] });
+    const d = deps({ ytdlp: { gate: () => gateOpen }, deps: { supervised: true, installRoot: root } });
+    const p = run(['worker', '--name', 'u2', '--json'], { server, deps: d.deps });
+    await until(() => server.state.calls.some((c) => c.path === '/api/cli/bundle') && d.y.calls.download.length === 1, 'bundle fetched while the job runs');
+    await tick(50);
+    assert.equal(update.diskVersion(root), require('../package.json').version, 'nothing swapped mid-job');
+    release();
+    const r = await p;
+    assert.equal(r.code, RESTART_EXIT_CODE, r.stderr);
+    const iDone = hub.messages.findIndex((m) => m.type === 'job:done');
+    const iDrain = hub.messages.findIndex((m) => m.type === 'drain');
+    assert.ok(iDone >= 0 && iDrain > iDone, 'job:done before the restart');
+    assert.equal(hub.done[0].result.summary.uploaded, 1);
+    assert.equal(update.diskVersion(root), NEWER);
+  });
+
+  test('a bad bundle keeps the old version and the worker keeps working', async () => {
+    const root = fakeInstall(require('../package.json').version);
+    const before = snapshot(root);
+    const b = makeBundle(NEWER);
+    hub = updateHub({ ...b, latest: { ...b.latest, sha256: 'd'.repeat(64) } });
+    const d = deps({ deps: { supervised: true, installRoot: root } });
+    const p = run(['worker', '--name', 'u3', '--json'], { server, deps: d.deps });
+    const got = await until(() => p && server.state.calls.some((c) => c.path === '/api/cli/bundle'), 'bundle fetched');
+    assert.ok(got);
+    await tick(100);
+    d.signals.emit('SIGINT');
+    const r = await p;
+    assert.equal(r.code, 0);
+    assert.deepEqual(snapshot(root), before);
+    const failed = events(r).find((e) => e.event === 'update_failed');
+    assert.equal(failed.version, NEWER);
+    assert.match(failed.error, /sha256/);
+  });
+
+  test('--no-auto-update, auto-update=false or unsupervised: only says so; never an equal / older version', async () => {
+    const pkgVersion = require('../package.json').version;
+    const cases = [
+      { args: ['--no-auto-update'], deps: { supervised: true }, says: /auto-update is off/ },
+      { args: [], env: { LA_AUTO_UPDATE: 'false' }, deps: { supervised: true }, says: /auto-update is off/ },
+      { args: [], deps: { supervised: false }, says: /run `la update`, then restart the worker$/m },
+      { args: [], deps: { supervised: true }, version: pkgVersion, says: null },
+      { args: [], deps: { supervised: true }, version: '0.0.1', says: null },
+    ];
+    for (const c of cases) {
+      // A fresh server per case: a stub hub attaches to the server for good.
+      await server.close();
+      server = await startServer({ checkEnabled: true });
+      const root = fakeInstall(pkgVersion);
+      const before = snapshot(root);
+      hub = updateHub(makeBundle(c.version || NEWER));
+      const d = deps({ deps: { installRoot: root, ...c.deps } });
+      const p = run(['worker', '--name', 'u4', ...c.args], { server, deps: d.deps, env: c.env || {} });
+      await until(() => hub.conns.length && hub.conns.at(-1).hello, 'hello');
+      await tick(100);
+      d.signals.emit('SIGINT');
+      const r = await p;
+      assert.equal(r.code, 0, JSON.stringify(c));
+      if (c.says) assert.match(r.stderr, c.says, JSON.stringify(c));
+      else assert.doesNotMatch(r.stderr, /is available/);
+      assert.ok(!server.state.calls.some((x) => x.path === '/api/cli/bundle'), JSON.stringify(c));
+      assert.deepEqual(snapshot(root), before);
+    }
+  });
+
+  test('close 4010 (what an old worker gets): the reason is printed and it reconnects', async () => {
+    hub = stubHub(server);
+    hub.onHello = (conn, msg) => {
+      conn.ws.send({ type: 'welcome', worker: { id: WORKER_ID, name: msg.name }, heartbeat_ms: 25000 });
+      if (hub.conns.length === 1) setTimeout(() => conn.ws.close(4010, 'la 0.3.0 is out of date; this server has la 0.4.0. Replace your cli/ folder once: la 0.4+ updates itself'), 10);
+    };
+    const d = deps();
+    const p = run(['worker', '--name', 'old'], { server, deps: d.deps });
+    await until(() => hub.conns.length === 2 && hub.conns[1].hello, 'reconnected');
+    d.signals.emit('SIGINT');
+    const r = await p;
+    assert.equal(r.code, 0);
+    assert.match(r.stderr, /Disconnected from the server \(4010: la 0\.3\.0 is out of date; this server has la 0\.4\.0\. Replace your cli\/ folder once/);
   });
 });
 

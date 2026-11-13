@@ -10,8 +10,9 @@
  *                    cli_version, node_version, ytdlp_version, protocol,
  *                    capabilities?, current_job_id? }   first message, within
  *                    HELLO_TIMEOUT. capabilities: optional list of features
- *                    beyond protocol 1; so far 'replace' (see below). A worker
- *                    from before this field has none.
+ *                    beyond protocol 1: 'replace' (see below; la 0.2.0+) and
+ *                    'update' (understands welcome.cli_latest; la 0.4.0+). A
+ *                    worker from before this field has none.
  *     pong         answer to ping
  *     job:progress { job_id, stage, message }   free text shown to the job's
  *                  requester; each one is a DB write + a jobs:update, so send
@@ -24,7 +25,15 @@
  *     drain        stop sending me jobs (graceful shutdown in progress)
  *
  *   server -> worker
- *     welcome      { worker: {id, name}, user: {id, name}|null, heartbeat_ms }
+ *     welcome      { worker: {id, name}, user: {id, name}|null, owner, heartbeat_ms,
+ *                    cli_latest? }
+ *                  cli_latest: { version, sha256, url } when the server ships
+ *                  a la bundle (cliRelease.js). A newer version than its own
+ *                  makes an 'update' worker fetch url (GET /api/cli/bundle,
+ *                  same server, its token), check sha256, swap its files and
+ *                  restart itself while idle (after the running job). Workers
+ *                  from before ignore the field (their welcome handler reads
+ *                  worker / owner / heartbeat_ms only).
  *     ping         every heartbeat_ms; a worker that hears nothing for ~3x
  *                  reconnects
  *     job          { job: { id, kind, input, title, request_id, requested_by, no_playlist, replace? } }
@@ -36,7 +45,15 @@
  *     error        { code, message } just before a close
  *
  *   Close codes: 4001 bad/revoked token, 4002 bad hello / protocol,
- *   4003 replaced (another process connected as the same worker), 4005 no DB.
+ *   4003 replaced (another process connected as the same worker), 4005 no DB,
+ *   4010 outdated: a worker without 'update' whose cli_version is older than
+ *   cli_latest, idle (no current_job_id), gets a welcome and then this close
+ *   with "la X is out of date ..." as the reason, at most once per
+ *   WORKER_OUTDATED_NUDGE_MS (default 24h, 0 = never) per worker. Such a
+ *   worker (la 0.1-0.3) prints the reason ("Disconnected from the server
+ *   (4010: ...); reconnecting...", its only server text it shows without -v)
+ *   and reconnects after about a second; the next hello is served normally.
+ *   It is a reminder in the owner's log, never a block.
  *
  * Routing (planAssignments): queued jobs oldest first; a job goes to an idle
  * worker of its requester if one is online, otherwise to any idle worker
@@ -51,10 +68,13 @@
 
 const { WebSocketServer } = require('ws');
 const jobs = require('./downloadJobs');
+const { isOutdated } = require('./cliRelease');
 
 const PATH = '/api/workers/connect';
 const PROTOCOL = 1;
 const CAP_REPLACE = 'replace';
+const CAP_UPDATE = 'update';
+const CLOSE_OUTDATED = 4010;
 
 /**
  * Pure routing: which idle worker gets which queued job.
@@ -94,6 +114,8 @@ function planAssignments(queued, idle) {
  * @param {number} [opts.requeueGraceMs]
  * @param {number} [opts.helloTimeoutMs]
  * @param {object} [opts.store] - downloadJobs (tests may stub)
+ * @param {() => ({version, sha256, url}|null)} [opts.cliLatest] - cliRelease.latest
+ * @param {number} [opts.outdatedNudgeMs] - see close code 4010; 0 = off
  */
 function createWorkerHub(opts = {}) {
   const store = opts.store || jobs;
@@ -106,6 +128,9 @@ function createWorkerHub(opts = {}) {
   const heartbeatMs = opts.heartbeatMs ?? Number(process.env.WORKER_HEARTBEAT_MS || 25000);
   const requeueGraceMs = opts.requeueGraceMs ?? Number(process.env.WORKER_REQUEUE_GRACE_MS ?? 20000);
   const helloTimeoutMs = opts.helloTimeoutMs ?? 10000;
+  const cliLatest = opts.cliLatest || (() => null);
+  const outdatedNudgeMs = opts.outdatedNudgeMs ?? Number(process.env.WORKER_OUTDATED_NUDGE_MS ?? 24 * 3600 * 1000);
+  const nudgedAt = new Map(); // workerId -> when it last got close 4010
 
   /** workerId -> conn { ws, worker, userId, ownerName, currentJobId, draining, idleSince, connectedAt, lastSeen } */
   const conns = new Map();
@@ -240,9 +265,32 @@ function createWorkerHub(opts = {}) {
     const worker = await store.registerWorker(apiUser, msg, ipOf(req));
     const ownerName = store.workerOwnerName(worker) || apiUser.name;
     const prev = conns.get(worker.id);
+    const caps = Array.isArray(msg.capabilities) ? msg.capabilities : [];
+    const latest = safe(cliLatest) || null;
+    const welcome = {
+      type: 'welcome',
+      protocol: PROTOCOL,
+      worker: { id: worker.id, name: worker.name },
+      user: apiUser.user ? { id: apiUser.user.id, name: apiUser.user.name } : null,
+      owner: ownerName,
+      heartbeat_ms: heartbeatMs,
+      ...(latest ? { cli_latest: { version: latest.version, sha256: latest.sha256, url: latest.url } } : {}),
+    };
+    // An old worker (no 'update') cannot update itself: tell its owner, once a
+    // day, in the one place it prints server text: the close reason. Only
+    // while idle and not mid-reconnect, so no job is touched.
+    if (latest && outdatedNudgeMs > 0 && !caps.includes(CAP_UPDATE) && !prev && !msg.current_job_id
+        && isOutdated(msg.cli_version, latest.version)
+        && Date.now() - (nudgedAt.get(worker.id) || 0) >= outdatedNudgeMs) {
+      nudgedAt.set(worker.id, Date.now());
+      send(ws, welcome); // it shows a close reason only after a welcome
+      closeWith(ws, CLOSE_OUTDATED, 'OUTDATED', `la ${String(msg.cli_version).slice(0, 20)} is out of date; this server has la ${latest.version}. Replace your cli/ folder once: la 0.4+ updates itself`);
+      log(`${worker.name} (${ownerName || 'legacy token'}) runs la ${msg.cli_version} < ${latest.version}: told to update (close ${CLOSE_OUTDATED}); it reconnects`);
+      return;
+    }
     const conn = {
       ws, worker, userId: apiUser.userId || null, tokenId: apiUser.id, ownerName,
-      canReplace: Array.isArray(msg.capabilities) && msg.capabilities.includes(CAP_REPLACE),
+      canReplace: caps.includes(CAP_REPLACE),
       currentJobId: null, draining: false, ready: false,
       idleSince: Date.now(), connectedAt: Date.now(), lastSeen: Date.now(),
     };
@@ -266,14 +314,7 @@ function createWorkerHub(opts = {}) {
       if (row) notify(row);
     }
     conn.ready = true;
-    send(ws, {
-      type: 'welcome',
-      protocol: PROTOCOL,
-      worker: { id: worker.id, name: worker.name },
-      user: apiUser.user ? { id: apiUser.user.id, name: apiUser.user.name } : null,
-      owner: ownerName,
-      heartbeat_ms: heartbeatMs,
-    });
+    send(ws, welcome);
     log(`${worker.name} (${ownerName || 'legacy token'}) connected from ${worker.last_ip || '?'}; cli ${worker.cli_version || '?'} on ${worker.platform || '?'}`);
     safe(onWorkersChanged);
     dispatch();
@@ -422,4 +463,4 @@ function createWorkerHub(opts = {}) {
   return { attach, start, dispatch, stats, live, onlineWorkers, close, sweep, PATH, _conns: conns };
 }
 
-module.exports = { createWorkerHub, planAssignments, PATH, PROTOCOL };
+module.exports = { createWorkerHub, planAssignments, PATH, PROTOCOL, CLOSE_OUTDATED };

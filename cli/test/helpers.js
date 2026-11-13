@@ -66,6 +66,17 @@ async function startServer(overrides = {}) {
 
     if (req.method === 'GET' && url.pathname === '/api/me') return send(200, state.me);
 
+    // Self-update: state.cli = { latest: {version, sha256, size, url}, buffer, redirect? } (absent: an older server).
+    if (req.method === 'GET' && url.pathname === '/api/cli/latest') {
+      return state.cli ? send(200, state.cli.latest) : send(404, { error: 'This server does not offer la updates', code: 'NO_CLI_BUNDLE' });
+    }
+    if (req.method === 'GET' && url.pathname === '/api/cli/bundle') {
+      if (!state.cli) return send(404, { error: 'no bundle', code: 'NO_CLI_BUNDLE' });
+      if (state.cli.redirect) { res.writeHead(302, { location: state.cli.redirect }); return res.end(); }
+      res.writeHead(200, { 'content-type': 'application/gzip', 'content-length': state.cli.buffer.length });
+      return res.end(state.cli.buffer);
+    }
+
     if (req.method === 'GET' && url.pathname === '/api/library') {
       const q = (url.searchParams.get('q') || '').toLowerCase();
       const limit = Number(url.searchParams.get('limit') || 50);

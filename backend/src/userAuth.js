@@ -107,6 +107,7 @@ const SELF_PREFIXES = [
   '/api/dashboard/',
   '/api/auth/users/',
   '/api/chat/messages/',
+  '/api/cli/',          // la self-update: CLI Bearer token (cliRelease.js)
 ];
 
 // Pending users may use these too (their own account; /app, the install page).

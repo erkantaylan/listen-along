@@ -10,7 +10,7 @@
  *   POST /api/jobs/:id/cancel          a queued job of the caller
  *   POST /api/jobs/:id/retry           a failed / cancelled job of the caller
  *   GET  /api/profile/activity         the caller's own uploads / asks / fulfilments
- *   GET  /api/admin/workers            every worker with IP, OS, versions (admin)
+ *   GET  /api/admin/workers            every worker with IP, OS, versions, cli_outdated (admin)
  *   GET  /api/admin/jobs               job queue overview (admin)
  *   POST /api/admin/jobs/:id/cancel|retry
  *
@@ -25,6 +25,7 @@ const jobs = require('./downloadJobs');
 const adminAuth = require('./adminAuth');
 const ytdlp = require('./ytdlp');
 const { apiLimiter, make } = require('./rateLimits');
+const { isOutdated } = require('./cliRelease');
 
 // Each preview may run yt-dlp once on the server; results are kept a while.
 const previewLimiter = make(30, 60 * 1000, { message: 'Too many link lookups, slow down' });
@@ -50,6 +51,7 @@ function durationDiffers(current, next) {
  */
 function createJobRouter(hooks) {
   const { requireUser, requireMember, hub } = hooks;
+  const cliLatest = hooks.cliLatest || (() => null);
   const onJobUpdated = hooks.onJobUpdated || (() => {});
   const router = express.Router();
   router.use(['/api/workers', '/api/jobs', '/api/profile/activity', '/api/admin/workers', '/api/admin/jobs'], apiLimiter);
@@ -294,7 +296,15 @@ function createJobRouter(hooks) {
   // --- Admin --------------------------------------------------------------
   router.get('/api/admin/workers', adminAuth.requireAdmin, requireDb, route('list workers', async (req, res) => {
     const rows = await jobs.listWorkers();
-    res.json({ workers: rows.map((w) => jobs.adminWorkerView(w, hub.live(w.id))), ...workerCounts() });
+    // The la version this server offers: workers below it are flagged (and
+    // update themselves from la 0.4.0 on).
+    const latest = cliLatest();
+    const cliLatestVersion = latest ? latest.version : null;
+    res.json({
+      workers: rows.map((w) => ({ ...jobs.adminWorkerView(w, hub.live(w.id)), cli_outdated: !!cliLatestVersion && isOutdated(w.cli_version, cliLatestVersion) })),
+      cli_latest: cliLatestVersion,
+      ...workerCounts(),
+    });
   }));
 
   router.get('/api/admin/jobs', adminAuth.requireAdmin, requireDb, route('list jobs', async (req, res) => {

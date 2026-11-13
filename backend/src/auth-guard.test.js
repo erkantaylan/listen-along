@@ -154,7 +154,7 @@ describe('userAuth rules', () => {
         '/api/admin/login', '/lobby/abc'],
       self: ['/api/me', '/api/library', '/api/library/upload', '/api/library/x/file', '/api/requests',
         '/api/requests/x/dismiss', '/api/admin/tokens', '/api/dashboard/stats', '/api/auth/users',
-        '/api/auth/users/x/status', '/api/chat/messages/1', '/dashboard'],
+        '/api/auth/users/x/status', '/api/chat/messages/1', '/dashboard', '/api/cli/latest', '/api/cli/bundle'],
       member: ['/api/profile', '/api/profile/providers/github'],
       approved: ['/api/playlists', '/api/lobbies/x', '/api/stream', '/api/covers/x', '/api/qr/x', '/api/anything-new',
         '/api/auth/something-new', '/api', '//api/playlists', '/API/playlists', '/Api/Stream'],

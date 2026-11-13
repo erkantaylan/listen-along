@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('fs');
 const os = require('os');
 const readline = require('readline');
 const { UsageError, CliError, EXIT } = require('../errors');
@@ -12,10 +13,16 @@ const tools = require('../tools');
 const config = require('../config');
 const { WorkerClient } = require('../worker');
 const { percentThrottle } = require('../progress');
+const update = require('../update');
+const { createSignalRouter, isSupervisedChild, RESTART_EXIT_CODE } = require('../supervisor');
 const pkg = require('../../package.json');
 
-/** Told to the server in the hello: it sends replace jobs only to workers that say so. */
-const CAPABILITIES = ['replace'];
+/**
+ * Told to the server in the hello: it sends replace jobs only to workers that
+ * say 'replace'; 'update' = this worker reads welcome.cli_latest (so the
+ * server does not nag it with close 4010).
+ */
+const CAPABILITIES = ['replace', 'update'];
 
 /** Output for one job: progress lines go to the terminal AND to the server. */
 class JobOutput extends Output {
@@ -218,6 +225,17 @@ finish and report, then exits 0. A second Ctrl+C stops the download now and
 gives the job back to the server (exit 130). Downloads run in their own
 process group, so the first Ctrl+C does not kill them.
 
+Updates: when the server offers a newer la (it ships the one it was built
+with), the worker downloads it from the same server with your token, checks
+its sha256, replaces bin/, src/, package.json and README.md of this install
+(${update.installRoot()}) while idle (after the running job), and restarts
+itself. A failed update puts the old files back and keeps running.
+--no-auto-update or \`la config set auto-update false\` turns it off; the worker
+then only says that an update is available (\`la update\`). \`la worker\` runs
+the downloader as a child process and restarts it after an update: under
+systemd the first process stays the main PID; Ctrl+C and SIGTERM work as
+before.
+
 Tools: needs ffmpeg/ffprobe (install hint per OS if missing) and yt-dlp. If
 yt-dlp is missing or more than ${tools.MAX_AGE_DAYS} days old the worker offers to download the
 official standalone binary for this OS into ${tools.toolsDir()}
@@ -232,6 +250,7 @@ Needs Node.js 22 or newer.`,
     keep: { type: 'boolean', desc: 'Also keep a local copy of every downloaded song in the keep dir' },
     'keep-dir': { type: 'string', value: 'DIR', desc: 'Directory for --keep (config `keep-dir`, default ~/Music/listen-along)' },
     'ytdlp-args': { type: 'string', multiple: true, value: 'ARGS', desc: 'Extra yt-dlp arguments, shell-quoted; use the = form' },
+    'no-auto-update': { type: 'boolean', desc: 'Do not update la from the server (config `auto-update`, default true)' },
   },
   output: `Progress and job lines on stderr. With --json, one JSON object per line on
 stdout for each event:
@@ -240,15 +259,20 @@ stdout for each event:
   {"event":"job_started","job":{"id","kind","input","title","request_id","replace"?}}
   {"event":"job_finished","job_id","status":"done|released","summary"?,"reason"?}
   {"event":"disconnected","code"}
+  {"event":"updated","from","to"}            (then it restarts: a new "ready" follows)
+  {"event":"update_failed","version","error"}
   {"event":"stopped","exit_code"}
 Exit: 0 after a graceful stop, 130 after a second Ctrl+C, 3 not configured,
-4 token refused, 6 missing tool, 1 another worker took this name.`,
+4 token refused, 6 missing tool, 1 another worker took this name (or it kept
+restarting after updates). 75 is internal: the downloader process asking to
+be restarted after an update.`,
   examples: [
     'la worker',
     'la worker --name "living-room-pc"',
     'la worker --install-ytdlp            # get / update the official yt-dlp first',
     'la worker --sleep 10 --keep',
     'la worker --json > worker-events.log',
+    'la worker --no-auto-update           # stay on this la version',
   ],
   ensureYtdlp,
   runJob,
@@ -282,7 +306,74 @@ Exit: 0 after a graceful stop, 130 after a second Ctrl+C, 3 not configured,
     let lastDownloadEnd = 0;
     const wait = ctx.deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
 
-    const client = new WorkerClient({
+    // Self-update (see the help text). `client` is assigned below; these run
+    // only from its events.
+    const root = ctx.deps.installRoot || update.installRoot();
+    const supervised = ctx.deps.supervised ?? isSupervisedChild(ctx.env);
+    const autoUpdate = !values['no-auto-update'] && ctx.cfg.values['auto-update'] !== false;
+    const told = new Set(); // versions already mentioned
+    const failed = new Set(); // versions that failed: not again in this process
+    let preparing = false;
+    let prepared = null; // { version, files|null } verified, waiting for an idle moment
+    let client = null;
+    if (supervised && autoUpdate) update.cleanLeftovers(root);
+
+    const updateFailed = (version, err) => {
+      failed.add(version);
+      out.warn(`Self-update to la ${version} failed: ${err.message}; staying on la ${pkg.version}`);
+      event({ event: 'update_failed', version, error: err.message });
+    };
+    // Synchronous from the idle check to restart(): no job can start in between.
+    const applyUpdate = () => {
+      if (!prepared || !client || client.current || client.stopping || client.finished) return;
+      const p = prepared;
+      prepared = null;
+      if (p.files) {
+        try {
+          update.installFiles(root, p.files, ctx.deps.updateFs ? { fs: ctx.deps.updateFs } : {});
+        } catch (err) {
+          updateFailed(p.version, err);
+          return;
+        }
+      }
+      out.info(`Updated la ${pkg.version} → ${p.version}${p.files ? '' : ' (already on disk)'}; restarting…`);
+      if (p.files && update.inGitCheckout(root)) out.info(`${root} is in a git checkout: \`git status\` shows its files as changed until the next pull`);
+      event({ event: 'updated', from: pkg.version, to: p.version });
+      client.restart(RESTART_EXIT_CODE);
+    };
+    const prepareUpdate = async (latest) => {
+      preparing = true;
+      try {
+        const onDisk = update.diskVersion(root);
+        if (onDisk && update.compareVersions(onDisk, latest.version) >= 0) {
+          prepared = { version: latest.version, files: null }; // `la update` already did it
+        } else {
+          try { fs.accessSync(root, fs.constants.W_OK); } catch { throw new CliError(`${root} is not writable by this user`, { code: 'UPDATE_NOT_WRITABLE' }); }
+          out.info(`la ${latest.version} is available (this is ${pkg.version}); downloading it from the server…`);
+          const p = await update.prepareUpdate({ server, token, latest, fetch: ctx.deps.fetch });
+          prepared = { version: p.version, files: p.files };
+          if (client && client.current) out.info(`la ${p.version} is ready; it is installed after the current job`);
+        }
+      } catch (err) {
+        updateFailed(latest.version, err);
+      } finally {
+        preparing = false;
+      }
+      applyUpdate();
+    };
+    const onCliLatest = (latest) => {
+      if (!latest || !update.isNewer(latest.version, pkg.version) || failed.has(latest.version)) return;
+      if (!autoUpdate || !supervised) {
+        if (told.has(latest.version)) return;
+        told.add(latest.version);
+        out.info(`la ${latest.version} is available (this is ${pkg.version}); run \`la update\`, then restart the worker${autoUpdate ? '' : ' (auto-update is off)'}`);
+        return;
+      }
+      if (preparing || prepared) return;
+      prepareUpdate(latest);
+    };
+
+    client = new WorkerClient({
       server,
       token,
       out,
@@ -303,6 +394,7 @@ Exit: 0 after a graceful stop, 130 after a second Ctrl+C, 3 not configured,
         if (type === 'connected') {
           out.info(`Connected as worker "${data.worker ? data.worker.name : name}"; waiting for jobs…`);
           event({ event: 'connected', worker: data.worker });
+          onCliLatest(data.cliLatest);
         } else if (type === 'disconnected') {
           event({ event: 'disconnected', code: data.code });
         } else if (type === 'job_started') {
@@ -319,13 +411,17 @@ Exit: 0 after a graceful stop, 130 after a second Ctrl+C, 3 not configured,
             out.info(`Job ${data.job.id.slice(0, 8)} given back: ${o.reason}`);
             event({ event: 'job_finished', job_id: data.job.id, status: 'released', reason: o.reason });
           }
+          applyUpdate(); // an update that waited for this job
         }
       },
     });
 
     // Ctrl+C: finish the job; again: give it back. Windows has no SIGTERM;
-    // Ctrl+Break is SIGBREAK, closing the console window SIGHUP.
-    const signals = ctx.deps.signals || process;
+    // Ctrl+Break is SIGBREAK, closing the console window SIGHUP. Under the
+    // supervisor a signal can arrive twice (directly and forwarded): the
+    // router makes it one.
+    const router = !ctx.deps.signals && supervised ? createSignalRouter() : null;
+    const signals = ctx.deps.signals || router || process;
     let presses = 0;
     const onStop = () => { presses++; client.stop({ abort: presses > 1 }); };
     const onHangup = () => client.stop({ abort: true });
@@ -339,6 +435,7 @@ Exit: 0 after a graceful stop, 130 after a second Ctrl+C, 3 not configured,
     } finally {
       for (const s of names) signals.removeListener(s, onStop);
       signals.removeListener('SIGHUP', onHangup);
+      if (router) router.close();
     }
   },
 };

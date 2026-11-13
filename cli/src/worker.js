@@ -14,6 +14,11 @@
  * across a reconnect: its uploads are plain HTTP, the hello names the job
  * still in progress, and a result that could not be sent is sent after the
  * next welcome.
+ *
+ * Self-update: the welcome may carry cli_latest { version, sha256, url }; the
+ * `connected` event hands it to the command (commands/worker.js), which
+ * updates the files while idle and calls restart(), ending start() with the
+ * supervisor's restart exit code.
  */
 
 const os = require('os');
@@ -73,7 +78,8 @@ class WorkerClient {
     this.heartbeatMs = 25000;
     this.current = null; // { job, abort: AbortController, promise }
     this.pendingReports = []; // messages to send after the next welcome
-    this.stopping = null; // null | 'drain' | 'abort'
+    this.stopping = null; // null | 'drain' | 'abort' | 'restart'
+    this.restartCode = null;
     this.reconnectTimer = null;
     this.watchdog = null;
     this.done = new Promise((resolve, reject) => { this.resolveDone = resolve; this.rejectDone = reject; });
@@ -153,7 +159,7 @@ class WorkerClient {
         this.finish(fatal.exitCode);
         return;
       }
-      if (this.stopping && !this.current) { this.finish(this.stopping === 'abort' ? 130 : EXIT.OK); return; }
+      if (this.stopping && !this.current) { this.finish(this.stopCode()); return; }
       if (wasWelcomed) {
         this.out.warn(`Disconnected from the server${ev.code && ev.code !== 1006 ? ` (${ev.code}${ev.reason ? `: ${ev.reason}` : ''})` : ''}; reconnecting…`);
         this.onEvent('disconnected', { code: ev.code });
@@ -178,7 +184,7 @@ class WorkerClient {
 
   scheduleReconnect() {
     if (this.finished) return;
-    if (this.stopping && !this.current) { this.finish(this.stopping === 'abort' ? 130 : EXIT.OK); return; }
+    if (this.stopping && !this.current) { this.finish(this.stopCode()); return; }
     clearTimeout(this.reconnectTimer);
     const base = Math.min(this.maxBackoffMs, this.backoffMs * 2 ** this.attempt);
     const delay = Math.round(base * (0.75 + Math.random() * 0.5));
@@ -195,7 +201,7 @@ class WorkerClient {
         this.worker = msg.worker || null;
         if (Number(msg.heartbeat_ms) > 0) this.heartbeatMs = Number(msg.heartbeat_ms);
         this.armWatchdog();
-        this.onEvent('connected', { worker: this.worker, owner: msg.owner || null });
+        this.onEvent('connected', { worker: this.worker, owner: msg.owner || null, cliLatest: msg.cli_latest && typeof msg.cli_latest === 'object' ? msg.cli_latest : null });
         for (const m of this.pendingReports.splice(0)) this.send(m);
         if (this.stopping) this.send({ type: 'drain' });
         return;
@@ -249,6 +255,27 @@ class WorkerClient {
     })();
   }
 
+  /** Exit code for a stop that is complete. */
+  stopCode() {
+    if (this.stopping === 'abort') return 130;
+    if (this.stopping === 'restart') return this.restartCode;
+    return EXIT.OK;
+  }
+
+  /**
+   * Idle and the files were just updated: tell the server, close, and end
+   * start() with `code` (the supervisor then starts the new version). Never
+   * called with a job running.
+   */
+  restart(code) {
+    if (this.finished || this.current) return false;
+    this.stopping = 'restart';
+    this.restartCode = code;
+    this.send({ type: 'drain' });
+    this.closeSoon(code);
+    return true;
+  }
+
   /** Let the last report flush, then close. */
   closeSoon(code) {
     const ws = this.ws;
@@ -272,6 +299,7 @@ class WorkerClient {
    */
   stop({ abort = false } = {}) {
     if (this.finished) return;
+    if (this.stopping === 'restart') return; // already on the way out, nothing running
     if (!abort && !this.stopping) {
       this.stopping = 'drain';
       this.send({ type: 'drain' });

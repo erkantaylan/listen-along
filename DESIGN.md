@@ -376,7 +376,8 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   it shows only a centred login card (`#adm-gate`, no player bar, no sections); Log out is under the section list. Sections, one at a time, each `h2.h5` + a
   muted hint + a list group: **Overview** (stat cards, below); **Playlists** (public ones; private ones are only
   counted, never listed); **Users**; **Downloaders** (every `la worker` ever connected: name · owner, host /
-  platform / OS, IP and versions in muted lines, online / busy / offline badge, Refresh — the only place
+  platform / OS, IP and versions in muted lines (a subtle warning "outdated" badge after an la version older than
+  the one the server ships, `cli_outdated`), online / busy / offline badge, Refresh — the only place
   machine details appear); **Download jobs** (status filter select, counts, rows with requester, playlist, worker,
   error code, status badge and Cancel / Retry); **Broken songs** (see "Context menu"); **CLI tokens** (list, Revoke);
   **Song requests** (status filter, Dismiss); **Library** (search, Play, Delete). Downloaders, jobs and broken songs refresh every 10s.

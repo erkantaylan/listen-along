@@ -19,6 +19,7 @@ const { io: ioClient } = require('socket.io-client');
 const { cookieFor, adminCookie, startServer, requester } = require('./testServer');
 const { planAssignments } = require('./workerHub');
 const downloadJobs = require('./downloadJobs');
+const cliVersion = require('../../cli/package.json').version;
 
 let PostgreSqlContainer;
 try { PostgreSqlContainer = require('@testcontainers/postgresql').PostgreSqlContainer; } catch {}
@@ -95,6 +96,9 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
     srv = await startServer({
       DATABASE_URL: dbUrl, SONGS_PATH: path.join(tmp, 'songs'), COVERS_DIR: path.join(tmp, 'covers'),
       WORKER_REQUEUE_GRACE_MS: '300', WORKER_HEARTBEAT_MS: '60000',
+      // These stand-in workers say la 0.1.0 without 'update': no close 4010
+      // here (cli-release.test.js covers it).
+      WORKER_OUTDATED_NUDGE_MS: '0',
     });
     req = requester(srv.base);
   }
@@ -418,6 +422,9 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
     assert.equal(a.platform, 'linux');
     assert.equal(a.os_release, 'Linux 6.1');
     assert.equal(a.cli_version, '0.1.0');
+    assert.equal(adm.body.cli_latest, cliVersion, 'the la this server ships');
+    assert.equal(a.cli_outdated, true);
+    assert.ok(wa.messages.find((m) => m.type === 'welcome').cli_latest.version === cliVersion);
     assert.match(a.last_ip, /127\.0\.0\.1|::1/);
     assert.equal(a.owner, 'Alice');
     const bob = adm.body.workers.find((x) => x.name === 'bob-pc');
@@ -428,6 +435,21 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
     assert.ok(q.body.counts.failed >= 2);
     assert.ok(q.body.jobs.length >= 5);
     await closeAll();
+  });
+
+  it('GET /api/cli/latest + /api/cli/bundle: any valid token; the bundle matches the announced sha256', async () => {
+    assert.equal((await req('GET', '/api/cli/latest')).status, 401);
+    assert.equal((await req('GET', '/api/cli/latest', { cookie: cookies.alice })).status, 401, 'a token, not a login');
+    assert.equal((await req('GET', '/api/cli/bundle', { headers: { authorization: 'Bearer la_nope' } })).status, 401);
+    const r = await req('GET', '/api/cli/latest', { headers: { authorization: `Bearer ${tok.bob}` } });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.version, cliVersion);
+    const res = await fetch(srv.base + r.body.url, { headers: { authorization: `Bearer ${tok.bob}` } });
+    assert.equal(res.status, 200);
+    const buf = Buffer.from(await res.arrayBuffer());
+    const cliUpdate = require('../../cli/src/update');
+    cliUpdate.verifySha256(buf, r.body.sha256);
+    assert.equal(cliUpdate.parseBundle(buf, { expectVersion: cliVersion }).version, cliVersion);
   });
 
   it('profile activity: only ever the caller\'s own', async () => {

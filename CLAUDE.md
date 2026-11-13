@@ -96,7 +96,13 @@ where lobby persistence broke entirely on deployed instances.
   an older one would upload a duplicate new song),
   requeues a job whose worker disconnects after `WORKER_REQUEUE_GRACE_MS`
   (default 20s; a reconnecting worker reclaims it via `current_job_id`),
-  requeues all `assigned` jobs at boot. `downloadJobs.js` is the store
+  requeues all `assigned` jobs at boot. Self-update: the image ships cli/;
+  `cliRelease.js` bundles it at boot (`GET /api/cli/latest|bundle`, any token),
+  the welcome carries `cli_latest`, and la 0.4+ (`update` capability) swaps its
+  files while idle and restarts under its supervisor (cli/src/update.js,
+  supervisor.js; exit 75 = restart). Older workers get close 4010 with an
+  "update" reason once a day (`WORKER_OUTDATED_NUDGE_MS`), never a block.
+  `downloadJobs.js` is the store
   (Postgres `download_jobs`, `download_workers`) and the views:
   `publicWorkerView` = name + owner only; `adminWorkerView` adds hostname /
   OS / IP / versions — never send those to non-admins. Jobs come from every

@@ -31,7 +31,11 @@ const COMMANDS = [
   require('./commands/playlist'),
   require('./commands/pull'),
   require('./commands/worker'),
+  require('./commands/update'),
 ];
+
+/** Commands that never print the daily "la X is available" hint. */
+const NO_HINT = new Set(['worker', 'update', 'config']);
 
 const EXIT_CODES_TEXT = `Exit codes:
   0  success (batch: every item uploaded/skipped/dismissed)
@@ -76,6 +80,7 @@ Configuration (precedence: flag > environment > config file):
   LA_CONFIG             config file path (default ~/.config/listen-along/config.json)
   LA_YTDLP_BIN, LA_FFMPEG_BIN, LA_FFPROBE_BIN   tool paths
   LA_TOOLS_DIR          where \`la worker --install-ytdlp\` puts yt-dlp (used when present)
+  LA_AUTO_UPDATE        false: \`la worker\` does not update itself (config \`auto-update\`)
 
 Output: results go to stdout, progress/warnings/errors to stderr. With
 --json, stdout is exactly one JSON document.
@@ -96,6 +101,7 @@ Examples:
   la playlist show "Road trip"
   la pull --playlist "Road trip"
   la worker --name "home-pc"
+  la update --check
 `;
 }
 
@@ -180,7 +186,10 @@ function makeContext({ env, values, out, deps }) {
 /**
  * Entry point. Never calls process.exit; returns the exit code.
  * @param {string[]} argv - arguments after the program name
- * @param {object} [io] - { env, stdout, stderr, deps } (injectable for tests)
+ * @param {object} [io] - { env, stdout, stderr, deps, updateHint } (injectable
+ *   for tests). updateHint: at most once a day, say on stderr when the server
+ *   ships a newer la (bin/la.js turns it on; skipped with --json / --quiet,
+ *   off a terminal, and for worker / update / config).
  */
 async function main(argv, io = {}) {
   const env = io.env || process.env;
@@ -225,6 +234,7 @@ async function main(argv, io = {}) {
     }
     const ctx = makeContext({ env, values, out, deps });
     const code = await cmd.run(ctx, values, positionals);
+    if (io.updateHint && !NO_HINT.has(parent ? parent.name : cmd.name)) await updateHint(ctx, values, stderr);
     return code ?? EXIT.OK;
   } catch (err) {
     if (err instanceof CliError) {
@@ -234,6 +244,16 @@ async function main(argv, io = {}) {
     out.error({ code: 'INTERNAL', message: err && err.stack ? (out.verbose ? err.stack : err.message) : String(err) });
     return EXIT.FAILURE;
   }
+}
+
+/** The daily update hint; never fails the command. */
+async function updateHint(ctx, values, stderr) {
+  if (values.json || values.quiet || !stderr.isTTY) return;
+  try {
+    const cfg = ctx.cfg;
+    if (!cfg.values.server || !cfg.values.token) return;
+    await require('./update').maybeHint({ api: ctx.getApi(), configFile: cfg.file, current: pkg.version, stderr });
+  } catch { /* a hint is never worth an error */ }
 }
 
 module.exports = { main, commandHelp, rootHelp, COMMANDS, GLOBAL_OPTIONS };
