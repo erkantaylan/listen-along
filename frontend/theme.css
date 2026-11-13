@@ -439,8 +439,5 @@
   /* Small centred form (log-in boxes). */
   .app-form-narrow { max-width: 24rem; }
 
-  /* Text over the black video frame on /youtube-playlist. */
-  .app-yt-placeholder { color: var(--app-text-secondary); }
-
   .min-w-0 { min-width: 0; }
 }

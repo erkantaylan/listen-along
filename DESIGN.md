@@ -14,8 +14,7 @@ black), muted text, one restrained accent. There is no light mode and no colour-
 | `frontend/app.css` | `index.html` only | Layout of the single-page app (views, playlist, player, library, dashboard). |
 
 Pages: `index.html` (login, landing, playlist, profile, pending, dashboard views, the
-music-library overlay and the chat-and-people panel), `youtube-playlist.html`,
-`changelog.html`. `youtube-playlist.html` and `changelog.html` use
+music-library overlay and the chat-and-people panel) and `changelog.html`, which uses
 only Bootstrap + `theme.css`; keep it that way.
 
 ### Bootstrap version
@@ -393,7 +392,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   **Download**: the view's primary "Download APK" (GitHub's asset URL, new tab), a line of version · size · date, the SHA-256 with a grey Copy, a ghost link to all releases and "Needs Android 8 or newer". While checking, or when GitHub cannot be reached, a muted line replaces the button and the releases link stays.
   **Install**: numbered steps (`.app-steps`), then short notes with a bold lead-in: Play Protect, Updates, Developer builds. **Connect your account**: numbered steps quoting the app's Settings labels exactly (the app is English only, so the Turkish text keeps them in English; keep them in step with `SettingsScreen.kt`), the Address step showing this site's origin, a grey link to `/profile#tokens` and a Revoking note.
   A pending account gets the page too, from a link on its pending card: a warning alert says tokens need approval, and the tokens link is hidden. No sidebar or player there. iOS has no section.
-- **/youtube-playlist, /changelog**: navbar + narrow column of cards; Bootstrap and
+- **/changelog**: navbar + narrow column of cards; Bootstrap and
   utilities only.
 
 ### Playlists sidebar

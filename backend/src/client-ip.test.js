@@ -93,11 +93,11 @@ describe('the real server keys rate limits on the visitor, not the proxy', { tim
   before(async () => { srv = await startServer(); });
   after(async () => { if (srv) await srv.stop(); });
 
-  it('20/min on /api/youtube-playlist is per visitor behind Cloudflare', async () => {
+  it('20/min on /api/admin/login is per visitor behind Cloudflare', async () => {
     const req = requester(srv.base);
     const as = (ip) => ({ headers: { 'X-Forwarded-For': CF_EDGE, 'CF-Connecting-IP': ip }, body: {} });
-    for (let i = 0; i < 20; i++) assert.notEqual((await req('POST', '/api/youtube-playlist', as('198.51.100.10'))).status, 429, `request ${i}`);
-    assert.equal((await req('POST', '/api/youtube-playlist', as('198.51.100.10'))).status, 429);
-    assert.notEqual((await req('POST', '/api/youtube-playlist', as('198.51.100.11'))).status, 429);
+    for (let i = 0; i < 20; i++) assert.notEqual((await req('POST', '/api/admin/login', as('198.51.100.10'))).status, 429, `request ${i}`);
+    assert.equal((await req('POST', '/api/admin/login', as('198.51.100.10'))).status, 429);
+    assert.notEqual((await req('POST', '/api/admin/login', as('198.51.100.11'))).status, 429);
   });
 });

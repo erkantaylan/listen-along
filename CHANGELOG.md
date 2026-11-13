@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- remove(web): the public `/youtube-playlist` page, its API (`/api/youtube-playlist`) and its socket namespace are gone
 - feat(workers): **`la worker` updates itself.** The server ships the la it was built with; when that is newer, a worker (la 0.4.0+) downloads it from the same server with its token, checks the sha256, replaces its files while idle (after the running job, so nothing is requeued), and restarts. A failed update puts the old files back and keeps running. `la worker` now runs the downloader as a child process that it restarts after an update: under systemd the first process stays the main PID, and Ctrl+C / SIGTERM / closing the terminal behave as before. Opt out with `--no-auto-update` or `la config set auto-update false`
 - feat(cli): `la update` (and `la update --check`) installs the server's la by hand; other commands say once a day on a terminal when a newer la is available. la 0.4.0
 - feat(api): `GET /api/cli/latest` (`{ version, sha256, size, url }`) and `GET /api/cli/bundle` for any CLI token; the worker welcome carries `cli_latest`, and hellos may list the `update` capability

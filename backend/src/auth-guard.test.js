@@ -150,7 +150,7 @@ describe('userAuth rules', () => {
     const expect = {
       public: ['/health', '/login', '/api/version', '/api/changelog', '/changelog', '/api/auth/me', '/api/auth/providers',
         '/api/auth/logout', '/api/auth/register', '/auth/google', '/auth/github/callback', '/auth/google/link',
-        '/youtube-playlist', '/api/youtube-playlist', '/api/youtube-playlist/abc', '/admin', '/api/admin/status',
+        '/admin', '/api/admin/status',
         '/api/admin/login', '/lobby/abc'],
       self: ['/api/me', '/api/library', '/api/library/upload', '/api/library/x/file', '/api/requests',
         '/api/requests/x/dismiss', '/api/admin/tokens', '/api/dashboard/stats', '/api/auth/users',
@@ -222,8 +222,8 @@ describe('auth guard against a running server (no database)', { timeout: 60_000 
   });
 
   it('public routes and static assets need no login', async () => {
-    for (const url of ['/health', '/api/version', '/api/changelog', '/changelog', '/youtube-playlist',
-      '/api/youtube-playlist', '/app.js', '/theme.css', '/favicon.png', '/locales/en.json', '/api/auth/providers', '/api/admin/status']) {
+    for (const url of ['/health', '/api/version', '/api/changelog', '/changelog',
+      '/app.js', '/theme.css', '/favicon.png', '/locales/en.json', '/api/auth/providers', '/api/admin/status']) {
       const r = await c.req('GET', url);
       assert.ok(r.status === 200 || (url === '/api/changelog' && r.status === 404), `${url} -> ${r.status}`);
     }
@@ -295,11 +295,6 @@ describe('auth guard against a running server (no database)', { timeout: 60_000 
     await assert.rejects(c.connect(alice, { origin: 'https://evil.example' }), /Origin not allowed/);
     const s = await c.connect(alice, { origin: srv.base });
     assert.ok(s.connected);
-    // The public /youtube-playlist namespace stays open.
-    const yt = ioClient(`${srv.base}/youtube-playlist`, { transports: ['websocket'], forceNew: true, reconnection: false });
-    const [ev] = await waitFor(yt, ['songs', 'connect_error']);
-    yt.disconnect();
-    assert.equal(ev, 'songs');
   });
 });
 

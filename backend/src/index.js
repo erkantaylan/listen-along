@@ -29,7 +29,6 @@ const spotify = require('./spotify');
 const { createAppRelease } = require('./appRelease');
 const { createCliRelease, createCliRouter } = require('./cliRelease');
 const { createUserAuth, policyFor, parseCookie, isBlocked, COOKIE_NAME: AUTH_COOKIE, MAX_AGE_MS: AUTH_MAX_AGE_MS } = require('./userAuth');
-const youtubePlaylist = require('./youtubePlaylist');
 const chat = require('./chat');
 const { createPresence } = require('./presence');
 const { createSocial } = require('./social');
@@ -1537,34 +1536,6 @@ async function handleLibrarySongAdded(librarySong, fulfilled = []) {
 }
 
 // ==========================================
-// Shared YouTube Playlist (public, no auth, no yt-dlp)
-// ==========================================
-
-app.get('/api/youtube-playlist', (req, res) => {
-  res.json({ songs: youtubePlaylist.getSongs() });
-});
-
-app.post('/api/youtube-playlist', rateLimit, (req, res) => {
-  const { videoId, title, thumbnail, addedBy } = req.body || {};
-  try {
-    const song = youtubePlaylist.addSong({ videoId, title, thumbnail, addedBy });
-    youtubePlaylist.broadcast(io, 'song:added', song);
-    res.status(201).json({ song });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
-app.delete('/api/youtube-playlist/:id', rateLimit, (req, res) => {
-  const removed = youtubePlaylist.removeSong(req.params.id);
-  if (!removed) {
-    return res.status(404).json({ error: 'Song not found' });
-  }
-  youtubePlaylist.broadcast(io, 'song:removed', { id: req.params.id });
-  res.json({ success: true });
-});
-
-// ==========================================
 // Profile API
 // ==========================================
 
@@ -1989,11 +1960,6 @@ app.get('/api/app/latest', apiLimiter, async (req, res) => {
   res.json(await appRelease.latest());
 });
 
-// Serve shared YouTube playlist page (public by design, see policyFor in userAuth.js)
-app.get('/youtube-playlist', (req, res) => {
-  res.sendFile(path.join(frontendPath, 'youtube-playlist.html'));
-});
-
 // Dashboard page: the SPA shell, which holds no data. It asks /api/admin/status
 // and shows its login form until the la_admin cookie is set; everything it then
 // shows comes from APIs behind adminAuth.requireAdmin. 404 without ADMIN_PASSWORD.
@@ -2028,9 +1994,6 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
-// Set up shared YouTube playlist handlers (separate namespace, no auth)
-youtubePlaylist.setupSocketHandlers(io);
-
 // Rooms: APP_ROOM holds every socket of an approved account (library /
 // requests broadcasts); userRoom(id) every socket of one account (so a
 // denied account can be disconnected everywhere).
@@ -2057,8 +2020,7 @@ function socketOriginAllowed(headers) {
   return allowed.has(host);
 }
 
-// Socket.IO handshake (main namespace; /youtube-playlist is public and has no
-// such check): only a logged-in account that is not denied / rejected may
+// Socket.IO handshake: only a logged-in account that is not denied / rejected may
 // connect. Pending accounts connect for the global chat and people panel;
 // every playlist/queue event checks for an approved account itself.
 io.use((socket, next) => {

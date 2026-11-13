@@ -70,10 +70,8 @@ const PUBLIC_EXACT = new Set([
   '/login',
   '/changelog',
   '/admin',
-  '/youtube-playlist',
   '/api/version',
   '/api/changelog',
-  '/api/youtube-playlist',
   '/api/auth/me',
   '/api/auth/register', // legacy: answers the caller's own status only
   '/api/auth/status',   // legacy: same
@@ -94,7 +92,6 @@ const PUBLIC_EXACT = new Set([
 ]);
 
 const PUBLIC_PREFIXES = [
-  '/api/youtube-playlist/', // shared YouTube page: public by design
   '/lobby/',                // 301 to /playlist/..., which is guarded
 ];
 
