@@ -12,6 +12,7 @@ import { isNewPlaylistPending, newPlaylistCreated, newPlaylistFailed } from './n
 import { playlistMenuItems, privateBadgeHtml, LOCK_SVG } from './playlist-actions.js';
 import { openContextMenu, closeContextMenu, bindContextMenu } from './context-menu.js';
 import { loadPlaylists, onPlaylists, isPinned, togglePlaylistPin } from './playlist-store.js';
+import { closePickDialog } from './pick-dialog.js';
 
 // Register landing view activator
 viewActivators.landing = () => {
@@ -145,6 +146,7 @@ export function openLobbyPage(lobbyId, resetLobbyPage) {
 // lobby being played from so its queue stays live.
 export function closeLobbyPage(resetLobbyPage) {
   state.autoplayLobbyId = null;
+  closePickDialog();
   if (!state.lobbyId) return;
   state.lobbyId = null;
   clearPlaylistState();

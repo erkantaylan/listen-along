@@ -157,7 +157,8 @@ describe('userAuth rules', () => {
         '/api/auth/users/x/status', '/api/chat/messages/1', '/dashboard', '/api/cli/latest', '/api/cli/bundle'],
       member: ['/api/profile', '/api/profile/providers/github'],
       approved: ['/api/playlists', '/api/lobbies/x', '/api/stream', '/api/covers/x', '/api/qr/x', '/api/anything-new',
-        '/api/auth/something-new', '/api', '//api/playlists', '/API/playlists', '/Api/Stream'],
+        '/api/auth/something-new', '/api', '//api/playlists', '/API/playlists', '/Api/Stream',
+        '/api/jobs', '/api/jobs/picks'],
       page: ['/', '/library', '/playlist/abc', '/profile', '/social', '/whatever', '/api-docs', '/healthz', '/login2'],
     };
     for (const [policy, paths] of Object.entries(expect)) {

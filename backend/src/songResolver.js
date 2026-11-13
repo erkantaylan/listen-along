@@ -9,6 +9,9 @@
  *   { type: 'request', request: {youtubeId, url, title, artist} }
  *   { type: 'playlist', items: [library|request...], total }
  *   { type: 'error', message }
+ *
+ * `picks` (videos chosen in the web's pick dialog) skips every lookup above:
+ * each id is a library song or a request for exactly that video.
  */
 
 const realLibrary = require('./library');
@@ -17,7 +20,12 @@ const realSpotify = require('./spotify');
 
 const MAX_PLAYLIST = 100;
 
-function createResolver({ library = realLibrary, ytdlp = realYtdlp, spotify = realSpotify } = {}) {
+/**
+ * @param {object} [deps]
+ * @param {(youtubeIds) => Promise<Map<string, string>>} [deps.videoTitles] - titles
+ *   for chosen videos from the server's own lookups (picker.titles)
+ */
+function createResolver({ library = realLibrary, ytdlp = realYtdlp, spotify = realSpotify, videoTitles = async () => new Map() } = {}) {
   async function byYoutubeId(youtubeId, fallback = {}) {
     const song = await library.getByYoutubeId(youtubeId);
     if (song) return { type: 'library', song };
@@ -92,9 +100,26 @@ function createResolver({ library = realLibrary, ytdlp = realYtdlp, spotify = re
   }
 
   /**
-   * @param {{input?: string, libraryId?: string, title?: string}} args
+   * Videos chosen in the web's pick dialog: exactly these, no search. Titles
+   * are the server's own (videoTitles: picker.js, with oEmbed for what it no
+   * longer knows), never the client's. Several are answered like a playlist.
    */
-  async function resolve({ input, libraryId, title } = {}) {
+  async function resolvePicks(ids) {
+    const songs = new Map();
+    for (const id of ids) songs.set(id, await library.getByYoutubeId(id));
+    const titles = await videoTitles(ids.filter((id) => !songs.get(id)));
+    const items = ids.map((id) => (songs.get(id)
+      ? { type: 'library', song: songs.get(id) }
+      : { type: 'request', request: { youtubeId: id, url: library.youtubeUrl(id), title: titles.get(id) || null, artist: null } }));
+    return items.length === 1 ? items[0] : { type: 'playlist', items, total: items.length };
+  }
+
+  /**
+   * @param {{input?: string, libraryId?: string, title?: string, picks?: string[]}} args
+   *   picks: valid, distinct YouTube ids (picker.cleanPicks)
+   */
+  async function resolve({ input, libraryId, title, picks } = {}) {
+    if (picks) return resolvePicks(picks);
     if (libraryId) {
       const song = await library.getById(libraryId);
       return song ? { type: 'library', song } : { type: 'error', message: 'That song is no longer in the library' };

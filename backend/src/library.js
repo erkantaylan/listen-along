@@ -301,6 +301,14 @@ async function getByYoutubeId(youtubeId) {
   return r.rows[0] || null;
 }
 
+/** Library songs for several YouTube ids at once: Map youtube_id -> row. */
+async function getByYoutubeIds(youtubeIds) {
+  const ids = [...new Set((youtubeIds || []).filter(isYoutubeId))];
+  if (!ids.length) return new Map();
+  const r = await db.query('SELECT * FROM library_songs WHERE youtube_id = ANY($1::text[])', [ids]);
+  return new Map(r.rows.map((row) => [row.youtube_id, row]));
+}
+
 async function getBySha256(sha) {
   const r = await db.query('SELECT * FROM library_songs WHERE sha256 = $1', [sha]);
   return r.rows[0] || null;
@@ -1079,6 +1087,7 @@ module.exports = {
   UPLOAD_FORMATS,
   getById,
   getByYoutubeId,
+  getByYoutubeIds,
   getBySha256,
   findDuplicates,
   normalizeSha256,

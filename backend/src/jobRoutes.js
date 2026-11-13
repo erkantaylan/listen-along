@@ -3,7 +3,10 @@
  *
  *   GET  /api/workers                  online downloaders: name, owner, busy (approved users)
  *   GET  /api/jobs                     the caller's jobs, newest first, + worker counts
- *   POST /api/jobs                     { input, playlist_id? } the web "Download" box
+ *   POST /api/jobs                     { input, playlist_id? } the web "Download" box;
+ *                                      { picks: [youtube id], playlist_id? } exactly these videos
+ *                                      (answer: jobs, existing, and failed ids if it stopped part way)
+ *   POST /api/jobs/picks               { input, match_library? } | { query } what the pick dialog shows
  *   POST /api/jobs/replace             { song_id, input, title?, artist?, album? } replace a song from a video
  *   POST /api/jobs/replace/preview     { song_id, input } what that would do (title, duration, refusal)
  *   GET  /api/jobs/replace/:songId     the caller's job for the song; whether anyone's is active
@@ -26,11 +29,14 @@ const adminAuth = require('./adminAuth');
 const ytdlp = require('./ytdlp');
 const { apiLimiter, make } = require('./rateLimits');
 const { isOutdated } = require('./cliRelease');
+const { cleanPicks, MAX_PICKS } = require('./picker');
 
 // Each preview may run yt-dlp once on the server; results are kept a while.
 const previewLimiter = make(30, 60 * 1000, { message: 'Too many link lookups, slow down' });
 const PREVIEW_CACHE_MS = 10 * 60 * 1000;
 const PREVIEW_CACHE_SIZE = 200;
+// The pick dialog: a search or a playlist listing each (picker.js keeps answers a while).
+const pickLimiter = make(30, 60 * 1000, { message: 'Too many searches, slow down' });
 
 /** "Differs a lot": more than 15 seconds and more than 10% of the current length. */
 function durationDiffers(current, next) {
@@ -48,6 +54,7 @@ function durationDiffers(current, next) {
  * @param {(playlistId, song, addedBy) => Promise<boolean>} hooks.addSongToPlaylist - true if added now
  * @param {(job) => void} [hooks.onJobUpdated]
  * @param {(videoId) => Promise<{title, channel, duration_sec}|null>} [hooks.previewVideo]
+ * @param {object} hooks.picker - picker.js (lookup, search, titles)
  */
 function createJobRouter(hooks) {
   const { requireUser, requireMember, hub } = hooks;
@@ -119,10 +126,30 @@ function createJobRouter(hooks) {
     res.json({ jobs: rows.map(jobs.toPublic), workers: workerCounts() });
   }));
 
+  // What the pick dialog shows before anything is queued (picker.js for the
+  // shapes). `query` is always a search (a playlist item's alternatives);
+  // `input` is read like the Download box does. Nothing is created here.
+  router.post('/api/jobs/picks', requireUser, requireDb, pickLimiter, express.json(), route('look that up', async (req, res) => {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    try {
+      res.json(body.query !== undefined
+        ? await hooks.picker.search(body.query)
+        : await hooks.picker.lookup(body.input, { matchLibrary: body.match_library === true }));
+    } catch (err) {
+      if (!err.status) throw err;
+      res.status(err.status).json({ error: err.message, code: err.code });
+    }
+  }));
+
   router.post('/api/jobs', requireUser, requireDb, express.json(), route('create job', async (req, res) => {
     const body = req.body && typeof req.body === 'object' ? req.body : {};
-    const what = jobs.classifyInput(body.input);
-    if (what.error) return res.status(400).json({ error: what.error, code: 'BAD_INPUT' });
+    // Chosen in the pick dialog: these videos, no search by the downloader.
+    const picks = body.picks === undefined ? null : cleanPicks(body.picks);
+    if (body.picks !== undefined && !picks) {
+      return res.status(400).json({ error: `picks must be 1 to ${MAX_PICKS} YouTube video ids`, code: 'BAD_INPUT' });
+    }
+    const what = picks ? null : jobs.classifyInput(body.input);
+    if (what && what.error) return res.status(400).json({ error: what.error, code: 'BAD_INPUT' });
 
     let playlist = null;
     if (body.playlist_id !== undefined && body.playlist_id !== null && body.playlist_id !== '') {
@@ -130,6 +157,55 @@ function createJobRouter(hooks) {
       if (!playlist) return res.status(404).json({ error: 'Playlist not found', code: 'PLAYLIST_NOT_FOUND' });
     }
     const requester = req.account.name || 'Someone';
+
+    if (picks) {
+      // One video job each (any worker runs those); what the library has is
+      // added to the playlist right away. Titles are the server's own.
+      const have = await library.getByYoutubeIds(picks);
+      const titles = await hooks.picker.titles(picks.filter((id) => !have.has(id)));
+      const created = [];
+      const existing = [];
+      const handled = new Set();
+      let added = 0;
+      let failure = null;
+      try {
+        for (const id of picks) {
+          const song = have.get(id);
+          if (song) {
+            if (playlist && await hooks.addSongToPlaylist(playlist.id, song, requester)) added++;
+            existing.push(library.toPublic(song));
+          } else {
+            const row = await jobs.createJob({
+              source: 'web',
+              kind: 'video',
+              input: library.youtubeUrl(id),
+              title: titles.get(id) || null,
+              playlistId: playlist ? playlist.id : null,
+              requestedByUserId: req.account.id,
+              requestedBy: requester,
+            });
+            created.push(row);
+            onJobUpdated(row);
+          }
+          handled.add(id);
+        }
+      } catch (err) {
+        failure = err;
+        console.error('[jobs] picked videos: stopped part way:', err);
+      } finally {
+        // Whatever was queued runs, also when a later one failed.
+        if (created.length) hub.dispatch();
+      }
+      console.log(`[jobs] ${requester} queued ${created.length} picked video job(s), ${existing.length} already in the library${playlist ? ` -> playlist ${playlist.id}` : ''}`);
+      if (failure && !handled.size) return res.status(500).json({ error: 'Failed to create job' });
+      // Part of it worked: say what, so that the rest (failed) can be retried
+      // without queuing the others twice.
+      const failed = picks.filter((id) => !handled.has(id));
+      return res.status(created.length ? 201 : 200).json({
+        jobs: created.map(jobs.toPublic), existing, added_to_playlist: added, playlist_id: playlist ? playlist.id : null, workers: workerCounts(),
+        ...(failed.length ? { failed, error: `${failed.length} of ${picks.length} could not be queued` } : {}),
+      });
+    }
 
     // A video the library already has: nothing to download.
     if (what.kind === 'video') {

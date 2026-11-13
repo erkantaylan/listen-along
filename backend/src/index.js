@@ -22,6 +22,7 @@ const clientIpSetup = require('./clientIp');
 const adminAuth = require('./adminAuth');
 const { apiLimiter } = require('./rateLimits');
 const { createResolver } = require('./songResolver');
+const { createPicker, cleanPicks } = require('./picker');
 const covers = require('./covers');
 const access = require('./playlistAccess');
 const playlistPins = require('./playlistPins');
@@ -38,7 +39,10 @@ const { createWorkerHub } = require('./workerHub');
 const { createJobRouter } = require('./jobRoutes');
 const { createStationRouter } = require('./stations');
 const { createArtistRouter } = require('./artists');
-const resolver = createResolver();
+// The web's "pick the video" dialog (picker.js): lookups for it, and what they
+// said about each video, for the title of a chosen one.
+const picker = createPicker();
+const resolver = createResolver({ videoTitles: picker.titles });
 const QRCode = require('qrcode');
 const pkg = require('../package.json');
 const { getVersionInfo } = require('./build-info');
@@ -468,6 +472,7 @@ app.use(createJobRouter({
     return true;
   },
   onJobUpdated: emitJob,
+  picker,
 }));
 
 // The admin page moved into /dashboard. The query is dropped on purpose (the old
@@ -2404,7 +2409,10 @@ io.on('connection', (socket) => {
   // this lobby's queue once someone uploads it with the CLI.
   // addedBy / requester come from the account, never from the client (only
   // without a database, where there are no accounts, is its name used).
-  socket.on('queue:add', async ({ lobbyId, query, url, title, libraryId, addedBy: clientAddedBy } = {}) => {
+  // picks: YouTube video ids chosen in the web's pick dialog (POST
+  // /api/jobs/picks). Those exact videos are added or requested, with no
+  // search; without it everything works as before (query / url / libraryId).
+  socket.on('queue:add', async ({ lobbyId, query, url, title, libraryId, picks: rawPicks, addedBy: clientAddedBy } = {}) => {
     if (!checkSocketRateLimit()) {
       socket.emit('queue:error', { message: 'Too many requests, please slow down' });
       return;
@@ -2420,12 +2428,18 @@ io.on('connection', (socket) => {
       return;
     }
 
+    const picks = rawPicks === undefined ? null : cleanPicks(rawPicks);
+    if (rawPicks !== undefined && !picks) {
+      socket.emit('queue:error', { message: 'Could not add that selection' });
+      return;
+    }
+
     const input = url || query;
-    if (!libraryId) socket.emit('queue:adding', { status: 'Looking it up…' });
+    if (!libraryId && !picks) socket.emit('queue:adding', { status: 'Looking it up…' });
 
     let result;
     try {
-      result = await resolver.resolve({ input, libraryId, title });
+      result = picks ? await resolver.resolve({ picks }) : await resolver.resolve({ input, libraryId, title });
     } catch (err) {
       console.error('queue:add resolve error:', err);
       socket.emit('queue:error', { message: 'Could not add that song' });

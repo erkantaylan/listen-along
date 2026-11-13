@@ -668,6 +668,31 @@ while it waits ("Waiting for a downloader", with Stop waiting; the file field st
 (nothing changed), success when it is done. Only the requester sees the job; others see "Someone is already replacing this song".
 Replace jobs also show on the Download tab, under "Asked for" on the profile, and in the dashboard's Download jobs.
 
+**Pick the video** (`pick-dialog.js`, rules in `pick-rules.js`; an `.app-modal` with a 36rem card whose body scrolls).
+It opens from the Download box and from a playlist's add-song box before anything is queued, and only if there is
+something to choose: a song the library already has is added without it, and an answer that arrives within 300ms
+never flashes a dialog. The text stays in the input until the choice is made.
+
+| Input | The dialog shows | Primary button |
+| --- | --- | --- |
+| Search text, Spotify track link | "Results for …" and up to five results, the first selected | Download ("Use the library song" when the selected one is in the library) |
+| YouTube video link | That one video | Download |
+| YouTube playlist link | Every video (the first 100) ticked, a count line with Select all / none, each row with **Swap** | Download n songs |
+| Swap (of a playlist row) | The playlist's own video first, then five results for its title, the current pick selected | Use this one; Cancel becomes Back |
+
+- A result is a `.list-group-item.pick-option` in a `role="listbox"`: 16:9 thumbnail (`.app-thumb.pick-thumb`), title,
+  "channel · length", a success badge "In library", and a ghost icon link that opens it on YouTube in a new tab. The
+  selected one is the accent tint plus a semibold accent title (`aria-selected`), never an edge.
+- Keys: the listbox is one tab stop; ↑ / ↓, Home, End move the selection, Enter confirms from anywhere but a button,
+  double-click confirms, Esc cancels (in Swap it goes back to the playlist). Focus is trapped and returns to the input.
+- The playlist is a windowed list (`virtual-list.js`, 4rem rows in `.pick-scroll`): a real checkbox and a Swap button
+  per row, ↑ / ↓ move between rows, → opens Swap. An unticked row is dimmed; a swapped one gets a neutral "Swapped" badge.
+  Alternatives are searched only when Swap is pressed, once per row.
+- States: "Searching YouTube…"; "No videos found for …" with **Request it anyway**; and on a failed or rate-limited
+  search a danger alert with **Try again** and **Take the first match without asking**. Both buttons do what happened
+  before the dialog (a request or download by name). A held Enter never confirms, and the dialog closes by itself when
+  the page changes or the playlist is left.
+
 **Broken songs ("needs replacement").** A reported song shows a small muted-warning icon button
 (`.song-broken-btn`, warning triangle, `aria-label` + `title` "Needs replacement — marked as broken
 by n people") right after its title in library rows, queue rows and the player bar — never a text

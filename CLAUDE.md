@@ -118,6 +118,29 @@ where lobby persistence broke entirely on deployed instances.
   socket `jobs:update` to the requester's `userRoom`, `workers:update` to
   `APP_ROOM`. Upload percent is plain text in `job:progress.message`, throttled
   by the worker to about 1/s (each one is a DB write + `jobs:update`).
+- **Pick the video** (web only, before a job or request exists): `frontend/pick-dialog.js`
+  (rules in `pick-rules.js`, tested; DESIGN.md "Pick the video") asks
+  `POST /api/jobs/picks` (jobRoutes.js -> `picker.js`; approved accounts, no tokens,
+  `pickLimiter` 30/min per `req.clientIp`, answers cached 10 min, library marking
+  never cached): `{ input, match_library? }` is read by `classifyInput` and answers
+  `search` (5 results via `ytdlp.searchYoutubeMany`; a Spotify track is "artist - title"),
+  `video`, `playlist` (first `MAX_PICKS` = 100) or `library` (nothing to pick:
+  an in-library video link, and with `match_library` the same matches as
+  songResolver); `{ query }` is always a search (a playlist item's Swap, fetched on
+  demand). The choice comes back as `picks: [youtube id]` (`cleanPicks`: 1-100
+  valid ids) on `POST /api/jobs` (one `video` job per id, input = the watch URL;
+  in-library ones are added to the playlist) or on socket `queue:add`
+  (`resolver.resolve({ picks })`: library song or a request with that `youtube_id`).
+  Titles come from `picker.titles(ids)` (the server's own lookup; oEmbed, a few at a
+  time within 10s, for ids it no longer knows), never the client. A picks POST that
+  fails part way still dispatches and answers 2xx with `failed: [ids]` + `error`.
+  No dedupe: a video with a waiting job gets another (as pasted links always did);
+  an open request for it in the same playlist is reused. The dialog closes on any
+  route change (`applyRoute`) and when the playlist page closes.
+  **Opt-in:** without `picks` both paths behave as before (the downloader searches
+  for Download-box text; `queue:add` takes the server's first result), which is
+  what the CLI, Android and anything else gets. No worker protocol change: a
+  worker classifies `job.input` itself, and a watch URL is a single video.
 - Spotify track links supported via `spotify-url-info` page scraping (no API
   credentials needed); title/artist are matched against the library or
   turned into a request

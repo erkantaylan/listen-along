@@ -22,6 +22,7 @@ import { setupRowDoubleClick } from './row-double-click.js';
 import { scheduleReload } from './playlist-store.js';
 import { shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyUpdated, openPlaylistHeaderMenu, setupLandingMenus, handleUserJoined, handleUserLeft, handleLobbyClosed, checkForLastLobby, joinLobbyFromCard, updatePinButton, togglePin, quickPlayLobby, openLobbyPage, closeLobbyPage, syncMembership, resyncMembership, reportNowPlaying } from './lobby.js';
 import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, updatePlayButton, updatePlaybackModeUI, updateNowPlaying, _setQueueFns } from './playback.js';
+import { closePickDialog } from './pick-dialog.js';
 import { handleQueueUpdated, handleSongAdded, addSong, removeSong, clearQueue, downloadPlaylist, cancelPlaylistDownload, moveSongUp, moveSongDown, playSongAt, setupQueueInteractions, setupQueueSearch, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './queue.js';
 
 // Wire up cross-module dependencies
@@ -167,6 +168,8 @@ function isViewActive(view) {
 // Make the UI match the address bar (see router.js for the URL scheme). Runs
 // on load and on Back/Forward; in-app navigation pushes the URL itself.
 function applyRoute() {
+  // A choice left open belongs to the page that was left.
+  closePickDialog();
   // Old /lobby/<id> links (bookmarks, history entries) become /playlist/<id>.
   const moved = legacyRedirect(window.location.pathname, window.location.search);
   if (moved) history.replaceState(history.state, '', moved);

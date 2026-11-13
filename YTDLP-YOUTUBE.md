@@ -31,6 +31,7 @@ yt-dlp is still installed in the image, but only for **metadata**, never audio:
 | Use | How | Bot wall? |
 |---|---|---|
 | Resolve typed text to a video id | `yt-dlp --flat-playlist -J ytsearch1:<text>` | Search page only — usually fine |
+| The web's pick dialog: the first five results for typed text, a Spotify track or a playlist item's title | `yt-dlp --flat-playlist -J ytsearch5:<text>` (`picker.js`, cached 10 minutes) | Search page only — usually fine |
 | Expand a playlist link | `yt-dlp --flat-playlist -J <url>` | Playlist page only — usually fine |
 | Title for a pasted video link | YouTube oEmbed (`/oembed?url=…`) over plain HTTPS | No |
 | Spotify track link | `spotify-url-info` page scrape → title/artist | No |
@@ -41,6 +42,11 @@ search, and anything not found becomes a **song request**.
 
 ## Song lifecycle
 
+0. On the web, text or a link that the library does not have first goes through
+   the pick dialog (`POST /api/jobs/picks`): the user chooses the video, and the
+   request or download job is made for exactly that YouTube id (`picks`). Clients
+   without the dialog skip this step: the server (playlist box) or the downloader
+   (Download box) takes the first result, as before.
 1. A web user queues something. If it is in the library (matched by YouTube id,
    `library:<id>`, or a legacy cache URL) it is queued and played from
    `/api/stream` → the library file.

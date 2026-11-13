@@ -112,6 +112,30 @@
   .replace-form { display: flex; flex-direction: column; overflow: hidden; }
   .replace-form > .card-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
   .new-playlist-choice { cursor: pointer; }
+
+  /* Pick the video dialog (pick-dialog.js): a wider card whose body scrolls.
+     The selected result is a tint and a stronger title, never an edge. */
+  .app-modal-card.pick-form { display: flex; flex-direction: column; max-width: 36rem; overflow: hidden; }
+  .pick-form > .card-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  .pick-item { display: flex; gap: 0.75rem; align-items: center; }
+  .pick-title { font-weight: var(--bs-font-weight-medium); }
+  .app-thumb.pick-thumb { width: 5rem; height: 2.8125rem; }
+  .pick-badge { flex: none; }
+  .pick-option { cursor: pointer; }
+  /* Versions differ at the end of the title ("Official Audio", "Live"): two lines before cutting. */
+  .pick-option .pick-title { display: -webkit-box; white-space: normal; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+  .pick-option:hover { background-color: var(--bs-bg-1); }
+  .pick-option[aria-selected="true"] { background-color: var(--app-accent-subtle); }
+  .pick-option[aria-selected="true"] .pick-title { font-weight: var(--bs-font-weight-semibold); color: var(--app-accent-text-strong); }
+  .pick-scroll { max-height: min(22rem, 50dvh); overflow-y: auto; border: 1px solid var(--app-border); border-radius: var(--bs-border-radius-lg); }
+  .pick-playlist { --vl-row-height: 4rem; --bs-list-group-border-width: 0; }
+  .pick-playlist.vlist > .pick-row { min-height: 0; border-bottom: 1px solid var(--app-border); border-radius: 0; }
+  .pick-off .pick-thumb, .pick-off .pick-title { opacity: 0.55; }
+  @media (width < 576px) {
+    .pick-item { gap: 0.5rem; padding-inline: 0.625rem; }
+    .app-thumb.pick-thumb { width: 3.5rem; height: 2rem; }
+    .pick-option .pick-open { display: none; }
+  }
   .lobby-card-stat {
     display: inline-flex;
     align-items: center;

@@ -5,7 +5,8 @@
  * user typed into a YouTube video id + title, so that a library lookup or a song
  * request can be made:
  *   - searchYoutube:      `yt-dlp --flat-playlist ytsearch1:` (search results
- *                         page only, no player API, so no PO token needed)
+ *                         page only, no player API, so no PO token needed);
+ *                         searchYoutubeMany is the same for the first few hits
  *   - getPlaylistEntries: `yt-dlp --flat-playlist` (playlist page only)
  *   - getOembed:          YouTube's public oEmbed endpoint (title/channel for an id)
  *   - previewVideo:       oEmbed + a flat search for the id: title and duration
@@ -55,7 +56,7 @@ function parsePlaylistId(target) {
  * (--flat-playlist is fast: it lists ids/titles, not full per-video metadata).
  * Unavailable entries (deleted/private) are filtered out.
  * @param {string} url - playlist or watch?…&list= URL
- * @returns {Promise<Array<{id,url,title,duration,thumbnail}>>}
+ * @returns {Promise<Array<{id,url,title,duration,channel,thumbnail}>>}
  */
 function getPlaylistEntries(url) {
   return new Promise((resolve, reject) => {
@@ -96,6 +97,7 @@ function getPlaylistEntries(url) {
           url: e.url || `https://www.youtube.com/watch?v=${e.id}`,
           title: e.title,
           duration: e.duration || 0,
+          channel: e.channel || e.uploader || null,
           thumbnail: (e.thumbnails && e.thumbnails.length && e.thumbnails[e.thumbnails.length - 1].url) || e.thumbnail || null,
         }));
       resolve(entries);
@@ -254,21 +256,27 @@ function runYtdlpJson(args, timeoutMs, label) {
 }
 
 /**
- * Search YouTube for free text and return the top hit (no audio, no player
- * API — just the search results page).
- * @returns {Promise<{id, url, title, duration, channel}|null>}
+ * Search YouTube for free text: the first `count` videos of the search results
+ * page (no audio, no player API).
+ * @returns {Promise<Array<{id, url, title, duration, channel}>>}
  */
-async function searchYoutube(query, { timeoutMs = 30000 } = {}) {
-  const data = await runYtdlpJson(['--flat-playlist', '-J', `ytsearch1:${query}`], timeoutMs, 'YouTube search');
-  const e = (data.entries || []).find((x) => x && x.id);
-  if (!e) return null;
-  return {
+async function searchYoutubeMany(query, count = 5, { timeoutMs = 30000 } = {}) {
+  const data = await runYtdlpJson(['--flat-playlist', '-J', `ytsearch${count}:${query}`], timeoutMs, 'YouTube search');
+  return (data.entries || []).filter((x) => x && /^[A-Za-z0-9_-]{11}$/.test(String(x.id || ''))).slice(0, count).map((e) => ({
     id: e.id,
     url: `https://www.youtube.com/watch?v=${e.id}`,
     title: e.title || null,
     duration: e.duration || 0,
     channel: e.channel || e.uploader || null,
-  };
+  }));
+}
+
+/**
+ * Search YouTube for free text and return the top hit.
+ * @returns {Promise<{id, url, title, duration, channel}|null>}
+ */
+async function searchYoutube(query, opts) {
+  return (await searchYoutubeMany(query, 1, opts))[0] || null;
 }
 
 /**
@@ -317,6 +325,7 @@ module.exports = {
   parsePlaylistId,
   getPlaylistEntries,
   searchYoutube,
+  searchYoutubeMany,
   getOembed,
   previewVideo
 };

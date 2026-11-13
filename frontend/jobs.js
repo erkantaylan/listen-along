@@ -4,9 +4,13 @@
 // workers:update). Song requests made in a playlist are jobs too and show up
 // in the same list.
 import { state } from './state.js';
-import { showToast } from './ui.js';
+import { showToast, t } from './ui.js';
+import { pickSongs } from './pick-dialog.js';
+import { jobPayload } from './pick-rules.js';
 
 const $ = (id) => document.getElementById(id);
+// t() with {placeholders} filled in the fallback too (t returns it raw).
+const tf = (key, fallback, vars = {}) => t(key, fallback, vars).replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -238,17 +242,34 @@ export function setupDownloads() {
     const btn = $('dl-submit');
     btn.disabled = true;
     try {
+      // Which video? Asked first (pick-dialog.js); the playlist is read after,
+      // so it can still be changed while the dialog is open.
+      const picked = await pickSongs({ input: text, returnFocus: input });
+      if (!picked) return;
       const playlistId = $('dl-playlist').value || undefined;
-      const data = await api('POST', '/api/jobs', { input: text, playlist_id: playlistId });
-      input.value = '';
-      if (data.job) {
+      const data = await api('POST', '/api/jobs', picked.picks ? jobPayload(picked.picks, playlistId) : { input: text, playlist_id: playlistId });
+      if (input.value.trim() === text) input.value = '';
+      // Part of a selection failed: the rest is queued, so the same text must not be sent again.
+      if (data.failed && data.failed.length) {
+        err.textContent = tf('pick.someFailed', '{failed} of {total} could not be queued. The others are in your downloads; add the missing ones again one by one.', { failed: data.failed.length, total: picked.picks.length });
+        err.hidden = false;
+      }
+      const created = data.jobs || (data.job ? [data.job] : []);
+      const existing = Array.isArray(data.existing) ? data.existing : (data.existing ? [data.existing] : []);
+      if (created.length) {
         if (data.workers) dl.workers = data.workers;
-        dl.jobs = [data.job, ...dl.jobs.filter((j) => j.id !== data.job.id)];
+        const ids = new Set(created.map((j) => j.id));
+        dl.jobs = [...created, ...dl.jobs.filter((j) => !ids.has(j.id))];
         renderWorkers();
         renderList();
-        showToast(dl.workers.online ? 'Download queued' : 'Queued — it starts when a downloader comes online', 'info');
-      } else if (data.existing) {
-        showToast(`“${data.existing.title}” is already in the library${data.added_to_playlist ? ' — added to the playlist' : ''}`, 'info');
+        const waiting = !dl.workers.online;
+        if (created.length === 1) showToast(waiting ? 'Queued — it starts when a downloader comes online' : 'Download queued', 'info');
+        else if (waiting) showToast(tf('pick.queuedManyWaiting', '{count} downloads queued. They start when a downloader comes online', { count: created.length }), 'info');
+        else showToast(tf('pick.queuedMany', '{count} downloads queued', { count: created.length }), 'info');
+      } else if (existing.length === 1) {
+        showToast(`“${existing[0].title}” is already in the library${data.added_to_playlist ? ' — added to the playlist' : ''}`, 'info');
+      } else if (existing.length) {
+        showToast(tf('pick.allInLibrary', 'All {count} are already in the library', { count: existing.length }) + (data.added_to_playlist ? ` — ${tf('pick.addedToPlaylist', '{count} added to the playlist', { count: data.added_to_playlist })}` : ''), 'info');
       }
     } catch (ex) {
       err.textContent = ex.message;
