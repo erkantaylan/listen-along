@@ -6,6 +6,7 @@ import { showToast, formatDuration, notifyViewChange } from './ui.js';
 import { libraryPath, basePath } from './router.js';
 import { player } from './player.js';
 import { setupDownloads, showDownloads, hideDownloads } from './jobs.js';
+import { clearReplacedFailure } from './playback-failures.js';
 import { bindSongMenu, songMenuButtonHtml, reportIconHtml, reportLines, reportsFor, onReportsChange, reportedCount, reportsLoaded, handleReportsUpdated, isReportDialogOpen } from './song-reports.js';
 import { isContextMenuOpen } from './context-menu.js';
 import { openReplaceDialog } from './replace-dialog.js';
@@ -537,7 +538,7 @@ export function closeLibraryPage() {
 // playing it reloads the new file at the same position (player.js).
 // payload.details: only its title, artist or album changed; the audio plays on.
 export function handleLibraryUpdated(payload) {
-  if (payload && payload.replaced) player.reloadReplaced(payload.replaced, payload.song);
+  if (payload && payload.replaced) { clearReplacedFailure(payload.replaced); player.reloadReplaced(payload.replaced, payload.song); }
   if (payload && payload.details) player.updateDetails(payload.details, payload.song);
   handleReportsUpdated(payload);
   if (lib.open) loadSongs({ page: lib.page, refresh: true });

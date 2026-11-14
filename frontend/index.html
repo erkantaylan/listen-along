@@ -197,11 +197,7 @@
                 <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9h-4v4h-2v-4H9V9h4V5h2v4h4v2z"/></svg>
               </button>
             </div>
-            <div class="queue-filter d-flex flex-wrap align-items-center gap-2 mb-3">
-              <div class="d-flex align-items-center gap-2 me-auto">
-                <input type="checkbox" id="hide-errored-songs" class="check" checked>
-                <label for="hide-errored-songs" class="fs-sm">Hide unplayable songs</label>
-              </div>
+            <div class="queue-filter d-flex flex-wrap align-items-center justify-content-end gap-2 mb-3">
               <div class="d-flex align-items-center gap-1">
                 <select id="queue-sort" class="form-control form-control-sm w-auto queue-sort-select" aria-label="Sort queue">
                   <option value="default">Queue order</option>
@@ -524,9 +520,13 @@
         <section class="dashboard-section" data-section="reports">
           <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
             <h2 class="h5 mb-0 section-heading">Broken songs <span id="adm-reports-summary" class="fg-3 fw-normal fs-sm"></span></h2>
-            <button id="adm-reports-refresh" class="btn btn-sm" type="button">Refresh</button>
+            <div class="d-flex gap-2">
+              <button id="adm-reports-dismiss-auto" class="btn-outline theme-secondary btn-sm" type="button" hidden>Dismiss automatic</button>
+              <button id="adm-reports-refresh" class="btn btn-sm" type="button">Refresh</button>
+            </div>
           </div>
-          <p class="fs-sm fg-3 mb-4">Songs people marked as broken. Replacing a song's audio (in the
+          <p class="fs-sm fg-3 mb-4">Songs people marked as broken, and songs the player reported by itself after the
+            server found their file missing or undecodable ("Automatic"). Replacing a song's audio (in the
             library, or <code>la upload --replace</code>) resolves its reports; dismiss the ones that are wrong.</p>
           <ul id="adm-reports" class="list-group"></ul>
         </section>

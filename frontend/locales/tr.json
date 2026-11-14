@@ -94,7 +94,6 @@
     "noMatchHint": "Başka bir kelime deneyin veya filtreyi temizleyin",
     "searchPlaceholder": "YouTube URL yapıştır veya ara...",
     "addSong": "Şarkı ekle",
-    "hideErrored": "Hatalı şarkıları gizle",
     "empty": "Sıra boş",
     "emptyHint": "Başlamak için şarkı ekle",
     "remove": "Sıradan kaldır",
@@ -435,5 +434,20 @@
     "addedToPlaylist": "{count} tanesi çalma listesine eklendi",
     "anyway": "Yine de iste",
     "someFailed": "{total} videodan {failed} tanesi sıraya alınamadı. Diğerleri indirmelerinde; eksikleri tek tek yeniden ekle."
+  },
+  "playFail": {
+    "badge": "çalınamadı",
+    "badgeTitle": "Burada çalınamadı ve atlanıyor. Yeniden denemek için şarkıya tıklayın.",
+    "failed": "“{title}” çalınamadı.",
+    "notInLibrary": "“{title}” henüz kütüphanede değil.",
+    "unsupported": "Bu tarayıcı “{title}” şarkısını çalamıyor.",
+    "skipping": "Atlanıyor.",
+    "stopped": "Çalma durdu: art arda {count} şarkı çalınamadı. Bağlantınızı kontrol edip yeniden deneyin.",
+    "stoppedNotInLibrary": "Çalma durdu: art arda {count} şarkı henüz kütüphanede değil.",
+    "reported": "“{title}” çalınamadı ve değiştirilmesi gerekiyor olarak işaretlendi.",
+    "undo": "Geri al"
+  },
+  "reports": {
+    "autoReason": "Çalınamadı (otomatik bildirildi)"
   }
 }

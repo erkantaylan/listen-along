@@ -258,6 +258,7 @@ async function createTables() {
       reported_by_user_id UUID REFERENCES users(id) ON DELETE CASCADE,
       reported_by VARCHAR(255),
       reason VARCHAR(200),
+      auto BOOLEAN NOT NULL DEFAULT false,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       resolved_at TIMESTAMPTZ,
@@ -268,6 +269,8 @@ async function createTables() {
   `);
   await pool.query(`ALTER TABLE library_song_reports ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`).catch(() => {});
   await pool.query(`ALTER TABLE library_song_reports ADD COLUMN IF NOT EXISTS resolved_by VARCHAR(255)`).catch(() => {});
+  // auto: filed by the web player when the song failed to play (songReports.js), not by a person.
+  await pool.query(`ALTER TABLE library_song_reports ADD COLUMN IF NOT EXISTS auto BOOLEAN NOT NULL DEFAULT false`).catch(() => {});
   await pool.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_song_reports_open_user
       ON library_song_reports(song_id, reported_by_user_id) WHERE resolved_at IS NULL

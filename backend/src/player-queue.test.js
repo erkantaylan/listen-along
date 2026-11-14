@@ -53,6 +53,36 @@ describe('player-queue: previousIndex', () => {
   });
 });
 
+describe('player-queue: going past blocked songs', () => {
+  const blockedSet = (...at) => (i) => at.includes(i);
+
+  it('next takes the first song that is not blocked', () => {
+    assert.equal(m.nextIndex({ length: 5, current: 0, blocked: blockedSet(1, 2) }), 3);
+    assert.equal(m.nextIndex({ length: 3, current: 0, blocked: blockedSet(1, 2) }), -1);
+    assert.equal(m.nextIndex({ length: 3, current: -1, blocked: blockedSet(0) }), 1);
+  });
+  it('repeat all wraps past blocked songs, and stops when nothing else is left', () => {
+    assert.equal(m.nextIndex({ length: 4, current: 3, repeat: 'all', blocked: blockedSet(0) }), 1);
+    assert.equal(m.nextIndex({ length: 3, current: 1, repeat: 'all', blocked: blockedSet(0, 2) }), 1);
+    assert.equal(m.nextIndex({ length: 3, current: 1, repeat: 'all', blocked: blockedSet(0, 1, 2) }), -1);
+  });
+  it('repeat one does not replay a blocked song', () => {
+    assert.equal(m.nextIndex({ length: 3, current: 1, repeat: 'one', auto: true, blocked: blockedSet(1) }), 2);
+    assert.equal(m.nextIndex({ length: 3, current: 1, repeat: 'one', auto: true, blocked: blockedSet(0) }), 1);
+  });
+  it('shuffle picks among the songs that are not blocked', () => {
+    assert.equal(m.nextIndex({ length: 4, current: 0, shuffle: true, random: () => 0.99, blocked: blockedSet(3) }), 2);
+    assert.equal(m.nextIndex({ length: 4, current: 0, shuffle: true, random: () => 0, blocked: blockedSet(1) }), 2);
+    assert.equal(m.nextIndex({ length: 3, current: 0, shuffle: true, blocked: blockedSet(1, 2) }), -1);
+  });
+  it('previous goes back past blocked songs', () => {
+    assert.equal(m.previousIndex({ length: 5, current: 4, blocked: blockedSet(3, 2) }), 1);
+    assert.equal(m.previousIndex({ length: 3, current: 2, blocked: blockedSet(0, 1) }), -1);
+    assert.equal(m.previousIndex({ length: 4, current: 0, repeat: 'all', blocked: blockedSet(3) }), 2);
+    assert.equal(m.previousIndex({ length: 3, current: -1, blocked: blockedSet(0) }), 1);
+  });
+});
+
 describe('player-queue: lobby membership', () => {
   it('members the playback context and only views other lobbies', () => {
     assert.deepEqual(m.desiredMembership({}), { member: null, viewing: null });

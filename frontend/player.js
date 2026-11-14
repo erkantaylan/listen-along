@@ -20,6 +20,7 @@
 //   player.renameContext(lobbyId, name)
 //   player.replaceQueue(ctx, songs)      new order for a context that is no lobby (ignored unless it is current)
 //   player.setRefill(fn)                 fn(context, track) -> songs | null: what comes after the last song (Radio)
+//   player.setSkip(fn)                   fn(track) -> true for a song next / previous go past (it failed to play, playback-failures.js)
 //   player.playIndex(i) / playTrack(track, { position, autoplay })
 //   player.play() / pause() / toggle() / next() / previous() / seek(seconds) / stop()
 //     (these are the listener's own actions: each one ends a driver; the
@@ -50,6 +51,7 @@ let queue = [];
 let track = null;
 let driver = null;
 let refill = null;
+let skip = null;
 
 const audio = () => elements.audioPlayer;
 
@@ -148,6 +150,8 @@ export const player = {
 
   setRefill(fn) { refill = fn || null; },
 
+  setSkip(fn) { skip = fn || null; },
+
   // Play `index` of a context's songs; switches the context when it is another one.
   playFrom(ctx, songs, index) {
     takeover();
@@ -181,6 +185,7 @@ export const player = {
 
   pause({ keepDriver = false } = {}) {
     if (!keepDriver) takeover();
+    state.playRequested = false;
     audio().pause();
   },
 
@@ -200,13 +205,14 @@ export const player = {
       repeat: radio && state.repeatMode === 'all' ? 'off' : state.repeatMode,
       shuffle: state.isShuffleEnabled && !radio,
       auto,
+      blocked: skip && ((at) => skip(queue[at])),
     });
     if (i < 0 && refill) {
       const songs = refill(context, track);
       if (songs && songs.length) {
         queue = songs.slice();
         emit('queue', queue);
-        i = 0;
+        i = skip ? queue.findIndex((t) => !skip(t)) : 0;
       }
     }
     if (i < 0) { this.pause(); return; }
@@ -216,7 +222,7 @@ export const player = {
   previous() {
     takeover();
     if (track && this.currentTime > RESTART_THRESHOLD) { this.seek(0); this.play(); return; }
-    const i = previousIndex({ length: queue.length, current: this.index, repeat: state.repeatMode });
+    const i = previousIndex({ length: queue.length, current: this.index, repeat: state.repeatMode, blocked: skip && ((at) => skip(queue[at])) });
     if (i < 0) { if (track) { this.seek(0); this.play(); } return; }
     this.playIndex(i, { manual: false });
   },

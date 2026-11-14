@@ -174,6 +174,11 @@ async function loadReports() {
     const { songs, total } = await api('GET', '/api/library?reported=1&limit=500');
     const reports = songs.reduce((n, s) => n + (s.report_count || 0), 0);
     $('adm-reports-summary').textContent = total ? `(${total} song${total === 1 ? '' : 's'}, ${reports} report${reports === 1 ? '' : 's'})` : '';
+    const automatic = songs.reduce((n, s) => n + (s.reports || []).filter((r) => r.auto).length, 0);
+    const dismissAuto = $('adm-reports-dismiss-auto');
+    dismissAuto.hidden = !automatic;
+    dismissAuto.disabled = false;
+    dismissAuto.textContent = `Dismiss automatic (${automatic})`;
     if (!songs.length) { list.innerHTML = emptyRow('Nothing is marked as broken.'); return; }
     list.innerHTML = songs.map((s) => `
       <li class="list-group-item vstack gap-2 adm-report">
@@ -189,7 +194,7 @@ async function loadReports() {
         <ul class="list-unstyled vstack gap-1 mb-0 fs-sm">
           ${(s.reports || []).map((r) => `
           <li class="d-flex align-items-center gap-2">
-            <span class="min-w-0 flex-grow-1 text-break"><span class="fg-2">${r.reason ? `“${esc(r.reason)}”` : '<span class="fg-3">No reason given</span>'}</span>
+            <span class="min-w-0 flex-grow-1 text-break"><span class="fg-2">${r.auto ? '<span class="badge badge-subtle theme-secondary">Automatic</span> Failed to play' : r.reason ? `“${esc(r.reason)}”` : '<span class="fg-3">No reason given</span>'}</span>
               <span class="fs-xs fg-3">— ${esc(r.reported_by)}, ${esc(when(r.updated_at || r.created_at))}</span></span>
             <button class="btn-text theme-secondary btn-xs" data-dismiss-report="${esc(r.id)}" type="button">Dismiss</button>
           </li>`).join('')}
@@ -254,6 +259,11 @@ function bindEvents() {
     loadRequests();
   });
   $('adm-reports-refresh').addEventListener('click', loadReports);
+  $('adm-reports-dismiss-auto').addEventListener('click', async (e) => {
+    e.currentTarget.disabled = true;
+    await api('POST', '/api/admin/library/reports/dismiss-automatic').catch(failToast('Could not dismiss'));
+    loadReports();
+  });
   $('adm-reports').addEventListener('click', async (e) => {
     const play = e.target.closest('[data-play]');
     if (play) { togglePreview(play.dataset.play); return; }

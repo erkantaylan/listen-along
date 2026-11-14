@@ -17,25 +17,38 @@ export function findTrackIndex(queue, track) {
 //   auto: true when the track ended by itself (repeat-one only applies then;
 //   a manual Next always moves on).
 //   random: () => [0, 1), injectable for tests.
-export function nextIndex({ length, current = -1, repeat = 'off', shuffle = false, auto = false, random = Math.random }) {
+//   blocked: (index) => true for a song to go past (it failed to play here,
+//   playback-failures.js). With everything else blocked the answer is -1.
+export function nextIndex({ length, current = -1, repeat = 'off', shuffle = false, auto = false, random = Math.random, blocked = null }) {
   if (!length) return -1;
-  if (auto && repeat === 'one' && current >= 0 && current < length) return current;
+  const open = (i) => !blocked || !blocked(i);
+  if (auto && repeat === 'one' && current >= 0 && current < length && open(current)) return current;
   if (shuffle && length > 1) {
+    if (blocked) {
+      const choices = [];
+      for (let i = 0; i < length; i++) if (i !== current && open(i)) choices.push(i);
+      return choices.length ? choices[Math.floor(random() * choices.length)] : -1;
+    }
     let i;
     do { i = Math.floor(random() * length); } while (i === current);
     return i;
   }
-  const next = current + 1;
-  if (next < length) return next;
-  return repeat === 'all' ? 0 : -1;
+  for (let i = current + 1; i < length; i++) if (open(i)) return i;
+  if (repeat !== 'all') return -1;
+  // Round again, up to the current song (itself only when it is the only one left).
+  for (let i = 0; i <= Math.min(current, length - 1); i++) if (open(i)) return i;
+  return -1;
 }
 
 // The index to play before `current`, or -1 to restart the current track.
-export function previousIndex({ length, current = -1, repeat = 'off' }) {
+export function previousIndex({ length, current = -1, repeat = 'off', blocked = null }) {
   if (!length) return -1;
-  if (current < 0) return 0;
-  if (current > 0) return current - 1;
-  return repeat === 'all' ? length - 1 : -1;
+  const open = (i) => !blocked || !blocked(i);
+  if (current < 0) return open(0) ? 0 : nextIndex({ length, current: 0, blocked });
+  for (let i = current - 1; i >= 0; i--) if (open(i)) return i;
+  if (repeat !== 'all') return -1;
+  for (let i = length - 1; i > current; i--) if (open(i)) return i;
+  return open(current) ? current : -1;
 }
 
 // --- Lobby membership --------------------------------------------------------

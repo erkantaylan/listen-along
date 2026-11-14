@@ -11,6 +11,7 @@ import { libraryTrack } from './library.js';
 import { artistPath } from './router.js';
 import { playCellHtml, playCellLabel, statsHtml } from './queue.js';
 import { bindSongMenu, songMenuButtonHtml } from './song-reports.js';
+import { isUnplayable, unplayableBadgeHtml, onFailuresChange } from './playback-failures.js';
 import { createVirtualList } from './virtual-list.js';
 import { keepCurrent } from './artist-rules.js';
 import { artistByKey, coverUrl } from './artists.js';
@@ -61,11 +62,11 @@ function rowHtml(track, index) {
   const thumb = track.youtubeId
     ? `<img src="https://i.ytimg.com/vi/${encodeURIComponent(track.youtubeId)}/default.jpg" alt="" loading="lazy">`
     : NOTE_ICON;
-  return `<li class="list-group-item list-group-item-action queue-item${playing ? ' playing' : ''}${index === page.songs.length - 1 ? ' queue-item-last' : ''}" data-index="${index}" data-id="${escapeHtml(track.libraryId)}" tabindex="0"${playing ? ' aria-current="true"' : ''}>`
+  return `<li class="list-group-item list-group-item-action queue-item${playing ? ' playing' : ''}${isUnplayable(track) ? ' is-unplayable' : ''}${index === page.songs.length - 1 ? ' queue-item-last' : ''}" data-index="${index}" data-id="${escapeHtml(track.libraryId)}" tabindex="0"${playing ? ' aria-current="true"' : ''}>`
     + `<div class="queue-item-num"><button class="btn-text theme-secondary btn-icon btn-sm queue-item-play" type="button" data-position="${index + 1}" data-title="${title}" aria-label="${label}" title="${label}">${playCellHtml(index + 1, playing)}</button></div>`
     + `<div class="queue-item-main"><div class="app-thumb queue-item-thumb">${thumb}</div>`
     + `<div class="queue-item-info"><div class="queue-item-title" title="${title}">${title}</div>`
-    + `<div class="queue-item-meta">${artist ? `<span class="queue-item-artist">${artist}</span>` : ''}<span class="queue-item-compact queue-item-duration">${duration}</span></div></div></div>`
+    + `<div class="queue-item-meta">${artist ? `<span class="queue-item-artist">${artist}</span>` : ''}<span class="queue-item-compact queue-item-duration">${duration}</span>${unplayableBadgeHtml(track)}</div></div></div>`
     + `<div class="queue-col-dur queue-cell">${duration}</div>`
     + `<div class="queue-item-actions">${songMenuButtonHtml(track.title)}</div></li>`;
 }
@@ -373,6 +374,8 @@ export function setupArtistPage() {
 
   const repaint = () => { refreshRows(); if (page.open) renderHead(); };
   player.on('track', () => { dropLeftSongs(); repaint(); });
+  // A song failed to play, or plays again: its row greys or clears.
+  onFailuresChange(() => { if (page.open) render(); });
   player.on('state', repaint);
   player.on('context', () => { if (!activeKey()) liveIds = null; repaint(); });
   player.on('queue', (songs) => {

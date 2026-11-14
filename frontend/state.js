@@ -9,7 +9,6 @@ export const STORAGE_KEYS = {
   SHUFFLE_ENABLED: 'listen-shuffleEnabled',
   PLAYBACK_MODE: 'listen-playbackMode',
   VOLUME: 'listen-volume',
-  HIDE_ERRORED_SONGS: 'listen-hideErroredSongs',
   QUEUE_SORT: 'listen-queueSort'
 };
 
@@ -118,10 +117,10 @@ export const state = {
   volume: storageGet(STORAGE_KEYS.VOLUME) !== null ? parseFloat(storageGet(STORAGE_KEYS.VOLUME)) : 1,
   isMuted: false,
   volumeBeforeMute: 1,
-  hideErroredSongs: storageGet(STORAGE_KEYS.HIDE_ERRORED_SONGS) !== 'false',
   queueSort: storageGet(STORAGE_KEYS.QUEUE_SORT) || 'default',
   revealPlayingIn: null,  // lobby id: bring the current song into view once its queue is here
   listeningAlong: false,  // listen-along.js drives the player
+  playRequested: false,   // the last load was meant to sound (audio.js playAudioWithUnlock)
   lobbyName: null
 };
 
@@ -163,7 +162,6 @@ export const elements = {
   songInput: document.getElementById('song-input'),
   addSongBtn: document.getElementById('add-song-btn'),
   queueList: document.getElementById('queue-list'),
-  hideErroredCheckbox: document.getElementById('hide-errored-songs'),
   queueSortSelect: document.getElementById('queue-sort'),
   clearQueueBtn: document.getElementById('clear-queue-btn'),
   editQueueBtn: document.getElementById('edit-queue-btn'),

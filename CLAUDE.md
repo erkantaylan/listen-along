@@ -85,6 +85,53 @@ where lobby persistence broke entirely on deployed instances.
   `/api/admin/library/:songId/reports/dismiss`. Changes emit
   `library:updated { reports }`. Frontend: `song-reports.js` +
   the reusable `context-menu.js` (DESIGN.md "Context menu").
+- **A song that fails to play** (web): `frontend/playback-failures.js` is the
+  glue to the page, `playback-failure-flow.js` the state (injected probe /
+  confirm / report / user, so the whole flow is tested without a browser),
+  `playback-failure-rules.js` the pure decisions. The `<audio>` error greys the
+  song (in memory, keys `library:<id>` + queue url; cleared when it plays, on
+  `library:updated { replaced }`, on `download:status ready`, on reload or
+  when the signed-in account changes), `player.next/previous` go past greyed
+  songs (`player.setSkip`, `blocked` in `player-queue.js`; an `unavailable`
+  queue entry is tried like any song and greys on its `NOT_IN_LIBRARY`), and
+  `STREAK_LIMIT` = 3 failures in a row stop playback.
+- **Automatic reports: the SERVER decides, the client only filters.**
+  `POST …/report { auto: true }` (column `library_song_reports.auto`, `auto` on
+  every report view; no reason, nothing client-sent is stored, never
+  overwrites the caller's own report, a manual report makes it `auto` false) is
+  stored only if `songVerify.verifyBroken` establishes it itself: **missing** =
+  the file is ENOENT and `storageHealth` is healthy (a sample of OTHER songs'
+  files: the 10 oldest + 5 either side of the song's upload time, never just
+  the newest, since a fresh mount holds only new uploads; needs >= 5 sampled
+  and >= 90% present), or **undecodable** = `nice ffmpeg -v error -xerror -i
+  <file> -map 0:a:0 -f null -` fails with stderr that blames the input
+  (`BAD_INPUT`) and names nothing environmental (`ENVIRONMENT`: memory, I/O,
+  permissions, no such file…), on two runs, the file readable and unchanged
+  (size, mtime) after each (one at a time, 4 waiting at most, 60s; only
+  certain verdicts are kept, 10 min per file version). Unreadable, killed,
+  timed out, no ffmpeg, busy = not established. A file ffmpeg decodes is not
+  broken whatever a browser said. The row is inserted by
+  `songReports.reportVerified` only while the song still has the checked
+  `file_path` (`INSERT … SELECT … FOR SHARE`: a replace during the check must
+  not leave a report on the new file); a report the caller already has is
+  returned, never inserted. Otherwise: 200 `{ reported: false, code:
+  'NOT_CONFIRMED' }` and nothing else in the body, no row. 20 automatic reports per account per 10 min
+  (`autoReportLimiter`). Manual reports are untouched. The file routes use the
+  same health check: a missing file is ALWAYS a 404 (the Android app skips a
+  song on a 404 and goes offline on a 5xx), with `code` `FILE_MISSING`, or
+  `STORAGE_UNAVAILABLE` when the sample says the storage is not there (verdict
+  cached 3s for the file routes only; the web player treats it as a server
+  problem); also `NOT_FOUND` / `NOT_IN_LIBRARY`: keep these codes and the 404. Admin: `POST /api/admin/library/reports/dismiss-automatic`. The
+  client's filter (keep it, do not loosen): only `missing` / `undecodable`
+  (the whole file fetched `no-store`, complete, <= 64 MB, played muted from a
+  `blob:` url; a MediaError alone proves nothing), never offline / 5xx / 401 /
+  403 / unknown 404 / deleted song / unsupported format, never from a
+  listen-along follower, once per song per page load, not when the song has an
+  open report; held until another song plays, then that song's url must be
+  served and the held one must still show the same fault, past the cache; a
+  streak stop drops it; keys carry a generation so a verdict overtaken by
+  played / replaced / cleared / another account is discarded. A report hides
+  the song from Radio and the artist pages for everyone.
 - **Downloaders ("workers") and download jobs.** `la worker` (cli/src/worker.js,
   commands/worker.js) runs on users' machines and connects OUT over a
   WebSocket to `/api/workers/connect` (raw `ws` server on the HTTP server's

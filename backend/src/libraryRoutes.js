@@ -19,8 +19,9 @@ const requests = require('./requests');
 const tokens = require('./tokens');
 const downloadJobs = require('./downloadJobs');
 const songReports = require('./songReports');
+const songVerify = require('./songVerify');
 const adminAuth = require('./adminAuth');
-const { apiLimiter } = require('./rateLimits');
+const { apiLimiter, keyFor, make: makeLimiter } = require('./rateLimits');
 
 function parseIntParam(value, def, min, max) {
   const n = parseInt(value, 10);
@@ -44,6 +45,10 @@ function downloadFilename(song) {
     .slice(0, 120);
   return (base || 'audio') + ext;
 }
+
+// Automatic "needs replacement" reports (the web player's) per account.
+const AUTO_REPORT_LIMIT = 20;
+const AUTO_REPORT_WINDOW_MS = 10 * 60 * 1000;
 
 /**
  * Stream a library song's file with Range support (express sendFile handles
@@ -76,7 +81,16 @@ function sendSongFile(req, res, song, { download = false } = {}) {
       return res.status(416).json({ error: 'Requested range not satisfiable' });
     }
     if (err.status === 404 || err.code === 'ENOENT') {
-      return res.status(404).json({ error: 'Audio file missing on server' });
+      // The song exists, its audio does not. FILE_MISSING is said only while
+      // the files of other songs are there (songVerify.storageHealth): a bad
+      // or half-restored mount is the storage, not broken songs
+      // (STORAGE_UNAVAILABLE).
+      return songVerify.storageHealthCached(song.id).catch(() => ({ unhealthy: true })).then((health) => {
+        // Always a 404, as it ever was (the Android app skips the song on a 404
+        // and would go offline on a 5xx); only the code tells the two apart.
+        if (!health.unhealthy) return res.status(404).json({ error: 'Audio file missing on server', code: 'FILE_MISSING' });
+        return res.status(404).json({ error: 'Audio file missing on server (the music storage is unavailable)', code: 'STORAGE_UNAVAILABLE' });
+      });
     }
     console.error('[library] sendFile error:', err.message);
     res.status(500).json({ error: 'Failed to read audio file' });
@@ -131,6 +145,13 @@ function createLibraryRouter(hooks = {}) {
     const account = (req._listenAuth && req._listenAuth.account) || {};
     return { id: null, userId: account.id || null, name: account.name || account.username || 'web user' };
   };
+
+  // Automatic reports make the server decode a file: a few per account, not a loop.
+  const autoReportLimiter = makeLimiter(AUTO_REPORT_LIMIT, AUTO_REPORT_WINDOW_MS, {
+    skip: (req) => !(req.body && req.body.auto === true),
+    keyGenerator: (req) => { const a = actorOf(req); return a && a.userId ? `user:${a.userId}` : keyFor(req); },
+    message: 'Too many automatic reports, slow down',
+  });
 
   // The account behind the request (token owner or web user), for "mine".
   const viewerOf = (req) => (req.apiUser ? req.apiUser.userId || null
@@ -393,17 +414,55 @@ function createLibraryRouter(hooks = {}) {
   // --- "Mark as broken — needs replacement" -------------------------------
   // Any approved user (web session, or a token that has an owner): one open
   // report per user per song; reporting again updates the reason.
-  // Body: { reason?: string (max 200) } -> { report, song }.
-  router.post('/api/library/:id/report', writeAccess, requireDb, async (req, res) => {
+  // Body: { reason?: string (max 200), auto?: boolean } -> { report, song }.
+  // auto: the web player's own report of a song that failed to play. The
+  // client's word is not taken for it: the server checks the song itself
+  // (songVerify.verifyBroken: file missing while the storage is healthy, or a
+  // file ffmpeg cannot decode) and otherwise stores nothing and answers
+  // 200 { reported: false, code: 'NOT_CONFIRMED' }. Nothing the client sends is
+  // recorded. The check reads a whole file, so automatic reports are limited
+  // per account.
+  router.post('/api/library/:id/report', writeAccess, requireDb, autoReportLimiter, async (req, res) => {
     if (!library.isUuid(req.params.id)) return res.status(404).json({ error: 'Song not found', code: 'NOT_FOUND' });
+    const songId = req.params.id;
+    const answer = async (status, report, actor) => {
+      const pub = library.toPublic(await library.getById(songId));
+      await songReports.attachReports([pub], actor.userId);
+      res.status(status).json({ report, song: pub });
+    };
     try {
       const actor = actorOf(req);
-      const { report, created } = await songReports.report(req.params.id, actor, req.body && req.body.reason);
-      console.log(`[reports] ${actor.name} ${created ? 'marked' : 'updated their report on'} ${req.params.id} as broken${report.reason ? `: ${report.reason}` : ''}`);
-      const pub = library.toPublic(await library.getById(req.params.id));
-      await songReports.attachReports([pub], actor.userId);
-      try { onReportsChanged(req.params.id); } catch {}
-      res.status(created ? 201 : 200).json({ report, song: pub });
+      const auto = req.body && req.body.auto !== undefined ? req.body.auto : false;
+      if (typeof auto !== 'boolean') return res.status(400).json({ error: 'auto must be true or false', code: 'BAD_REQUEST' });
+      if (auto) {
+        if (!actor || !actor.userId) throw new songReports.ReportError(403, 'Only a signed-in account can report songs (a legacy token has no owner)', 'FORBIDDEN');
+        const row = await library.getById(songId);
+        if (!row) return res.status(404).json({ error: 'Song not found', code: 'NOT_FOUND' });
+        // A report the caller already has is returned as it is: nothing to verify, and nothing is ever inserted here.
+        const existing = await songReports.ownOpenReport(songId, actor);
+        if (existing) return await answer(200, existing, actor);
+        const verdict = await songVerify.verifyBroken(row);
+        if (!verdict.broken) {
+          console.log(`[reports] automatic report by ${actor.name} on ${songId} not confirmed: ${verdict.why}`);
+          return res.json({ reported: false, code: 'NOT_CONFIRMED' });
+        }
+        // Stored only while the song still has the file that was checked.
+        const created = await songReports.reportVerified(songId, actor, verdict.file_path);
+        if (!created) {
+          // The caller reported it by hand meanwhile (theirs stays), or the song's audio was replaced.
+          const theirs = await songReports.ownOpenReport(songId, actor);
+          if (theirs) return await answer(200, theirs, actor);
+          console.log(`[reports] automatic report by ${actor.name} on ${songId} not stored: the song's file changed during the check`);
+          return res.json({ reported: false, code: 'NOT_CONFIRMED' });
+        }
+        console.log(`[reports] ${actor.name} marked ${songId} as broken (automatic, ${verdict.broken}: ${verdict.why})`);
+        try { onReportsChanged(songId); } catch {}
+        return await answer(201, created, actor);
+      }
+      const { report, created } = await songReports.report(songId, actor, req.body && req.body.reason);
+      console.log(`[reports] ${actor.name} ${created ? 'marked' : 'updated their report on'} ${songId} as broken${report.reason ? `: ${report.reason}` : ''}`);
+      try { onReportsChanged(songId); } catch {}
+      await answer(created ? 201 : 200, report, actor);
     } catch (err) {
       if (err instanceof songReports.ReportError) return res.status(err.status).json({ error: err.message, code: err.code });
       console.error('[reports] report error:', err.message);
@@ -445,7 +504,7 @@ function createLibraryRouter(hooks = {}) {
 
   router.get('/api/library/:id/file', readAccess, requireDb, async (req, res) => {
     const song = await library.getById(req.params.id).catch(() => null);
-    if (!song) return res.status(404).json({ error: 'Song not found' });
+    if (!song) return res.status(404).json({ error: 'Song not found', code: 'NOT_FOUND' });
     sendSongFile(req, res, song, { download: req.query.dl === '1' || req.query.dl === 'true' });
   });
 
@@ -523,6 +582,14 @@ function createLibraryRouter(hooks = {}) {
     console.log(`[admin] dismissed report ${row.id} on ${row.song_id}`);
     try { onReportsChanged(String(row.song_id)); } catch {}
     res.json({ ok: true, dismissed: 1 });
+  });
+
+  // Every open automatic report at once (the ones the web player filed by itself).
+  router.post('/api/admin/library/reports/dismiss-automatic', adminAuth.requireAdmin, requireDb, async (req, res) => {
+    const songIds = await songReports.dismissAutomatic('admin');
+    console.log(`[admin] dismissed ${songIds.length} automatic report(s)`);
+    for (const id of new Set(songIds)) { try { onReportsChanged(id); } catch {} }
+    res.json({ ok: true, dismissed: songIds.length });
   });
 
   router.post('/api/admin/library/:id/reports/dismiss', adminAuth.requireAdmin, requireDb, async (req, res) => {

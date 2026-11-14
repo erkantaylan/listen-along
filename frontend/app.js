@@ -3,6 +3,7 @@ import { state, elements, auth, socket, STORAGE_KEYS, viewActivators, setSocket,
 import { showView, showToast, switchTab, setupLanguageSelector, setupAppMeta, t, setupRangeFill, navigateTo } from './ui.js';
 import { setupAudioPlayer } from './audio.js';
 import { player, setupPlayer } from './player.js';
+import { setupPlaybackFailures } from './playback-failures.js';
 import { setupPlayerBar, setupPlayerBarControls, refreshPlayerBar } from './player-bar.js';
 import { checkAuth, setupLoginView, showPendingCard, setupProfilePage, loadProfilePage } from './auth.js';
 import { setupSocial, applySocialRoute, toggleSocial, refreshPeople, reportNowPlaying as reportPresence } from './social.js';
@@ -134,10 +135,6 @@ function setupEventListeners() {
   setupQueueInteractions();
   setupQueueSearch();
 
-  if (elements.hideErroredCheckbox) {
-    elements.hideErroredCheckbox.checked = state.hideErroredSongs;
-    elements.hideErroredCheckbox.addEventListener('change', (e) => { state.hideErroredSongs = e.target.checked; storageSet(STORAGE_KEYS.HIDE_ERRORED_SONGS, state.hideErroredSongs); updateQueue(); });
-  }
   if (elements.queueSortSelect) {
     elements.queueSortSelect.value = state.queueSort;
     elements.queueSortSelect.addEventListener('change', (e) => { state.queueSort = e.target.value; storageSet(STORAGE_KEYS.QUEUE_SORT, state.queueSort); updateQueue(); });
@@ -274,6 +271,7 @@ function initAuthenticatedApp() {
   setupRangeFill();
   setupAudioPlayer();
   setupPlayer();
+  setupPlaybackFailures();
   setupPlayerBarControls();
   setupRadio();
   setupArtists({ play: playArtistFromTop });

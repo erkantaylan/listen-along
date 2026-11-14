@@ -8,6 +8,11 @@
 //   - replacing the audio resolves every open report ('replaced', by the replacer)
 //   - admins dismiss reports (admin cookie only)
 //   - pending / denied users, revoked tokens and nobody are refused
+//   - the `auto` column (automatic reports, see auto-report.test.js) is added
+//     to an existing table; in a library too small to judge the storage an
+//     automatic report is never confirmed
+//   - the file routes tell a missing file (FILE_MISSING) from a missing song
+//     and from storage that is not there (still a 404, code STORAGE_UNAVAILABLE)
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { execSync, execFileSync } = require('node:child_process');
@@ -221,5 +226,82 @@ describe('library song reports (mark as broken)', { skip, timeout: 240_000 }, ()
     assert.equal(r.status, 200);
     assert.equal(r.body.dismissed, 2);
     assert.equal((await req('GET', '/api/library?reported=1', { cookie: cookies.carol })).body.total, 0);
+  });
+
+  it('file routes: a missing file is FILE_MISSING, a missing song NOT_FOUND / NOT_IN_LIBRARY', async () => {
+    const row = (await pg.query('SELECT file_path FROM library_songs WHERE id = $1', [songs.a.id])).rows[0];
+    const held = `${row.file_path}.held`;
+    fs.renameSync(row.file_path, held);
+    try {
+      let r = await req('GET', `/api/library/${songs.a.id}/file`, { cookie: cookies.alice });
+      assert.equal(r.status, 404);
+      assert.equal(r.body.code, 'FILE_MISSING');
+      r = await req('GET', `/api/stream?q=${encodeURIComponent(`library:${songs.a.id}`)}`, { cookie: cookies.alice });
+      assert.equal(r.status, 404);
+      assert.equal(r.body.code, 'FILE_MISSING');
+    } finally {
+      fs.renameSync(held, row.file_path);
+    }
+    let r = await req('GET', '/api/library/00000000-0000-4000-8000-000000000000/file', { cookie: cookies.alice });
+    assert.equal(r.status, 404);
+    assert.equal(r.body.code, 'NOT_FOUND');
+    r = await req('GET', '/api/stream?q=library:00000000-0000-4000-8000-000000000000', { cookie: cookies.alice });
+    assert.equal(r.status, 404);
+    assert.equal(r.body.code, 'NOT_IN_LIBRARY');
+  });
+
+  it('file routes: storage that is not there is STORAGE_UNAVAILABLE (a 404, as a missing file always was), never FILE_MISSING', async () => {
+    const dir = path.dirname((await pg.query('SELECT file_path FROM library_songs WHERE id = $1', [songs.b.id])).rows[0].file_path);
+    const away = `${dir}.away`;
+    const urls = [`/api/library/${songs.b.id}/file`, `/api/stream?q=${encodeURIComponent(`library:${songs.b.id}`)}`];
+    fs.renameSync(dir, away);
+    try {
+      // The folder is gone, then there but empty (what a bad mount leaves).
+      for (const empty of [false, true]) {
+        if (empty) fs.mkdirSync(dir);
+        for (const url of urls) {
+          const r = await req('GET', url, { cookie: cookies.alice });
+          assert.equal(r.status, 404, `${url} (empty folder: ${empty})`);
+          assert.equal(r.body.code, 'STORAGE_UNAVAILABLE');
+        }
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+      fs.renameSync(away, dir);
+    }
+    assert.equal((await req('GET', `/api/library/${songs.b.id}/file`, { cookie: cookies.alice })).status, 200);
+  });
+
+  it('a library too small to judge the storage: a missing file is FILE_MISSING, but an automatic report is not confirmed', async () => {
+    const row = (await pg.query('SELECT file_path FROM library_songs WHERE id = $1', [songs.c.id])).rows[0];
+    const held = `${row.file_path}.held`;
+    fs.renameSync(row.file_path, held);
+    try {
+      let r = await req('GET', `/api/library/${songs.c.id}/file`, { cookie: cookies.alice });
+      assert.equal(r.status, 404);
+      assert.equal(r.body.code, 'FILE_MISSING');
+      r = await mark(songs.c.id, { cookie: cookies.alice, body: { auto: true } });
+      assert.equal(r.status, 200);
+      assert.deepEqual(r.body, { reported: false, code: 'NOT_CONFIRMED' });
+      assert.equal((await openRows(songs.c.id)).length, 0);
+    } finally {
+      fs.renameSync(held, row.file_path);
+    }
+  });
+
+  it('migration: a table from before automatic reports gets the column at boot', async () => {
+    await pg.query('ALTER TABLE library_song_reports DROP COLUMN auto');
+    const again = await startServer({ DATABASE_URL: container.getConnectionUri(), SONGS_PATH: path.join(tmp, 'songs'), COVERS_DIR: path.join(tmp, 'covers') });
+    try {
+      const col = await pg.query(`SELECT data_type, is_nullable, column_default FROM information_schema.columns WHERE table_name = 'library_song_reports' AND column_name = 'auto'`);
+      assert.deepEqual(col.rows, [{ data_type: 'boolean', is_nullable: 'NO', column_default: 'false' }]);
+      const r = await requester(again.base)('POST', `/api/library/${songs.c.id}/report`, { cookie: cookies.carol, body: { reason: 'old style' } });
+      assert.equal(r.status, 201);
+      assert.equal(r.body.report.auto, false);
+      const rows = await openRows(songs.c.id);
+      assert.ok(rows.length && rows.every((x) => x.auto === false), 'reports count as filed by a person');
+    } finally {
+      await again.stop();
+    }
   });
 });

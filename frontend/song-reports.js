@@ -129,9 +129,15 @@ function relative(value) {
   return new Date(ts).toLocaleDateString();
 }
 
+// What a report says: its reason, or that the player filed it by itself.
+function reasonText(r) {
+  if (r.auto) return t('reports.autoReason', 'Failed to play (reported automatically)');
+  return r.reason || 'No reason given';
+}
+
 /** One line per report: "“wrong song” — Ayşe, 2h ago". */
 export function reportLines(reports) {
-  return (reports || []).map((r) => `${r.reason ? `“${r.reason}”` : 'No reason given'} — ${r.mine ? 'you' : r.reported_by}, ${relative(r.updated_at || r.created_at)}`);
+  return (reports || []).map((r) => `${r.reason && !r.auto ? `“${r.reason}”` : reasonText(r)} — ${r.mine ? 'you' : r.reported_by}, ${relative(r.updated_at || r.created_at)}`);
 }
 
 function reportSummary(n) {
@@ -158,7 +164,7 @@ export function openReportPopover(anchor, reports) {
   const n = reports.length;
   const items = [{ header: `Needs replacement · ${n} ${n === 1 ? 'report' : 'reports'}` }];
   for (const r of reports) {
-    items.push({ text: r.reason || 'No reason given' });
+    items.push({ text: reasonText(r) });
     items.push({ text: `${r.mine ? 'you' : r.reported_by}, ${relative(r.updated_at || r.created_at)}`, muted: true });
   }
   openContextMenu({ anchor }, items, { kind: 'popover', label: reportSummary(n), trigger: anchor });
@@ -178,12 +184,13 @@ export function bindReportIcons(root, getReports) {
 
 // --- Mark / unmark ---------------------------------------------------------
 
-async function sendReport(songId, reason) {
+// auto: the player's own report of a song that failed to play (playback-failures.js).
+export async function sendReport(songId, reason, { auto = false } = {}) {
   const res = await fetch(`/api/library/${encodeURIComponent(songId)}/report`, {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ reason }),
+    body: JSON.stringify(auto ? { auto: true } : { reason }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
@@ -365,7 +372,7 @@ export async function songMenuItems(song, { returnFocus = null } = {}) {
   const mine = reports.find((r) => r.mine);
   const target = { songId, title: song.title, artist: song.artist, returnFocus };
   if (mine) {
-    items.push({ label: 'Edit broken report…', icon: ICONS.edit, description: mine.reason || 'No reason given', onSelect: () => openReportDialog({ ...target, current: mine }) });
+    items.push({ label: 'Edit broken report…', icon: ICONS.edit, description: reasonText(mine), onSelect: () => openReportDialog({ ...target, current: mine }) });
     items.push({ label: 'Unmark broken', icon: ICONS.unmark, onSelect: () => unmarkBroken(songId) });
   } else {
     items.push({

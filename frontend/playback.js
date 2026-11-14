@@ -6,6 +6,7 @@ import { state, elements, STORAGE_KEYS, storageSet } from './state.js';
 import { escapeHtml, getCoverUrl, sanitizeUrl, showToast, syncRangeFill, t } from './ui.js';
 import { player } from './player.js';
 import { refreshPlayerBar } from './player-bar.js';
+import { clearFailureFor } from './playback-failures.js';
 
 // These are imported lazily to avoid circular deps with queue.js
 let _updateQueue, _updateListeners;
@@ -16,6 +17,7 @@ export function _setQueueFns(updateQueue, updateListeners) {
 
 export function handleDownloadStatus(data) {
   state.downloadStatus[data.url] = { status: data.status, percent: data.percent || 0, error: data.error };
+  if (data.status === 'ready') clearFailureFor(data.url); // it reached the library: worth playing again
   if (_updateQueue) _updateQueue();
 }
 

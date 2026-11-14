@@ -557,6 +557,13 @@ Song lists behave like Spotify's. **Normal mode** (always the default):
   (from the library song, not stored on the entry, null for requests) and only strips the artist off the combined title (`songParts`).
   `anonymous` (the placeholder of old rows) and missing values show blank.
 - Right-click / long-press / ⋮ open the song menu as always (see "Context menu").
+- **A song that failed to play** (`playback-failures.js`; playlist, Radio and artist rows) is greyed with `.is-unplayable`: the title in
+  `--app-text-muted` at normal weight, the cover at 45% and desaturated, and a `.badge.badge-subtle.theme-secondary` "could not play" on the
+  meta line whose `title` says a click tries again. Nothing else changes: the row stays the play target with its hover fill and menu, no
+  bar or border marks it, and the playing tint wins while the song is loaded. It is this page load's memory only: it clears when the song
+  plays, when its audio is replaced, or on reload. The player skips greyed songs; three failures in a row stop playback with one danger
+  toast ("… could not be played. Check your connection and try again.", or "… are not in the library yet." when that is all they were). A failure toast says "Could not play …" (+ "Skipping it." when another song came up); an automatic report gets an info toast
+  with **Undo** (8s). There is no filter for unplayable songs: they stay in the list, greyed.
 
 **Stats strip** (`#playlist-stats`, `playlist-stats.js` + `queue.js`), at the top of the playlist page, above the add-song bar:
 one `fs-sm` line of plain facts that wraps between them and never inside one; muted words, the numbers and names in `--app-text`.
@@ -702,7 +709,11 @@ Cut off, …; `.active` when chosen), a free-text input (max 200, counter), Canc
 "Mark as broken" / "Update". The library's fourth tab **Broken** (`?tab=broken`, warning count
 badge) is the Songs list filtered to reported songs with every report listed under the row; `/dashboard`
 has a **Broken songs** section (reasons, reporters, per-report Dismiss, Dismiss all). Short labels
-("Broken") are fine on tabs, cards and badges there.
+("Broken") are fine on tabs, cards and badges there. A report the player filed by itself (`auto`) has no reason: wherever
+a reason is shown it reads "Failed to play (reported automatically)" (`reports.autoReason`), with a secondary "Automatic"
+badge on `/dashboard`. Same icon, same count, and its owner edits or unmarks it like their own. The server stores one only
+after checking the song itself; when it does not, the player says nothing and the song just stays greyed. `/dashboard` → Broken
+songs shows an outline **Dismiss automatic (n)** button next to Refresh while there are any.
 
 ### Player bar
 

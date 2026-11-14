@@ -2,6 +2,7 @@
 import { state, elements, socket, auth, STORAGE_KEYS, AVATAR_EMOJIS, storageSet } from './state.js';
 import { showView, showToast, escapeHtml, navigateTo } from './ui.js';
 import { announceProfile } from './social.js';
+import { resetPlaybackFailures } from './playback-failures.js';
 import { setupProfileTokens, loadProfileTokens } from './profile-tokens.js';
 import { setupProfileActivity, loadProfileActivity } from './profile-activity.js';
 
@@ -86,6 +87,7 @@ export async function setupLoginView() {
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
       auth.authenticated = false;
       auth.user = null;
+      resetPlaybackFailures();
       showLoginCard();
       showView('login');
     });

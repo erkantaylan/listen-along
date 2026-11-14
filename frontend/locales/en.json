@@ -94,7 +94,6 @@
     "noMatchHint": "Try another word, or clear the filter",
     "searchPlaceholder": "Paste YouTube URL or search...",
     "addSong": "Add song",
-    "hideErrored": "Hide errored songs",
     "empty": "Queue is empty",
     "emptyHint": "Add a song to get started",
     "remove": "Remove from queue",
@@ -435,5 +434,20 @@
     "addedToPlaylist": "{count} added to the playlist",
     "anyway": "Request it anyway",
     "someFailed": "{failed} of {total} could not be queued. The others are in your downloads; add the missing ones again one by one."
+  },
+  "playFail": {
+    "badge": "could not play",
+    "badgeTitle": "It could not be played here and is skipped. Click the song to try again.",
+    "failed": "Could not play “{title}”.",
+    "notInLibrary": "“{title}” is not in the library yet.",
+    "unsupported": "This browser cannot play “{title}”.",
+    "skipping": "Skipping it.",
+    "stopped": "Playback stopped: {count} songs in a row could not be played. Check your connection and try again.",
+    "stoppedNotInLibrary": "Playback stopped: {count} songs in a row are not in the library yet.",
+    "reported": "“{title}” could not be played and was marked as needing replacement.",
+    "undo": "Undo"
+  },
+  "reports": {
+    "autoReason": "Failed to play (reported automatically)"
   }
 }

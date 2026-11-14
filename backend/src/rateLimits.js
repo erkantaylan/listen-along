@@ -22,7 +22,7 @@ function keyFor(req) {
 /**
  * @param {number} limit - requests per window
  * @param {number} [windowMs]
- * @param {{keyGenerator?: Function, message?: string}} [opts]
+ * @param {{keyGenerator?: Function, message?: string, skip?: Function}} [opts]
  */
 function make(limit, windowMs = 60 * 1000, opts = {}) {
   const message = opts.message || 'Too many requests, slow down';
@@ -32,6 +32,7 @@ function make(limit, windowMs = 60 * 1000, opts = {}) {
     standardHeaders: 'draft-7',
     legacyHeaders: false,
     keyGenerator: opts.keyGenerator || keyFor,
+    ...(opts.skip ? { skip: opts.skip } : {}),
     // The client IP is resolved by clientIp.js (trust proxy + CF-Connecting-IP);
     // skip the library's own proxy-header guesses.
     validate: { xForwardedForHeader: false, forwardedHeader: false },

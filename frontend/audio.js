@@ -3,7 +3,8 @@ import { state, elements, STORAGE_KEYS, storageSet } from './state.js';
 import { showToast, formatTime, syncRangeFill } from './ui.js';
 
 // Full (lobby page) player readouts and audio housekeeping. Track changes,
-// ended -> next and the Media Session live in player.js.
+// ended -> next and the Media Session live in player.js; a song that fails to
+// play is playback-failures.js.
 export function setupAudioPlayer() {
   const audio = elements.audioPlayer;
 
@@ -28,15 +29,6 @@ export function setupAudioPlayer() {
 
   audio.addEventListener('pause', () => {
     state.isPlaying = false;
-  });
-
-  audio.addEventListener('error', (e) => {
-    if (!audio.src || audio.src === window.location.href) return;
-    if (state.listeningAlong) return; // listen-along.js says which song and waits for the next
-    console.error('Audio error:', e);
-    const url = state.currentTrack && state.currentTrack.url;
-    const missing = url && state.downloadStatus[url] && state.downloadStatus[url].status === 'unavailable';
-    showToast(missing ? 'This song is not in the library yet' : 'Error playing audio', 'error');
   });
 
   setupAudioUnlock();
@@ -127,6 +119,9 @@ function updateVolumeIcon() {
 
 export function playAudioWithUnlock(src, position, shouldPlay) {
   const audio = elements.audioPlayer;
+  // Whether this load is meant to sound: a failed load resets audio.paused, so
+  // playback-failures.js reads this to know if it should move on.
+  state.playRequested = !!shouldPlay;
   if (src && audio.src !== src) audio.src = src;
   if (position !== undefined && isFinite(position)) audio.currentTime = position;
   if (shouldPlay) {

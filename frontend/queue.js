@@ -6,6 +6,7 @@ import { refreshLibraryAddButtons } from './library.js';
 import { player } from './player.js';
 import { refreshPlayerBar } from './player-bar.js';
 import { bindSongMenu, songMenuButtonHtml, reportIconHtml, reportsFor, onReportsChange } from './song-reports.js';
+import { isUnplayable, unplayableBadgeHtml, onFailuresChange } from './playback-failures.js';
 import { addedByLabel, addedDateLabel, songParts } from './queue-format.js';
 import { playlistStats, lengthParts } from './playlist-stats.js';
 import { createVirtualList } from './virtual-list.js';
@@ -15,6 +16,8 @@ import { queuePayload } from './pick-rules.js';
 
 // A song marked broken anywhere: the queue's badges follow.
 onReportsChange(() => { if (state.lobbyId) updateQueue(); });
+// A song failed to play, or plays again: its row greys or clears.
+onFailuresChange(() => { if (state.lobbyId) updateQueue(); });
 
 // queue:update arrives for the lobby on screen and for the lobby being played
 // from (the socket stays in that one); they may be the same lobby.
@@ -405,7 +408,6 @@ function getDownloadStatusHtml(downloadInfo) {
     case 'downloading': icon = '<span class="queue-item-status downloading" title="Downloading">📥</span>'; badge = `<span class="badge badge-subtle theme-primary queue-item-badge downloading"><span class="queue-item-percent">${percent}%</span></span>`; progressBar = `<div class="progress queue-item-progress" role="progressbar" aria-label="Download progress"><div class="progress-bar queue-item-progress-bar" style="width: ${percent}%"></div></div>`; break;
     case 'ready': icon = '<span class="queue-item-status ready" title="Ready">✓</span>'; break;
     case 'unavailable': icon = '<span class="queue-item-status unavailable" title="Not in the library yet">⏳</span>'; badge = '<span class="badge badge-subtle theme-warning queue-item-badge pending" title="Not in the library yet — it will play once someone uploads it">not in library</span>'; break;
-    case 'error': { const errorMsg = downloadInfo.error || 'Download failed'; icon = `<span class="queue-item-status error" title="${escapeHtml(errorMsg)}">❌</span>`; badge = `<span class="badge badge-subtle theme-danger queue-item-badge error" title="${escapeHtml(errorMsg)}">${escapeHtml(errorMsg)}</span>`; break; }
   }
   return { icon, badge, progressBar };
 }
@@ -500,11 +502,11 @@ function queueRowHtml(pos) {
   const playLabel = escapeHtml(playCellLabel(song.title, isPlaying && player.isPlaying));
   const numCell = editing ? handle : `<button class="btn-text theme-secondary btn-icon btn-sm queue-item-play" type="button" data-position="${number}" data-title="${title}" aria-label="${playLabel}" title="${playLabel}">${playCellHtml(number, isPlaying)}</button>`;
   const remove = editing ? `<button class="btn-text theme-danger btn-icon btn-sm queue-item-remove" type="button" aria-label="Remove ${title}" title="Remove from playlist">${REMOVE_ICON}</button>` : '';
-  return `<li class="list-group-item ${editing ? '' : 'list-group-item-action '}queue-item${isPlaying ? ' playing' : ''}${pos === shown.length - 1 ? ' queue-item-last' : ''}" data-index="${index}" data-song-id="${escapeHtml(song.id)}" data-url="${escapeHtml(song.url)}" tabindex="0"${isPlaying ? ' aria-current="true"' : ''}>`
+  return `<li class="list-group-item ${editing ? '' : 'list-group-item-action '}queue-item${isPlaying ? ' playing' : ''}${isUnplayable(song) ? ' is-unplayable' : ''}${pos === shown.length - 1 ? ' queue-item-last' : ''}" data-index="${index}" data-song-id="${escapeHtml(song.id)}" data-url="${escapeHtml(song.url)}" tabindex="0"${isPlaying ? ' aria-current="true"' : ''}>`
     + `<div class="queue-item-num${editing ? ' is-editing' : ''}">${numCell}</div>`
     + `<div class="queue-item-main">`
     + `<div class="app-thumb queue-item-thumb">${thumbUrl ? `<img src="${escapeHtml(thumbUrl)}" alt="">` : NOTE_ICON}${downloadHtml.icon}</div>`
-    + `<div class="queue-item-info"><div class="d-flex align-items-center gap-1 min-w-0"><div class="queue-item-title" title="${title}">${shownTitle}</div>${reportIconHtml(reportsFor({ url: song.url }))}</div><div class="queue-item-meta">${artist ? `<span class="queue-item-artist">${artist}</span>` : ''}<span class="queue-item-compact queue-item-duration">${duration}</span>${addedBy ? `<span class="queue-item-compact queue-item-added-by">${addedBy}</span>` : ''}${downloadHtml.badge}</div>${downloadHtml.progressBar}</div>`
+    + `<div class="queue-item-info"><div class="d-flex align-items-center gap-1 min-w-0"><div class="queue-item-title" title="${title}">${shownTitle}</div>${reportIconHtml(reportsFor({ url: song.url }))}</div><div class="queue-item-meta">${artist ? `<span class="queue-item-artist">${artist}</span>` : ''}<span class="queue-item-compact queue-item-duration">${duration}</span>${addedBy ? `<span class="queue-item-compact queue-item-added-by">${addedBy}</span>` : ''}${downloadHtml.badge}${unplayableBadgeHtml(song)}</div>${downloadHtml.progressBar}</div>`
     + listenersHtml
     + `</div>`
     + `<div class="queue-col-by queue-cell" title="${addedBy}">${addedBy ? hiddenLabel('queue.colAddedBy', 'Added by') + addedBy : ''}</div>`
@@ -573,7 +575,7 @@ export function updateQueue({ anchor = true } = {}) {
   if (head) head.hidden = state.queue.length === 0;
   const editing = isEditMode();
   const songsWithIndices = state.queue.map((song, index) => ({ song, index }));
-  const visibleSongs = state.hideErroredSongs ? songsWithIndices.filter(({ song }) => { const di = state.downloadStatus[song.url]; return !di || di.status !== 'error'; }) : songsWithIndices;
+  const visibleSongs = songsWithIndices;
   // Edit mode always shows the real order (that is what gets reordered).
   if (!editing && state.queueSort === 'newest') visibleSongs.sort((a, b) => (b.song.addedAt || 0) - (a.song.addedAt || 0));
   else if (!editing && state.queueSort === 'oldest') visibleSongs.sort((a, b) => (a.song.addedAt || 0) - (b.song.addedAt || 0));
@@ -590,8 +592,7 @@ export function updateQueue({ anchor = true } = {}) {
   shown = next;
   if (!next.length) {
     if (state.queue.length === 0) listView().clear(emptyRowHtml(t('queue.empty', 'Queue is empty'), t('queue.emptyHint', 'Add a song to get started')));
-    else if (query) listView().clear(emptyRowHtml(t('queue.noMatch', 'No songs match'), t('queue.noMatchHint', 'Try another word, or clear the filter')));
-    else listView().clear(emptyRowHtml('All songs have errors', 'Uncheck "Hide unplayable songs" to see them'));
+    else listView().clear(emptyRowHtml(t('queue.noMatch', 'No songs match'), t('queue.noMatchHint', 'Try another word, or clear the filter')));
     return;
   }
   let positions = null;

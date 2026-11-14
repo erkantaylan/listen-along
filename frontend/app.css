@@ -419,6 +419,9 @@
   .queue-item.playing { background-color: var(--app-accent-subtle); }
   .queue-item.playing .queue-item-title,
   .libpage-item.is-playing .libpage-title { font-weight: var(--bs-font-weight-semibold); color: var(--app-accent-text-strong); }
+  /* A song that failed to play here (playback-failures.js): muted, still the play target (a click tries again). */
+  .queue-item.is-unplayable:not(.playing) .queue-item-title { font-weight: var(--bs-font-weight-normal); color: var(--app-text-muted); }
+  .queue-item.is-unplayable:not(.playing) .queue-item-thumb img { opacity: 0.45; filter: grayscale(1); }
   /* Normal mode: hover and press read as grey, distinct from the blue playing row. */
   .queue-list:not(.is-editing) .queue-item:not(.playing):hover { background-color: var(--bs-bg-1); }
   .queue-list:not(.is-editing) .queue-item:not(.playing):active { background-color: var(--bs-bg-2); }
