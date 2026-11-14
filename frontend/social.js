@@ -18,6 +18,7 @@ import { player } from './player.js';
 import { storageGet, storageSet } from './state.js';
 import { navigateTo, showToast, t } from './ui.js';
 import { openContextMenu, closeContextMenu, updateContextMenu } from './context-menu.js';
+import { setupActivity, setActivityVisible } from './activity.js';
 
 const DESKTOP = `(min-width: ${DOCK_MIN}px)`;
 const COLLAPSED_KEY = 'listen-socialCollapsed';
@@ -34,6 +35,7 @@ const S = {
   loadingOlder: false,
   historyLoaded: false,
   tab: 'chat',
+  activity: false, // the Activity tab (downloads): approved accounts only
   route: false,
   unread: 0,
   cameFromApp: false,
@@ -75,6 +77,7 @@ function setUnread(n) {
 function refreshVisibility() {
   const toggle = $('social-toggle');
   if (toggle) toggle.classList.toggle('active', panelVisible());
+  setActivityVisible(S.tab === 'activity' && panelVisible() && document.visibilityState === 'visible');
   if (chatVisible()) {
     if (S.unread) setUnread(0);
     if (S.tab === 'chat') scrollChatToBottom(false);
@@ -93,7 +96,7 @@ function setCollapsed(value) {
 const focusActiveTab = () => document.querySelector('[data-social-tab].active')?.focus();
 
 function selectTab(tab) {
-  S.tab = tab === 'people' ? 'people' : 'chat';
+  S.tab = tab === 'people' || (tab === 'activity' && S.activity) ? tab : 'chat';
   for (const b of document.querySelectorAll('[data-social-tab]')) {
     const on = b.dataset.socialTab === S.tab;
     b.classList.toggle('active', on);
@@ -101,6 +104,7 @@ function selectTab(tab) {
   }
   $('social-chat').hidden = S.tab !== 'chat';
   $('social-people').hidden = S.tab !== 'people';
+  $('social-activity').hidden = S.tab !== 'activity';
   refreshVisibility();
   if (S.tab === 'chat') scrollChatToBottom(false);
 }
@@ -490,7 +494,8 @@ export function announceProfile(name, emoji) {
 
 /**
  * Start the chat + people panel on a connected-or-connecting socket.
- * opts: { name, emoji, reportPlayback, listenAlong(person), isListeningWith(person), stopListening() }
+ * opts: { name, emoji, reportPlayback, listenAlong(person), isListeningWith(person), stopListening(),
+ *         activity: the Activity tab too (an approved account) }
  */
 export function setupSocial(socket, opts = {}) {
   S.socket = socket;
@@ -500,6 +505,10 @@ export function setupSocial(socket, opts = {}) {
   S.hooks.noListenHint = opts.noListenHint || null;
   setupPanelWidths();
   document.body.classList.add('has-social');
+  // The downloads log (activity.js): its tab and rail button stay hidden without it.
+  S.activity = !!opts.activity;
+  for (const el of document.querySelectorAll('[data-social-tab="activity"], [data-social-open="activity"]')) el.hidden = !S.activity;
+  if (S.activity) setupActivity(socket);
   const toggle = $('social-toggle');
   if (toggle) toggle.hidden = false;
   if (storageGet(COLLAPSED_KEY) === '1') document.body.classList.add('social-collapsed');

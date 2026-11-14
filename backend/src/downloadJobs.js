@@ -27,6 +27,9 @@ const spotify = require('./spotify');
 
 const STATUSES = ['queued', 'assigned', 'done', 'failed', 'cancelled'];
 const ACTIVE = ['queued', 'assigned'];
+/** The activity log keeps this many of the newest jobs (and up to ACTIVITY_ACTIVE_MAX older active ones). */
+const ACTIVITY_LIMIT = 60;
+const ACTIVITY_ACTIVE_MAX = 200;
 /** A job that lost its worker this many times fails (WORKER_LOST). */
 const MAX_ATTEMPTS = 5;
 
@@ -128,6 +131,76 @@ function toPublic(row) {
     created_at: row.created_at,
     started_at: row.started_at || null,
     finished_at: row.finished_at || null,
+  };
+}
+
+// --- The activity log's row -------------------------------------------------------
+// Everyone approved sees it, so nothing a worker wrote as free text is in it: an
+// error or a progress line can hold paths of the worker's machine ("Using local
+// copy /home/…", yt-dlp's stderr), and no pattern finds every path. The row says
+// why with the error CODE (the web has a sentence per code), where with the
+// stage and the upload percent, and passes on only notes this server wrote.
+
+/** Progress notes this server sets itself (requeue, settle, cancel): safe for everyone. */
+const SERVER_NOTES = new Set([
+  'Server restarted',
+  'Downloader went away',
+  'Downloader reconnected without it',
+  'Downloader shut down',
+  'Downloader not connected',
+  'Uploaded by someone else',
+  'Request dismissed',
+  'Replaced by an uploaded file',
+]);
+const STAGES = new Set(['assigned', 'resolving', 'downloading', 'uploading', 'working']);
+
+/** A code is a short identifier, whoever sent it; anything else is dropped. */
+function publicErrorCode(code) {
+  return typeof code === 'string' && /^[A-Za-z0-9_]{1,64}$/.test(code) ? code : null;
+}
+
+/** What everyone may know of a running job's progress: a known stage and the upload percent. */
+function publicProgress(row) {
+  const running = row.status === 'assigned';
+  const stage = running && STAGES.has(row.stage) ? row.stage : null;
+  const m = running && stage === 'uploading' ? /(\d{1,3})%\s*$/.exec(row.progress || '') : null;
+  const percent = m && Number(m[1]) <= 100 ? Number(m[1]) : null;
+  return { stage, percent, progress: !running && SERVER_NOTES.has(row.progress) ? row.progress : null };
+}
+
+/**
+ * The activity log's row: what every approved account may see of a job (the
+ * field names of toPublic where they mean the same, so the web words it the
+ * same way). Less than the requester gets: no ids of people, workers or
+ * requests, no raw input unless it is the video's link, no worker text (see
+ * above), and a playlist only when the caller passes one this viewer can see
+ * right now (never row.playlist_name: that join knows nothing about who is
+ * looking).
+ * @param {object} row
+ * @param {{id, name}|null} [playlist] - the job's playlist, if the viewer may see it
+ */
+function toActivity(row, playlist = null) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    source: row.source,
+    kind: row.kind,
+    input: row.kind === 'video' ? row.input : null,
+    title: row.title || (row.kind === 'search' ? row.input : null),
+    playlist_id: playlist ? playlist.id : null,
+    playlist_name: playlist ? playlist.name || null : null,
+    requested_by: row.requested_by || null,
+    status: row.status,
+    ...publicProgress(row),
+    worker: row.worker_name ? { name: row.worker_name, owner: row.worker_owner || null } : null,
+    error_code: row.status === 'failed' ? publicErrorCode(row.error_code) : null,
+    summary: summaryOf(row.result),
+    song: row.song_id ? { id: row.song_id, title: row.song_title || null, artist: row.song_artist || null } : null,
+    replace: row.replace_song_id ? { song_id: row.replace_song_id, title: row.replace_title || null, artist: row.replace_artist || null } : null,
+    created_at: row.created_at,
+    started_at: row.started_at || null,
+    finished_at: row.finished_at || null,
+    updated_at: row.updated_at || null,
   };
 }
 
@@ -330,6 +403,19 @@ async function listForUser(userId, { limit = 50, sources = null } = {}) {
   const r = await db.query(
     `${JOB_SELECT} WHERE j.requested_by_user_id = $1 AND ($3::text[] IS NULL OR j.source = ANY($3::text[])) ORDER BY j.created_at DESC LIMIT $2`,
     [userId, limit, sources]);
+  return r.rows;
+}
+
+/**
+ * The activity log: the newest `limit` jobs of everyone plus every job still
+ * waiting or running (however old), newest first.
+ */
+async function listActivity({ limit = ACTIVITY_LIMIT } = {}) {
+  const r = await db.query(
+    `${JOB_SELECT} WHERE j.status = ANY($2::text[])
+       OR j.id IN (SELECT id FROM download_jobs ORDER BY created_at DESC, id LIMIT $1)
+     ORDER BY j.created_at DESC, j.id LIMIT $3`,
+    [limit, ACTIVE, limit + ACTIVITY_ACTIVE_MAX]);
   return r.rows;
 }
 
@@ -619,6 +705,8 @@ module.exports = {
   requestInput,
   classifyInput,
   toPublic,
+  toActivity,
+  publicProgress,
   toAdmin,
   toWorker,
   publicWorkerView,
@@ -637,6 +725,8 @@ module.exports = {
   listQueued,
   listForUser,
   listAll,
+  listActivity,
+  ACTIVITY_LIMIT,
   countByStatus,
   assign,
   reclaim,

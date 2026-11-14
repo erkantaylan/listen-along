@@ -158,7 +158,7 @@ describe('userAuth rules', () => {
       member: ['/api/profile', '/api/profile/providers/github'],
       approved: ['/api/playlists', '/api/lobbies/x', '/api/stream', '/api/covers/x', '/api/qr/x', '/api/anything-new',
         '/api/auth/something-new', '/api', '//api/playlists', '/API/playlists', '/Api/Stream',
-        '/api/jobs', '/api/jobs/picks'],
+        '/api/jobs', '/api/jobs/picks', '/api/activity/downloads', '/api/activity'],
       page: ['/', '/library', '/playlist/abc', '/profile', '/social', '/whatever', '/api-docs', '/healthz', '/login2'],
     };
     for (const [policy, paths] of Object.entries(expect)) {
@@ -190,6 +190,7 @@ describe('auth guard against a running server (no database)', { timeout: 60_000 
       ['GET', '/api/covers/abc'], ['GET', '/api/qr/abc'], ['GET', '/api/profile'], ['PUT', '/api/profile'],
       ['DELETE', '/api/profile/providers/github'], ['GET', '/api/library'], ['GET', '/api/library/abc'],
       ['GET', '/api/library/abc/file'], ['GET', '/api/requests'], ['GET', '/api/nonexistent'],
+      ['GET', '/api/activity/downloads'],
     ];
     routes.push(['GET', '/API/playlists'], ['GET', '/Api/Library']);
     for (const [method, url] of routes) {
@@ -201,6 +202,13 @@ describe('auth guard against a running server (no database)', { timeout: 60_000 
     for (const bad of [cookieFor(ALICE, Date.now() - 31 * 24 * 3600 * 1000), cookieFor(ALICE, Date.now(), 'nope'), 'listen_auth=x.y']) {
       assert.equal((await c.req('GET', '/api/playlists', { cookie: bad })).status, 401);
     }
+  });
+
+  it('the downloads activity log is empty without a database (there are no jobs)', async () => {
+    const r = await c.req('GET', '/api/activity/downloads', { cookie: alice });
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body.jobs, []);
+    assert.equal(r.body.workers.online, 0);
   });
 
   it('pages redirect to /login and remember where to come back to', async () => {

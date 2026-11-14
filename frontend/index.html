@@ -817,6 +817,11 @@
       <span class="social-rail-label" data-i18n="social.people">People</span>
       <span class="badge social-toggle-badge" data-online-count aria-hidden="true">0</span>
     </button>
+    <button class="btn-text theme-secondary social-rail-btn" type="button" data-social-open="activity" aria-controls="social-panel" title="Open the download activity" aria-label="Open the download activity" data-i18n-title="social.openActivity" data-i18n-aria-label="social.openActivity" hidden>
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+      <span class="social-rail-label" data-i18n="social.activity">Activity</span>
+      <span class="badge social-toggle-badge" data-activity-count hidden></span>
+    </button>
   </nav>
 
   <aside id="social-panel" class="social-panel" aria-label="Chat and people">
@@ -831,6 +836,10 @@
         </button>
         <button class="nav-link social-tab" type="button" role="tab" aria-selected="false" aria-controls="social-people" data-social-tab="people">
           <span data-i18n="social.people">People</span> <span class="badge badge-subtle theme-secondary" data-online-count title="Online">0</span>
+        </button>
+        <button class="nav-link social-tab" type="button" role="tab" aria-selected="false" aria-controls="social-activity" data-social-tab="activity" title="Download activity" aria-label="Download activity" hidden>
+          <svg class="social-tab-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+          <span class="social-tab-word" data-i18n="social.activity">Activity</span> <span class="activity-dot" data-activity-dot aria-hidden="true" hidden></span>
         </button>
       </nav>
       <button id="social-collapse" class="btn-text theme-secondary btn-icon social-collapse" type="button" aria-label="Hide chat and people" title="Hide chat and people" aria-controls="social-panel">
@@ -854,6 +863,10 @@
       <ul id="people-online" class="list-group list-group-flush people-list"></ul>
       <h2 class="fs-xs fw-semibold fg-3 text-uppercase people-heading">Offline — <span id="people-offline-count">0</span></h2>
       <ul id="people-offline" class="list-group list-group-flush people-list"></ul>
+    </section>
+    <section id="social-activity" class="social-activity" role="tabpanel" aria-label="Download activity" data-i18n-aria-label="social.activityLong" hidden>
+      <p id="activity-empty" class="app-empty fs-sm mb-0"></p>
+      <ul id="activity-list" class="list-group list-group-flush activity-list"></ul>
     </section>
   </aside>
 

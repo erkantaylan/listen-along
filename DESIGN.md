@@ -761,15 +761,21 @@ never by `[hidden]`: `has-social` (signed in, socket up), `social-collapsed`
   card, and on `/dashboard` when the browser is also signed in to the app (the admin login alone is
   not an account; a chat-only socket as for pending users, so Listen along says to open the app).
 - **Rail (`#social-rail`, >= 1010px)**: whenever the column is not on screen (collapsed), a fixed 3.5rem
-  column at the right edge, same surface and border as the column, mirroring the playlists sidebar. Two stacked
-  icon-and-word buttons, **Chat** (unread badge) and **People** (neutral online count), each opens the panel on that
+  column at the right edge, same surface and border as the column, mirroring the playlists sidebar. Stacked
+  icon-and-word buttons, **Chat** (unread badge), **People** (neutral online count) and, for approved accounts,
+  **Activity** (how many downloads are in progress), each opens the panel on that
   tab. It takes page width like the column does
   (`--app-social-inset`). Focus moves to the tab on open and back to the rail on collapse. Never hide
   the panel without leaving the rail: one small icon in the player bar is not enough of a way back.
 - **Below 1010px** (tablets and small windows too): hidden except on `/social`, where it covers the page and the
   playlists sidebar above the player bar with a back arrow in its header (the collapse chevron is hidden).
-- Header: back (phones) | underline tabs **Chat** (unread badge) and **People** (online
-  count) | collapse (desktop).
+- Header: back (phones) | underline tabs **Chat** (unread badge), **People** (online
+  count) and **Activity** (approved accounts only; a pending account has two tabs) | collapse (desktop).
+  The tabs stay on one line: three words and two badges do not fit the 280px column, so the Activity
+  tab is its download icon (with `title` / `aria-label`) until the header's content is 18.5rem wide
+  (`@container social-header`), which the default 320px column is; if it is still tight (long words, big
+  counts) its word is cut with an ellipsis. A small accent dot on it means a download is in progress;
+  the number is in its label.
 - **Chat**: a scrolling list (`.chat-scroll`) of messages — avatar, bold name, faint time,
   then the text in `fg-2`, `white-space: pre-wrap`; consecutive messages from one author
   within 5 minutes drop the avatar/name. Newest 50 first; scrolling to the top loads the
@@ -797,6 +803,19 @@ never by `[hidden]`: `has-social` (signed in, socket up), `social-collapsed`
   yourself, offline / idle people and unapproved accounts. Escape closes and focus returns
   to the row; Tab stays inside; it re-renders live while open. A private playlist's name
   or id is never sent to anyone but its owner, so the card shows only the song.
+- **Activity** (`activity.js`, rules in `activity-rules.js`): a flush list group, one row per download job of
+  anyone, newest first by when it was asked for, so a row never moves while its state changes. Row: a 2.25rem
+  thumbnail (the video's, else the music placeholder); the title on one line with an ellipsis and the status
+  badge at its right (the Download tab's badges: waiting, downloading, done, failed, cancelled); the status
+  sentence in `fg-2`, built like "Your downloads" (`jobStatusText`), up to three lines, except that a failure's reason
+  is a fixed sentence for its error code (`activity.fail.*`, "Download failed" for an unknown code) and progress is
+  "Searching" / "Uploading 42%": the downloader's own text is never shown here; then a faint
+  line "Asked by Ada · for <playlist> · 5m ago". The playlist is a link and is there only when the server
+  sent it, which it does only to someone who can open that playlist. A waiting or running row has the accent
+  tint (`--app-accent-subtle`) over its whole width, never an edge; finished rows have a quieter title.
+  No buttons: it is for watching, and cancel / retry stay in Library → Download. A progress tick rewrites one
+  text node; rows keep their elements, so thumbnails do not reload and nothing flickers. The newest 60 jobs
+  plus everything still active; empty state "No downloads yet. …".
 - **Unread**: messages from others that arrive while the chat is not on screen (panel
   collapsed or hidden, People tab, or the browser tab in the background) count up on
   every `[data-social-unread]` badge (player-bar chat button, Chat tab, pending card) and

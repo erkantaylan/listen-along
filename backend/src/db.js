@@ -366,6 +366,8 @@ async function createTables() {
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_download_jobs_replace_active ON download_jobs(replace_song_id) WHERE replace_song_id IS NOT NULL AND status IN ('queued', 'assigned')`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_download_jobs_requester ON download_jobs(requested_by_user_id, created_at DESC)`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_download_jobs_request ON download_jobs(request_id)`).catch(() => {});
+  // The activity log reads the newest jobs of everyone.
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_download_jobs_created ON download_jobs(created_at DESC, id)`).catch(() => {});
 
   // Migration: upload records. Which worker uploaded a song (and its name
   // as a snapshot, shown as "uploaded by <worker> (<owner>)"), the job it

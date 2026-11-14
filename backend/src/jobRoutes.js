@@ -13,6 +13,7 @@
  *   POST /api/jobs/:id/cancel          a queued job of the caller
  *   POST /api/jobs/:id/retry           a failed / cancelled job of the caller
  *   GET  /api/profile/activity         the caller's own uploads / asks / fulfilments
+ *   GET  /api/activity/downloads       everyone's download jobs, reduced (the activity log; approved users)
  *   GET  /api/admin/workers            every worker with IP, OS, versions, cli_outdated (admin)
  *   GET  /api/admin/jobs               job queue overview (admin)
  *   POST /api/admin/jobs/:id/cancel|retry
@@ -52,6 +53,7 @@ function durationDiffers(current, next) {
  * @param {(playlistId, userId) => Promise<object|null>} hooks.editablePlaylist
  * @param {(url) => Promise<{title, artist}>} hooks.spotifyTrack
  * @param {(playlistId, song, addedBy) => Promise<boolean>} hooks.addSongToPlaylist - true if added now
+ * @param {(playlistId, userId) => Promise<object|null>} hooks.visiblePlaylist - the playlist if this user can see it
  * @param {(job) => void} [hooks.onJobUpdated]
  * @param {(videoId) => Promise<{title, channel, duration_sec}|null>} [hooks.previewVideo]
  * @param {object} hooks.picker - picker.js (lookup, search, titles)
@@ -61,7 +63,7 @@ function createJobRouter(hooks) {
   const cliLatest = hooks.cliLatest || (() => null);
   const onJobUpdated = hooks.onJobUpdated || (() => {});
   const router = express.Router();
-  router.use(['/api/workers', '/api/jobs', '/api/profile/activity', '/api/admin/workers', '/api/admin/jobs'], apiLimiter);
+  router.use(['/api/workers', '/api/jobs', '/api/profile/activity', '/api/activity', '/api/admin/workers', '/api/admin/jobs'], apiLimiter);
 
   const requireDb = (req, res, next) => {
     if (!db.isAvailable()) return res.status(503).json({ error: 'Downloads need the database' });
@@ -367,6 +369,20 @@ function createJobRouter(hooks) {
         return { ...v, jobs_done: w.jobs_done || 0, jobs_failed: w.jobs_failed || 0, last_connected_at: w.last_connected_at || null };
       }),
     });
+  }));
+
+  // --- The activity log: every download job, for every approved account ------
+  // Reduced rows (jobs.toActivity). A job's playlist is looked up now, for this
+  // viewer: one they cannot see (private, not theirs) is simply not on the row.
+  // Without a database there are no jobs: an empty log.
+  router.get('/api/activity/downloads', requireUser, route('load the activity', async (req, res) => {
+    if (!db.isAvailable()) return res.json({ jobs: [], workers: workerCounts() });
+    const rows = await jobs.listActivity();
+    const seen = new Map();
+    for (const id of new Set(rows.map((r) => r.playlist_id).filter(Boolean))) {
+      seen.set(id, await hooks.visiblePlaylist(id, req.account.id));
+    }
+    res.json({ jobs: rows.map((r) => jobs.toActivity(r, seen.get(r.playlist_id) || null)), workers: workerCounts() });
   }));
 
   // --- Admin --------------------------------------------------------------

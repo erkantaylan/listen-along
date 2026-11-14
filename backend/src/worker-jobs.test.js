@@ -9,6 +9,8 @@
 //     a web job's songs land in the chosen playlist
 //   - failures carry the CLI error code; cancel / retry; permissions
 //   - worker IP / OS / hostname only for admins; profile activity owner-only
+//   - the activity log (GET /api/activity/downloads, activity:job / activity:progress):
+//     approved accounts only, reduced rows, a playlist only for who can see it
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { execSync, execFileSync } = require('node:child_process');
@@ -122,6 +124,7 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
       // These stand-in workers say la 0.1.0 without 'update': no close 4010
       // here (cli-release.test.js covers it).
       WORKER_OUTDATED_NUDGE_MS: '0',
+      ACTIVITY_PROGRESS_MS: '400',
     });
     req = requester(srv.base);
   }
@@ -589,6 +592,238 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
     // Refused before the body is read: a bad token.
     const bad = new ApiClient({ server: srv.base, token: 'la_nope' });
     await assert.rejects(bad.upload(file, { title: 'X', artist: 'Y' }), (e) => e.exitCode === 4);
+  });
+
+  // --- The downloads activity log (everyone's jobs, reduced) ---------------
+  const activity = async (who) => (await req('GET', '/api/activity/downloads', { cookie: cookies[who] })).body.jobs;
+  /** The worker's job `id`; anything else it is handed first (left waiting by an earlier test) is failed. */
+  async function takeJob(w, id) {
+    for (let n = 1; ; n++) {
+      const j = await w.nextJob(n);
+      if (j.id === id) return j;
+      done(w, j.id);
+    }
+  }
+
+  it('activity log: approved accounts only; reduced rows, newest first, with the requester and the worker by name', async () => {
+    const dave = (await pg.query(
+      `INSERT INTO users (provider, provider_id, name, display_name, status, created_at) VALUES ('github', 'dave', 'dave', 'Dave', 'pending', 1) RETURNING id`)).rows[0].id;
+    ids.dave = dave;
+    cookies.dave = cookieFor(dave);
+    assert.equal((await req('GET', '/api/activity/downloads')).status, 401);
+    const refused = await req('GET', '/api/activity/downloads', { cookie: cookies.dave });
+    assert.equal(refused.status, 403);
+    assert.equal(refused.body.code, 'ACCOUNT_PENDING');
+    assert.equal(refused.body.jobs, undefined);
+    // A CLI token is not a web account here.
+    assert.equal((await req('GET', '/api/activity/downloads', { headers: { Authorization: `Bearer ${tok.alice}` } })).status, 401);
+
+    const r = await req('GET', '/api/activity/downloads', { cookie: cookies.alice });
+    assert.equal(r.status, 200);
+    assert.equal(typeof r.body.workers.online, 'number');
+    const list = r.body.jobs;
+    // Everyone's jobs, not only alice's; every source that goes through a download.
+    assert.ok(list.some((x) => x.requested_by === 'Carol') && list.some((x) => x.requested_by === 'Alice'));
+    assert.ok(list.some((x) => x.source === 'request') && list.some((x) => x.source === 'web'));
+    const times = list.map((x) => Date.parse(x.created_at));
+    assert.deepEqual(times, [...times].sort((a, b) => b - a), 'newest first');
+    assert.ok(list.length <= downloadJobs.ACTIVITY_LIMIT + 200);
+    const withWorker = list.find((x) => x.worker);
+    assert.deepEqual(Object.keys(withWorker.worker).sort(), ['name', 'owner']);
+    // Nothing of a worker's machine, no ids of users, workers or requests.
+    const text = JSON.stringify(list);
+    assert.doesNotMatch(text, /\.lan|Linux 6\.1|127\.0\.0\.1|::1|2026\.10\.26|hostname|last_ip/);
+    for (const id of [ids.alice, ids.bob, ids.carol]) assert.ok(!text.includes(id), 'no user id');
+    for (const x of list) {
+      assert.equal(x.requested_by_user_id, undefined);
+      assert.equal(x.worker_id, undefined);
+      assert.equal(x.request_id, undefined);
+    }
+  });
+
+  it('activity log: the bound keeps the newest jobs and every active one', async () => {
+    // Old finished history, and one old job that is still waiting.
+    await pg.query(
+      `INSERT INTO download_jobs (source, kind, input, title, requested_by, status, created_at, finished_at)
+       SELECT 'web', 'search', 'old ' || n, 'Old history ' || n, 'Carol', 'done', now() - interval '30 days' - n * interval '1 minute', now() - interval '30 days'
+       FROM generate_series(1, $1) AS n`, [downloadJobs.ACTIVITY_LIMIT + 5]);
+    const waiting = (await pg.query(
+      `INSERT INTO download_jobs (source, kind, input, title, requested_by, status, created_at)
+       VALUES ('web', 'search', 'ancient', 'Ancient but waiting', 'Carol', 'queued', now() - interval '90 days') RETURNING id`)).rows[0].id;
+    const list = await activity('bob');
+    const finished = list.filter((x) => x.status !== 'queued' && x.status !== 'assigned');
+    assert.ok(finished.length <= downloadJobs.ACTIVITY_LIMIT, `finished rows: ${finished.length}`);
+    assert.ok(list.filter((x) => /^Old history/.test(x.title)).length < downloadJobs.ACTIVITY_LIMIT + 5, 'older history is dropped');
+    assert.ok(!list.some((x) => x.title === `Old history ${downloadJobs.ACTIVITY_LIMIT + 5}`));
+    assert.equal(list[list.length - 1].id, waiting, 'an old job that still waits is kept, last');
+    await pg.query(`DELETE FROM download_jobs WHERE id = $1 OR title LIKE 'Old history %'`, [waiting]);
+  });
+
+  it('activity log, live: every approved socket follows a job; a pending one gets nothing; progress is a small event, held back', async () => {
+    const [alice, bob, dave] = await Promise.all([socketFor('alice'), socketFor('bob'), socketFor('dave')]);
+    const seen = { alice: [], bob: [], dave: [] };
+    const progress = { alice: [], bob: [], dave: [] };
+    for (const [who, s] of [['alice', alice], ['bob', bob], ['dave', dave]]) {
+      s.on('activity:job', (p) => seen[who].push(p.job));
+      s.on('activity:progress', (p) => progress[who].push(p));
+      s.on('jobs:update', (p) => seen[who].push({ leaked: p }));
+    }
+    const r = await create('carol', { input: 'Feed Band - Feed Song' });
+    assert.equal(r.status, 201);
+    const id = r.body.job.id;
+    // Waiting: nobody's downloader is online.
+    const queued = await until(() => seen.bob.find((x) => x.id === id && x.status === 'queued'), 'queued row for bob');
+    assert.equal(queued.requested_by, 'Carol');
+    assert.equal(queued.title, 'Feed Band - Feed Song');
+    assert.equal(queued.worker, null);
+    await until(() => seen.alice.find((x) => x.id === id && x.status === 'queued'), 'queued row for alice');
+
+    const wb = connectWorker(tok.bob, 'bob-feed');
+    await wb.ready;
+    const j = await takeJob(wb, id);
+    const running = await until(() => seen.alice.find((x) => x.id === id && x.status === 'assigned'), 'running row');
+    assert.deepEqual(running.worker, { name: 'bob-feed', owner: 'Bob' });
+
+    // Progress: the first line at once, then at most one per ACTIVITY_PROGRESS_MS (the latest).
+    wb.send({ type: 'job:progress', job_id: j.id, stage: 'downloading', message: 'Downloading Feed Song' });
+    await until(() => progress.alice.length === 1, 'first progress');
+    assert.deepEqual(progress.alice[0], { id, stage: 'downloading', percent: null });
+    for (const pct of [10, 20, 30]) {
+      wb.send({ type: 'job:progress', job_id: j.id, stage: 'uploading', message: `Uploading /home/bob/dl/feed.opus… ${pct}%` });
+      await tick(60);
+    }
+    assert.equal(progress.alice.length, 1, 'held back');
+    await until(() => progress.alice.length === 2, 'the latest line after the wait');
+    // The stage and the percent, not the worker's line (it names a path).
+    assert.deepEqual(progress.alice[1], { id, stage: 'uploading', percent: 30 });
+    await tick(500);
+    assert.equal(progress.alice.length, 2);
+    assert.equal(progress.bob.length, 2);
+    // A progress tick is not a full row.
+    assert.equal(seen.alice.filter((x) => x.id === id && x.status === 'assigned').length, 1);
+
+    // Failed: the code, never the worker's reason (it names a path).
+    wb.send({ type: 'job:done', job_id: j.id, result: { summary: { total: 1, failed: 1 }, results: [{ status: 'failed', code: 'YTDLP_FAILED', error: 'No file at /home/John Smith/dl/feed.opus' }] } });
+    const failed = await until(() => seen.bob.find((x) => x.id === id && x.status === 'failed'), 'failed row');
+    assert.equal(failed.error_code, 'YTDLP_FAILED');
+    assert.equal(failed.error_message, undefined);
+    assert.equal(failed.progress, null);
+    assert.doesNotMatch(JSON.stringify([seen.alice, seen.bob, progress.alice, progress.bob]), /\/home|Smith|feed\.opus/);
+    assert.doesNotMatch(JSON.stringify(await activity('alice')), /\/home|Smith|feed\.opus/);
+    // The requester's own view still has the worker's words as they were.
+    assert.equal((await job('carol', id)).error_message, 'No file at /home/John Smith/dl/feed.opus');
+    // The fetch agrees with the events.
+    const row = (await activity('alice')).find((x) => x.id === id);
+    assert.deepEqual(row, failed);
+
+    // The pending account: connected (chat and people), but none of this.
+    assert.ok(dave.connected);
+    assert.deepEqual(seen.dave, []);
+    assert.deepEqual(progress.dave, []);
+    // jobs:update stays the requester's alone.
+    assert.ok(!seen.alice.some((x) => x.leaked) && !seen.bob.some((x) => x.leaked));
+    await closeAll();
+    for (const s of [alice, bob, dave]) s.disconnect();
+  });
+
+  it('activity log: a job\'s playlist is named only to someone who can see it now, in the list and live', async () => {
+    const mk = async (who, name, visibility) => (await req('POST', '/api/playlists', { cookie: cookies[who], body: { name, visibility } })).body.id;
+    const secret = await mk('carol', 'Carol hideout', 'private');
+    const open = await mk('carol', 'Carol open house', 'public');
+    const [carol, bob] = await Promise.all([socketFor('carol'), socketFor('bob')]);
+    const seen = { carol: [], bob: [] };
+    carol.on('activity:job', (p) => seen.carol.push(p.job));
+    bob.on('activity:job', (p) => seen.bob.push(p.job));
+
+    const a = (await create('carol', { input: 'Hideout Band - Hideout Song', playlist_id: secret })).body.job;
+    const b = (await create('carol', { input: 'Open Band - Open Song', playlist_id: open })).body.job;
+    // Live, private: the owner's row has the playlist, everyone else's does not.
+    const mine = await until(() => seen.carol.find((x) => x.id === a.id), 'owner row');
+    assert.equal(mine.playlist_id, secret);
+    assert.equal(mine.playlist_name, 'Carol hideout');
+    const theirs = await until(() => seen.bob.find((x) => x.id === a.id), 'other row');
+    assert.equal(theirs.playlist_id, null);
+    assert.equal(theirs.playlist_name, null);
+    assert.equal(theirs.title, 'Hideout Band - Hideout Song');
+    assert.equal(seen.carol.filter((x) => x.id === a.id).length, 1, 'the owner gets one event, not both');
+    // Live, public: everyone.
+    assert.equal((await until(() => seen.bob.find((x) => x.id === b.id), 'public row')).playlist_name, 'Carol open house');
+    // The list says the same.
+    const find = async (who, id) => (await activity(who)).find((x) => x.id === id);
+    assert.equal((await find('carol', a.id)).playlist_name, 'Carol hideout');
+    assert.equal((await find('bob', a.id)).playlist_id, null);
+    assert.equal((await find('bob', b.id)).playlist_id, open);
+    assert.doesNotMatch(JSON.stringify(await activity('bob')), /Carol hideout/);
+    assert.ok(!JSON.stringify(seen.bob).includes(secret) && !JSON.stringify(seen.bob).includes('Carol hideout'));
+
+    // The public one goes private: from now on it is not named, in the list or live.
+    const signal = new Promise((resolve) => bob.once('playlists:changed', resolve));
+    assert.equal((await req('PATCH', `/api/playlists/${open}`, { cookie: cookies.carol, body: { visibility: 'private' } })).status, 200);
+    await signal; // what makes the web ask for the list again
+    assert.equal((await find('bob', b.id)).playlist_id, null);
+    assert.equal((await find('bob', b.id)).playlist_name, null);
+    assert.equal((await find('carol', b.id)).playlist_name, 'Carol open house');
+    const before = seen.bob.length;
+    // Bob's own downloader runs it: the worker's owner is no exception.
+    const wb = connectWorker(tok.bob, 'bob-private');
+    await wb.ready;
+    await takeJob(wb, b.id);
+    const started = await until(() => seen.carol.find((x) => x.id === b.id && x.status === 'assigned'), 'the owner sees it start');
+    assert.equal(started.playlist_id, open);
+    assert.equal(started.playlist_name, 'Carol open house');
+    await until(() => seen.bob.slice(before).find((x) => x.id === b.id && x.status === 'assigned'), 'bob sees it start');
+    done(wb, b.id);
+    await until(() => seen.bob.find((x) => x.id === b.id && x.status === 'failed'), 'bob sees it end');
+    for (const x of seen.bob.slice(before)) {
+      assert.equal(x.playlist_id, null);
+      assert.equal(x.playlist_name, null);
+    }
+    assert.doesNotMatch(JSON.stringify(seen.bob.slice(before)), /Carol open house|Carol hideout/);
+    assert.equal(seen.carol.filter((x) => x.id === b.id && x.status === 'failed').length, 1);
+    // The playlist is deleted: its job stays in the log, without a playlist, for its owner too.
+    assert.equal((await find('carol', a.id)).playlist_id, secret);
+    assert.equal((await req('DELETE', `/api/playlists/${secret}`, { cookie: cookies.carol })).status, 200);
+    const orphan = await find('carol', a.id);
+    assert.equal(orphan.title, 'Hideout Band - Hideout Song');
+    assert.equal(orphan.playlist_id, null);
+    assert.equal(orphan.playlist_name, null);
+    await closeAll();
+    for (const s of [carol, bob]) s.disconnect();
+  });
+
+  it('activity log: editing the details of a song that is being replaced refreshes its row, while it waits and while it runs', async () => {
+    const up = await uploadAs(tok.alice, { title: 'Before Edit', artist: 'Edit Band' });
+    assert.equal(up.status, 201, JSON.stringify(up.body));
+    const songId = up.body.song.id;
+    const bob = await socketFor('bob');
+    const rows = [];
+    const ticks = [];
+    bob.on('activity:job', (p) => rows.push(p.job));
+    bob.on('activity:progress', (p) => ticks.push(p));
+    const r = await req('POST', '/api/jobs/replace', { cookie: cookies.carol, body: { song_id: songId, input: 'https://youtu.be/eeeeeeeeee1' } });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    const id = r.body.job.id;
+    assert.equal((await until(() => rows.find((x) => x.id === id), 'the replace job\'s row')).replace.title, 'Before Edit');
+    const edit = (title) => req('PATCH', `/api/library/${songId}`, { cookie: cookies.alice, body: { title } });
+    assert.equal((await edit('Edited While Waiting')).status, 200);
+    const waiting = await until(() => rows.find((x) => x.id === id && x.replace.title === 'Edited While Waiting'), 'the edit on the waiting row');
+    assert.equal(waiting.status, 'queued');
+
+    const wb = connectWorker(tok.bob, 'bob-replace', { capabilities: ['replace'] });
+    await wb.ready;
+    const j = await takeJob(wb, id);
+    await until(() => rows.find((x) => x.id === id && x.status === 'assigned'), 'running');
+    wb.send({ type: 'job:progress', job_id: j.id, stage: 'uploading', message: 'Uploading 40%' });
+    await until(() => ticks.find((x) => x.id === id && x.percent === 40), 'a progress tick');
+    assert.equal((await edit('Edited While Running')).status, 200);
+    const live = await until(() => rows.find((x) => x.id === id && x.replace.title === 'Edited While Running'), 'the edit on the running row');
+    assert.equal(live.status, 'assigned');
+    assert.equal(live.percent, 40);
+    assert.equal((await activity('bob')).find((x) => x.id === id).replace.title, 'Edited While Running');
+    done(wb, id);
+    await until(() => rows.find((x) => x.id === id && x.status === 'failed'), 'ended');
+    await closeAll();
+    bob.disconnect();
   });
 
   it('jobs persist across a restart; a running job is queued again', async () => {

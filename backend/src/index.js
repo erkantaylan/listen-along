@@ -37,6 +37,7 @@ const { createListenAlong, createSourceResolver } = require('./listenAlong');
 const downloadJobs = require('./downloadJobs');
 const { createWorkerHub } = require('./workerHub');
 const { createJobRouter } = require('./jobRoutes');
+const { createActivityFeed } = require('./activityFeed');
 const { createStationRouter } = require('./stations');
 const { createArtistRouter } = require('./artists');
 // The web's "pick the video" dialog (picker.js): lookups for it, and what they
@@ -344,7 +345,8 @@ app.get('/api/qr/:lobbyId', async (req, res) => {
 // Download workers (`la worker` on users' machines) and their jobs: see
 // workerHub.js (WebSocket, routing), downloadJobs.js (store), jobRoutes.js
 // (HTTP API). Live job status goes to the requester's sockets (jobs:update),
-// worker counts to every approved socket (workers:update).
+// worker counts to every approved socket (workers:update), and a reduced
+// view of every job to every approved socket (activityFeed.js).
 function upgradeIp(req) {
   try {
     // The upgrade request skips Express: apply the same trust-proxy rule.
@@ -353,7 +355,10 @@ function upgradeIp(req) {
   return clientIpOf(req);
 }
 function emitJob(row) {
-  if (!row || !row.requested_by_user_id) return;
+  if (!row) return;
+  // Everyone's activity log (activityFeed.js), then the requester's own, richer view.
+  activityFeed.jobChanged(row);
+  if (!row.requested_by_user_id) return;
   io.to(userRoom(row.requested_by_user_id)).emit('jobs:update', { job: downloadJobs.toPublic(row), workers: workerHub.stats() });
 }
 // A web download job targets a playlist: add what it got (as the requester,
@@ -470,6 +475,10 @@ app.use(createJobRouter({
     const queue = await getQueueAsync(playlistId);
     io.to(playlistId).emit('queue:update', { lobbyId: playlistId, songs: queue.getSongs() });
     return true;
+  },
+  visiblePlaylist: async (playlistId, userId) => {
+    const l = await lobby.getLobbyAsync(playlistId);
+    return access.canView(l, userId) ? l : null;
   },
   onJobUpdated: emitJob,
   picker,
@@ -1461,6 +1470,11 @@ async function handleLibrarySongDetailsChanged(librarySong, previous) {
     song: library.toPublic(librarySong),
     details: { id: librarySong.id, oldUrls, url: entry.url },
   });
+  // An active replace job keeps the song's details (library.updateDetails wrote
+  // them): whoever shows the job gets the new ones.
+  if (db.isAvailable()) {
+    downloadJobs.activeReplaceJob(librarySong.id).then((row) => { if (row) emitJob(row); }).catch(() => {});
+  }
 }
 
 // Every entry of every playlist holding the song gets its current url / title
@@ -2004,6 +2018,15 @@ app.get('/', (req, res) => {
 // denied account can be disconnected everywhere).
 const APP_ROOM = 'app';
 const userRoom = (id) => `user:${id}`;
+
+// The downloads activity log, live (activityFeed.js; fed by emitJob above).
+const activityFeed = createActivityFeed({
+  io,
+  room: APP_ROOM,
+  userRoom,
+  getPlaylist: (id) => lobby.getLobbyAsync(id),
+  progressMs: process.env.ACTIVITY_PROGRESS_MS ? Number(process.env.ACTIVITY_PROGRESS_MS) : undefined,
+});
 
 // A browser opening a WebSocket from another site sends its Origin. Refuse
 // origins that are not this server (Host / X-Forwarded-Host) or the

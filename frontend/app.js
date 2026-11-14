@@ -40,6 +40,7 @@ function setupSocket() {
     name: auth.user && auth.user.name,
     emoji: auth.user && auth.user.emoji,
     reportPlayback: true,
+    activity: true,
     listenAlong: listenAlongWith,
     isListeningWith,
     stopListening: stopListenAlong,
@@ -252,7 +253,7 @@ async function initDashboardSocial() {
   const authData = await checkAuth().catch(() => null);
   const status = authData && authData.authenticated && authData.user && authData.user.status;
   if (status !== 'approved' && status !== 'pending') return;
-  initSocialOnly({ noListenHint: t('social.cardListenInApp', 'Open the app to listen along.') });
+  initSocialOnly({ noListenHint: t('social.cardListenInApp', 'Open the app to listen along.'), activity: status === 'approved' });
 }
 
 function initAuthenticatedApp() {

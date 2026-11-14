@@ -43,13 +43,13 @@ function youtubeIdOf(text) {
   return m ? m[1] : null;
 }
 
-function thumbHtml(job) {
+export function thumbHtml(job, cls = 'libpage-thumb') {
   const yt = job.kind === 'video' ? youtubeIdOf(job.input) : null;
-  if (yt) return `<img class="app-thumb libpage-thumb" src="https://i.ytimg.com/vi/${encodeURIComponent(yt)}/default.jpg" alt="" loading="lazy">`;
+  if (yt) return `<img class="app-thumb ${cls}" src="https://i.ytimg.com/vi/${encodeURIComponent(yt)}/default.jpg" alt="" loading="lazy">`;
   const icon = job.kind === 'playlist'
     ? '<path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/>'
     : '<path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>';
-  return `<div class="app-thumb libpage-thumb"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${icon}</svg></div>`;
+  return `<div class="app-thumb ${cls}"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${icon}</svg></div>`;
 }
 
 function workerLabel(w) {
@@ -86,7 +86,7 @@ export function jobStatusText(job, workers = dl.workers) {
   }
 }
 
-const BADGES = {
+export const BADGES = {
   queued: ['theme-warning', 'waiting'],
   assigned: ['theme-primary', 'downloading'],
   done: ['theme-success', 'done'],

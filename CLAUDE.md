@@ -118,6 +118,31 @@ where lobby persistence broke entirely on deployed instances.
   socket `jobs:update` to the requester's `userRoom`, `workers:update` to
   `APP_ROOM`. Upload percent is plain text in `job:progress.message`, throttled
   by the worker to about 1/s (each one is a DB write + `jobs:update`).
+- **Activity log** (the panel's third tab: every download job, for every approved
+  account; watching only). Row = `downloadJobs.toActivity(row, playlist)`: toPublic's
+  field names where they mean the same, but no ids, `input` only for a video link,
+  and NOTHING a worker wrote as free text (errors and progress lines hold paths of
+  its machine; no pattern catches them all): a failure is its `error_code` (the web
+  has a sentence per code, `failureKey` in `activity-rules.js` + `activity.fail.*`
+  in both locales; unknown = "Download failed"), a running job is `stage` +
+  upload `percent`, and `progress` is passed on only when it is one of the server's
+  own notes (`SERVER_NOTES`: add a new server-written note there). A playlist ONLY
+  when the caller passes one the viewer can see now; never `row.playlist_name`
+  (that join ignores the viewer). List: `GET /api/activity/downloads` (jobRoutes.js;
+  guard default: approved, no tokens; `listActivity`: newest `ACTIVITY_LIMIT` = 60
+  plus every active job; empty without a database). Live: `activityFeed.js`, fed by
+  `emitJob` in index.js, so every job change reaches it (a details edit of a song
+  with an active replace job emits it too): `activity:job { job }` to `APP_ROOM`,
+  where a private playlist's owner gets the row with the playlist and everyone else
+  the same row without (looked up at every emit, as `emitNowPlaying` does), and
+  `activity:progress { id, stage, percent }` when nothing else on the row changed,
+  at most one per job per 1.5s (`ACTIVITY_PROGRESS_MS`), the latest when the wait
+  ends. No DB writes, no new table. `jobs:update` keeps its shape and stays the
+  requester's. Frontend: `activity.js` (rows keep their element, a tick writes one
+  text node; refetches on reconnect and on `playlists:changed`, only the latest
+  load applies, and a row older by `updated_at` never replaces a newer one), pure
+  rules in `activity-rules.js` (tested), tab switching in `social.js`
+  (`opts.activity`: approved only).
 - **Pick the video** (web only, before a job or request exists): `frontend/pick-dialog.js`
   (rules in `pick-rules.js`, tested; DESIGN.md "Pick the video") asks
   `POST /api/jobs/picks` (jobRoutes.js -> `picker.js`; approved accounts, no tokens,
