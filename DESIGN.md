@@ -1163,10 +1163,39 @@ Before finishing: check 320px and desktop, keyboard focus, and the console.
 
 ## Android
 
-The Android app (`android/`, Jetpack Compose) follows this guide too: same dark-only palette,
-no light theme, one accent. Tokens live in `android/app/src/main/java/com/erkantaylan/listenalong/ui/theme/Theme.kt`
-(`Palette`), mapped onto a Material 3 `darkColorScheme` so stock M3 components come out right.
-Use `Palette.*`, never literal colours.
+The Android app (`android/`, Jetpack Compose) is the same product as the web's **phone layout**
+(the 360px views): same dark-only palette, no light theme, one accent, the same shell of rounded
+panels, the same segmented tabs, the same playlist covers. The design system is
+`android/app/src/main/java/com/erkantaylan/listenalong/core/designsystem/`: `Theme.kt` (`Palette`,
+`Dimens`, `TextSizes`, mapped onto a Material 3 `darkColorScheme` so stock M3 components come out
+right), `Components.kt`, `Controls.kt`, `Icons.kt`, `PlaylistCover.kt`. Use the tokens, never literal
+colours or sizes.
+
+### Android shell and layout
+
+- **The shell** (`app/AppShell.kt`) is the web's phone shell: the page colour behind everything,
+  and on it, `Dimens.gap` (6dp, `--app-gap` on phones) apart and from the edges, rounded panels
+  with `Dimens.panelRadius` (12dp) corners and no outline: the **page panel** (surface) holding the
+  screen, the **player bar** (raised) when something is loaded, and the **tabs** (surface). A
+  dismissible notice (a newer app version, info tint with its border) sits in its own panel above.
+  Edge-to-edge: the activity draws behind the system bars and pads the safe area once; the status
+  and navigation bar areas are the page colour with light icons.
+- **Tabs** stay at the bottom (a phone's thumb zone; the web's row of places is at the top): Library,
+  Playlists, On device, Settings, icon over label, 56dp tall. The current tab is a full accent tint
+  with strong accent text, never an underline or a pill outline; a count badge (the download queue)
+  sits on the icon. Each tab keeps its own back stack (Navigation Compose); Back returns to Library.
+- **The page head** (`AppTopBar`) is the panel's head as on the web: same surface, no rule under it,
+  the title a size up (18sp semibold, a TalkBack heading), a muted line, actions on the right. A
+  playlist's head also shows its cover of initials (40dp) and the web's muted facts line ("Private",
+  owner, songs, total length).
+- **Content** inside the page panel follows the web's rules: list groups with a `border` outline
+  and row dividers for songs (Library, a playlist, On device); separate rounded rows without
+  dividers for playlists (the sidebar's rows); cards with a raised header in Settings.
+- **The player bar** (`MiniPlayer`) is the web's slim player bar: a raised panel with 12dp corners,
+  cover, title and "artist · context", previous / the accent Play pill / next, and a thin seek line
+  under the row. The **full player** is a page panel over the shell: cover, title, the "On device" /
+  "Streaming" badge, the web's thin range (4dp track, round 18dp accent thumb), shuffle / previous /
+  Play pill / next / repeat (toggled = accent tint + accent border).
 
 ### Android mapping
 
@@ -1202,6 +1231,18 @@ Hex is `0xFFRRGGBB` in Compose.
 | `--app-success` / `-solid` / `-subtle` / `-border` | `#6cc893` / `#2b7f50` / `#24402f` / `#4f9a6f` | `success` / `successSolid` / `successSubtle` / `successBorder` | — |
 | `--app-warning` / `-solid` / `-subtle` / `-border` | `#f0c060` / `#e5b23c` / `#47391c` / `#a8873a` | `warning` / `warningSolid` / `warningSubtle` / `warningBorder` | dark text (`#0e1b2c`) on `warningSolid` |
 | `--app-info` / `-solid` / `-subtle` / `-border` | `#6ec6dc` / `#2b7f93` / `#1f3d45` / `#4b98ab` | `info` / `infoSolid` / `infoSubtle` / `infoBorder` | — |
+| `--app-cover-1` … `-6` | `#49699a` `#795b9a` `#34716e` `#895e41` `#8a4d6b` `#4e713f` | `cover1` … `cover6`, `coverFor(id)` | playlist covers |
+| `--app-gap` (phones) / `--app-panel-radius` / `--bs-radius-5` | 0.375rem / 0.75rem / 0.5rem | `Dimens.gap` 6dp / `panelRadius` 12dp / `controlRadius` 8dp | shell, panels, controls, covers |
+| `fs-xs` / `fs-sm` / `fs-md` / `fs-lg` / `fs-xl` | .75 / .875 / 1 / 1.125 / 1.5rem | `TextSizes.xs` 12sp / `sm` 14 / `md` 16 / `lg` 18 / `xl` 24 | type scale |
+
+**Playlist covers** are the web's: a rounded square of the playlist's initials (`PlaylistCover.initials`,
+the first whole character of the first two words, Turkish capitals) on the colour
+`PlaylistCover.index(id)` picks — a port of `playlistCoverIndex` (31-hash of the id's code points,
+kept to 32 unsigned bits), tested with the web's fixtures and the values the web computes, so a
+playlist has the same colour on both. `CoverTile` draws it (48dp in rows, 40dp in a playlist's head).
+**Song covers** are pictures as on the web: the public YouTube thumbnail (`SongArt`, Coil, decoded at
+the drawn size) over the grey `.app-thumb` placeholder, which stays while loading, on failure and for
+songs with no video; a downloaded song's saved cover works offline.
 
 Buttons on Android follow the same hierarchy: `PrimaryButton` = filled `accent` with `onAccent`
 text, semibold; `SecondaryButton` = `tonal` fill + 1dp `borderStrong` outline (or an
@@ -1210,12 +1251,26 @@ no container, `fg2` content, `pressed` fill on press; `DangerButton` = `danger` 
 `dangerBorder` outline (icon-only: `danger` tint). Disabled: `hover` fill, `fg4` content, 70%
 alpha. Cards and list groups get a 1dp `border` outline; text fields a 1dp `borderStrong`
 outline on `field`, `accent` 2dp when focused. Menus, sheets and dialogs use `overlay` with a
-1dp `borderStrong` edge. Playing row = `accentSubtle` tint + `accentFgStrong` title, never an edge
-bar (no one-sided accent edges anywhere; selection is a background tint); hover/pressed rows use `hover` / `pressed`.
+1dp `borderStrong` edge. Playing row = `accentSubtle` tint + the equaliser + a semibold `accentFgStrong` title, never an edge bar
+(no one-sided accent edges anywhere; selection is a background tint); hover/pressed rows use `hover` /
+`pressed`. **No accent edges on Android either**: no Material component with a one-sided indicator is
+used (no `TabRow` / `PrimaryTabRow` and its underline, no `NavigationRail` indicator, no `NavigationBar`
+— the tabs are drawn as full tints); `ListGroupItem` has no left stripe; dividers are plain full-width
+rules between rows.
 
-Components (`ui/Components.kt`) stand in for the Bootstrap ones: `AppTopBar` (navbar: back, small
-title, muted subtitle, icon actions), `ListGroupItem` (list group row; each row draws its slice of
-the group's 1dp `border` outline; pressed = `pressed` fill, `current` = `.is-playing` accent tint, `lifted` = the row being dragged), `PrimaryButton` / `SecondaryButton` (`outlined`
+Components (`core/designsystem/`) stand in for the Bootstrap ones: `Panel` (a shell panel),
+`AppTopBar` (the page head: back, optional cover, title, muted line, icon actions), `ListGroupItem`
+(list group row; each row draws its slice of the group's 1dp `border` outline; pressed = `pressed`
+fill, `current` = `.is-playing` accent tint only, `lifted` = the row being dragged),
+`SegmentedControl` (`.app-seg`: views that exclude each other — Library's All songs / Broken, the
+Playlists filter All / Mine / Public / Private (`fill`) — one `borderStrong` outline, cells touching
+with 1dp dividers, the current one the accent tint with semibold `accentFgStrong` text, 48dp tall,
+role Tab), `FilterChip` (a real filter that combines with others — Playlists' **Downloaded** — a pill
+with a strong outline; on = accent tint, accent outline and a check), `CoverTile`, `EqualizerIcon`
+(three accent bars, moving while playing), `DownloadMarkIcon` (Spotify's downloaded mark: a filled
+circle with an arrow in `success`; a progress ring in the accent while downloading; a faint outline
+while waiting), `AppSwitch` / `SwitchRow` (accent track with a dark thumb when on, the field well with
+a strong edge when off; the whole row toggles), `PrimaryButton` / `SecondaryButton` (`outlined`
 variant) / `DangerButton` (`solid` only as a destructive dialog's confirm) / `QuietButton`, all with
 `compact` for top bars and dialogs, `IconAction` (`.btn-text.btn-icon`, `active` = accent tint +
 accent border), `SubtleBadge` (`tone`: NEUTRAL "Private" / counts, ACCENT, WARNING "Broken" count,
@@ -1225,11 +1280,23 @@ SUCCESS "On device", DANGER), `TextInput` (`.form-control`), `Alert` (tinted fil
 Dialog actions are real buttons (Cancel secondary + one primary), not M3's text buttons.
 There is no hover on touch: pressed uses `accentPressed` (primary, play pill), `tonalHover` +
 `borderHover` (secondary), `dangerSubtle` (danger), `pressed` (icon buttons, rows); the focus ring is left to the platform (Compose draws no ring by default).
-Type: the system font at 16sp body, 14sp/12sp secondary text in `fg3`, small semibold titles.
-Radii 8dp (buttons, inputs) and 12dp (cards, list groups). Icons are Material paths (`ui/Icons.kt`),
-tinted `fg3` by default. The player is one persistent mini bar above the tabs (cover, title,
-"artist · context", previous / solid accent play pill / next, thin progress line) plus a
-full-screen player; never add a second one.
+Type: the system font at the web's sizes (`TextSizes`): 16sp body, 15sp row titles, 14sp/13sp/12sp
+secondary text in `fg3`, 18sp semibold page titles; no display sizes. It scales with the system font
+size (checked at 1.3×: rows grow, nothing clips; long meta lines ellipsize). Radii 8dp (buttons,
+inputs, segmented control, covers), 12dp (cards, list groups, shell panels), 6dp (badges, song
+thumbs). Icons are Material paths (`core/designsystem/Icons.kt`), tinted `fg3` by default. Touch
+targets are at least 48dp (icon buttons, segments, chips, switch rows, tabs, the player's controls).
+The player is one persistent bar above the tabs plus a full-screen player; never add a second one.
+
+**Downloaded playlists, Spotify-style.** A playlist's page has a **Download** row under Play /
+Shuffle: the download icon (outlined when off, the filled `success` circle when on), "Download" over
+its status line (`PlaylistDownloadLine`: the mark + *Downloaded · n songs · size* / *Downloading n of
+m* / *Waiting for Wi-Fi* / *Paused while offline* / *Download stopped: …* in `danger` with a **Retry**
+/ *No longer available*), and an `AppSwitch`; ⋮ has *Download* / *Stop downloading*. Turning it off
+asks with a dialog (Cancel, secondary *Keep songs*, solid danger *Remove*). Playlist rows and song
+rows carry the mark before their muted line. On device lists the downloaded playlists first (cover,
+name, status line), then the songs downloaded on their own. Offline, songs that are not on the phone
+are dimmed (cover at 45%, muted title, "not on this device").
 
 Song menus: ⋮ on a row opens a `DropdownMenu`; a long-press on the row (or on the full player's
 cover/title) opens the same items in a `ModalBottomSheet` (`SongActionsSheet`), headed by the song's

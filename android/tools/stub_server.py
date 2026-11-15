@@ -257,6 +257,7 @@ class Handler(BaseHTTPRequestHandler):
     redirects = [REDIRECT_URI]  # the allowlist (main() adds the https-style callback)
     custom_scheme = True        # False: --no-custom-scheme
     app_version = "0.9.0"       # what /api/app/latest offers (--app-version; "" = no release)
+    session_mode = "dev"        # --central-sessions: "central", which release builds accept too
 
     def chosen_redirect(self, raw):
         """As mobileAuth.js chosenRedirect: the allowlist, the scheme when missing, else None."""
@@ -338,7 +339,7 @@ class Handler(BaseHTTPRequestHandler):
         Handler.used_codes.add(code)
         token = "lam_" + secrets.token_urlsafe(32)
         Handler.sessions.add(token)
-        return self.send_json(200, {"token": token, "token_type": "Bearer", "mode": "dev",
+        return self.send_json(200, {"token": token, "token_type": "Bearer", "mode": self.session_mode,
                                     "expires_at": int((time.time() + 30 * 86400) * 1000),
                                     "user": {"id": "u-me", "name": ME, "status": "approved"}})
 
@@ -703,6 +704,8 @@ def main():
     parser.add_argument("--throttle", type=int, default=0, metavar="KBPS",
                         help="slow file transfers down, to watch progress and test cancelling")
     parser.add_argument("--samples", action="store_true", help="create sample songs in --music first")
+    parser.add_argument("--central-sessions", action="store_true",
+                        help="sign-ins say mode central (not dev), so a minified release build can sign in to the stub")
     parser.add_argument("--app-version", default="0.9.0",
                         help="the Android release /api/app/latest offers (empty: none), for the update notice")
     parser.add_argument("--no-custom-scheme", action="store_true",
@@ -723,6 +726,7 @@ def main():
     Handler.redirects = [f"http://localhost:{args.port}/auth/mobile/callback", REDIRECT_URI]
     Handler.custom_scheme = not args.no_custom_scheme
     Handler.app_version = args.app_version
+    Handler.session_mode = "central" if args.central_sessions else "dev"
     print(f"stub: {len(Handler.songs)} songs from {music} on http://{args.bind}:{args.port}", flush=True)
     ThreadingHTTPServer((args.bind, args.port), Handler).serve_forever()
 

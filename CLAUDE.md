@@ -396,6 +396,17 @@ of a fresh database and of a migrated old one.
   builds, installs and launches; `tools/stub_server.py` stands in for the
   server (its sign-in included), so API or rule changes the app relies on
   belong there too. Tests: `./gradlew :app:testDebugUnitTest`.
+  Layout (README "Architecture"): `feature/*` (Compose screen + one ViewModel each) → `core/*`
+  (`network/ListenAlongApi` is every wire path and field: renames happen there and in `core/model`;
+  repositories in `core/data`; pure shared rules in `core/domain`; `designsystem` mirrors the web's
+  tokens, `PlaylistCover` = the web's `playlistCoverIndex`, keep them in step); `app/` wires them
+  (manual `AppContainer`, type-safe Navigation routes). Downloaded playlists (a playlist's Download
+  switch) are synced at start / refresh / reconnect / every 6 h (`core/data/PlaylistDownloads` over the
+  pure `core/domain/PlaylistSyncPlanner`): the index's `manual` flag (absent = manual, so pre-sync
+  downloads are never removed) decides what sync may delete; it relies on the playlist songs endpoint's
+  404 (gone: kept as unavailable) vs 5xx (offline) and on the file route's 404 (skipped for a day).
+  Covers: the public `i.ytimg.com` thumbnail through Coil's own HTTP client (never the session), saved
+  per downloaded song in app-private storage. Update notice: `GET /api/app/latest` (never forced).
   What the app relies on from the server: 404 (skip the song) vs 5xx
   (offline), 401 `SESSION_ENDED` = sign in again and nothing else is, `GET
   /api/me` for its session, the `/auth/mobile/*` contract, and the redirects

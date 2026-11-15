@@ -107,7 +107,10 @@ class Connectivity(context: Context) : NetworkMonitor {
             NetworkInfo(
                 online = online,
                 metered = caps == null || !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED),
-                roaming = caps != null && !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_ROAMING),
+                // NOT_ROAMING exists from Android 9; before that roaming is not known here (WorkManager's
+                // NOT_ROAMING constraint still applies to the background sync).
+                roaming = caps != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P &&
+                    !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_ROAMING),
                 // Data Saver on and this app not exempted (it restricts metered networks only).
                 dataSaver = manager.restrictBackgroundStatus == ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED,
             )

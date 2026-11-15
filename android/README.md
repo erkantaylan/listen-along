@@ -5,10 +5,14 @@ The listen-along music library on your phone: browse and search it, play it
 and keep songs as **plain, unencrypted, tagged audio files** that VLC or any
 other player can open too.
 
-Kotlin + Jetpack Compose + Media3, no cross-platform runtime. The look follows
-the web app (`DESIGN.md`, "Android" section): dark only, soft greys on a page < surface < raised < overlay scale with
-visible borders, and one cornflower-blue accent (filled, dark text) for the
-main action of each screen and the play button.
+Kotlin + Jetpack Compose + Media3, no cross-platform runtime. The look is the
+web app's phone layout (`DESIGN.md`, "Android" section): dark only, rounded
+panels on the page colour with a gap between them (the page, the player bar,
+the tabs), soft greys on a page < surface < raised < overlay scale, one
+cornflower-blue accent (filled, dark text) for the main action of each screen
+and the play button, segmented controls for exclusive views, playlists'
+coloured covers of initials (the same colour as on the web) and the songs'
+cover pictures.
 
 ## Getting started
 
@@ -24,7 +28,8 @@ there). The same account rules as the web apply (see [Signing in](#signing-in)).
 - **Library**: every song on the server. Search, sort (recent, title,
   artist), scroll to load more. Tap a song to play the list from there; **Play**
   / **Shuffle** play the whole result. The download button saves a song (tap
-  the ring again to cancel; a green check means it is on the phone). ⋮ → *Add
+  the ring again to cancel; a small green circle with an arrow before the
+  muted line means it is on the phone). ⋮ → *Add
   to playlist*, *Download*, *Open in another app*. The header's download
   button fetches the whole current result after a confirm (count, rough size).
   **All songs / Broken** switches to the songs someone marked as broken
@@ -42,7 +47,10 @@ there). The same account rules as the web apply (see [Signing in](#signing-in)).
 - **Playlists**: every public playlist plus your private ones ("Private"
   badge), yours first. Open one to see its songs; tap a song to play the
   playlist from it at once, or Play / Shuffle; rows have no reorder or delete
-  controls. **Download playlist** queues every song not yet on the phone.
+  controls. Its **Download** switch (and ⋮ → *Download*) makes it a
+  [downloaded playlist](#downloaded-playlists): every song is kept on the
+  phone and followed as the playlist changes. The list has the web sidebar's
+  filter (**All / Mine / Public / Private**) and a **Downloaded** chip.
   **Edit** in the top bar (shown when you may change the list: the server's
   `canEdit` — a public playlist is anyone's, a private one its owner's)
   switches to edit mode: a drag handle per row (drag it, or long-press-drag
@@ -50,19 +58,38 @@ there). The same account rules as the web apply (see [Signing in](#signing-in)).
   snackbar, and tapping does not play; **Done** or Back leaves. A finished
   drag sends one move; a removal is sent when the snackbar times out (or on
   Done / the next removal / leaving the playlist). TalkBack gets *Move up* /
-  *Move down* actions on each row. ⋮ on a playlist, for its owner only:
+  *Move down* actions on each row. ⋮ on a playlist, for its owner:
   *Rename*, *Make private/public* and *Delete* (who may do what comes from the
   server's `canManage`; its error is shown if it refuses). ⋮ on a song:
   *Add to another playlist*, *Remove from playlist* (with Undo), and the
   report entries. **+** makes a new playlist
   (name, Public/Private). Entries that are not in the library (old
   YouTube-only queue entries) are listed but cannot be played.
-- **On device**: the downloaded songs (play, shuffle, add to playlist, open in
-  another app, delete) and the download queue while it runs.
+- **On device**: the download queue while it runs, the **downloaded
+  playlists** (each with its status), then the songs downloaded on their own
+  (play, shuffle — Play and Shuffle take everything on the phone —, add to
+  playlist, open in another app, delete).
 - **Settings**: **Account** (Sign in, or who is signed in, **Test
   connection** (`/api/me` and `/api/library`) and **Sign out**), the server
-  address, storage stats, and the app version (`versionName`) with a link to
-  the source on GitHub.
+  address, **Downloaded playlists** (its two settings), storage stats, and
+  the app version (`versionName`, from the release tag) with **Check for
+  updates** and a link to the source on GitHub.
+- **Covers**: every song row, the player, the notification, the lock screen
+  and the car show the song's cover: the public YouTube thumbnail the web
+  shows (`core/model/CoverArt`), loaded by Coil through an HTTP client of its
+  own that never carries the session; a downloaded song's cover is saved next
+  to the app's data (`files/covers`, never in Music/ListenAlong), so it shows
+  offline too, and goes with the download. Songs with no video keep the file's
+  embedded picture or the placeholder.
+- **Updates**: when the app opens (and at most every 12 hours while it stays
+  open) it asks the server's `GET /api/app/latest` — the GitHub releases the
+  web's `/app` page offers. A newer release shows a banner above the page,
+  *Version X.Y.Z is available*, with **Download** (the APK in the browser) and
+  **Later** (that version hidden for 3 days; a newer one shows at once).
+  Never forced, nothing installed by the app; nothing shown when signed out,
+  offline, when the check fails, or in a debug / `-dev` build (`--ez updates
+  true` asks a debug build to). Versions compare as numbers, X.Y.Z =
+  X*10000 + Y*100 + Z (the version code); pre-releases are not offered.
 
 ## Signing in
 
@@ -161,9 +188,11 @@ through the same session (see [Android Auto](#android-auto)).
   (no route, timeout, a dropped connection, a 5xx) also marks the server
   unreachable for a minute, and the player goes on with the next
   **downloaded** song (see Offline).
-- UI: a mini player above the tabs (cover from the file's embedded art,
-  title, "artist · from", previous / play / next, progress line) and a full
-  player (seek bar, shuffle, repeat off/all/one).
+- UI: a mini player above the tabs, a rounded raised panel like the web's
+  player bar (cover: the file's embedded art, else the saved or public
+  thumbnail; title, "artist · from", previous / play / next, a thin seek line)
+  and a full player (seek bar, shuffle, repeat off/all/one). The playing row in
+  every list has the accent tint, the equaliser and a semibold accent title.
 
 ## Offline
 
@@ -237,7 +266,59 @@ as a `dataSync` foreground service, with one progress notification
 app closed; after a process death WorkManager restarts the worker and the
 unfinished songs are fetched again. A network error or a 5xx is retried twice;
 a 4xx fails at once and the row offers a retry. Song and playlist downloads
-use the same queue.
+use the same queue; below 200 MB of free space nothing more is downloaded
+("Not enough free space on the phone").
+
+### Downloaded playlists
+
+A playlist's **Download** switch (its page; ⋮ → *Download*) keeps every song
+of it on the phone, and keeps following it: songs added later — by anyone,
+on any client — are downloaded, songs removed are removed (see below). It is
+Spotify's model, run by `core/data/PlaylistDownloads` over a pure plan
+(`core/domain/PlaylistSyncPlanner`, unit tested).
+
+- **When it syncs.** There is no socket, so at moments: when the app starts,
+  when the playlists list or a downloaded playlist is loaded or pulled to
+  refresh, when the connection returns, and **every 6 hours in the
+  background** (`PlaylistSyncWorker`, WorkManager, scheduled only while a
+  playlist is downloaded; battery not low; any network but roaming, or
+  unmetered only when mobile data is off). Each run is idempotent and
+  resumable: the queue, the index and the saved records (per server) let an
+  interrupted or repeated run pick up where it stopped; a song that is on the
+  phone, queued, or in two downloaded playlists is fetched once.
+- **Why a file is there.** The download index records it: `manual` = you
+  asked (a song's download button, *Download all shown*, or kept when you
+  turned a playlist's Download off), otherwise playlist sync saved it.
+  Downloads from before this version have no such field and count as yours.
+- **Removed songs.** Settings → *Remove downloads of songs removed from a
+  playlist* (**on** by default): when a song leaves a downloaded playlist its
+  file is removed too — only if playlist sync saved it, it was not found in the
+  folder from an earlier install, and no other downloaded playlist holds it.
+  Files you downloaded yourself, and every download from before playlist
+  sync, are never removed. Off: removed songs stay; turning it on later
+  applies at the next sync.
+- **Guard.** A playlist that comes back empty after having songs, or that
+  loses more than half of them (and at least two) at once, deletes nothing on
+  that sync: the same list on a later sync confirms it (its new songs still
+  download). A failed or offline fetch never removes anything.
+- **Turning Download off** asks: *Keep songs* (they become yours) or
+  *Remove* (the files it downloaded that no other downloaded playlist holds).
+- **A playlist you can no longer see** (deleted, or made private: the server
+  answers 404) is not synced any more; its files stay, and On device shows it
+  as *No longer available* until you remove it there.
+- **Network.** Settings → *Download over mobile data* (**on** by default).
+  Off: playlist sync downloads on unmetered networks (Wi-Fi) only; on: also on
+  mobile data, but never while roaming and never with Data Saver restricting
+  the app. Your own downloads always run as before. While held, the playlist
+  says *Waiting for Wi-Fi*; offline, *Paused while offline*.
+- **Missing files.** A song whose file the server lacks (404) is skipped for a
+  day, then tried once more; never looped. The playlist says *n not on the
+  server*.
+- **Status** (header, rows, On device): *Downloaded · n songs · size*,
+  *Downloading n of m*, *Waiting for Wi-Fi*, *Paused while offline*,
+  *Download stopped: … ·* **Retry**, *No longer available*; a small green
+  circle with an arrow marks a downloaded playlist or song, a ring one that is
+  downloading.
 
 ## Android Auto
 
@@ -248,7 +329,9 @@ The app is an Android Auto media app: `PlaybackService` is a
 action. `core/player/CarLibrary` is the session callback, `core/player/CarTree` the
 media ids (pure, tested). In the car:
 
-- **Playlists** → a playlist → *Shuffle*, then its songs.
+- **Playlists** → a playlist → *Shuffle*, then its songs. Downloaded
+  playlists come first, with the car's download mark; offline they are there
+  with every song.
 - **On device** → *Shuffle*, then the downloaded songs (artist, title).
 - **Recently added** → *Shuffle*, then the 200 newest library songs.
 - **Search** (voice or typed): the library search; offline, the downloads.
@@ -256,7 +339,8 @@ media ids (pure, tested). In the car:
 Tapping a song plays its whole list from that song, with the same queue
 rules as the app (`PlayQueue.build`: downloaded songs from the file, the rest
 streamed, offline only the downloaded ones). Downloaded songs carry the car's
-download mark. The data comes from the same places as the app's screens —
+download mark. A row's cover is the saved cover (a `content://` URI of the
+app's FileProvider, granted to the car's app) or the public thumbnail. The data comes from the same places as the app's screens —
 `PlaylistRepository` (saved copies offline), the download index, the library
 API with the session — and nothing waits on the network when offline:
 playlists come from the saved copies (only those opened in the app before),
@@ -280,7 +364,7 @@ you allow them, once, on the phone:
    launcher picks it up.
 
 Playlists appear once the app is signed in (Settings in the app);
-for offline playlists, open them once in the app while online. To test without
+for offline playlists, turn their Download on (or open them once in the app while online). To test without
 a car, use the Desktop Head Unit (DHU) from the SDK's extras, with "Start head
 unit server" in the same developer settings.
 
@@ -365,12 +449,27 @@ in-memory playlists seeded with one private playlist of yours and one public
 playlist of someone else's (with a YouTube-only entry), with the server's
 owner rules (`canEdit` too) and error answers, and broken-song reports
 (`?reported=1`, `POST`/`DELETE /api/library/:id/report`, seeded with one
-report by someone else). `--samples` makes six short test songs with
-ffmpeg (m4a, one Ogg Opus, one mp3); `--throttle KBPS` slows transfers down.
+report by someone else). `--samples` makes ten short test songs with
+ffmpeg (m4a, Ogg Opus, one mp3; four are in no playlist, for adding);
+`--throttle KBPS` slows transfers down. Every sample song but one has a
+made-up `youtube_id`, and `/stub/thumbs/<id>/hqdefault.jpg` serves a generated
+cover, so covers work with no network. `/api/app/latest` offers
+`--app-version` (0.9.0). `--central-sessions` makes its sign-ins say `mode:
+central`, so a minified release build (which refuses dev sessions) can be
+tried against it. To watch playlist sync, change a playlist
+"elsewhere" and pull to refresh in the app:
+
+```bash
+curl -X POST 'localhost:8091/stub/change?playlist=Stub%20mix&add=2&remove=1'  # someone adds 2, removes 1
+curl -X POST 'localhost:8091/stub/missing?song=Cambodia'          # its file answers 404 FILE_MISSING
+curl -X POST 'localhost:8091/stub/hide?playlist=Stub%20mix'       # it goes private to someone else (404)
+```
 
 `./dev.sh --stub` starts it, tunnels it to the phone's `localhost:8091` with
 `adb reverse`, and launches the app with `--es server http://localhost:8091
---es session devtoken` (a session the stub accepts from the start). Debug
+--es session devtoken --es thumbs http://localhost:8091/stub/thumbs/` (a
+session the stub accepts from the start; covers from the stub instead of
+YouTube). Debug
 builds take those intent extras as an **in-memory** override for that process
 (Settings shows a notice): the server and the sign-in saved on the phone are
 never touched, and a sign-in made against the stub stays in memory too.
@@ -395,7 +494,11 @@ Compose test tags are exposed as resource ids (`tab:playlists`,
 
 ## Architecture
 
-One Gradle module (`:app`), packaged by feature, following Android's
+One Gradle module (`:app`) on purpose: about 12k lines, one developer, and
+the release workflow, R8 rules and signing in one place; separate Gradle
+modules would add build files and slower configuration for a boundary the
+package rules below already draw (they are the cut lines if it ever grows).
+Packaged by feature, following Android's
 recommended app architecture: a UI layer (Compose screens, one ViewModel
 per screen exposing immutable state as `StateFlow`, events going up as
 function calls), a data layer (repositories over the API, the saved copies
@@ -421,13 +524,14 @@ app/src/main/java/com/erkantaylan/listenalong/
     ├── network/   ListenAlongApi + LibraryClient (every path and field name on the wire),
     │              SignInClient, SessionEndedInterceptor, Connectivity (NetworkMonitor)
     ├── auth/      AuthController (the sign-in state machine), AuthFlow (PKCE, redirect)
-    ├── data/      repositories: Library, Playlist (+ PlaylistCache), Report, Account;
+    ├── data/      repositories: Library, Playlist (+ PlaylistCache), Report, Account,
+    │              PlaylistDownloads (playlist sync), AppUpdates;
     │              SettingsStore (server + encrypted session)
     ├── download/  Downloads (queue, drain, delete, reclaim), DownloadWorker, BulkPlan
     ├── storage/   MediaStore sink, FileNames, FileMatcher, DownloadIndex, TextStore
-    ├── domain/    shared rules: the offline library (search and sort on the phone)
+    ├── domain/    shared rules: the offline library, PlaylistSyncPlanner (pure), UpdateRules
     ├── player/    PlaybackService, PlayerConnection, PlayQueue, PlayLauncher, Android Auto
-    ├── designsystem/ Palette and theme, components, icons, playlist covers
+    ├── designsystem/ tokens (Palette, Dimens, TextSizes), components, icons, PlaylistCover
     └── ui/        composables that know the models (SongRow, song menu), AppActions
 ```
 
@@ -447,6 +551,9 @@ Rules:
   the Application through small interfaces (`PlayerHost`, `DownloadsHost`)
   and open the app through `core/ui/AppEntry`, so core does not know the
   activity.
+- **New dependencies**: Navigation Compose (type-safe routes, a ViewModel per
+  destination) and Coil 3 (covers: Compose image loading with memory and
+  disk caches; its own OkHttp client, never the session's).
 - **Dependency injection** is a hand-written `AppContainer`, one per process:
   a dozen objects with one lifetime do not need Hilt or Koin.
   `AppViewModels` is the one place that knows which pieces each ViewModel
@@ -485,8 +592,10 @@ Rules:
   refresh (resume, pull-to-refresh, reconnect), not instantly.
 - Edit mode assumes nobody else edits the same playlist at the same time;
   if a move or removal fails, the playlist is reloaded from the server.
-- Cover art comes from the audio file's embedded picture (shown once the
-  player has read it); list rows use the placeholder.
+- Covers are YouTube's thumbnails (4:3 with black bars for 16:9 videos, as
+  on the web); a song with no video has none in lists. A song downloaded
+  before this version gets its saved cover the next time the phone is online
+  (one library listing to learn the video ids).
 - Android 8–9 writes the file directly and needs the storage permission. That
   path has not been run on a device.
 - A failed or cancelled download starts over from zero (no `Range` resume).
