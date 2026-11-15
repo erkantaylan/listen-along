@@ -108,7 +108,7 @@ spent. The https one is built from `BASE_URL`, never from the Host header.
 **The derived nonce: a consistency check, not a binding.** The IdP is not
 given the app's nonce but `HMAC-SHA256(key, redirect + "\n" + nonce)`, the key
 derived from `SESSION_SECRET` with HKDF (purpose `listen-along/mobile-nonce/v1`,
-as `secretBox.js` derives its keys), and the exchange expects exactly that in
+as `shared/secretBox.ts` derives its keys), and the exchange expects exactly that in
 the id_token. What it gives: start and exchange must name the same redirect,
 and the nonce must have come out of `/auth/mobile/start` (an authorize request
 with a nonce of the caller's own fails). What it does **not** give: it is no

@@ -412,7 +412,7 @@ where lobby persistence broke entirely on deployed instances.
   `enableNonRepudiationChecks`, redirect URI from `BASE_URL`, never the Host
   header; `aud` exactly the client, no foreign `azp`); a server-side session
   (`oidcSessions.js`, table `user_sessions`: the session cookie's SHA-256, refresh
-  token + id_token AES-GCM encrypted via `secretBox.js`, 30 days; cookies
+  token + id_token AES-GCM encrypted via `shared/secretBox.ts`, 30 days; cookies
   `__Host-la_session` / `__Host-la_oidc_flow` when Secure (production), plain
   `la_session` / `la_oidc_flow` on http: names from `oidcConfig.js`) re-checked
   with the refresh token every `OIDC_RECHECK_SECONDS` (3 s timeout; only

@@ -23,7 +23,7 @@
  *   (include_claims_in_id_token), so there is no userinfo call.
  */
 
-const { deriveKey, seal, open } = require('./secretBox');
+const { deriveKey, seal, open } = require('./shared/secretBox.ts');
 
 const FLOW_COOKIE = 'la_oidc_flow'; // the name without the __Host- prefix (see oidcConfig.js)
 const FLOW_COOKIE_PATH = '/'; // __Host- cookies must be Path=/

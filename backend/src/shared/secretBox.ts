@@ -12,18 +12,18 @@
  * Format: "v1.<iv>.<ciphertext>.<tag>", each part base64url.
  */
 
-const crypto = require('crypto');
+import crypto from 'node:crypto';
 
 const SALT = 'listen-along/secret-box/v1';
 
 /** A 32-byte key for `purpose`, derived from `secret` (SESSION_SECRET). */
-function deriveKey(secret, purpose) {
+export function deriveKey(secret: unknown, purpose: unknown): Buffer {
   if (!secret) throw new Error('secretBox: a secret is required');
   if (!purpose) throw new Error('secretBox: a purpose is required');
   return Buffer.from(crypto.hkdfSync('sha256', Buffer.from(String(secret), 'utf8'), Buffer.from(SALT), Buffer.from(String(purpose)), 32));
 }
 
-function seal(key, plaintext, aad = '') {
+export function seal(key: Buffer, plaintext: unknown, aad: unknown = ''): string | null {
   if (plaintext === null || plaintext === undefined) return null;
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
@@ -34,7 +34,7 @@ function seal(key, plaintext, aad = '') {
 }
 
 /** The plaintext, or null for anything that is not a box this key made with this aad. */
-function open(key, box, aad = '') {
+export function open(key: Buffer, box: unknown, aad: unknown = ''): string | null {
   if (typeof box !== 'string' || box.length > 64 * 1024) return null;
   const parts = box.split('.');
   if (parts.length !== 4 || parts[0] !== 'v1') return null;
@@ -51,5 +51,3 @@ function open(key, box, aad = '') {
     return null;
   }
 }
-
-module.exports = { deriveKey, seal, open };

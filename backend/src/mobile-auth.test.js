@@ -197,7 +197,7 @@ describe('app sign-in: rules', () => {
   it('the IdP nonce depends on the app nonce, the redirect and an HKDF key from the secret', () => {
     const n = idpNonce('s', 'nonce-1', MOBILE_REDIRECT_URI);
     assert.match(n, /^[A-Za-z0-9_-]{43}$/);
-    const key = require('./secretBox').deriveKey('s', 'listen-along/mobile-nonce/v1');
+    const key = require('./shared/secretBox.ts').deriveKey('s', 'listen-along/mobile-nonce/v1');
     assert.equal(n, crypto.createHmac('sha256', key).update(`${MOBILE_REDIRECT_URI}\nnonce-1`).digest('base64url'), 'keyed by the derived key');
     assert.notEqual(n, crypto.createHmac('sha256', 's').update(`${MOBILE_REDIRECT_URI}\nnonce-1`).digest('base64url'), 'never the raw SESSION_SECRET');
     assert.equal(idpNonce('s', 'nonce-1', MOBILE_REDIRECT_URI), n, 'stable');

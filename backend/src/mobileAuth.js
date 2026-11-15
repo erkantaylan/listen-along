@@ -102,7 +102,7 @@ const express = require('express');
 const { make: makeLimiter } = require('./shared/rateLimits.ts');
 const { linkCentralIdentity, centralName } = require('./oidcLink');
 const { hashId, SESSION_MAX_AGE_MS } = require('./oidcSessions');
-const { deriveKey } = require('./secretBox');
+const { deriveKey } = require('./shared/secretBox.ts');
 const {
   MOBILE_TOKEN_PREFIX, CENTRAL_TOKEN_RE, mobileBearer, signDevMobileToken, signDevCode, verifyDevCode, s256,
 } = require('./mobileTokens');

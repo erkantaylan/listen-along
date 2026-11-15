@@ -37,7 +37,7 @@
  */
 
 const crypto = require('crypto');
-const { deriveKey, seal, open } = require('./secretBox');
+const { deriveKey, seal, open } = require('./shared/secretBox.ts');
 const { parseCookie } = require('./userAuth');
 const { CENTRAL_TOKEN_RE } = require('./mobileTokens');
 
