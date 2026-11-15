@@ -40,7 +40,8 @@ where lobby persistence broke entirely on deployed instances.
   `playlistRoutes.js` (`/api/playlists` + `/api/lobbies`, songs included; `requireViewer`, `findVisiblePlaylist`;
   returns `ownerNames`, whose cache the socket handlers share).
   Socket handler modules (`create…Sockets({ deps })`, whose `register(socket, ctx)` runs per connection):
-  `queueSockets.js` (`queue:*`). `memoryRateLimit.js`: the 20/min in-memory limits (admin login, `queue:add`)
+  `playlistSockets.js` (`lobby:*`, `user:update`, `listener:now-playing`; owns `visibleLobby` / `editableLobby`
+  and hands them to the queue handlers), `queueSockets.js` (`queue:*`). `memoryRateLimit.js`: the 20/min in-memory limits (admin login, `queue:add`)
 - Domain modules: lobby.js, playlistAccess.js, queue.js, covers.js, db.js,
   workerHub.js / downloadJobs.js / jobRoutes.js (downloaders + jobs, see below),
   library.js (music library + upload validation (m4a / Ogg Opus) + legacy cache migration +
