@@ -120,10 +120,39 @@ export function similarQuery(title) {
 }
 
 /**
- * The playlist a one-step add goes to: the one this search was opened for
- * ("Add songs" on a playlist page), else the one last played from. Only if it
- * is still in the viewer's list (it exists and they can see it) and they may
- * edit it; otherwise there is none.
+ * The playlist page on screen as a search's add target: its id when it is the
+ * page showing (not under the library overlay, which has its own Add) and the
+ * viewer may edit it; else null.
+ */
+export function pageTarget({ view = null, lobbyId = null, canEdit = false, libraryOpen = false } = {}) {
+  return view === 'lobby' && !libraryOpen && canEdit && typeof lobbyId === 'string' && lobbyId ? lobbyId : null;
+}
+
+/**
+ * The search is started (the field focused, Ctrl+K, the Search place): on an
+ * editable playlist page that playlist becomes this search's target; anywhere
+ * else the search keeps the target it has (none, or the page it was started on).
+ */
+export function startTarget(sessionId = null, pageId = null) {
+  return pageId || sessionId || null;
+}
+
+/**
+ * A route change: a search's target lasts while its search does, on the search
+ * page and on its own playlist page (not that playlist's library). Anywhere
+ * else it ends. Returns the target to keep, or null.
+ */
+export function keepTarget(sessionId, route) {
+  if (!sessionId || !route) return null;
+  if (route.view === 'search') return sessionId;
+  return route.view === 'lobby' && route.lobbyId === sessionId && !route.library ? sessionId : null;
+}
+
+/**
+ * The playlist a one-step add goes to: the one this search was started on (an
+ * editable playlist page, see startTarget), else the one last played from.
+ * Only if it is still in the viewer's list (it exists and they can see it) and
+ * they may edit it; otherwise there is none.
  * playlists: GET /api/playlists rows ({ id, name, canEdit }).
  */
 export function addTarget({ sessionId = null, lastPlayedId = null, playlists = [] } = {}) {
@@ -132,6 +161,17 @@ export function addTarget({ sessionId = null, lastPlayedId = null, playlists = [
   if (session) return { playlist: session, session: true };
   const last = usable(lastPlayedId);
   return last ? { playlist: last, session: false } : null;
+}
+
+/**
+ * The playlist the field's placeholder names ("Find songs to add to <name>"):
+ * the one a search started now would add to in one step because of the page
+ * (or this search's own target), never the last-played fallback. Null = the
+ * plain placeholder.
+ */
+export function placeholderTarget({ sessionId = null, pageId = null, playlists = [] } = {}) {
+  const target = addTarget({ sessionId: startTarget(sessionId, pageId), playlists });
+  return target && target.session ? target.playlist : null;
 }
 
 /** The playlist to remember as "last played from", or null for any other context. */

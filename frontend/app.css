@@ -42,13 +42,15 @@
      column and the player bar (DESIGN.md "App shell"). The columns stay where
      panel-widths.js puts them: --app-sidebar-width and --app-social-inset are
      whole columns, each holding its panel plus the outer gap. --app-player-height
-     is the room the floating player bar takes, its gaps included (player-bar.js). */
-  body { --app-view-height: 100dvh; }
+     is the room the floating player bar takes, its gaps included (player-bar.js).
+     --app-top is where the panels start: a gap below the window's top, or a gap
+     below the top bar (the search field, body.has-topbar, see "Top bar"). */
+  body { --app-view-height: 100dvh; --app-top: var(--app-gap); --app-topbar-height: 2.5rem; }
   body.has-player-bar { --app-view-height: calc(100dvh - var(--app-player-height, 0px)); }
-  body.has-plnav { --app-view-height: calc(100dvh - var(--app-player-height, 0px) - var(--app-gap)); }
+  body.has-plnav { --app-view-height: calc(100dvh - var(--app-player-height, 0px) - var(--app-top)); }
   body.has-plnav .view {
     min-height: var(--app-view-height);
-    margin: var(--app-gap) var(--app-gap) 0;
+    margin: var(--app-top) var(--app-gap) 0;
     background-color: var(--app-surface);
     border-radius: var(--app-panel-radius);
   }
@@ -386,12 +388,17 @@
     overflow-y: auto;
     scroll-padding-top: 2rem; /* the sticky .queue-head covers that much */
   }
-  /* The song table takes the whole column; only the two inputs keep a cap. */
-  .libpage-header > .container { max-width: 56rem; }
+  /* The song table takes the whole column, as do the library's lists. */
+  .libpage-header > .container,
   .lobby-header > .container,
   .lobby-container { max-width: none; }
   .lobby-container { padding-block: 1rem; }
-  .add-song, .song-filter-input { max-width: 56rem; }
+  /* The header's muted line: owner · stats · listeners, one line, truncated
+     (its title has all of it, queue.js syncPlaylistMeta). */
+  .playlist-meta-text > :not([hidden], :empty) ~ :not([hidden], :empty)::before { content: " · "; }
+  /* The toolbar over the table: the filter takes what the sort and the icons leave. */
+  .song-filter-input.form-control { flex: 1 1 8rem; width: auto; min-width: 0; }
+  .queue-sort-select { max-width: 11rem; }
   .tab-panel { display: none; }
   .tab-panel.active { display: block; }
 
@@ -958,7 +965,7 @@
     body.has-plnav { padding-left: var(--app-sidebar-width); }
     body.has-plnav .app-sidebar {
       position: fixed;
-      top: var(--app-gap);
+      top: var(--app-top);
       bottom: max(var(--app-player-height, 0px), var(--app-gap));
       left: var(--app-gap);
       z-index: calc(var(--bs-z-fixed) + 1); /* its drag handle reaches over the library overlay */
@@ -1074,8 +1081,10 @@
     body.has-plnav {
       --app-places-height: 3.25rem;
       --app-places-top: calc(var(--app-gap) + env(safe-area-inset-top, 0px));
-      --app-view-height: calc(100dvh - var(--app-player-height, 0px) - var(--app-places-top) - var(--app-places-height) - var(--app-gap));
+      --app-view-height: calc(100dvh - var(--app-player-height, 0px) - var(--app-places-top) - var(--app-places-height) - var(--app-gap) - var(--app-topbar-room, 0px));
     }
+    /* The search page's field sits between the row of places and the page panel. */
+    body.has-plnav.has-topbar { --app-topbar-room: calc(var(--app-gap) + var(--app-topbar-height)); }
     body.has-plnav .app-places {
       display: block;
       height: var(--app-places-height);
@@ -1209,7 +1218,7 @@
      sidebar and the chat column, above the player bar). */
   .library-page {
     position: fixed;
-    inset: var(--app-gap) var(--app-gap) max(var(--app-player-height, 0px), var(--app-gap));
+    inset: var(--app-top) var(--app-gap) max(var(--app-player-height, 0px), var(--app-gap));
     z-index: var(--bs-z-fixed);
     display: flex;
     flex-direction: column;
@@ -1227,7 +1236,12 @@
   }
   body.libpage-open { overflow: hidden; }
   .libpage-body { flex: 1; min-height: 0; overflow-y: auto; }
-  .libpage-container { max-width: 56rem; padding-block: 0.75rem 2rem; }
+  /* As wide as the page panel, like the other pages: lists use the width; the
+     search box, the hints and the Download form keep a readable measure. */
+  .libpage-container { max-width: none; padding-block: 0.75rem 2rem; }
+  .libpage-search { max-width: 36rem; }
+  .libpage-hint { max-width: 48rem; }
+  .dl-form { max-width: 40rem; }
   .libpage-context:not(.muted) { color: var(--bs-primary-fg); }
   .libpage-search { flex: 1 1 14rem; width: auto; }
   .libpage-item { display: flex; gap: 0.75rem; align-items: center; }
@@ -1343,7 +1357,7 @@
     body.has-social { --app-social-inset: var(--app-rail-width); padding-right: var(--app-social-inset); }
     body.has-social .social-rail {
       position: fixed;
-      top: var(--app-gap);
+      top: var(--app-top);
       right: var(--app-gap);
       bottom: max(var(--app-player-height, 0px), var(--app-gap));
       z-index: var(--bs-z-fixed);
@@ -1374,7 +1388,7 @@
     body.has-social:not(.social-collapsed) .social-rail { display: none; }
     body.has-social:not(.social-collapsed) .social-panel {
       position: fixed;
-      top: var(--app-gap);
+      top: var(--app-top);
       right: var(--app-gap);
       bottom: max(var(--app-player-height, 0px), var(--app-gap));
       z-index: var(--bs-z-fixed);
@@ -1687,24 +1701,43 @@
   .dashboard-user-avatar,
   .dashboard-user-avatar-img { width: 2.5rem; height: 2.5rem; }
 
-  /* ------------------------------------------------------------- Search */
-  /* The global search field (search.js, DESIGN.md "Search"): the first row of the
-     page panel on screen, kept at its top while the panel scrolls. One input with
-     the search icon inside and the shortcut hint at its end. */
-  .app-search {
-    position: sticky;
-    top: 0;
-    z-index: 3;
-    flex-shrink: 0;
-    padding: 0.75rem 0;
-    background-color: var(--app-surface);
-    border-bottom: 1px solid transparent;
-    border-radius: var(--app-panel-radius) var(--app-panel-radius) 0 0;
+  /* ------------------------------------------------------------- Top bar */
+  /* The app shell's top bar (DESIGN.md "App shell", "Search"): one row above the
+     panels holding only the global search field, centred in the window (not in
+     the page column), as Spotify has it. It sits on the page colour with a gap
+     above and below; no card, no rule. From 768px it is fixed and the panels
+     start under it (--app-top); below 768px it is only on the search page,
+     between the row of places and the page panel. Shown = body.has-topbar
+     (search.js); login, pending and /dashboard never have it, so no gap. */
+  .app-search { display: none; }
+  .app-search-field { position: relative; flex: 1 1 auto; min-width: 0; max-width: 32rem; }
+  @media (width >= 768px) {
+    body.has-topbar { --app-top: calc(var(--app-gap) * 2 + var(--app-topbar-height)); }
+    body.has-topbar .app-search {
+      position: fixed;
+      top: 0;
+      right: 0;
+      left: 0;
+      z-index: var(--bs-z-fixed);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: var(--app-top);
+      padding: var(--app-gap);
+      /* Touch scrolls the document: content passing under the bar stays hidden. */
+      background-color: var(--app-page-bg);
+    }
   }
-  /* Content scrolled under it: a plain full-width divider (not an accent), the
-     panel's own opaque surface above it (search.js sets .is-stuck). */
-  .app-search.is-stuck { border-bottom-color: var(--app-border-subtle); }
-  .app-search-field { position: relative; max-width: 36rem; }
+  @media (width < 768px) {
+    body.has-topbar .app-search {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      display: flex;
+      padding: var(--app-gap) var(--app-gap) 0;
+      background-color: var(--app-page-bg);
+    }
+  }
   .app-search-icon {
     position: absolute;
     inset-block: 0;
@@ -1736,9 +1769,6 @@
     pointer-events: none;
   }
   @media (pointer: coarse) { .app-search-kbd { display: none; } .app-search-input.form-control { padding-inline-end: 1rem; } }
-  /* Following the page's own top bar: no gap above it. */
-  .app-search + .app-navbar { --bs-navbar-min-height: 3rem; }
-  .library-page > .app-search { border-radius: var(--app-panel-radius) var(--app-panel-radius) 0 0; }
   /* The drawer's Search place: phones only (from 768px the field is on every page). */
   @media (width >= 768px) { .plnav-nav-search-item { display: none; } }
 

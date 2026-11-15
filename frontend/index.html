@@ -102,17 +102,18 @@
     </ul>
   </nav>
 
-  <!-- The global search field (search.js): moved to the top of the page panel on
-       screen (from 768px; on phones only on the search page). Ctrl+K / Cmd+K. -->
+  <!-- The app shell's top bar: the global search field (search.js), centred in the
+       window above the panels (from 768px; on phones only on the search page, under
+       the row of places). Ctrl+K / Cmd+K. It never moves; body.has-topbar while shown. -->
   <form id="app-search" class="app-search" role="search" aria-label="Search" data-i18n-aria-label="search.title" hidden>
-    <div class="container"><div class="app-search-field">
+    <div class="app-search-field">
       <span class="app-search-icon"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg></span>
       <input id="app-search-input" type="search" class="form-control app-search-input" placeholder="Search songs, artists, playlists, or paste a link" aria-label="Search songs, artists, playlists, or paste a link" data-i18n-aria-label="search.placeholder" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" aria-keyshortcuts="Control+K Meta+K">
       <kbd id="app-search-kbd" class="app-search-kbd" aria-hidden="true">Ctrl K</kbd>
-    </div></div>
+    </div>
   </form>
 
-  <!-- Search: /search?q=… (search.js). The field above is moved in here. -->
+  <!-- Search: /search?q=… (search.js). The field is the top bar above. -->
   <div id="search-view" class="view">
     <nav class="navbar app-navbar">
       <div class="container">
@@ -126,7 +127,7 @@
       </div>
     </nav>
     <main class="app-main container search-main">
-      <!-- Where a one-step add goes: "Adding to: <name>" (× for an "Add songs" target). -->
+      <!-- Where a one-step add goes: "Adding to: <name>" (× when the search was started on that playlist's page). -->
       <div id="search-target" class="d-flex flex-wrap align-items-center gap-2 min-w-0 mb-4 search-target" aria-live="polite"></div>
       <p id="search-status" class="visually-hidden" role="status" aria-live="polite"></p>
       <div id="search-results" class="search-results"></div>
@@ -222,10 +223,10 @@
           <div class="d-flex align-items-center gap-1 min-w-0">
             <h1 id="lobby-name" class="lobby-name h6 mb-0 text-truncate">Playlist</h1>
           </div>
+          <!-- One muted line: owner · the stats (queue.js) · listeners, truncated, the whole line in its title. -->
           <div class="d-flex align-items-center gap-2 fs-xs fg-3 min-w-0 playlist-meta">
             <span id="playlist-visibility-badge" class="badge badge-subtle theme-secondary playlist-visibility-badge playlist-private-badge" hidden>Private</span>
-            <span id="playlist-owner" class="text-truncate playlist-owner" hidden></span>
-            <span id="user-count" class="user-count">0 listeners</span>
+            <span id="playlist-meta-text" class="text-truncate playlist-meta-text"><span id="playlist-owner" class="playlist-owner" hidden></span><span id="playlist-stats" class="playlist-stats-text"></span><span id="user-count" class="user-count">0 listeners</span></span>
           </div>
         </div>
         <div class="d-flex align-items-center gap-1 flex-shrink-0">
@@ -248,20 +249,10 @@
         <div class="lobby-panels">
           <!-- Queue Tab -->
           <section id="queue-tab" class="tab-panel active" aria-label="Queue">
-            <!-- Filled by queue.js (DESIGN.md "Stats strip"). -->
-            <ul id="playlist-stats" class="playlist-stats" aria-label="Playlist stats" data-i18n-aria-label="stats.label"></ul>
-            <!-- Add songs: the global search with this playlist as the add target (search.js). -->
-            <div class="d-flex align-items-center gap-2 mb-3 add-song">
-              <button id="add-songs-btn" class="btn-solid theme-primary add-songs-btn" type="button" title="Search the library and YouTube, or paste a link, to add to this playlist" data-i18n-title="search.addSongsHint">
-                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
-                <span data-i18n="search.addSongs">Add songs</span>
-              </button>
-              <button id="browse-library-btn" class="btn-outline theme-secondary btn-icon" type="button" aria-label="Open music library" title="Music library" data-i18n-aria-label="search.openLibrary" data-i18n-title="search.musicLibrary">
-                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9h-4v4h-2v-4H9V9h4V5h2v4h4v2z"/></svg>
-              </button>
-            </div>
-            <div class="queue-filter d-flex flex-wrap align-items-center justify-content-end gap-2 mb-3">
-              <div class="d-flex align-items-center gap-1">
+            <!-- One toolbar: the filter takes the width, sort and download (Clear queue in edit mode) at the end. -->
+            <div class="d-flex align-items-center gap-2 mb-3 queue-toolbar">
+              <input type="search" id="queue-search-input" class="form-control form-control-sm song-filter-input" placeholder="Filter songs..." aria-label="Filter songs" autocomplete="off">
+              <div class="d-flex align-items-center gap-1 flex-shrink-0 queue-toolbar-actions">
                 <select id="queue-sort" class="form-control form-control-sm w-auto queue-sort-select" aria-label="Sort queue">
                   <option value="default">Queue order</option>
                   <option value="newest">Newest first</option>
@@ -282,7 +273,6 @@
               </div>
               <div class="progress" role="progressbar" aria-label="Playlist download" style="--bs-progress-height: .375rem"><div id="pdl-bar-fill" class="progress-bar" style="width: 0%"></div></div>
             </div>
-            <input type="search" id="queue-search-input" class="form-control form-control-sm mb-3 song-filter-input" placeholder="Filter songs..." aria-label="Filter songs" autocomplete="off">
             <!-- Column labels (DESIGN.md "Song rows"): the cells say the same to a screen reader. -->
             <div id="queue-head" class="queue-head fs-xs fg-3" aria-hidden="true" hidden>
               <span class="queue-head-num">#</span>
@@ -295,7 +285,7 @@
             <ul id="queue-list" class="list-group queue-list" role="list">
               <li class="list-group-item app-empty queue-empty">
                 <p class="mb-1" data-i18n="queue.empty">Queue is empty</p>
-                <p class="fs-sm mb-0 hint" data-i18n="queue.emptyHint">Add a song to get started</p>
+                <p class="fs-sm mb-0 hint" data-i18n="queue.emptyHintReadOnly">Nothing in this playlist yet</p>
               </li>
             </ul>
           </section>

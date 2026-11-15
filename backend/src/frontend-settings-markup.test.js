@@ -65,6 +65,52 @@ describe('frontend: tabs', () => {
   });
 });
 
+describe('frontend: the shell top bar and the playlist header', () => {
+  const css = read('app.css');
+  it('the search field is one top bar outside every view, before the views in the tab order', () => {
+    const form = html.match(/<form id="app-search"[^>]*>/);
+    assert.ok(form, 'form');
+    assert.match(form[0], /role="search"/);
+    assert.equal((html.match(/id="app-search-input"/g) || []).length, 1);
+    const at = html.indexOf('<form id="app-search"');
+    assert.ok(at < html.indexOf('<div id="search-view"') && at < html.indexOf('<div id="landing-view"'), 'before the views');
+    for (const id of ['search-view', 'landing-view', 'lobby-view', 'profile-view']) assert.doesNotMatch(viewHtml(id), /id="app-search"/, id);
+    assert.doesNotMatch(read('search.js'), /\.prepend\(bar\)|is-stuck/, 'never moved into a page');
+  });
+  it('every column starts under it (--app-top), centred field, no rule or accent edge', () => {
+    for (const sel of ['body.has-plnav .app-sidebar {', 'body.has-social .social-rail {', 'body.has-social:not(.social-collapsed) .social-panel {']) {
+      const rule = css.slice(css.indexOf(sel), css.indexOf('}', css.indexOf(sel)));
+      assert.match(rule, /top: var\(--app-top\)/, sel);
+    }
+    assert.match(css, /\.library-page \{[^}]*inset: var\(--app-top\)/);
+    assert.match(css, /body\.has-plnav \.view \{[^}]*margin: var\(--app-top\)/);
+    const bar = css.match(/body\.has-topbar \.app-search \{([^}]*)\}/);
+    assert.ok(bar, 'top bar rule');
+    assert.match(bar[1], /justify-content: center/);
+    assert.match(bar[1], /left: 0/);
+    assert.match(bar[1], /right: 0/);
+    assert.doesNotMatch(bar[1], /border|box-shadow/);
+  });
+  it('the playlist page: header, then one toolbar; no Add songs, library button or stats pills', () => {
+    const lobby = viewHtml('lobby-view');
+    assert.doesNotMatch(lobby, /add-songs-btn|browse-library-btn|class="playlist-stats"|add-song"/);
+    assert.match(lobby, /id="playlist-meta-text"[^>]*>.*id="playlist-owner".*id="playlist-stats".*id="user-count"/);
+    const toolbar = lobby.slice(lobby.indexOf('queue-toolbar'), lobby.indexOf('playlist-download-progress'));
+    for (const id of ['queue-search-input', 'queue-sort', 'download-queue-btn', 'clear-queue-btn']) assert.match(toolbar, new RegExp(`id="${id}"`), id);
+    assert.ok(toolbar.indexOf('queue-search-input') < toolbar.indexOf('queue-sort'), 'filter first');
+    for (const lang of ['en', 'tr']) {
+      const l = locale(lang);
+      for (const k of ['addSongs', 'addSongsHint', 'openLibrary', 'musicLibrary']) assert.equal(l.search[k], undefined, `${lang} search.${k}`);
+      for (const k of ['emptyHintReadOnly', 'emptyHintSearch', 'emptyHintTouch', 'findSongs']) assert.ok(l.queue[k], `${lang} queue.${k}`);
+      assert.match(l.queue.emptyHintSearch, /\{key\}/);
+    }
+  });
+  it('the library is as wide as the page panel', () => {
+    assert.match(css, /\.libpage-container \{ max-width: none;/);
+    assert.doesNotMatch(css, /\.libpage-header > \.container \{ max-width: 56rem/);
+  });
+});
+
 describe('frontend: GitHub link in the sidebar', () => {
   const head = (() => {
     const start = html.indexOf('class="d-flex align-items-center gap-1 plnav-head"');

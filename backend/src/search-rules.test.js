@@ -152,7 +152,7 @@ describe('search: the current playlist (where a one-step add goes)', () => {
   it('the playlist last played from', () => {
     assert.deepEqual(m.addTarget({ lastPlayedId: 'road', playlists: pls }), { playlist: pls[0], session: false });
   });
-  it('"Add songs" on a playlist page wins for that search', () => {
+  it('the playlist page the search was started on wins for that search', () => {
     assert.deepEqual(m.addTarget({ sessionId: 'mine', lastPlayedId: 'road', playlists: pls }), { playlist: pls[2], session: true });
   });
   it('gone, not visible (not in the list) or not editable: none', () => {
@@ -161,6 +161,39 @@ describe('search: the current playlist (where a one-step add goes)', () => {
     assert.equal(m.addTarget({ lastPlayedId: null, playlists: pls }), null);
     assert.equal(m.addTarget({ lastPlayedId: 'road', playlists: [] }), null, 'nothing known yet');
     assert.deepEqual(m.addTarget({ sessionId: 'theirs', lastPlayedId: 'road', playlists: pls }), { playlist: pls[0], session: false }, 'a session target that went read-only falls back');
+  });
+  it('an editable playlist page on screen is a target; anything else is not', () => {
+    assert.equal(m.pageTarget({ view: 'lobby', lobbyId: 'road', canEdit: true }), 'road');
+    assert.equal(m.pageTarget({ view: 'lobby', lobbyId: 'theirs', canEdit: false }), null, 'read-only');
+    assert.equal(m.pageTarget({ view: 'lobby', lobbyId: 'road', canEdit: true, libraryOpen: true }), null, 'under the library overlay');
+    assert.equal(m.pageTarget({ view: 'lobby', lobbyId: null, canEdit: true }), null, 'not joined yet');
+    for (const view of ['landing', 'radio', 'artists', 'artist', 'search', 'profile', null]) {
+      assert.equal(m.pageTarget({ view, lobbyId: 'road', canEdit: true }), null, String(view));
+    }
+    assert.equal(m.pageTarget(), null);
+  });
+  it('starting a search on that page makes it the target; elsewhere the target stays', () => {
+    assert.equal(m.startTarget(null, 'road'), 'road');
+    assert.equal(m.startTarget('mine', 'road'), 'road', 'the page on screen wins');
+    assert.equal(m.startTarget('road', null), 'road', 'focusing again on the search page keeps it');
+    assert.equal(m.startTarget(null, null), null, 'elsewhere: the last-played rule applies');
+    assert.deepEqual(m.addTarget({ sessionId: m.startTarget(null, 'mine'), lastPlayedId: 'road', playlists: pls }), { playlist: pls[2], session: true });
+    assert.deepEqual(m.addTarget({ sessionId: m.startTarget(null, null), lastPlayedId: 'road', playlists: pls }), { playlist: pls[0], session: false });
+  });
+  it('the target lasts while its search does', () => {
+    assert.equal(m.keepTarget('road', { view: 'search' }), 'road');
+    assert.equal(m.keepTarget('road', { view: 'lobby', lobbyId: 'road' }), 'road', 'back on its page');
+    assert.equal(m.keepTarget('road', { view: 'lobby', lobbyId: 'road', library: 'library' }), null, 'its library');
+    assert.equal(m.keepTarget('road', { view: 'lobby', lobbyId: 'mine' }), null, 'another playlist');
+    for (const view of ['landing', 'radio', 'artists', 'profile', 'social']) assert.equal(m.keepTarget('road', { view }), null, view);
+    assert.equal(m.keepTarget(null, { view: 'search' }), null);
+  });
+  it('the placeholder names the page\'s (or the search\'s) playlist, never the last played', () => {
+    assert.equal(m.placeholderTarget({ pageId: 'road', playlists: pls }), pls[0]);
+    assert.equal(m.placeholderTarget({ sessionId: 'mine', playlists: pls }), pls[2]);
+    assert.equal(m.placeholderTarget({ pageId: 'theirs', playlists: pls }), null, 'not editable');
+    assert.equal(m.placeholderTarget({ pageId: 'road', playlists: [] }), null, 'list not loaded yet');
+    assert.equal(m.placeholderTarget({ playlists: pls }), null);
   });
   it('only a playlist context is remembered as last played (not opened)', () => {
     assert.equal(m.lastPlayedFrom({ type: 'lobby', lobbyId: 'road' }), 'road');

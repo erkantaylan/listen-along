@@ -127,10 +127,6 @@ function setupEventListeners() {
   updatePlaybackModeUI();
   elements.progressBar.addEventListener('input', seekTo);
 
-  // Queue: "Add songs" opens the global search with this playlist as the
-  // target (search.js); the library button opens the library over it.
-  var browseLibBtn = document.getElementById('browse-library-btn');
-  if (browseLibBtn) browseLibBtn.addEventListener('click', () => openLibraryPage('library'));
   const landingLibBtn = document.getElementById('landing-library-btn');
   if (landingLibBtn) landingLibBtn.addEventListener('click', () => openLibraryPage('library'));
   // The "Library & Downloads" place, in the sidebar and in the phone row:

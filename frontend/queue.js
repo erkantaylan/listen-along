@@ -299,6 +299,8 @@ export function setupQueueInteractions() {
   const rowIndex = (row) => parseInt(row.dataset.index, 10);
 
   list.addEventListener('click', (e) => {
+    // The empty playlist's "Find songs": the global search, adding here (search.js).
+    if (e.target.closest('[data-search-focus]')) { document.dispatchEvent(new CustomEvent('app:focus-search')); return; }
     const row = e.target.closest('.queue-item[data-index]');
     if (!row) return;
     const remove = e.target.closest('.queue-item-remove');
@@ -412,6 +414,7 @@ function getQueueListenersHtml(songTitle) {
 
 const DRAG_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 15h18v-2H3v2zm0 4h18v-2H3v2zm0-8h18V9H3v2zm0-6v2h18V5H3z"/></svg>';
 const REMOVE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 11v2h10v-2H7zm5-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>';
+const SEARCH_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>';
 const NOTE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>';
 
 const PLAY_PATH = 'M8 5v14l11-7z';
@@ -498,8 +501,21 @@ function queueRowHtml(pos) {
     + `<div class="queue-item-actions">${remove}${editing ? '' : songMenuButtonHtml(song.title)}</div></li>`;
 }
 
-function emptyRowHtml(title, hint) {
-  return `<li class="list-group-item app-empty queue-empty"><p class="mb-1">${escapeHtml(title)}</p><p class="fs-sm mb-0 hint">${escapeHtml(hint)}</p></li>`;
+function emptyRowHtml(title, hint, extra = '') {
+  return `<li class="list-group-item app-empty queue-empty"><p class="mb-1">${escapeHtml(title)}</p><p class="fs-sm mb-0 hint">${escapeHtml(hint)}</p>${extra}</li>`;
+}
+
+// An empty playlist: editors are pointed at the search (the top bar, Ctrl+K; it
+// adds to this playlist when started here), with a button for touch and phones.
+const isMac = () => /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
+function emptyQueueHtml() {
+  if (!state.canEdit) return emptyRowHtml(t('queue.empty', 'Queue is empty'), t('queue.emptyHintReadOnly', 'Nothing in this playlist yet'));
+  const key = isMac() ? '⌘K' : 'Ctrl K';
+  const hint = window.matchMedia('(pointer: coarse), (width < 768px)').matches
+    ? t('queue.emptyHintTouch', 'Find songs with the search to add them here.')
+    : t('queue.emptyHintSearch', 'Search for songs above ({key}) to add them here.', { key });
+  return emptyRowHtml(t('queue.empty', 'Queue is empty'), hint,
+    `<button type="button" class="btn btn-sm mt-4 queue-empty-search" data-search-focus>${SEARCH_ICON}<span>${escapeHtml(t('queue.findSongs', 'Find songs'))}</span></button>`);
 }
 
 // The stats strip above the table, always over the whole playlist (the page holds
@@ -536,11 +552,53 @@ export function statsHtml(songs) {
   return items.join('');
 }
 
+// The playlist page's stats, folded into the header's muted line as plain text:
+// "11 songs · 48 min · 11 artists · Top artist: …". The same facts as the
+// strip (statsHtml) on Radio and the artist pages; a part with more to say
+// keeps its own title.
+export function statsTextHtml(songs) {
+  const number = (n) => escapeHtml(new Intl.NumberFormat(addedLocale()).format(n));
+  const part = (text, title = '') => `<span${title ? ` title="${escapeHtml(title)}"` : ''}>${text}</span>`;
+  const stats = playlistStats(songs);
+  const parts = [part(stats.songs === 1
+    ? t('stats.songOne', '{n} song', { n: number(1) })
+    : t('stats.songMany', '{n} songs', { n: number(stats.songs) }))];
+  if (stats.lengthKnown) {
+    const { hours, minutes, seconds } = lengthParts(stats.totalSeconds);
+    const replacements = { h: number(hours), m: number(minutes), s: number(seconds) };
+    let length;
+    if (hours && minutes) length = t('stats.lengthHoursMinutes', '{h} h {m} min', replacements);
+    else if (hours) length = t('stats.lengthHours', '{h} h', replacements);
+    else if (minutes || !seconds) length = t('stats.lengthMinutes', '{m} min', replacements);
+    else length = t('stats.lengthSeconds', '{s} sec', replacements);
+    parts.push(stats.lengthPartial
+      ? part(t('stats.about', 'about {length}', { length }), t('stats.aboutTitle', 'Length known for {known} of {total} songs', { known: stats.timed, total: stats.songs }))
+      : part(length));
+  }
+  if (stats.artists) parts.push(part(stats.artists === 1
+    ? t('stats.artistOne', '{n} artist', { n: number(1) })
+    : t('stats.artistMany', '{n} artists', { n: number(stats.artists) })));
+  if (stats.topArtist) parts.push(part(t('stats.topArtist', 'Top artist: {name} ({n})', { name: escapeHtml(stats.topArtist.name), n: number(stats.topArtist.count) })));
+  if (stats.topAdder) parts.push(part(t('stats.topAdder', 'Most added by: {name} ({n})', { name: escapeHtml(stats.topAdder.name), n: number(stats.topAdder.count) })));
+  return parts.join(' · ');
+}
+
 function renderStats() {
   const el = document.getElementById('playlist-stats');
   if (!el) return;
-  const html = statsHtml(state.queue);
+  // Off the playlist page there is nothing to count.
+  const html = state.lobbyId ? statsTextHtml(state.queue) : '';
   if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
+  syncPlaylistMeta();
+}
+
+// The header's muted line is one truncated line: its title holds all of it.
+// The " · " between owner, stats and listeners is drawn by app.css.
+export function syncPlaylistMeta() {
+  const line = document.getElementById('playlist-meta-text');
+  if (!line) return;
+  const text = [...line.children].filter((el) => !el.hidden && el.textContent.trim()).map((el) => el.textContent.trim()).join(' · ');
+  if (line.title !== text) line.title = text;
 }
 
 function filterQuery() {
@@ -574,7 +632,7 @@ export function updateQueue({ anchor = true } = {}) {
     : ['.queue-item-handle', '.queue-item-remove', '.queue-item-play', '.song-menu-btn'].find((sel) => active.matches(sel)) || null;
   shown = next;
   if (!next.length) {
-    if (state.queue.length === 0) listView().clear(emptyRowHtml(t('queue.empty', 'Queue is empty'), t('queue.emptyHint', 'Add a song to get started')));
+    if (state.queue.length === 0) listView().clear(emptyQueueHtml());
     else listView().clear(emptyRowHtml(t('queue.noMatch', 'No songs match'), t('queue.noMatchHint', 'Try another word, or clear the filter')));
     return;
   }
@@ -603,6 +661,7 @@ export function setupQueueSearch() {
 export function updateListeners() {
   const listenerWord = state.listeners.length !== 1 ? t('lobby.listeners', 'listeners') : t('lobby.listener', 'listener');
   elements.userCount.textContent = `${state.listeners.length} ${listenerWord}`;
+  syncPlaylistMeta();
 }
 
 // Clear the lobby page's lists (switching or leaving a lobby page). The full

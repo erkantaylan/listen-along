@@ -1,7 +1,7 @@
-// The global search: one field at the top of the page panel on every signed-in
-// page (#app-search, moved into the view on screen; on phones only on the
-// search page, which the row of places and the drawer open), Ctrl+K / Cmd+K
-// from anywhere, and the search page /search?q=… (DESIGN.md "Search").
+// The global search: one field in the app shell's top bar, centred above the
+// panels on every signed-in page (#app-search, body.has-topbar; on phones only
+// on the search page, which the row of places and the drawer open), Ctrl+K /
+// Cmd+K from anywhere, and the search page /search?q=… (DESIGN.md "Search").
 //
 //   Songs        the library, as you type (GET /api/library?sort=relevance)
 //   Artists      the artists list (artists.js), filtered here
@@ -15,14 +15,14 @@
 //
 // A library song played from here is a context of its own ({ type: 'search' })
 // that repeats it until something else is chosen (player-queue.js). Adding goes
-// to the playlist this search was opened for ("Add songs" on a playlist page),
-// else to the one last played from (search-rules.js addTarget); the same song
-// in a playlist asks first (add-to-playlist.js). The pure rules are in
-// search-rules.js.
+// to the playlist this search was started on (an editable playlist page on
+// screen when the field was focused, search-rules.js startTarget), else to the
+// one last played from (addTarget); the same song in a playlist asks first
+// (add-to-playlist.js). The pure rules are in search-rules.js.
 import { state, storageGet, storageSet } from './state.js';
 import { escapeHtml, formatDuration, navigateTo, showToast, t } from './ui.js';
 import { player } from './player.js';
-import { libraryTrack } from './library.js';
+import { isLibraryOpen, libraryTrack } from './library.js';
 import { searchPath, searchQueryOf, artistPath, playlistPath } from './router.js';
 import { bindSongMenu, songMenuButtonHtml } from './song-reports.js';
 import { bindContextMenu, closeContextMenu, isContextMenuOpen, openContextMenu } from './context-menu.js';
@@ -35,8 +35,8 @@ import { thumbUrl, watchUrl } from './pick-rules.js';
 import { isUnplayable } from './playback-failures.js';
 import { closeDrawer } from './sidebar.js';
 import {
-  ADD_KEY, SONGS_MAX, SONGS_SHOWN, addTarget, isAddKey, isSearchShortcut, isSpotifyLink, lastPlayedFrom, libraryChangeMatters,
-  linkInput, linkOutcome, rankArtists, rankPlaylists, requestOutcome, rowStep, similarQuery, youtubeOutcome,
+  ADD_KEY, SONGS_MAX, SONGS_SHOWN, addTarget, isAddKey, isSearchShortcut, isSpotifyLink, keepTarget, lastPlayedFrom, libraryChangeMatters,
+  linkInput, linkOutcome, pageTarget, placeholderTarget, rankArtists, rankPlaylists, requestOutcome, rowStep, similarQuery, startTarget, youtubeOutcome,
 } from './search-rules.js';
 
 const TYPE_DELAY_MS = 150;   // library results as you type
@@ -44,7 +44,8 @@ const LINK_DELAY_MS = 350;   // a pasted link is looked up once it stops changin
 const SIMILAR_MAX = 5;
 const LIBRARY_REFRESH_MS = 1500; // library changes come in bursts (an import's uploads)
 const LAST_PLAYED_KEY = 'listen-lastPlayedPlaylist';
-// Views the field sits on (from 768px; below that only the search page).
+// Views with the top bar (from 768px, and the library overlay; below that only
+// the search page). Not login, pending or /dashboard: no bar, no gap.
 const VIEWS_WITH_FIELD = ['landing-view', 'lobby-view', 'radio-view', 'artists-view', 'artist-view', 'search-view', 'profile-view', 'app-view'];
 
 const ICON = {
@@ -82,7 +83,7 @@ const S = {
   busy: new Set(),      // row keys with an add / request on its way (a second press does nothing)
   importing: false,     // an import on its way
   stale: false,         // the library changed while the page was not on screen
-  sessionTarget: null,  // a playlist id: "Add songs" on its page
+  sessionTarget: null,  // a playlist id: the editable playlist page this search was started on
   rows: new Map(),      // row key -> what it is (the rendered rows)
 };
 const linkCache = new Map(); // input -> outcome (answers only, never failures)
@@ -113,72 +114,66 @@ function renderTarget() {
     </span>${target.session ? '' : `<span class="fs-xs fg-3 search-target-why">${escapeHtml(t('search.lastPlayed', 'the playlist you last played'))}</span>`}`;
 }
 
+// The editable playlist page on screen, if any (search-rules.js pageTarget).
+function pagePlaylistId() {
+  const view = document.querySelector('.view.active');
+  return pageTarget({ view: view ? view.id.replace(/-view$/, '') : null, lobbyId: state.lobbyId, canEdit: state.canEdit, libraryOpen: isLibraryOpen() });
+}
+
 function refreshPlaceholder() {
   const input = $('app-search-input');
   if (!input) return;
-  const target = S.sessionTarget ? currentTarget() : null;
-  input.placeholder = target && target.session
-    ? tf('search.placeholderTarget', 'Find songs to add to {name}', { name: playlistName(target.playlist) })
+  const target = placeholderTarget({ sessionId: S.sessionTarget, pageId: pagePlaylistId(), playlists: getPlaylists() });
+  input.placeholder = target
+    ? tf('search.placeholderTarget', 'Find songs to add to {name}', { name: playlistName(target) })
     : t('search.placeholder', 'Search songs, artists, playlists, or paste a link');
+}
+
+// The search starts (focus, Ctrl+K, the Search place): on an editable playlist
+// page, that playlist becomes this search's target.
+function armTarget() {
+  const next = startTarget(S.sessionTarget, pagePlaylistId());
+  if (next === S.sessionTarget) return;
+  S.sessionTarget = next;
+  refreshPlaceholder();
+  renderTarget();
 }
 
 // ----------------------------------------------------------------- the field
 
-/** The field's place: the view on screen (or the library overlay); null when it has none. */
-function fieldHome() {
-  if (!document.body.classList.contains('has-plnav')) return null;
+/** Whether the top bar is on screen: a signed-in page that has it (on phones only the search page). */
+function barShown() {
+  if (!document.body.classList.contains('has-plnav')) return false;
   const lib = $('library-page');
-  if (lib && !lib.hidden && !phone()) return lib;
+  if (lib && !lib.hidden) return !phone(); // the overlay is a page panel too (on phones it has no bar)
   const view = document.querySelector('.view.active');
-  if (!view || !VIEWS_WITH_FIELD.includes(view.id)) return null;
-  if (phone() && view.id !== 'search-view') return null;
-  return view;
+  if (!view || !VIEWS_WITH_FIELD.includes(view.id)) return false;
+  return !phone() || view.id === 'search-view';
 }
 
-function placeField() {
+// The bar is part of the shell (index.html, app.css "Top bar"): it never moves,
+// it is shown or not, and body.has-topbar makes the panels start under it.
+function syncBar() {
   const bar = $('app-search');
   if (!bar) return;
-  const home = fieldHome();
-  bar.hidden = !home;
-  if (home && bar.parentElement === home) syncStuck();
-  if (!home || bar.parentElement === home) return;
-  const input = $('app-search-input');
-  const focused = document.activeElement === input;
-  const [from, to] = [input.selectionStart, input.selectionEnd];
-  home.prepend(bar);
-  syncStuck();
-  if (focused) {
-    input.focus({ preventScroll: true });
-    try { input.setSelectionRange(from, to); } catch {}
-  }
+  const shown = barShown();
+  bar.hidden = !shown;
+  document.body.classList.toggle('has-topbar', shown);
+  refreshPlaceholder();
 }
 
-// Content scrolled under the field (the panel scrolls with a mouse, the
-// document on touch): it gets its divider (app.css .is-stuck).
-let stuckFrame = 0;
-function syncStuck() {
-  if (stuckFrame) return;
-  stuckFrame = requestAnimationFrame(() => {
-    stuckFrame = 0;
-    const bar = $('app-search');
-    const home = bar && bar.parentElement;
-    if (!bar || bar.hidden || !home) return;
-    const shifted = bar.getBoundingClientRect().top - home.getBoundingClientRect().top > 1;
-    bar.classList.toggle('is-stuck', shifted || home.scrollTop > 0);
-  });
-}
-
-/** Ctrl+K, the places, "Add songs": the field, here or on the search page. */
+/** Ctrl+K, the places: the field, here or on the search page. */
 export function focusSearch({ select = true } = {}) {
   closeContextMenu();
-  placeField();
+  armTarget();
+  syncBar();
   const bar = $('app-search');
   const input = $('app-search-input');
   if (bar.hidden) {
     navigateTo(searchPath(S.open ? S.query : ''));
-    placeField();
+    syncBar();
   }
-  input.focus({ preventScroll: false });
+  input.focus({ preventScroll: true });
   if (select) input.select();
 }
 
@@ -248,7 +243,7 @@ export function openSearchPage(query, { from = null } = {}) {
   const input = $('app-search-input');
   if (searchQueryOf(input.value) !== query && document.activeElement !== input) input.value = query;
   syncKbd();
-  placeField();
+  syncBar();
   if (!playlistsLoaded()) loadPlaylists();
   if (!wasOpen || query !== S.query) runQuery(query, { force: !wasOpen });
   else render();
@@ -264,12 +259,11 @@ export function closeSearchPage() {
   document.title = 'listen-along';
 }
 
-/** Any route change: an "Add songs" target lasts while its search does. */
+/** Any route change: a search's playlist target lasts while its search does (keepTarget). */
 export function searchRouteChanged(route) {
   if (!S.sessionTarget) return;
-  if (route.view === 'search' || (route.view === 'lobby' && route.lobbyId === S.sessionTarget && !route.library)) return;
-  S.sessionTarget = null;
-  refreshPlaceholder();
+  S.sessionTarget = keepTarget(S.sessionTarget, route);
+  if (!S.sessionTarget) refreshPlaceholder();
 }
 
 function setTitle() {
@@ -1019,6 +1013,8 @@ export function setupSearch() {
     applyInput();
   });
   input.addEventListener('compositionend', () => applyInput());
+  // Starting a search on an editable playlist page: it adds there.
+  input.addEventListener('focus', armTarget);
   input.addEventListener('keydown', onFieldKeydown);
   bar.addEventListener('submit', (e) => e.preventDefault());
 
@@ -1032,17 +1028,6 @@ export function setupSearch() {
     focusSearch();
   }, true);
 
-  // The playlist page's "Add songs": this search adds to that playlist.
-  const addSongs = $('add-songs-btn');
-  if (addSongs) addSongs.addEventListener('click', () => {
-    if (!state.lobbyId || !state.canEdit) return;
-    S.sessionTarget = state.lobbyId;
-    refreshPlaceholder();
-    if (phone()) navigateTo(searchPath(''));
-    focusSearch();
-    renderTarget();
-  });
-
   // The phone row and the drawer: the search page, field focused.
   for (const id of ['places-search', 'plnav-nav-search']) {
     const link = $(id);
@@ -1050,6 +1035,7 @@ export function setupSearch() {
       if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       e.preventDefault();
       closeDrawer();
+      armTarget(); // from an editable playlist page: adds there
       navigateTo(searchPath(S.open ? S.query : ''));
       $('app-search-input').focus();
     });
@@ -1156,13 +1142,15 @@ export function setupSearch() {
   // when what the page shows from it changed, so an open menu is left alone.
   onPlaylists(() => { refreshPlaceholder(); refreshIfChanged(); });
 
-  document.addEventListener('app:viewchange', placeField);
-  document.addEventListener('scroll', syncStuck, { capture: true, passive: true });
-  window.matchMedia('(width < 768px)').addEventListener('change', placeField);
+  document.addEventListener('app:viewchange', syncBar);
+  // The playlist page's name or edit right changed (lobby.js).
+  document.addEventListener('app:playlistmeta', refreshPlaceholder);
+  // An empty playlist's "Find songs" (queue.js).
+  document.addEventListener('app:focus-search', () => focusSearch());
+  window.matchMedia('(width < 768px)').addEventListener('change', syncBar);
   window.addEventListener('languageChanged', () => { refreshPlaceholder(); syncKbd(); if (S.open) { setTitle(); render(); } });
-  refreshPlaceholder();
   syncKbd();
-  placeField();
+  syncBar();
 }
 
 /**

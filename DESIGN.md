@@ -193,8 +193,8 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 - Secondary information: `fs-sm` / `fs-xs` with `fg-3`. Truncate long titles with `text-truncate`
   (parent needs `min-w-0` inside flex rows).
 - Spacing: Bootstrap utilities on the fine scale above. Page content uses `.container`
-  (`.app-narrow` = 40rem for forms/settings; the library uses 56rem; the playlist page takes the whole column,
-  with only its filter input capped at 56rem; the search page 56rem).
+  (`.app-narrow` = 40rem for forms/settings; the playlist page and the library take the whole column, the library's
+  search box (36rem), hints (48rem) and Download form (40rem) keeping a readable measure, left-aligned; the search page 56rem).
   Vertical rhythm between cards: `mb-4`/`mb-5` or `vstack gap-6`.
 - Radii and shadows: Bootstrap defaults (buttons .5rem, cards .75rem). Shadows only on
   floating things (modals, drawer, toasts).
@@ -203,7 +203,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 
 | Need | Use |
 | --- | --- |
-| Top bar | `nav.navbar.app-navbar > .container` (brand `.app-brand` or back button + `h1.h6`, actions on the right). In the signed-in app it is the page panel's head: same surface, no rule under it, the title a size up (`--bs-font-size-lg`). |
+| Top bar | `nav.navbar.app-navbar > .container` (brand `.app-brand` or back button + `h1.h6`, actions on the right). In the signed-in app it is the page panel's head: same surface, no rule under it, the title a size up (`--bs-font-size-lg`). Not to be confused with the shell's top bar above the panels, which holds only the search field (see "App shell"). |
 | Version, Android app, changelog, GitHub | One place only: the About card at the bottom of the profile page (`#profile-about`). Android app is an in-app link to `/app`; the others open a new tab so playback continues; `setupAppMeta()` in `ui.js` fills the version from `/api/version` and leaves it hidden on failure. Never in a navbar. |
 | Grouped content | `.card` with `.card-header` (h6) / `.card-body` / `.card-footer`. |
 | Lists of items (songs, playlists, users, tokens) | `ul.list-group` with `li.list-group-item` (flex row: `.app-thumb`, text block `min-w-0 flex-grow-1`, actions). Clickable rows: `.list-group-item-action` + `tabindex="0"` + Enter/Space handler. Empty state: `li.list-group-item.app-empty`. |
@@ -213,7 +213,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Icon-only action | `.btn-text.theme-secondary.btn-icon` with `aria-label` + `title`; toggled state = `.active` (accent tint + accent border). |
 | Inputs | `.form-control` (also on `<select>`), `.input-group` to attach buttons, `.form-label` or `aria-label`. |
 | Tabs | Views that exclude each other (a real filter you could combine would be chips, not tabs): a segmented control, `.app-seg` (`theme.css`) holding plain `button`s, the current one `.active` (or `aria-pressed="true"` where it is a pressed button). One `--app-border-strong` outline with `--bs-radius-5` corners; the buttons touch, a 1px divider of the same colour between them; 32px tall (40px on touch), `fs-sm`, `--app-text-secondary`. Hover = `--app-hover`, pressed = `--app-pressed`, current = `--app-accent-subtle` tint + semibold `--app-accent-text-strong` text, no outline or bar of its own. Too wide for its column, it scrolls sideways inside its outline (hidden scrollbar), and the focus ring is inset (-2px) so that never clips it; in a page column under 30rem the buttons are tighter (`app.css`). `.app-seg-fill` = equal buttons across the whole width, `fs-xs`, a label may wrap to two lines and no button gets narrower than its longest word (the sidebar's filter). Never an underline, never separate pills. |
-| Status / counts | `.badge.badge-subtle.theme-*`. The stats strip (`.playlist-stats`) is a row of neutral pills. |
+| Status / counts | `.badge.badge-subtle.theme-*`. The stats strip (`.playlist-stats`, Radio and the artist pages) is a row of neutral pills; the playlist page folds the same facts into its header's muted line. |
 | Playlist cover | `.playlist-avatar.cover-N` (2.5rem rounded square of initials, `playlistInitials` + `playlistCoverIndex`): sidebar rows and rail, landing tiles and cards, the playlist page's head. Never an image. |
 | Pagination | `ul.pagination.pagination-sm > li.page-item > button.page-link` (`.active`, `.disabled`). |
 | Progress | `.progress > .progress-bar` (inline `width`). Seek/volume: `.form-range`. |
@@ -227,7 +227,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Artists | The landing shelf `#artists-section`, `#artists-view` (`/artists`) and `#artist-view` (`/artist/<key>`), see "Artists". Cards are `.artist-card` (`artists.js` `cardHtml`); never a second artist list. |
 | Player | The one app-wide `#player-bar` (`section.sticky-player.player-bar` in `index.html`, outside the views): see "Player bar" below. Never add a second player or a per-page `<audio>`. |
 | Context menu / small popover | `context-menu.js` (see "Context menu" below). Never a second menu implementation. |
-| Search | The one global field `#app-search` and the search page (see "Search" below). Never a second search field for the whole app (the sidebar's playlist filter, the library's and the artists' boxes filter their own lists). |
+| Search | The one global field `#app-search`, in the shell's top bar, and the search page (see "Search" below). Never a second search field for the whole app (the sidebar's playlist filter, the library's, the playlist's and the artists' boxes filter their own lists). |
 | Icons | Inline SVG (Material paths), `fill="currentColor"`, `aria-hidden="true"`. Inside buttons they are sized automatically (1.25rem, 1rem in `.btn-sm`); elsewhere add `.icon` or `.icon-sm`. |
 
 ## Page layouts
@@ -240,6 +240,17 @@ bar across the bottom; on phones the sidebar is a drawer and a row of places is 
 `--app-gap` (8px, 6px on phones) sits between them and around the window's edge; corners
 are `--app-panel-radius`; no panel has an outline (see "Elevation and border rules").
 
+- **The top bar** (`form#app-search`, `body.has-topbar`, "Top bar" in `app.css`): from 768px a row above all the panels holding
+  only the global search field, centred in the **window** (Spotify's place for it), never in the page column, 32rem at most.
+  It sits on the page colour, a gap from the window's top and a gap above the panels, with no card, rule or shadow; the sidebar,
+  the page, the library overlay and the chat column or its rail all start under it, at `--app-top` (a gap, plus the bar's
+  2.5rem and a gap when it is shown), and `--app-view-height` takes it off. It is fixed: it never scrolls and is never moved
+  into a page. Nothing else goes in it (brand, GitHub, profile and the collapse toggle stay in the sidebar's top panel), so the
+  field cannot collide with anything; at 768px it still has 112px either side. It is shown on the signed-in pages that have the
+  search (Home, playlist, Radio, artists, an artist, search, profile, `/app`, and the library overlay); login, pending and
+  `/dashboard` have no bar and no gap (`--app-top` stays one gap). The full-screen `/social` below 1010px covers it. Below 768px
+  it is only on the search page, a sticky row between the row of places and the page panel (`--app-topbar-room`). In the tab
+  order it comes before the page.
 - The columns are where "Columns and breakpoints" puts them: `--app-sidebar-width` and `--app-social-inset` are
   whole columns, each holding its panel and the gap at the window's edge; the page panel has a gap on both sides.
   So the page panel is 16px narrower than the page column in the table, and `@container page` rules see that.
@@ -359,9 +370,12 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   primary "Create playlist" ("Creating…" while busy). Empty name or a server refusal about
   the name ("A playlist with that name already exists") shows in red under the field. On
   success it closes and the new playlist opens.
-- **Playlist** (`/playlist/<id>`; internally the "lobby" view): full-height column —
-  navbar (back, the playlist's cover of initials (hidden in a page column under 30rem), name, a muted line with the "Private" badge (lock + text, same as the
-  landing rows; nothing for public), owner and listener count; your own pin (same as the
+- **Playlist** (`/playlist/<id>`; internally the "lobby" view): full-height column, and above the table only two rows (the
+  shell's top bar with the search sits above the panel) —
+  navbar (back, the playlist's cover of initials (hidden in a page column under 30rem), name, a muted `fs-xs` line with the "Private" badge (lock + text, same as the
+  landing rows; nothing for public), then one truncated line of plain text (`#playlist-meta-text`): owner · the stats (see "Stats" under
+  "Song rows") · listener count, e.g. "by you · 11 songs · 48 min · 11 artists · Top artist: X (3) · 2 listeners", the " · " drawn by CSS,
+  the whole line in its `title` and the "about …" length keeping its own; your own pin (same as the
   sidebar's; aria-pressed, `.active`), share, and the owner's
   ⋮ menu: Copy link, Rename, Make private / public, Delete), scrolling body (full column)
   with the queue (no tabs: who is listening and what they play is the global people
@@ -370,13 +384,18 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   every other page. The back button only navigates; it never leaves the playlist or stops
   audio. Users who may edit the playlist (public: every signed-in user; private: its owner —
   the server sends `canEdit` with `lobby:joined`) get a grey "Edit" text button in the navbar
-  (solid primary "Done" while editing) and the **Add songs** row: a primary "Add songs" button (plus icon) that focuses the
-  global search with this playlist as its add target (see "Search"; on phones it opens the search page), and the outline
-  icon button that opens the music library over the playlist. There is no add-song text box any more. The others see neither. Queue rows
-  follow "Song rows: normal and edit mode" below; a song's source link is in its menu. The "Clear queue" button (danger icon button) shows only in edit mode.
+  (solid primary "Done" while editing). Under the navbar **one toolbar** (`.queue-toolbar`): the "Filter songs…" box takes
+  the width, then the sort select (at most 11rem) and the ghost download-playlist icon, and in edit mode the "Clear queue"
+  danger icon button, all on one line (at 360px too). There is no add-song box, "Add songs" button or library button: songs
+  are added from the global search, which adds to this playlist when it is started here (see "Search"), or from the library
+  in the sidebar. An empty playlist says so for editors: "Search for songs above (Ctrl K) to add them here." ("Find songs with
+  the search…" on touch and phones) with a grey **Find songs** button that starts the search (on phones the search page);
+  people who cannot edit read "Nothing in this playlist yet". Queue rows
+  follow "Song rows: normal and edit mode" below; a song's source link is in its menu.
   A playlist you cannot see (missing, deleted, someone else's private one) shows a
   "Playlist not found" toast and returns to the landing page.
-- **Music library**: a panel over landing or a playlist, in the page panel's place (see "App shell"): navbar (back, title, "adding
+- **Music library**: a panel over landing or a playlist, in the page panel's place (see "App shell"), as wide as the page panel
+  on every tab like the other pages (lists full width; the search box, hints and the Download form keep a measure, left-aligned): navbar (back, title, "adding
   to" context), tabs (segmented control; tighter on phones, so all four fit at 360px) Songs/Requested/Download/Broken with count badges, search + sort toolbar, list group of
   songs (when the page column is below 576px the row's buttons go on their own line under the text; clicking / tapping the row, or Enter / Space on it, plays it — the song already playing is
   resumed, never restarted —; play button — plays in the app-wide player, shows pause on the song that is playing —, a grey
@@ -467,8 +486,8 @@ Two rounded panels, a gap apart (see "App shell"):
   and only the list scrolls.
 
 - **From 768px**: fixed left column, `--app-sidebar-width` (16.5rem, 19rem from 1440px; 4.5rem as the rail),
-  the whole column including the gap at the window's edge, from a gap below the top down to a gap above the player
-  bar. `body` gets the same `padding-left`, and the library overlay's `left` follows it, as the chat column does on
+  the whole column including the gap at the window's edge, from `--app-top` (a gap below the top bar, or below the window's
+  top without one) down to a gap above the player bar. `body` gets the same `padding-left`, and the library overlay's `left` follows it, as the chat column does on
   the right.
 - **Rail** (`body.plnav-rail`, 72px, see "Columns and breakpoints" for when): the same two panels, re-styled. Brand
   icon, GitHub, profile, the toggle (`#plnav-toggle`, chevron, "Expand / Collapse playlists", `aria-expanded`), the places as
@@ -584,12 +603,12 @@ suffixes; a song row always shows the song's full credit. Songs with an open rep
 One field for the whole signed-in app and one page, `/search?q=…` (`search.js`, rules in `search-rules.js`, relevance on the server
 in `backend/src/songSearch.js`).
 
-- **The field** (`form#app-search[role=search]`, `#app-search-input`): one element that `search.js` moves to the top of the page panel
-  on screen, above its top bar (landing, playlist, Radio, artists, an artist, search, profile, `/app`, and the library overlay
-  while it is open); sticky at the panel's top while the panel scrolls, on the panel's opaque surface, with a plain `--app-border-subtle` divider under it once content scrolls beneath (`.is-stuck`). Not on login, pending or `/dashboard`. A `.form-control`
-  pill, 2.5rem, max 36rem, with the search icon inside at the start and a `kbd` hint at the end ("Ctrl K", "⌘K" on a Mac; hidden
-  while there is text and on touch). Placeholder "Search songs, artists, playlists, or paste a link" ("Find songs to add to <name>"
-  while an "Add songs" target is set). **Ctrl+K / Cmd+K** focuses and selects it from anywhere, also from another input (not over a
+- **The field** (`form#app-search[role=search]`, `#app-search-input`): the shell's **top bar** (see "App shell"), one element that never
+  moves: centred in the window above the panels from 768px (landing, playlist, Radio, artists, an artist, search, profile, `/app`, and
+  the library overlay while it is open), shown or hidden by `search.js` (`body.has-topbar`). Not on login, pending or `/dashboard`. A `.form-control`
+  pill, 2.5rem, max 32rem, with the search icon inside at the start and a `kbd` hint at the end ("Ctrl K", "⌘K" on a Mac; hidden
+  while there is text and on touch). Placeholder "Search songs, artists, playlists, or paste a link"; "Find songs to add to <name>"
+  while an editable playlist page is on screen or the search has that playlist as its target (`placeholderTarget`). **Ctrl+K / Cmd+K** focuses and selects it from anywhere, also from another input (not over a
   dialog, not on `/dashboard`); Escape clears it, a second Escape leaves it. Below 768px it is only on the search page, which the
   **Search** place opens: a fifth icon in the phone row of places (`#places-search`) and a Search row in the drawer's places
   (`#plnav-nav-search`, phones only).
@@ -597,7 +616,7 @@ in `backend/src/songSearch.js`).
   350ms for a link). IME-safe: nothing happens during a composition, Enter and Escape of a composition are the IME's. Back returns
   to the page you came from; the page's own back button too. The title is "<query> · Search · listen-along".
 - **The page**: navbar with ☰ / back and `h1` "Search"; a line saying where a one-step add goes ("Adding to: <name>" as a
-  primary subtle badge, with × when it is an "Add songs" target, else a muted "the playlist you last played"; without one, a muted
+  primary subtle badge, with × when the search was started on that playlist's page, else a muted "the playlist you last played"; without one, a muted
   "Play a playlist to add to it here in one step"); then sections, each a bold `fs-lg` heading over a list group of rows
   (`.search-row`, 3.75rem, thumb, title over a muted meta line, buttons at the end):
   - **Songs — in the library**, as you type (`GET /api/library?sort=relevance&limit=50`): ten, then "Show n more" up to 50 and a note
@@ -647,8 +666,11 @@ in `backend/src/songSearch.js`).
   something else is chosen, whatever the saved repeat mode (which is not touched); Next and Previous restart it; shuffle is
   disabled. The player bar reads "artist · Search “query”" and opens the search again. Presence sends no context (a search is
   nobody's business); listen-along followers just get the song.
-- **The current playlist** (the one-step target) is the playlist last **played** from (`listen-lastPlayedPlaylist` in this browser),
-  or for one search the playlist whose **Add songs** opened it; only while it is in the viewer's list and editable, else there is none.
+- **The current playlist** (the one-step target) is, for one search, the playlist whose page was on screen when the search
+  **started** (the field focused or clicked, Ctrl+K, the phone's Search place, an empty playlist's Find songs) if the viewer may
+  edit it (`pageTarget` / `startTarget` in `search-rules.js`): the "Adding to" chip with × to drop it, kept on the search page and
+  back on that playlist (not its library), ended by any other page (`keepTarget`). Otherwise it is the playlist last **played**
+  from (`listen-lastPlayedPlaylist` in this browser). Either only while it is in the viewer's list and editable, else there is none.
 - Narrow page columns (< 576px): Add and Request become icon buttons, the "In library" badge and the YouTube link go (both stay in
   the menu), thumbs shrink. On touch every row button is 2.5rem.
 
@@ -716,9 +738,11 @@ Song lists behave like Spotify's. **Normal mode** (always the default):
   toast ("… could not be played. Check your connection and try again.", or "… are not in the library yet." when that is all they were). A failure toast says "Could not play …" (+ "Skipping it." when another song came up); an automatic report gets an info toast
   with **Undo** (8s). There is no filter for unplayable songs: they stay in the list, greyed.
 
-**Stats strip** (`#playlist-stats`, `playlist-stats.js` + `queue.js`), at the top of the playlist page, above the Add songs row:
-one `fs-sm` line of plain facts that wraps between them and never inside one; muted words, the numbers and names in `--app-text`.
-No separators (a wrapped line would start with one), no cards. Always over the whole playlist, whatever the filter shows, and live.
+**Stats** (`playlist-stats.js` + `queue.js`). On the playlist page they are part of the header's muted line
+(`#playlist-stats` inside `#playlist-meta-text`, `statsTextHtml`): plain text between the owner and the listener count, " · "
+between facts, one line, truncated with the whole line in its `title`. On Radio and the artist pages they are the **stats strip**
+(`.playlist-stats`, `statsHtml`): one `fs-sm` line of neutral pills that wraps between facts and never inside one; muted words, the
+numbers and names in `--app-text`. Always over the whole playlist, whatever the filter shows, and live.
 
 | Fact | Shown when |
 | --- | --- |
@@ -944,8 +968,8 @@ when they do not fit. Each card is a labelled `section` (`aria-labelledby` its t
 can move focus there).
 
 - **Desktop (>= 1010px)**: fixed right column, `--app-social-width` (17.5rem, 20rem from 1200px) wide including
-  the gap at the window's edge, from a gap below the top down to a gap above the player bar. `body` gets the
-  same `padding-right`, so every page (and the library overlay, via `right`) shifts left
+  the gap at the window's edge, from `--app-top` (under the top bar, see "App shell") down to a gap above the player bar,
+  as is the rail. `body` gets the same `padding-right`, so every page (and the library overlay, via `right`) shifts left
   rather than sitting under it. Collapse with the chevron in the People card. Present on every
   signed-in page (landing, playlist, library overlay, profile), next to the pending-approval
   card, and on `/dashboard` when the browser is also signed in to the app (the admin login alone is

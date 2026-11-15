@@ -190,8 +190,9 @@ where lobby persistence broke entirely on deployed instances.
   load applies, and a row older by `updated_at` never replaces a newer one), pure
   rules in `activity-rules.js` (tested), the card shown by `social.js`
   (`opts.activity`: approved only).
-- **Global search** (web only; DESIGN.md "Search"): `frontend/search.js` (the one field `#app-search`, moved into the
-  page on screen, Ctrl+K / Cmd+K; the page `/search?q=`), pure rules in `frontend/search-rules.js` (tested in
+- **Global search** (web only; DESIGN.md "Search"): `frontend/search.js` (the one field `#app-search`, the app shell's
+  top bar centred above the panels, never moved into a page: `body.has-topbar` makes every column start at `--app-top`;
+  Ctrl+K / Cmd+K; the page `/search?q=`), pure rules in `frontend/search-rules.js` (tested in
   `search-rules.test.js`). Library songs: `GET /api/library?sort=relevance` (opt-in; `library.searchRelevant`, order in
   `songSearch.js`, pure and tested: exact / prefix title and artist before loose all-words matches; Turkish-folded in SQL
   with `translate()` and in JS the same way; at most 400 candidates; `searchLimiter` 120/min per account (token owner or
@@ -201,15 +202,16 @@ where lobby persistence broke entirely on deployed instances.
   request (`POST /api/jobs/picks { query }`, its 30/min limiter); a pasted link goes to `picks { input }` (+
   `match_library` for Spotify) and is exact. A song played from search is the player context `{ type: 'search', query }`:
   one song, repeated (`contextRepeat`), presence sends no context. The page refetches its songs on `library:updated` only for a change that can touch them
-  (`libraryChangeMatters`), debounced, while on screen, and a failed background refetch keeps the results. One-step add target: the playlist last PLAYED from
-  (`listen-lastPlayedPlaylist`), or the one whose "Add songs" opened the search; only while listed and `canEdit`.
+  (`libraryChangeMatters`), debounced, while on screen, and a failed background refetch keeps the results. One-step add target: the editable playlist page on
+  screen when the search STARTED (focus, Ctrl+K, the Search place; `pageTarget` / `startTarget` / `keepTarget`, it lasts while
+  that search does), else the playlist last PLAYED from (`listen-lastPlayedPlaylist`); only while listed and `canEdit`.
 - **Duplicates on the web** = the same library song / YouTube video already in that playlist (another video of the same
   song is not one). Every web add of one library song goes through `addSongToPlaylist` (`add-to-playlist.js`):
   `POST /api/playlists/:id/songs` refuses it (`already_in_playlist`, its default for every client), the user is asked,
   and only then it is sent with `allow_duplicates`. `POST /api/jobs { picks, playlist_id }` names such songs in
   `already_in_playlist` (additive) and adds them only with the opt-in `allow_duplicates: true`; without it, as before,
-  they are skipped. Socket `queue:add` is unchanged (the web no longer uses it to add: the playlist page's add-song box
-  is gone, replaced by "Add songs", which opens the search with that playlist as the target).
+  they are skipped. Socket `queue:add` is unchanged (the web no longer uses it to add: the playlist page has no add-song box
+  or button; the global search started on that page adds to it).
 - **Pick the video** (web only, before a job or request exists): `frontend/pick-dialog.js`
   (rules in `pick-rules.js`, tested; DESIGN.md "Pick the video") asks
   `POST /api/jobs/picks` (jobRoutes.js -> `picker.js`; approved accounts, no tokens,

@@ -14,6 +14,7 @@ import { openContextMenu, closeContextMenu, bindContextMenu } from './context-me
 import { loadPlaylists, onPlaylists, isPinned, togglePlaylistPin, getPlaylists, isLoaded } from './playlist-store.js';
 import { closePickDialog } from './pick-dialog.js';
 import { playlistCoverIndex, playlistInitials } from './playlist-filter.js';
+import { syncPlaylistMeta } from './queue.js';
 
 // Register landing view activator
 viewActivators.landing = () => {
@@ -56,9 +57,10 @@ function renderPlaylistHeader() {
   }
   if (elements.playlistMenuBtn) elements.playlistMenuBtn.hidden = !state.isOwner;
   if (elements.editQueueBtn) elements.editQueueBtn.hidden = !state.canEdit;
-  const addSong = document.querySelector('#queue-tab .add-song');
-  if (addSong) addSong.hidden = !state.canEdit;
   if (!state.canEdit && isEditMode()) setEditMode(false);
+  syncPlaylistMeta();
+  // The search field's placeholder names this playlist when it may be added to (search.js).
+  document.dispatchEvent(new CustomEvent('app:playlistmeta'));
 }
 
 // The playlist page's ⋮ (owner only).
