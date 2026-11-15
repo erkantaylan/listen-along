@@ -16,6 +16,18 @@ RUN c="$GIT_COMMIT"; d=""; \
       "${c:-unknown}" "$d" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > /build-info.json; \
     cat /build-info.json
 
+# Compile the frontend's TypeScript (frontend/src -> frontend/dist) with the
+# root package's dev dependencies. Only frontend/dist leaves this stage: the
+# final image has no TypeScript and no root node_modules.
+FROM node:22-alpine AS frontend
+WORKDIR /src
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY tsconfig.base.json ./
+COPY frontend/package.json frontend/tsconfig.json ./frontend/
+COPY frontend/src/ ./frontend/src/
+RUN npm run build && test -d frontend/dist
+
 FROM node:22-alpine
 
 RUN apk add --no-cache python3 py3-pip ffmpeg
@@ -33,6 +45,8 @@ RUN npm install --production
 
 COPY backend/ ./
 COPY frontend/ ./frontend/
+# Served at the site root before frontend/ itself (src/frontendStatic.js).
+COPY --from=frontend /src/frontend/dist/ ./frontend/dist/
 COPY CHANGELOG.md ./CHANGELOG.md
 # The la CLI (no npm dependencies), offered to `la worker` / `la update` for
 # self-update (src/cliRelease.js bundles it at boot). Not its tests.

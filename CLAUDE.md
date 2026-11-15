@@ -457,8 +457,24 @@ stays JavaScript). Until an area is converted its files stay `.js`.
   workspaces: the server's dependencies and the Docker install stay in
   `backend/`). From the repo root: `npm ci`, `npm run typecheck` (`tsc -b`),
   `npm run build` (the frontend), `npm test` (backend tests, then
-  `frontend/src/**/*.test.ts`), `npm run dev` (backend watch + `tsc -w`).
-  CI runs `typecheck` and `build`.
+  `frontend/src/**/*.test.ts`), `npm run dev` (= `make dev`: builds the
+  frontend once, then backend watch + `tsc -w`; sets `FRONTEND_PATH` to this
+  checkout's `frontend/`). CI runs `typecheck`, and `build` before the tests.
+- Serving (`backend/src/frontendStatic.js`): `<FRONTEND_PATH>/dist` and
+  `<FRONTEND_PATH>` are both mounted at the site root, dist first, so
+  `frontend/src/shared/x.ts` is `/shared/x.js` and a compiled module wins over
+  an old `frontend/shared/x.js` (delete the old file when converting; never
+  keep both). Same `no-cache` for `.js`, `.css`, `.map`; `/src/**/*.ts` is
+  served as text so source maps resolve. A missing `dist/` just falls through.
+  `/package.json`, `/tsconfig.json`, `*.tsbuildinfo` and `/dist/...` answer 404.
+  `index.html` keeps its URLs.
+- Docker: the `frontend` stage of `docker/Dockerfile` runs `npm ci` + `npm run
+  build` at the root and only `frontend/dist` is copied into the final image
+  (no TypeScript, no root `node_modules`; the backend install stays
+  `--production`). `.dockerignore` keeps a local `frontend/dist` out of the
+  context. `frontend/src/build-probe.ts` only proves this pipeline: delete it
+  (and its check in `frontend-static.test.js`) once a real module is in
+  `frontend/src`.
 - Erasable syntax only: no `enum`, `namespace` or constructor parameter
   properties (Node strips types, it does not compile them;
   `erasableSyntaxOnly` reports them). Type-only imports use `import type`.

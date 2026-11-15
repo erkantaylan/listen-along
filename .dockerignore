@@ -1,4 +1,11 @@
-# The root package.json's dependencies (typescript, @types/*) are dev tooling;
-# the image installs the server's own from backend/package.json. Root only:
-# patterns here are relative to the build context.
+# The root package.json's dependencies (typescript, @types/*) are dev tooling,
+# installed in the image's own frontend build stage; the server's come from
+# backend/package.json. Patterns are relative to the build context, so this
+# is the root node_modules only.
 node_modules
+# The image runs its own `npm install --production`; without this a local
+# build's `COPY backend/ ./` would overwrite it with the host's dev install.
+backend/node_modules
+# Built in the image (docker/Dockerfile, stage "frontend"); a local build must
+# not leave stale files in the image.
+frontend/dist

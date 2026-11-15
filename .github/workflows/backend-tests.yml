@@ -26,9 +26,16 @@ jobs:
         with:
           node-version: 22 # matches docker/Dockerfile (node:22-alpine)
           cache: npm
-          cache-dependency-path: backend/package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
 
       - run: npm ci
+
+      # Build the frontend first: tests serve and import frontend/dist.
+      - name: Build the frontend
+        working-directory: .
+        run: npm ci && npm run build
 
       # The library tests probe/generate real audio; they skip without ffmpeg.
       - name: Install ffmpeg
@@ -39,7 +46,9 @@ jobs:
       - name: Check Docker is available
         run: docker info --format '{{.ServerVersion}}'
 
+      # Root `npm test`: the backend suite, then frontend/src tests.
       - run: npm test
+        working-directory: .
 
   # TypeScript: typecheck backend + frontend (tsc -b) and build the frontend.
   # Root package.json holds only typescript and @types/*; no workspaces.

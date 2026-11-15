@@ -25,14 +25,14 @@ run:
 	docker-compose up
 
 dev:
-	cd backend && npm install && npm run dev
+	npm install && npm --prefix backend install && npm run dev
 
 test:
-	cd backend && npm test
+	npm test
 
 test-restart:
 	./scripts/test-restart.sh
 
 clean:
 	docker-compose down --rmi local -v 2>/dev/null || true
-	$(RM) backend/node_modules 2>/dev/null || true
+	$(RM) backend/node_modules node_modules frontend/dist 2>/dev/null || true

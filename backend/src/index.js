@@ -206,15 +206,9 @@ const frontendPath = path.resolve(process.env.FRONTEND_PATH || path.join(__dirna
 
 // Static assets (scripts, styles, icons, locales) are public: they hold no
 // data. `index: false` so "/" goes through the auth guard below instead of
-// express.static answering it with index.html.
-app.use(express.static(frontendPath, {
-  index: false,
-  setHeaders: (res, filePath) => {
-    if (filePath.endsWith('.js') || filePath.endsWith('.css')) {
-      res.setHeader('Cache-Control', 'no-cache');
-    }
-  }
-}));
+// express.static answering it with index.html. Compiled TypeScript in
+// <frontend>/dist is served first, at the same URLs (frontendStatic.js).
+app.use(require('./frontendStatic').frontendStatic(frontendPath));
 
 // Socket.IO setup with CORS
 const io = new Server(server, {

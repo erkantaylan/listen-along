@@ -105,6 +105,7 @@
 - fix(web): larger touch targets on phones: song menu, broken-song icon, navbar buttons and the seek bar
 
 - chore(build): TypeScript tooling for the move to TypeScript: tsconfigs, a root `package.json` (`npm run typecheck`, `build`, `test`, `dev`) and a typecheck job in CI. Nothing is converted yet and nothing changes for users. The server now needs Node 22.18 or newer (the Docker image already has it)
+- chore(build): the frontend build is wired in: TypeScript in `frontend/src` compiles to `frontend/dist` (in its own Docker build stage, so the image carries no TypeScript), which the server serves at the same addresses as the existing files, compiled files first. `/package.json` and `/tsconfig.json` are no longer served. `make dev` builds the frontend and watches it. Nothing changes for users
 
 ## v2.31.0 (2026-10-31)
 
