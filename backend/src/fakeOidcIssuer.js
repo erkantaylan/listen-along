@@ -41,7 +41,9 @@ async function startFakeIssuer({ clientId = 'listen-along', slug = 'listen-along
     disabled: new Set(),
     codes: new Map(),
     refreshTokens: new Map(), // token -> { sub, claims, active }
-    calls: { authorize: 0, token: 0, refresh: 0, endSession: [] },
+    // refresh counts every refresh request; refreshOf[sub] only those of a known
+    // token (a test's own session: other sessions, e.g. a socket's timer, refresh too)
+    calls: { authorize: 0, token: 0, refresh: 0, refreshOf: {}, endSession: [] },
     lastTokenError: null,
     authorizeRequests: [],
     disable(sub) { this.disabled.add(sub); },
@@ -190,6 +192,7 @@ async function startFakeIssuer({ clientId = 'listen-along', slug = 'listen-along
         if (idp.refreshError) return json(res, idp.refreshError === 'invalid_client' ? 401 : 400, { error: idp.refreshError });
         const old = form.get('refresh_token');
         const rec = idp.refreshTokens.get(old);
+        if (rec) idp.calls.refreshOf[rec.sub] = (idp.calls.refreshOf[rec.sub] || 0) + 1;
         if (!rec || !rec.active) return json(res, 400, { error: 'invalid_grant', error_description: 'refresh token unknown or used' });
         if (idp.disabled.has(rec.sub)) return json(res, 400, { error: 'invalid_grant', error_description: 'user inactive' });
         rec.active = false; // rotation: every refresh token works once

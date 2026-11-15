@@ -494,26 +494,27 @@ describe('central login: protocol, sessions and re-check (no database)', { timeo
   });
 
   it('re-check: refresh succeeds, the rotated refresh token is kept', async () => {
+    // Counted for this session's user only: the socket an earlier test left open
+    // is re-checked on its own timer, and that is a refresh too.
     const s = await signIn(srv.base, idp, { sub: 'refresh-1' });
-    const before = idp.calls.refresh;
+    const refreshes = () => idp.calls.refreshOf['refresh-1'] || 0;
     await sleep(1100);
     assert.equal((await get(`${srv.base}/api/playlists`, s.session)).status, 200);
-    assert.equal(idp.calls.refresh, before + 1);
+    assert.equal(refreshes(), 1);
     await sleep(1100);
     // The fake refuses a used refresh token: this only passes with the new one.
     assert.equal((await get(`${srv.base}/api/playlists`, s.session)).status, 200);
-    assert.equal(idp.calls.refresh, before + 2);
+    assert.equal(refreshes(), 2);
   });
 
   it('re-check is single-flight per session', async () => {
     const s = await signIn(srv.base, idp, { sub: 'flight-1' });
     await sleep(1100);
     idp.refreshDelayMs = 300;
-    const before = idp.calls.refresh;
     const statuses = await Promise.all(Array.from({ length: 6 }, () => get(`${srv.base}/api/playlists`, s.session).then((r) => r.status)));
     idp.refreshDelayMs = 0;
     assert.deepEqual(statuses, [200, 200, 200, 200, 200, 200]);
-    assert.equal(idp.calls.refresh, before + 1);
+    assert.equal(idp.calls.refreshOf['flight-1'], 1, 'this session refreshed once (other sessions may refresh meanwhile)');
   });
 
   it('invalid_grant (disabled centrally) ends the session and cuts its sockets', async () => {
