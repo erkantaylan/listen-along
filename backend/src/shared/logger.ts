@@ -6,6 +6,8 @@
 // Kept intentionally dependency-free and tiny. Multi-line values (stack traces)
 // get the prefix on their first line only, which is the normal console behaviour.
 
+type ConsoleMethod = (...args: unknown[]) => void;
+
 const orig = {
   log: console.log.bind(console),
   info: console.info.bind(console),
@@ -14,7 +16,7 @@ const orig = {
   debug: console.debug.bind(console),
 };
 
-function withStamp(level, fn) {
+function withStamp(level: string, fn: ConsoleMethod): ConsoleMethod {
   return (...args) => fn(`[${new Date().toISOString()}] [${level}]`, ...args);
 }
 
@@ -24,4 +26,4 @@ console.warn = withStamp('WARN', orig.warn);
 console.error = withStamp('ERROR', orig.error);
 console.debug = withStamp('DEBUG', orig.debug);
 
-module.exports = {};
+export {};

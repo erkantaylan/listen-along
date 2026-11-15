@@ -2,15 +2,16 @@
  * The simple in-memory rate limits (20 per minute): the HTTP one for the
  * admin login (libraryRoutes.js loginRateLimit), keyed by client IP, and a
  * per-socket one for expensive socket operations (queue:add). The library /
- * API limiters are express-rate-limit (rateLimits.js).
+ * API limiters are express-rate-limit (rateLimits.ts).
  */
+import type { RequestHandler } from 'express';
 
-const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
-const RATE_LIMIT_MAX_REQUESTS = 20; // 20 requests per minute
+export const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
+export const RATE_LIMIT_MAX_REQUESTS = 20; // 20 requests per minute
 
-/** @returns {import('express').RequestHandler} keyed by req.clientIp */
-function createMemoryRateLimit() {
-  const rateLimitMap = new Map(); // key: IP, value: { count, resetTime }
+/** Keyed by req.clientIp. */
+export function createMemoryRateLimit(): RequestHandler {
+  const rateLimitMap = new Map<string | undefined, { count: number; resetTime: number }>(); // key: IP
 
   return function rateLimit(req, res, next) {
     const ip = req.clientIp || req.ip || req.socket.remoteAddress;
@@ -32,7 +33,7 @@ function createMemoryRateLimit() {
 }
 
 /** One socket's budget: returns check(), false once the window's budget is spent. */
-function createSocketRateLimit() {
+export function createSocketRateLimit(): () => boolean {
   const socketRateLimit = { count: 0, resetTime: Date.now() + RATE_LIMIT_WINDOW };
   return () => {
     const now = Date.now();
@@ -47,5 +48,3 @@ function createSocketRateLimit() {
     return true;
   };
 }
-
-module.exports = { createMemoryRateLimit, createSocketRateLimit, RATE_LIMIT_WINDOW, RATE_LIMIT_MAX_REQUESTS };

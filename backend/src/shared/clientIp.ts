@@ -26,12 +26,39 @@
  * CLOUDFLARE_IPS=none disables step 2.
  */
 
-const net = require('net');
+import net from 'node:net';
+import type { Express, Request } from 'express';
 
-const DEFAULT_TRUST_PROXY = 'loopback, linklocal, uniquelocal';
+// Express' Request carries the resolved address from install() on.
+declare module 'express-serve-static-core' {
+  interface Request {
+    /** The visitor's IP (install() below); key rate limits on this, not req.ip. */
+    clientIp?: string;
+  }
+}
+
+/** What clientIp() reads of a request: Express' req.ip, the socket, the headers (an HTTP upgrade request too). */
+export interface IpRequest {
+  ip?: string;
+  socket?: { remoteAddress?: string };
+  headers: Record<string, string | string[] | undefined>;
+}
+
+/** The client IP of a request, with the Cloudflare check it uses. */
+export interface ClientIp {
+  (req: IpRequest): string;
+  isCloudflare: (ip: unknown) => boolean;
+}
+
+/** An Express `trust proxy` value. */
+export type TrustProxy = string | number | boolean;
+
+type Env = Record<string, string | undefined>;
+
+export const DEFAULT_TRUST_PROXY = 'loopback, linklocal, uniquelocal';
 
 // https://www.cloudflare.com/ips-v4 and /ips-v6
-const CLOUDFLARE_RANGES = [
+export const CLOUDFLARE_RANGES: readonly string[] = [
   '173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22',
   '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20',
   '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13',
@@ -40,7 +67,7 @@ const CLOUDFLARE_RANGES = [
   '2405:8100::/32', '2a06:98c0::/29', '2c0f:f248::/32',
 ];
 
-function trustProxySetting(env = process.env) {
+export function trustProxySetting(env: Env = process.env): TrustProxy {
   const raw = env.TRUST_PROXY;
   if (raw === undefined || raw === '') return DEFAULT_TRUST_PROXY;
   if (raw === 'false') return false;
@@ -50,13 +77,13 @@ function trustProxySetting(env = process.env) {
 }
 
 /** Strip an IPv4-mapped IPv6 prefix (::ffff:1.2.3.4 -> 1.2.3.4). */
-function normalize(ip) {
+export function normalize(ip: unknown): string {
   const s = String(ip || '').trim();
   const m = s.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
   return m ? m[1] : s;
 }
 
-function buildBlockList(ranges) {
+function buildBlockList(ranges: readonly string[]): net.BlockList {
   const list = new net.BlockList();
   for (const cidr of ranges) {
     const [addr, bits] = cidr.split('/');
@@ -67,7 +94,7 @@ function buildBlockList(ranges) {
   return list;
 }
 
-function cloudflareRanges(env = process.env) {
+export function cloudflareRanges(env: Env = process.env): readonly string[] {
   const raw = env.CLOUDFLARE_IPS;
   if (raw === undefined || raw === '') return CLOUDFLARE_RANGES;
   if (raw === 'none') return [];
@@ -75,17 +102,17 @@ function cloudflareRanges(env = process.env) {
 }
 
 /**
- * @returns {(req) => string} computes the client IP from req.ip (already
- *   resolved by `trust proxy`) and the CF-Connecting-IP header.
+ * Computes the client IP from req.ip (already resolved by `trust proxy`) and
+ * the CF-Connecting-IP header.
  */
-function createClientIp({ ranges = cloudflareRanges() } = {}) {
+export function createClientIp({ ranges = cloudflareRanges() }: { ranges?: readonly string[] } = {}): ClientIp {
   const cf = buildBlockList(ranges);
-  const isCloudflare = (ip) => {
+  const isCloudflare = (ip: unknown): boolean => {
     const n = normalize(ip);
     const type = net.isIP(n);
     return type !== 0 && cf.check(n, type === 6 ? 'ipv6' : 'ipv4');
   };
-  function clientIp(req) {
+  function clientIp(req: IpRequest): string {
     const peer = normalize(req.ip || (req.socket && req.socket.remoteAddress) || '');
     if (ranges.length && isCloudflare(peer)) {
       const header = req.headers['cf-connecting-ip'];
@@ -102,22 +129,13 @@ function createClientIp({ ranges = cloudflareRanges() } = {}) {
  * Configure an Express app: `trust proxy`, then req.clientIp on every request
  * (rate limits key on it).
  */
-function install(app, { env = process.env } = {}) {
+export function install(app: Express, { env = process.env }: { env?: Env } = {}): ClientIp {
   app.set('trust proxy', trustProxySetting(env));
   const clientIp = createClientIp({ ranges: cloudflareRanges(env) });
-  app.use((req, res, next) => {
+  app.use((req: Request, res, next) => {
     req.clientIp = clientIp(req);
     next();
   });
   return clientIp;
 }
 
-module.exports = {
-  DEFAULT_TRUST_PROXY,
-  CLOUDFLARE_RANGES,
-  trustProxySetting,
-  cloudflareRanges,
-  createClientIp,
-  install,
-  normalize,
-};

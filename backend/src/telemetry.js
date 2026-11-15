@@ -180,7 +180,7 @@ function start(cfg) {
 
 /**
  * `trace_id=… span_id=…` at the end of a console line written while a sampled
- * span is active (the request log, errors in a handler). logger.js wraps
+ * span is active (the request log, errors in a handler). shared/logger.ts wraps
  * console after this preload, so its timestamp prefix still comes first.
  */
 function correlateLogs(api) {

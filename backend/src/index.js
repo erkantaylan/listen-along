@@ -4,7 +4,7 @@
 // Mount order is semantics in Express: the guard comes first, and the library
 // router's router.use(apiLimiter) counts every request that reaches it, so
 // what is mounted before it stays outside that limiter. Keep the order.
-require('./logger'); // timestamp + level on all console output — must be first
+require('./shared/logger.ts'); // timestamp + level on all console output — must be first
 require('dotenv').config();
 
 const path = require('path');
@@ -19,7 +19,7 @@ const { createLibraryRouter, sendSongFile } = require('./libraryRoutes');
 const { createTokenRouter } = require('./tokenRoutes');
 const tokens = require('./tokens');
 const adminAuth = require('./adminAuth');
-const { apiLimiter, make: makeLimiter } = require('./rateLimits');
+const { apiLimiter, make: makeLimiter } = require('./shared/rateLimits.ts');
 const { readOidcConfig } = require('./oidcConfig');
 const { createOidcClient } = require('./oidc');
 const { createSessionStore, createOidcSessions } = require('./oidcSessions');
@@ -51,7 +51,7 @@ const { createPlaylistRoutes } = require('./playlistRoutes');
 const { createQueueSockets } = require('./queueSockets');
 const { createPlaylistSockets } = require('./playlistSockets');
 const { APP_ROOM, userRoom, sessionRoom, createSocketServer, attachSocketHandlers } = require('./socketServer');
-const { createMemoryRateLimit } = require('./memoryRateLimit');
+const { createMemoryRateLimit } = require('./shared/memoryRateLimit.ts');
 const { createReactions } = require('./reactions');
 const { createHttpApp } = require('./httpApp');
 
@@ -63,7 +63,7 @@ const resolver = createResolver({ videoTitles: picker.titles });
 const PORT = process.env.PORT || 3000;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
 
-// The admin login's in-memory limit (memoryRateLimit.js; libraryRoutes.js loginRateLimit).
+// The admin login's in-memory limit (shared/memoryRateLimit.ts; libraryRoutes.js loginRateLimit).
 const rateLimit = createMemoryRateLimit();
 
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');

@@ -22,7 +22,7 @@ const downloadJobs = require('./downloadJobs');
 const songReports = require('./songReports');
 const songVerify = require('./songVerify');
 const adminAuth = require('./adminAuth');
-const { apiLimiter, keyFor, make: makeLimiter } = require('./rateLimits');
+const { apiLimiter, keyFor, make: makeLimiter } = require('./shared/rateLimits.ts');
 
 function parseIntParam(value, def, min, max) {
   const n = parseInt(value, 10);

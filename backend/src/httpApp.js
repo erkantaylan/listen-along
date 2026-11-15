@@ -1,6 +1,6 @@
 /**
  * The Express app and its HTTP server, with everything that runs before any
- * route, in this order: the client IP (clientIp.js), CORS, the JSON body
+ * route, in this order: the client IP (shared/clientIp.ts), CORS, the JSON body
  * parser, one log line per dynamic request, and the static frontend files
  * (frontendStatic.js). index.js mounts the auth guard and the routes after.
  */
@@ -8,7 +8,7 @@
 const express = require('express');
 const http = require('http');
 const cors = require('cors');
-const clientIpSetup = require('./clientIp');
+const clientIpSetup = require('./shared/clientIp.ts');
 const { frontendStatic } = require('./frontendStatic');
 
 // Requests the log skips (static assets).
@@ -37,7 +37,7 @@ function createHttpApp({ corsOptions, frontendPath }) {
 
   // Behind Cloudflare -> Traefik: trust the private proxy hop and take the
   // visitor's IP from CF-Connecting-IP only when the request really came from
-  // Cloudflare. Sets req.clientIp, which the rate limits key on. See clientIp.js.
+  // Cloudflare. Sets req.clientIp, which the rate limits key on. See shared/clientIp.ts.
   const clientIpOf = clientIpSetup.install(app);
 
   app.use(cors(corsOptions));

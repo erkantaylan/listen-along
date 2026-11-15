@@ -28,7 +28,7 @@ const library = require('./library');
 const jobs = require('./downloadJobs');
 const adminAuth = require('./adminAuth');
 const ytdlp = require('./ytdlp');
-const { apiLimiter, make } = require('./rateLimits');
+const { apiLimiter, make } = require('./shared/rateLimits.ts');
 const { isOutdated } = require('./cliRelease');
 const { cleanPicks, MAX_PICKS } = require('./features/picker/index.ts');
 

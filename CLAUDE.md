@@ -49,7 +49,7 @@ where lobby persistence broke entirely on deployed instances.
   connection's account helpers, then `social` / `listenAlong` `attach`, then each area's `register`, then `disconnect`.
   Socket handler modules (`create…Sockets({ deps })`, whose `register(socket, ctx)` runs per connection):
   `playlistSockets.js` (`lobby:*`, `user:update`, `listener:now-playing`; owns `visibleLobby` / `editableLobby`
-  and hands them to the queue handlers), `queueSockets.js` (`queue:*`). `memoryRateLimit.js`: the 20/min in-memory limits (admin login, `queue:add`).
+  and hands them to the queue handlers), `queueSockets.js` (`queue:*`). `shared/memoryRateLimit.ts`: the 20/min in-memory limits (admin login, `queue:add`).
   `reactions.js`: the cross-area functions (`emitJob`, `queueRequestJob`, `notifyPlaylistsChanged`, `destroyLobby`,
   `accountStatusChanged`, `addLibrarySongToLobby`, `handleLibrarySong{Added,Replaced,DetailsChanged}`,
   `rewriteQueueEntries`, …). Areas get them through their deps and never require each other
@@ -499,7 +499,7 @@ where lobby persistence broke entirely on deployed instances.
   data-free SPA shell with its own login form (404 without `ADMIN_PASSWORD`);
   all admin data comes from APIs behind `adminAuth.requireAdmin`.
   Frontend: `dashboard.ts` + `dashboard-admin.ts`.
-- Client IP (rate limits): `clientIp.js` trusts only private / loopback proxy
+- Client IP (rate limits): `shared/clientIp.ts` trusts only private / loopback proxy
   hops (Traefik) and believes `CF-Connecting-IP` only from Cloudflare's ranges;
   use `req.clientIp`, not `req.ip`. Overrides: `TRUST_PROXY`, `CLOUDFLARE_IPS`.
 - Local dev / tests: there is no password login. Either:
@@ -674,7 +674,7 @@ HTTP only (`http/protobuf` default, `http/json`); gRPC is refused. OpenTelemetry
   (`pickRoute`; the HTTP metric keeps the joined template). Add a rule there, with a test, before recording
   anything new. `ignoreIncomingPath`: `/health`, static files, `/socket.io/`.
 - Log correlation: console methods get ` trace_id=… span_id=…` appended while a sampled span is active
-  (logger.js wraps console after the preload, so its prefix stays first).
+  (`shared/logger.ts` wraps console after the preload, so its prefix stays first).
 - Shutdown: on SIGTERM / SIGINT the flush starts at once and the app's own `process.exit` waits for it (2 s
   at most); a process without its own handler still ends on the signal. `telemetry.test.js` checks all of it,
   including that nothing is loaded without an endpoint.

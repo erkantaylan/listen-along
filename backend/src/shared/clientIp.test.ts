@@ -1,12 +1,13 @@
-// Client IP behind Cloudflare -> Traefik (clientIp.js): which address the
+// Client IP behind Cloudflare -> Traefik (clientIp.ts): which address the
 // rate limits key on, and that a forged CF-Connecting-IP is ignored.
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const http = require('node:http');
-const express = require('express');
-const clientIp = require('./clientIp');
-const { make } = require('./rateLimits');
-const { startServer, requester } = require('./testServer');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
+import express from 'express';
+import * as clientIp from './clientIp.ts';
+import { make } from './rateLimits.ts';
+import { startServer, requester } from '../testServer.js';
 
 const CF_EDGE = '162.158.10.1'; // inside 162.158.0.0/15
 const CF_EDGE6 = '2606:4700:10::1';
@@ -38,15 +39,15 @@ describe('clientIp rules', () => {
   it('trusts only private / loopback hops (Traefik on the Docker network)', () => {
     const app = express();
     clientIp.install(app, { env: {} });
-    const trust = app.get('trust proxy fn');
+    const trust: (addr: string, i: number) => boolean = app.get('trust proxy fn');
     for (const addr of ['127.0.0.1', '::1', '10.0.1.5', '172.18.0.3', '192.168.1.2', 'fd00::1']) assert.ok(trust(addr, 0), addr);
     for (const addr of ['8.8.8.8', CF_EDGE, '203.0.113.5', '2606:4700::1']) assert.ok(!trust(addr, 0), addr);
   });
 });
 
 describe('clientIp in an Express app (requests arrive from 127.0.0.1, like from Traefik)', () => {
-  let server;
-  let base;
+  let server: http.Server;
+  let base: string;
 
   before(async () => {
     const app = express();
@@ -54,15 +55,15 @@ describe('clientIp in an Express app (requests arrive from 127.0.0.1, like from 
     app.get('/ip', (req, res) => res.json({ ip: req.clientIp, reqIp: req.ip }));
     app.get('/limited', make(2), (req, res) => res.json({ ok: true }));
     server = http.createServer(app);
-    await new Promise((r) => server.listen(0, '127.0.0.1', r));
-    base = `http://127.0.0.1:${server.address().port}`;
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   });
 
-  after(() => new Promise((r) => server.close(r)));
+  after(() => new Promise<void>((r) => server.close(() => r())));
 
-  const get = async (url, headers = {}) => {
+  const get = async (url: string, headers: Record<string, string> = {}) => {
     const res = await fetch(base + url, { headers });
-    return { status: res.status, body: await res.json() };
+    return { status: res.status, body: (await res.json()) as { ip?: string; reqIp?: string; error?: string } };
   };
 
   it('resolves the visitor through Cloudflare + Traefik', async () => {
@@ -89,13 +90,13 @@ describe('clientIp in an Express app (requests arrive from 127.0.0.1, like from 
 });
 
 describe('the real server keys rate limits on the visitor, not the proxy', { timeout: 60_000 }, () => {
-  let srv;
+  let srv: Awaited<ReturnType<typeof startServer>> | undefined;
   before(async () => { srv = await startServer(); });
   after(async () => { if (srv) await srv.stop(); });
 
   it('20/min on /api/admin/login is per visitor behind Cloudflare', async () => {
-    const req = requester(srv.base);
-    const as = (ip) => ({ headers: { 'X-Forwarded-For': CF_EDGE, 'CF-Connecting-IP': ip }, body: {} });
+    const req = requester(srv!.base);
+    const as = (ip: string) => ({ headers: { 'X-Forwarded-For': CF_EDGE, 'CF-Connecting-IP': ip }, body: {} });
     for (let i = 0; i < 20; i++) assert.notEqual((await req('POST', '/api/admin/login', as('198.51.100.10'))).status, 429, `request ${i}`);
     assert.equal((await req('POST', '/api/admin/login', as('198.51.100.10'))).status, 429);
     assert.notEqual((await req('POST', '/api/admin/login', as('198.51.100.11'))).status, 429);

@@ -16,7 +16,7 @@
  */
 
 const { cleanPicks } = require('./features/picker/index.ts');
-const { createSocketRateLimit } = require('./memoryRateLimit');
+const { createSocketRateLimit } = require('./shared/memoryRateLimit.ts');
 
 // Songs removed from a queue in the last minute, so the remover can undo
 // (queue:restore). key: `${lobbyId}:${songId}` -> { song, index, at }.

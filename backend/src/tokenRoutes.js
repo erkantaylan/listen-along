@@ -16,7 +16,7 @@ const express = require('express');
 const db = require('./db');
 const tokens = require('./tokens');
 const library = require('./library');
-const { make } = require('./rateLimits');
+const { make } = require('./shared/rateLimits.ts');
 
 /**
  * @param {object} hooks
