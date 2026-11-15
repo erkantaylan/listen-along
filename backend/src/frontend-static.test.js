@@ -126,7 +126,7 @@ describe('the real frontend', () => {
   });
 
   // The app is compiled (frontend/src/app.ts -> dist/app.js): needs `npm run
-  // build` at the repo root first, as CI and the root `npm test` do.
+  // build` at the repo root first, as the root `npm test` does.
   const built = fs.existsSync(path.join(REAL_FRONTEND, 'dist', 'app.js'));
   it('serves the compiled /app.js and its modules, no-cache', { skip: built ? false : 'frontend not built (npm run build)' }, async () => {
     const app = await get(srv.base, '/app.js');

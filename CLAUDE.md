@@ -536,7 +536,7 @@ TypeScript one area at a time; until an area is converted its files stay
   compiled `/app.js`, so run `npm run build` first when running them from
   `backend/` alone), `npm run dev` (= `make dev`: builds the
   frontend once, then backend watch + `tsc -w`; sets `FRONTEND_PATH` to this
-  checkout's `frontend/`). CI runs `typecheck`, and `build` before the tests.
+  checkout's `frontend/`). There is no CI: run `typecheck`, `build` and `test` locally.
 - Serving (`backend/src/frontendStatic.js`): `<FRONTEND_PATH>/dist` and
   `<FRONTEND_PATH>` are both mounted at the site root, dist first, so
   `frontend/src/shared/x.ts` is `/shared/x.js` (and a compiled file wins over a
