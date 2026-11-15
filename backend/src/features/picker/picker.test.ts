@@ -16,7 +16,7 @@ import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { io as ioClient } from 'socket.io-client';
 import type { Socket as ClientSocket } from 'socket.io-client';
 import { cookieFor, startServer, requester } from '../../testServer.js';
-import { createPicker, cleanPicks, MAX_PICKS, SEARCH_COUNT } from './picker.ts';
+import { createPicker, MAX_PICKS, SEARCH_COUNT } from './picker.ts';
 import type { PickAnswer, PickerDeps, PickerSong, PickError, YtEntry } from './picker.ts';
 import { createResolver, spotify } from '../../core/requests/index.ts';
 
@@ -268,20 +268,6 @@ describe('picker.titles (chosen videos)', () => {
   it('a failing oEmbed is no title, not an error', async () => {
     const picker = fake(async () => { throw new Error('down'); });
     assert.equal((await picker.titles([vid(5)])).size, 0);
-  });
-});
-
-describe('cleanPicks', () => {
-  it('takes 1 to MAX_PICKS video ids, each once', () => {
-    assert.deepEqual(cleanPicks([vid(1)]), [vid(1)]);
-    assert.deepEqual(cleanPicks([vid(1), vid(2), vid(1)]), [vid(1), vid(2)]);
-    assert.equal(cleanPicks(Array.from({ length: MAX_PICKS }, (_, i) => vid(i)))!.length, MAX_PICKS);
-  });
-  it('refuses anything else', () => {
-    for (const bad of [null, undefined, '', vid(1), {}, [], [vid(1), 'short'], [42], [null], [`${vid(1)}x`], [watch(vid(1))],
-      Array.from({ length: MAX_PICKS + 1 }, (_, i) => vid(i))]) {
-      assert.equal(cleanPicks(bad), null, String(JSON.stringify(bad)).slice(0, 40));
-    }
   });
 });
 

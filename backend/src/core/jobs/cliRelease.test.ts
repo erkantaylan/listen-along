@@ -4,18 +4,31 @@
 //   - GET /api/cli/latest|bundle: token required, 404 without cli/, ETag
 //   - the worker hub's welcome carries cli_latest; an old worker (no 'update'
 //     capability, older version, idle) gets close 4010 once, then is served
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const crypto = require('node:crypto');
-const fs = require('node:fs');
-const http = require('node:http');
-const os = require('node:os');
-const path = require('node:path');
-const express = require('express');
-const { createCliRelease, createCliRouter, buildBundle, compareVersions, isOutdated, findCliDir, createWorkerHub, CLOSE_OUTDATED } = require('./core/jobs/index.ts');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import express from 'express';
+import type { RequestHandler } from 'express';
+import { createCliRelease, createCliRouter, buildBundle, compareVersions, isOutdated, findCliDir, createWorkerHub, CLOSE_OUTDATED } from './index.ts';
+import type { ApiUser } from '../../auth/index.ts';
+import type { CliRelease, WorkerHub, WorkerHubOptions, WorkerStore } from './index.ts';
 
-const CLI_DIR = path.join(__dirname, '..', '..', 'cli');
-const cliUpdate = require(path.join(CLI_DIR, 'src', 'update.js'));
+// What the worker hub sends (welcome, error), read field by field.
+type Payload = any;
+/** What this test uses of the CLI's own bundle reader (cli/src/update.js, CommonJS). */
+interface CliUpdate {
+  verifySha256(buf: Buffer, sha256: string): void;
+  parseBundle(buf: Buffer, opts: { expectVersion: string }): { version: string; files: Array<{ path: string; data: Buffer; mode: number }> };
+}
+
+const CLI_DIR = path.join(import.meta.dirname, '..', '..', '..', '..', 'cli');
+const cliUpdate: CliUpdate = (await import(pathToFileURL(path.join(CLI_DIR, 'src', 'update.js')).href)).default;
 const cliVersion = JSON.parse(fs.readFileSync(path.join(CLI_DIR, 'package.json'), 'utf8')).version;
 const quiet = () => {};
 
@@ -51,7 +64,7 @@ describe('cli bundle', () => {
     assert.ok(paths.includes('package.json') && paths.includes('README.md'));
     assert.ok(!paths.some((p) => p.startsWith('test/')), 'no tests');
     for (const f of files) assert.deepEqual(f.data, fs.readFileSync(path.join(CLI_DIR, ...f.path.split('/'))), f.path);
-    assert.equal(files.find((f) => f.path === 'bin/la.js').mode, 0o755);
+    assert.equal(files.find((f) => f.path === 'bin/la.js')!.mode, 0o755);
   });
 
   it('no or a broken cli/: no bundle, no crash', () => {
@@ -66,11 +79,11 @@ describe('cli bundle', () => {
 });
 
 describe('GET /api/cli/latest and /api/cli/bundle', () => {
-  let server;
-  let base;
-  let release;
-  const requireToken = (req, res, next) => (req.headers.authorization === 'Bearer la_good' ? next() : res.status(401).json({ error: 'Invalid or revoked token' }));
-  const get = (p, headers = {}) => fetch(base + p, { headers, redirect: 'manual' });
+  let server: http.Server;
+  let base: string;
+  let release: CliRelease;
+  const requireToken: RequestHandler = (req, res, next) => (req.headers.authorization === 'Bearer la_good' ? next() : res.status(401).json({ error: 'Invalid or revoked token' }));
+  const get = (p: string, headers: Record<string, string> = {}) => fetch(base + p, { headers, redirect: 'manual' });
   const auth = { authorization: 'Bearer la_good' };
 
   before(async () => {
@@ -82,8 +95,8 @@ describe('GET /api/cli/latest and /api/cli/bundle', () => {
     app.use('/none', createCliRouter({ release: none, requireToken }));
     app.use(createCliRouter({ release, requireToken }));
     server = http.createServer(app);
-    await new Promise((r) => server.listen(0, '127.0.0.1', r));
-    base = `http://127.0.0.1:${server.address().port}`;
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   });
   after(() => server && server.close());
 
@@ -96,7 +109,7 @@ describe('GET /api/cli/latest and /api/cli/bundle', () => {
   it('latest -> version, sha256, size, url; the bundle matches it', async () => {
     const res = await get('/api/cli/latest', auth);
     assert.equal(res.status, 200);
-    const latest = await res.json();
+    const latest: Payload = await res.json();
     assert.deepEqual(Object.keys(latest).sort(), ['sha256', 'size', 'url', 'version']);
     assert.equal(latest.version, cliVersion);
     assert.equal(latest.url, '/api/cli/bundle');
@@ -114,18 +127,20 @@ describe('GET /api/cli/latest and /api/cli/bundle', () => {
     for (const p of ['/none/api/cli/latest', '/none/api/cli/bundle']) {
       const res = await get(p, auth);
       assert.equal(res.status, 404);
-      assert.equal((await res.json()).code, 'NO_CLI_BUNDLE');
+      assert.equal(((await res.json()) as Payload).code, 'NO_CLI_BUNDLE');
     }
   });
 });
 
 describe('worker hub: cli_latest and the outdated nudge', () => {
-  let server;
-  let hub;
+  type Hello = { name: string; cli_version?: string; capabilities?: string[]; current_job_id?: string };
+  type Conn = { ws: WebSocket; messages: Payload[]; closed: number | null; reason: string | null; welcome: () => Payload };
+  let server: http.Server;
+  let hub: WorkerHub;
   const latest = { version: '0.4.0', sha256: 'a'.repeat(64), size: 1, url: '/api/cli/bundle' };
-  const logs = [];
+  const logs: string[] = [];
   const store = {
-    registerWorker: async (apiUser, hello) => ({ id: `w-${hello.name}`, name: hello.name, last_ip: '127.0.0.1', cli_version: hello.cli_version }),
+    registerWorker: async (apiUser: unknown, hello: Hello) => ({ id: `w-${hello.name}`, name: hello.name, last_ip: '127.0.0.1', cli_version: hello.cli_version }),
     workerOwnerName: () => 'Alice',
     reclaim: async () => null,
     touchWorker: async () => {},
@@ -133,31 +148,30 @@ describe('worker hub: cli_latest and the outdated nudge', () => {
     listAll: async () => [],
     requeueAllAssigned: async () => 0,
     requeue: async () => null,
-  };
+  } as unknown as WorkerStore;
 
-  function connect(hello) {
-    const ws = new WebSocket(`ws://127.0.0.1:${server.address().port}/api/workers/connect`);
-    const w = { ws, messages: [], closed: null, reason: null };
+  function connect(hello: Hello) {
+    const ws = new WebSocket(`ws://127.0.0.1:${(server.address() as AddressInfo).port}/api/workers/connect`);
+    const w: Conn = { ws, messages: [], closed: null, reason: null, welcome: () => w.messages.find((m) => m.type === 'welcome') };
     ws.addEventListener('open', () => ws.send(JSON.stringify({ type: 'hello', protocol: 1, token: 'la_good', ...hello })));
     ws.addEventListener('message', (ev) => w.messages.push(JSON.parse(ev.data)));
     ws.addEventListener('close', (ev) => { w.closed = ev.code; w.reason = ev.reason; });
-    w.welcome = () => w.messages.find((m) => m.type === 'welcome');
     return w;
   }
-  const until = async (fn, what, ms = 3000) => {
+  const until = async (fn: () => unknown, what: string, ms = 3000) => {
     const end = Date.now() + ms;
     while (!fn()) { if (Date.now() > end) throw new Error(`timed out: ${what}`); await new Promise((r) => setTimeout(r, 10)); }
   };
   const settle = () => new Promise((r) => setTimeout(r, 100));
 
-  function start(opts = {}) {
+  function start(opts: Partial<WorkerHubOptions> = {}) {
     server = http.createServer();
     hub = createWorkerHub({
-      verifyToken: async (t) => (t === 'la_good' ? { id: 't1', userId: 'u1', name: 'Alice', user: { id: 'u1', name: 'Alice' } } : null),
+      verifyToken: async (t: string) => (t === 'la_good' ? { id: 't1', userId: 'u1', name: 'Alice', user: { id: 'u1', name: 'Alice' } } as ApiUser : null),
       store, heartbeatMs: 60000, cliLatest: () => latest, ...opts,
     });
     hub.attach(server);
-    return new Promise((r) => server.listen(0, '127.0.0.1', r));
+    return new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   }
   function stop() {
     hub.close();
@@ -166,7 +180,7 @@ describe('worker hub: cli_latest and the outdated nudge', () => {
   }
 
   const origLog = console.log;
-  before(() => { console.log = (...a) => (a[0] === '[workers]' ? logs.push(a.join(' ')) : origLog(...a)); });
+  before(() => { console.log = (...a: unknown[]) => (a[0] === '[workers]' ? logs.push(a.join(' ')) : origLog(...a)); });
   after(() => { console.log = origLog; });
 
   it('the welcome carries cli_latest; a worker that can update is never nudged', async () => {
@@ -190,8 +204,8 @@ describe('worker hub: cli_latest and the outdated nudge', () => {
       await until(() => w.closed !== null, 'close');
       assert.equal(w.closed, CLOSE_OUTDATED);
       assert.ok(w.welcome(), 'welcome first: an old worker prints a close reason only after one');
-      assert.match(w.reason, /^la 0\.3\.0 is out of date; this server has la 0\.4\.0\. Replace your cli\/ folder once/);
-      assert.ok(Buffer.byteLength(w.reason) <= 123);
+      assert.match(w.reason!, /^la 0\.3\.0 is out of date; this server has la 0\.4\.0\. Replace your cli\/ folder once/);
+      assert.ok(Buffer.byteLength(w.reason!) <= 123);
       assert.equal(w.messages.find((m) => m.type === 'error').code, 'OUTDATED');
       assert.equal(hub.stats().online, 0, 'never counted as online');
       assert.ok(logs.some((l) => /runs la 0\.3\.0 < 0\.4\.0: told to update/.test(l)));
@@ -206,7 +220,7 @@ describe('worker hub: cli_latest and the outdated nudge', () => {
   });
 
   it('no nudge mid-job, when up to date, when off, or without a bundle', async () => {
-    const cases = [
+    const cases: Array<[Partial<WorkerHubOptions>, Hello]> = [
       [{}, { name: 'busy', cli_version: '0.1.0', current_job_id: '00000000-0000-0000-0000-000000000001' }],
       [{}, { name: 'same', cli_version: '0.4.0' }],
       [{}, { name: 'unknown' }],

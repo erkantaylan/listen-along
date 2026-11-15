@@ -1,6 +1,8 @@
-const { describe, it, mock } = require('node:test');
-const assert = require('node:assert');
-const { parseError, stripListParam, parsePlaylistId } = require('./core/requests/index.ts').ytdlp;
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { ytdlp } from './index.ts';
+
+const { parseError, stripListParam, parsePlaylistId, createAvailabilityCache } = ytdlp;
 
 describe('ytdlp', () => {
   describe('stripListParam', () => {
@@ -107,8 +109,6 @@ describe('ytdlp', () => {
 });
 
 describe('ytdlp availability cache (/health)', () => {
-  const { createAvailabilityCache } = require('./core/requests/index.ts').ytdlp;
-
   it('spawns one check for many /health calls within maxAge', async () => {
     let calls = 0;
     let t = 0;
@@ -130,7 +130,7 @@ describe('ytdlp availability cache (/health)', () => {
     let calls = 0;
     let t = 0;
     let result = true;
-    let release;
+    let release: (() => void) | undefined;
     const cached = createAvailabilityCache({
       check: () => { calls++; return calls === 1 ? result : new Promise((r) => { release = () => r(false); }); },
       maxAgeMs: 100, now: () => t,
@@ -139,7 +139,7 @@ describe('ytdlp availability cache (/health)', () => {
     t = 500;
     assert.strictEqual(await cached(), true, 'stale value, no waiting on the refresh');
     assert.strictEqual(calls, 2);
-    release();
+    release!();
     await new Promise((r) => setImmediate(r));
     assert.strictEqual(await cached(), false, 'refreshed value');
   });

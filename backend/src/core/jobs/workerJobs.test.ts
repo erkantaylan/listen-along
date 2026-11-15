@@ -11,20 +11,42 @@
 //   - worker IP / OS / hostname only for admins; profile activity owner-only
 //   - the activity log (GET /api/activity/downloads, activity:job / activity:progress):
 //     approved accounts only, reduced rows, a playlist only for who can see it
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const { execSync, execFileSync } = require('node:child_process');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const { io: ioClient } = require('socket.io-client');
-const { cookieFor, adminCookie, startServer, requester } = require('./testServer');
-const { planAssignments, downloadJobs } = require('./core/jobs/index.ts');
-const cliVersion = require('../../cli/package.json').version;
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { execSync, execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import pgModule from 'pg';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { io as ioClient } from 'socket.io-client';
+import type { Socket as ClientSocket } from 'socket.io-client';
+import { cookieFor, adminCookie, startServer, requester } from '../../testServer.js';
+import { planAssignments, downloadJobs } from './index.ts';
 
-let PostgreSqlContainer;
-try { PostgreSqlContainer = require('@testcontainers/postgresql').PostgreSqlContainer; } catch {}
-const has = (cmd) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
+// What the server answers (HTTP, sockets, worker messages, database rows):
+// JSON, read field by field below.
+type Payload = any;
+/** What this test uses of the CLI (cli/, CommonJS): its bundle reader and its API client. */
+interface CliUpdate {
+  verifySha256(buf: Buffer, sha256: string): void;
+  parseBundle(buf: Buffer, opts: { expectVersion: string }): { version: string };
+}
+interface CliApiClient {
+  upload(file: string, fields: Record<string, unknown>, opts?: { onProgress?: (sent: number, total: number) => void }): Promise<Payload>;
+  replace(songId: string, file: string, fields: Record<string, unknown>): Promise<Payload>;
+}
+type CliApi = { ApiClient: new (opts: { server: string; token: string }) => CliApiClient };
+
+const CLI_DIR = path.join(import.meta.dirname, '..', '..', '..', '..', 'cli');
+const cliVersion: string = JSON.parse(fs.readFileSync(path.join(CLI_DIR, 'package.json'), 'utf8')).version;
+/** cli/src/<name>.js, loaded when a test needs it. */
+const cliModule = async <T>(name: string): Promise<T> => (await import(pathToFileURL(path.join(CLI_DIR, 'src', `${name}.js`)).href)).default;
+
+let PostgreSqlContainer: typeof import('@testcontainers/postgresql').PostgreSqlContainer | undefined;
+try { ({ PostgreSqlContainer } = await import('@testcontainers/postgresql')); } catch {}
+const has = (cmd: string) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
 const skip = !PostgreSqlContainer ? 'testcontainers package not installed'
   : !has('docker info') ? 'Docker not available'
   : !has('ffmpeg -version') || !has('ffprobe -version') ? 'ffmpeg/ffprobe not available'
@@ -32,20 +54,20 @@ const skip = !PostgreSqlContainer ? 'testcontainers package not installed'
 
 const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
 // A wait that fails with its name instead of hanging until the suite's timeout.
-const within = (p, ms, what) => Promise.race([p, tick(ms).then(() => { throw new Error(`timed out waiting for ${what}`); })]);
-async function until(fn, what, ms = 8000) {
+const within = <T>(p: Promise<T>, ms: number, what: string): Promise<T> => Promise.race([p, tick(ms).then((): never => { throw new Error(`timed out waiting for ${what}`); })]);
+async function until<T>(fn: () => T | Promise<T>, what: string, ms = 8000): Promise<NonNullable<T>> {
   const end = Date.now() + ms;
   for (;;) {
     const v = await fn();
-    if (v) return v;
+    if (v) return v as NonNullable<T>;
     if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
     await tick(25);
   }
 }
 
 describe('planAssignments (routing rules)', () => {
-  const w = (name, userId, idleSince = 0) => ({ name, userId, idleSince });
-  const j = (id, requester) => ({ id, requested_by_user_id: requester });
+  const w = (name: string, userId: string, idleSince = 0) => ({ name, userId, idleSince });
+  const j = (id: string, requester: string) => ({ id, requested_by_user_id: requester });
 
   it('prefers the requester\'s own idle worker', () => {
     const plan = planAssignments([j('1', 'bob')], [w('A', 'alice', 1), w('B', 'bob', 2)]);
@@ -65,12 +87,15 @@ describe('planAssignments (routing rules)', () => {
 });
 
 describe('downloadJobs input rules', () => {
+  // Read field by field: a classification is { kind, input } or { error }, and
+  // a request here has only some of its fields.
+  const { classifyInput, requestInput } = downloadJobs as unknown as { classifyInput: (raw: unknown) => Payload; requestInput: (r: object) => Payload };
   it('classifies Download box input', () => {
-    assert.equal(downloadJobs.classifyInput('https://youtu.be/dQw4w9WgXcQ').kind, 'video');
-    assert.equal(downloadJobs.classifyInput('https://www.youtube.com/playlist?list=PLabc').kind, 'playlist');
-    assert.equal(downloadJobs.classifyInput('https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=RDdQw4w9WgXcQ').kind, 'video');
-    assert.equal(downloadJobs.classifyInput('https://open.spotify.com/track/abc').kind, 'spotify');
-    assert.equal(downloadJobs.classifyInput('Daft Punk - Digital Love').kind, 'search');
+    assert.equal(classifyInput('https://youtu.be/dQw4w9WgXcQ').kind, 'video');
+    assert.equal(classifyInput('https://www.youtube.com/playlist?list=PLabc').kind, 'playlist');
+    assert.equal(classifyInput('https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=RDdQw4w9WgXcQ').kind, 'video');
+    assert.equal(classifyInput('https://open.spotify.com/track/abc').kind, 'spotify');
+    assert.equal(classifyInput('Daft Punk - Digital Love').kind, 'search');
   });
   it('takes Spotify track links only', () => {
     const id = '4cOdK2wGLETKBW3PvgPWqT';
@@ -79,7 +104,7 @@ describe('downloadJobs input rules', () => {
       `https://open.spotify.com/track/${id}?si=abcdef123456`,
       `https://open.spotify.com/intl-tr/track/${id}?si=abcdef123456`,
     ]) {
-      assert.deepEqual(downloadJobs.classifyInput(url), { kind: 'spotify', input: url });
+      assert.deepEqual(classifyInput(url), { kind: 'spotify', input: url });
     }
     for (const url of [
       'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M',
@@ -88,34 +113,39 @@ describe('downloadJobs input rules', () => {
       'https://open.spotify.com/intl-tr/playlist/37i9dQZF1DXcBWIGoYBM5M',
       'https://open.spotify.com/',
     ]) {
-      const what = downloadJobs.classifyInput(url);
+      const what = classifyInput(url);
       assert.equal(what.kind, undefined, url);
       assert.match(what.error, /Only Spotify track links are supported/, url);
     }
   });
   it('refuses other sites and empty input', () => {
-    assert.ok(downloadJobs.classifyInput('https://soundcloud.com/x/y').error);
-    assert.ok(downloadJobs.classifyInput('   ').error);
+    assert.ok(classifyInput('https://soundcloud.com/x/y').error);
+    assert.ok(classifyInput('   ').error);
   });
   it('turns a song request into a YouTube video or a search, never another site', () => {
-    assert.equal(downloadJobs.requestInput({ youtube_id: 'dQw4w9WgXcQ' }).input, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
-    assert.deepEqual(downloadJobs.requestInput({ url: 'https://open.spotify.com/track/x', title: 'Song', artist: 'Band' }), { input: 'Band - Song', kind: 'search', title: 'Band - Song' });
-    assert.equal(downloadJobs.requestInput({}), null);
+    assert.equal(requestInput({ youtube_id: 'dQw4w9WgXcQ' }).input, 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    assert.deepEqual(requestInput({ url: 'https://open.spotify.com/track/x', title: 'Song', artist: 'Band' }), { input: 'Band - Song', kind: 'search', title: 'Band - Song' });
+    assert.equal(requestInput({}), null);
   });
 });
 
 describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, () => {
-  let container;
-  let dbUrl;
-  let pg;
-  let srv;
-  let req;
-  let tmp;
-  const ids = {};
-  const cookies = {};
-  const tok = {};
-  const workers = [];
-  const sockets = [];
+  /** A worker process stand-in: what it was sent, and how to answer. */
+  type Worker = {
+    ws: WebSocket; name: string; messages: Payload[]; jobs: Payload[]; closed: number | null; id?: string;
+    ready: Promise<Worker>; send: (m: unknown) => void; nextJob: (n?: number) => Promise<Payload>;
+  };
+  let container: StartedPostgreSqlContainer;
+  let dbUrl: string;
+  let pg: pgModule.Client;
+  let srv: Awaited<ReturnType<typeof startServer>>;
+  let req: ReturnType<typeof requester>;
+  let tmp: string;
+  const ids: Record<string, string> = {};
+  const cookies: Record<string, string> = {};
+  const tok: Record<string, string> = {};
+  const workers: Worker[] = [];
+  const sockets: ClientSocket[] = [];
   let toneN = 0;
 
   async function boot() {
@@ -123,7 +153,7 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
       DATABASE_URL: dbUrl, SONGS_PATH: path.join(tmp, 'songs'), COVERS_DIR: path.join(tmp, 'covers'),
       WORKER_REQUEUE_GRACE_MS: '300', WORKER_HEARTBEAT_MS: '60000',
       // These stand-in workers say la 0.1.0 without 'update': no close 4010
-      // here (cli-release.test.js covers it).
+      // here (cliRelease.test.ts covers it).
       WORKER_OUTDATED_NUDGE_MS: '0',
       ACTIVITY_PROGRESS_MS: '400',
     });
@@ -131,9 +161,10 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
   }
 
   /** A worker process stand-in speaking the protocol. */
-  function connectWorker(token, name, extra = {}) {
+  function connectWorker(token: string, name: string, extra: Record<string, unknown> = {}): Worker {
     const ws = new WebSocket(srv.base.replace(/^http/, 'ws') + '/api/workers/connect');
-    const w = { ws, name, messages: [], jobs: [], closed: null };
+    // ready, send and nextJob are set below.
+    const w = { ws, name, messages: [], jobs: [], closed: null } as Partial<Worker> as Worker;
     ws.addEventListener('message', (ev) => {
       const msg = JSON.parse(ev.data);
       w.messages.push(msg);
@@ -142,7 +173,7 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
       if (msg.type === 'welcome') w.id = msg.worker.id;
     });
     ws.addEventListener('close', (ev) => { w.closed = ev.code; });
-    w.ready = new Promise((resolve, reject) => {
+    w.ready = new Promise<Worker>((resolve, reject) => {
       ws.addEventListener('open', () => ws.send(JSON.stringify({
         type: 'hello', protocol: 1, token, name, hostname: `${name}.lan`, platform: 'linux', arch: 'x64',
         os_release: 'Linux 6.1', cli_version: '0.1.0', node_version: '24.0.0', ytdlp_version: '2026.10.26', ...extra,
@@ -158,13 +189,13 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
     return w;
   }
 
-  function tone(freq) {
+  function tone(freq: number) {
     const file = path.join(tmp, `tone-${toneN++}.m4a`);
     execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `sine=frequency=${freq}:duration=1`, '-c:a', 'aac', file]);
     return file;
   }
 
-  async function uploadAs(token, fields) {
+  async function uploadAs(token: string, fields: Record<string, unknown>): Promise<{ status: number; body: Payload }> {
     const f = new FormData();
     f.append('file', new Blob([fs.readFileSync(tone(300 + toneN * 37))], { type: 'audio/mp4' }), 'x.m4a');
     for (const [k, v] of Object.entries(fields)) f.append(k, String(v));
@@ -172,28 +203,27 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
     return { status: res.status, body: await res.json() };
   }
 
-  const done = (w, jobId, songIds = [], extra = {}) => w.send({
+  const done = (w: Worker, jobId: string, songIds: string[] = [], extra: Record<string, unknown> = {}) => w.send({
     type: 'job:done', job_id: jobId,
     result: { summary: { total: 1, uploaded: songIds.length, skipped: 0, failed: songIds.length ? 0 : 1 }, results: songIds.map((id) => ({ status: 'uploaded', song_id: id })), ...extra },
   });
-  const myJobs = async (who) => (await req('GET', '/api/jobs', { cookie: cookies[who] })).body.jobs;
-  const job = async (who, id) => (await myJobs(who)).find((j) => j.id === id);
-  const create = async (who, body) => req('POST', '/api/jobs', { cookie: cookies[who], body });
+  const myJobs = async (who: string): Promise<Payload[]> => (await req('GET', '/api/jobs', { cookie: cookies[who] })).body.jobs;
+  const job = async (who: string, id: string) => (await myJobs(who)).find((j) => j.id === id);
+  const create = async (who: string, body: unknown) => req('POST', '/api/jobs', { cookie: cookies[who], body });
 
-  function socketFor(who) {
+  function socketFor(who: string): Promise<ClientSocket> {
     const s = ioClient(srv.base, { transports: ['websocket'], forceNew: true, reconnection: false, extraHeaders: { cookie: cookies[who] } });
     sockets.push(s);
     return new Promise((resolve, reject) => { s.on('connect', () => resolve(s)); s.on('connect_error', reject); });
   }
 
   before(async () => {
-    container = await new PostgreSqlContainer('postgres:16-alpine')
+    container = await new PostgreSqlContainer!('postgres:16-alpine')
       .withDatabase('listen_workers').withUsername('test').withPassword('test').start();
     dbUrl = container.getConnectionUri();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'la-workers-'));
     await boot();
-    const { Client } = require('pg');
-    pg = new Client({ connectionString: dbUrl });
+    pg = new pgModule.Client({ connectionString: dbUrl });
     await pg.connect();
     for (const key of ['alice', 'bob', 'carol']) {
       const r = await pg.query(
@@ -397,12 +427,12 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
   it('a song request creates a job; the upload fulfils it and adds it to the requesting playlist', async () => {
     const s = await socketFor('alice');
     s.emit('lobby:create', { name: 'Alice list' });
-    const created = await new Promise((resolve) => s.once('lobby:created', resolve));
-    const updates = [];
+    const created = await new Promise<Payload>((resolve) => s.once('lobby:created', resolve));
+    const updates: Payload[] = [];
     s.on('jobs:update', (p) => updates.push(p.job));
     // A YouTube link with a title: no network lookup on the server.
     s.emit('queue:add', { lobbyId: created.lobbyId, url: 'https://youtu.be/rrrrrrrrrr1', title: 'Requested Song' });
-    const requested = await new Promise((resolve) => s.once('queue:requested', resolve));
+    const requested = await new Promise<Payload>((resolve) => s.once('queue:requested', resolve));
     const jq = await until(async () => (await myJobs('alice')).find((x) => x.request_id === requested.request.id), 'request job');
     assert.equal(jq.source, 'request');
     assert.equal(jq.status, 'queued');
@@ -415,8 +445,8 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
     assert.equal(j.request_id, requested.request.id);
     // Listen before uploading: the server adds the song to the playlist while it
     // answers the upload, so its queue:update can arrive before the 201 does.
-    const queued = new Promise((resolve) => {
-      const h = (p) => { if (p.songs.some((x) => x.url.includes('rrrrrrrrrr1'))) { s.off('queue:update', h); resolve(p.songs); } };
+    const queued = new Promise<Payload[]>((resolve) => {
+      const h = (p: Payload) => { if (p.songs.some((x: Payload) => x.url.includes('rrrrrrrrrr1'))) { s.off('queue:update', h); resolve(p.songs); } };
       s.on('queue:update', h);
     });
     // The upload names only the job: the server supplies the request id.
@@ -446,7 +476,7 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
     assert.equal((await req('GET', '/api/admin/jobs', { cookie: cookies.alice })).status, 401);
     const adm = await req('GET', '/api/admin/workers', { cookie: adminCookie() });
     assert.equal(adm.status, 200);
-    const a = adm.body.workers.find((x) => x.name === 'alice-pc');
+    const a = adm.body.workers.find((x: Payload) => x.name === 'alice-pc');
     assert.equal(a.online, true);
     assert.equal(a.hostname, 'alice-pc.lan');
     assert.equal(a.platform, 'linux');
@@ -457,7 +487,7 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
     assert.ok(wa.messages.find((m) => m.type === 'welcome').cli_latest.version === cliVersion);
     assert.match(a.last_ip, /127\.0\.0\.1|::1/);
     assert.equal(a.owner, 'Alice');
-    const bob = adm.body.workers.find((x) => x.name === 'bob-pc');
+    const bob = adm.body.workers.find((x: Payload) => x.name === 'bob-pc');
     assert.equal(bob.online, false);
     assert.ok(bob.jobs_done >= 1);
     const q = await req('GET', '/api/admin/jobs?status=all', { cookie: adminCookie() });
@@ -477,7 +507,7 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
     const res = await fetch(srv.base + r.body.url, { headers: { authorization: `Bearer ${tok.bob}` } });
     assert.equal(res.status, 200);
     const buf = Buffer.from(await res.arrayBuffer());
-    const cliUpdate = require('../../cli/src/update');
+    const cliUpdate = await cliModule<CliUpdate>('update');
     cliUpdate.verifySha256(buf, r.body.sha256);
     assert.equal(cliUpdate.parseBundle(buf, { expectVersion: cliVersion }).version, cliVersion);
   });
@@ -486,21 +516,21 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
     assert.equal((await req('GET', '/api/profile/activity')).status, 401);
     const bob = (await req('GET', `/api/profile/activity?user=${ids.carol}`, { cookie: cookies.bob })).body;
     assert.ok(bob.uploaded.length >= 2, 'bob uploaded via his worker');
-    assert.ok(bob.uploaded.every((s) => s.title !== 'Alice Song'));
+    assert.ok(bob.uploaded.every((s: Payload) => s.title !== 'Alice Song'));
     assert.ok(bob.counts.uploaded_by_workers >= 2);
-    const names = bob.fulfilled_by_my_workers.map((s) => [s.title, s.requested_by]);
+    const names = bob.fulfilled_by_my_workers.map((s: Payload) => [s.title, s.requested_by]);
     assert.deepEqual(names.sort(), [['Carol Song', 'Carol'], ['Requested Song', 'Alice']]);
-    assert.ok(bob.workers.some((w) => w.name === 'bob-pc' && w.jobs_done >= 1));
+    assert.ok(bob.workers.some((w: Payload) => w.name === 'bob-pc' && w.jobs_done >= 1));
     assert.equal(bob.asked.length, 0);
 
     const alice = (await req('GET', '/api/profile/activity', { cookie: cookies.alice })).body;
-    const asked = alice.asked.find((r) => r.title === 'Requested Song');
+    const asked = alice.asked.find((r: Payload) => r.title === 'Requested Song');
     assert.equal(asked.status, 'fulfilled');
     assert.deepEqual(asked.fulfilled_by, { name: 'Bob', worker: 'bob-pc' });
     assert.ok(alice.downloads.length >= 2);
     assert.equal(alice.counts.asked_fulfilled, 1);
 
-    const page = async (who, offset) => (await req('GET', `/api/profile/activity?limit=1&offset=${offset}`, { cookie: cookies[who] })).body;
+    const page = async (who: string, offset: number) => (await req('GET', `/api/profile/activity?limit=1&offset=${offset}`, { cookie: cookies[who] })).body;
     const [first, second] = [await page('bob', 0), await page('bob', 1)];
     assert.equal(first.uploaded.length, 1);
     assert.equal(second.uploaded.length, 1);
@@ -519,7 +549,7 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
 
   it('upload progress reaches only the requester through jobs:update; an old-style worker that sends none still works', async () => {
     const [carol, bob, alice] = await Promise.all([socketFor('carol'), socketFor('bob'), socketFor('alice')]);
-    const seen = { carol: [], bob: [], alice: [] };
+    const seen: Record<string, Payload[]> = { carol: [], bob: [], alice: [] };
     carol.on('jobs:update', (p) => seen.carol.push(p.job));
     bob.on('jobs:update', (p) => seen.bob.push(p.job));
     alice.on('jobs:update', (p) => seen.alice.push(p.job));
@@ -569,17 +599,17 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
   });
 
   it('the CLI\'s streamed upload is accepted by the real upload and replace routes (multer)', async () => {
-    const { ApiClient } = require('../../cli/src/api');
+    const { ApiClient } = await cliModule<CliApi>('api');
     const api = new ApiClient({ server: srv.base, token: tok.alice });
     const file = tone(777);
     const size = fs.statSync(file).size;
-    const counts = [];
+    const counts: [number, number][] = [];
     const r = await api.upload(file, { title: 'Stream Şarkı', artist: 'Stream Band', duration_sec: 1 }, { onProgress: (s, t) => counts.push([s, t]) });
     assert.equal(r.status, 'uploaded');
     assert.equal(r.song.title, 'Stream Şarkı');
     assert.equal(r.song.uploaded_by, 'Alice');
-    assert.equal(counts.at(-1)[0], counts.at(-1)[1]);
-    assert.ok(counts.at(-1)[1] > size);
+    assert.equal(counts.at(-1)![0], counts.at(-1)![1]);
+    assert.ok(counts.at(-1)![1] > size);
     const audio = await fetch(`${srv.base}/api/library/${r.song.id}/file`, { headers: { Authorization: `Bearer ${tok.alice}` } });
     assert.equal((await audio.arrayBuffer()).byteLength, size);
 
@@ -595,13 +625,13 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
 
     // Refused before the body is read: a bad token.
     const bad = new ApiClient({ server: srv.base, token: 'la_nope' });
-    await assert.rejects(bad.upload(file, { title: 'X', artist: 'Y' }), (e) => e.exitCode === 4);
+    await assert.rejects(bad.upload(file, { title: 'X', artist: 'Y' }), (e: Payload) => e.exitCode === 4);
   });
 
   // --- The downloads activity log (everyone's jobs, reduced) ---------------
-  const activity = async (who) => (await req('GET', '/api/activity/downloads', { cookie: cookies[who] })).body.jobs;
+  const activity = async (who: string): Promise<Payload[]> => (await req('GET', '/api/activity/downloads', { cookie: cookies[who] })).body.jobs;
   /** The worker's job `id`; anything else it is handed first (left waiting by an earlier test) is failed. */
-  async function takeJob(w, id) {
+  async function takeJob(w: Worker, id: string) {
     for (let n = 1; ; n++) {
       const j = await w.nextJob(n);
       if (j.id === id) return j;
@@ -627,12 +657,12 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
     assert.equal(typeof r.body.workers.online, 'number');
     const list = r.body.jobs;
     // Everyone's jobs, not only alice's; every source that goes through a download.
-    assert.ok(list.some((x) => x.requested_by === 'Carol') && list.some((x) => x.requested_by === 'Alice'));
-    assert.ok(list.some((x) => x.source === 'request') && list.some((x) => x.source === 'web'));
-    const times = list.map((x) => Date.parse(x.created_at));
+    assert.ok(list.some((x: Payload) => x.requested_by === 'Carol') && list.some((x: Payload) => x.requested_by === 'Alice'));
+    assert.ok(list.some((x: Payload) => x.source === 'request') && list.some((x: Payload) => x.source === 'web'));
+    const times = list.map((x: Payload) => Date.parse(x.created_at));
     assert.deepEqual(times, [...times].sort((a, b) => b - a), 'newest first');
     assert.ok(list.length <= downloadJobs.ACTIVITY_LIMIT + 200);
-    const withWorker = list.find((x) => x.worker);
+    const withWorker = list.find((x: Payload) => x.worker);
     assert.deepEqual(Object.keys(withWorker.worker).sort(), ['name', 'owner']);
     // Nothing of a worker's machine, no ids of users, workers or requests.
     const text = JSON.stringify(list);
@@ -665,9 +695,9 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
 
   it('activity log, live: every approved socket follows a job; a pending one gets nothing; progress is a small event, held back', async () => {
     const [alice, bob, dave] = await Promise.all([socketFor('alice'), socketFor('bob'), socketFor('dave')]);
-    const seen = { alice: [], bob: [], dave: [] };
-    const progress = { alice: [], bob: [], dave: [] };
-    for (const [who, s] of [['alice', alice], ['bob', bob], ['dave', dave]]) {
+    const seen: Record<string, Payload[]> = { alice: [], bob: [], dave: [] };
+    const progress: Record<string, Payload[]> = { alice: [], bob: [], dave: [] };
+    for (const [who, s] of [['alice', alice], ['bob', bob], ['dave', dave]] as const) {
       s.on('activity:job', (p) => seen[who].push(p.job));
       s.on('activity:progress', (p) => progress[who].push(p));
       s.on('jobs:update', (p) => seen[who].push({ leaked: p }));
@@ -731,11 +761,11 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
   });
 
   it('activity log: a job\'s playlist is named only to someone who can see it now, in the list and live', async () => {
-    const mk = async (who, name, visibility) => (await req('POST', '/api/playlists', { cookie: cookies[who], body: { name, visibility } })).body.id;
+    const mk = async (who: string, name: string, visibility: string) => (await req('POST', '/api/playlists', { cookie: cookies[who], body: { name, visibility } })).body.id;
     const secret = await mk('carol', 'Carol hideout', 'private');
     const open = await mk('carol', 'Carol open house', 'public');
     const [carol, bob] = await Promise.all([socketFor('carol'), socketFor('bob')]);
-    const seen = { carol: [], bob: [] };
+    const seen: Record<string, Payload[]> = { carol: [], bob: [] };
     carol.on('activity:job', (p) => seen.carol.push(p.job));
     bob.on('activity:job', (p) => seen.bob.push(p.job));
 
@@ -753,7 +783,7 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
     // Live, public: everyone.
     assert.equal((await until(() => seen.bob.find((x) => x.id === b.id), 'public row')).playlist_name, 'Carol open house');
     // The list says the same.
-    const find = async (who, id) => (await activity(who)).find((x) => x.id === id);
+    const find = async (who: string, id: string) => (await activity(who)).find((x) => x.id === id);
     assert.equal((await find('carol', a.id)).playlist_name, 'Carol hideout');
     assert.equal((await find('bob', a.id)).playlist_id, null);
     assert.equal((await find('bob', b.id)).playlist_id, open);
@@ -800,15 +830,15 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
     assert.equal(up.status, 201, JSON.stringify(up.body));
     const songId = up.body.song.id;
     const bob = await socketFor('bob');
-    const rows = [];
-    const ticks = [];
+    const rows: Payload[] = [];
+    const ticks: Payload[] = [];
     bob.on('activity:job', (p) => rows.push(p.job));
     bob.on('activity:progress', (p) => ticks.push(p));
     const r = await req('POST', '/api/jobs/replace', { cookie: cookies.carol, body: { song_id: songId, input: 'https://youtu.be/eeeeeeeeee1' } });
     assert.equal(r.status, 201, JSON.stringify(r.body));
     const id = r.body.job.id;
     assert.equal((await until(() => rows.find((x) => x.id === id), 'the replace job\'s row')).replace.title, 'Before Edit');
-    const edit = (title) => req('PATCH', `/api/library/${songId}`, { cookie: cookies.alice, body: { title } });
+    const edit = (title: string) => req('PATCH', `/api/library/${songId}`, { cookie: cookies.alice, body: { title } });
     assert.equal((await edit('Edited While Waiting')).status, 200);
     const waiting = await until(() => rows.find((x) => x.id === id && x.replace.title === 'Edited While Waiting'), 'the edit on the waiting row');
     assert.equal(waiting.status, 'queued');

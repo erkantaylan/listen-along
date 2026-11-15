@@ -1,11 +1,16 @@
 // What everyone may see of a download job (downloadJobs.toActivity): the
 // server's reduced row for the activity log. The log's frontend rules are
 // tested in frontend/src/features/social/activity-rules.test.ts.
-const { describe, it } = require('node:test');
-const assert = require('node:assert/strict');
-const { downloadJobs } = require('./core/jobs/index.ts');
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { downloadJobs } from './index.ts';
 
-const at = (min) => new Date(Date.UTC(2026, 0, 1, 12, min)).toISOString();
+// The rows below are a database join's row as JSON, with columns of the
+// worker's machine on purpose (they must never come out); so is the answer.
+type Payload = any;
+const toActivity = (row: Payload, playlist?: { id: string; name: string | null; ownerId: string }): Payload => downloadJobs.toActivity(row, playlist);
+
+const at = (min: number) => new Date(Date.UTC(2026, 0, 1, 12, min)).toISOString();
 
 // Free text a worker may send, with what must never reach anyone but the requester.
 const WORKER_TEXTS = [
@@ -36,7 +41,7 @@ describe('downloadJobs.toActivity (what everyone may see of a job)', () => {
     hostname: 'attic.lan', last_ip: '10.0.0.7',
   };
   it('names the requester and the worker by name and owner, and nothing of the machine or of ids', () => {
-    const v = downloadJobs.toActivity(row);
+    const v = toActivity(row);
     assert.equal(v.requested_by, 'Alice');
     assert.deepEqual(v.worker, { name: 'attic', owner: 'Bob' });
     assert.deepEqual(Object.keys(v).sort(), ['created_at', 'error_code', 'finished_at', 'id', 'input', 'kind', 'percent',
@@ -44,43 +49,43 @@ describe('downloadJobs.toActivity (what everyone may see of a job)', () => {
     assert.doesNotMatch(JSON.stringify(v), /u-alice|w1"|attic\.lan|10\.0\.0\.7|r1"/);
   });
   it('the playlist is only what the caller passes: never the joined name', () => {
-    const bare = downloadJobs.toActivity(row);
+    const bare = toActivity(row);
     assert.equal(bare.playlist_id, null);
     assert.equal(bare.playlist_name, null);
     assert.doesNotMatch(JSON.stringify(bare), /Secret mix|abcd1234/);
-    const seen = downloadJobs.toActivity(row, { id: 'abcd1234', name: 'Secret mix', ownerId: 'u-alice' });
+    const seen = toActivity(row, { id: 'abcd1234', name: 'Secret mix', ownerId: 'u-alice' });
     assert.equal(seen.playlist_id, 'abcd1234');
     assert.equal(seen.playlist_name, 'Secret mix');
   });
   it('a failure is its code: the worker\'s message is never on the row', () => {
     for (const text of WORKER_TEXTS) {
-      const v = downloadJobs.toActivity({ ...row, error_message: text, result: { summary: { total: 1, failed: 1 }, results: [{ status: 'failed', error: text }] } });
+      const v = toActivity({ ...row, error_message: text, result: { summary: { total: 1, failed: 1 }, results: [{ status: 'failed', error: text }] } });
       assert.equal(v.error_message, undefined);
       assert.equal(v.error_code, 'YTDLP_FAILED');
       assert.doesNotMatch(JSON.stringify(v), LEAK, text);
     }
     // A code is an identifier or nothing.
-    for (const code of WORKER_TEXTS) assert.equal(downloadJobs.toActivity({ ...row, error_code: code }).error_code, null, code);
-    assert.equal(downloadJobs.toActivity({ ...row, status: 'done', error_code: 'OLD' }).error_code, null);
+    for (const code of WORKER_TEXTS) assert.equal(toActivity({ ...row, error_code: code }).error_code, null, code);
+    assert.equal(toActivity({ ...row, status: 'done', error_code: 'OLD' }).error_code, null);
   });
   it('a running job is its stage and upload percent: the worker\'s progress line is never on the row', () => {
     const running = { ...row, status: 'assigned', error_code: null, error_message: null, finished_at: null };
     for (const text of WORKER_TEXTS) {
       for (const stage of ['uploading', 'working', text]) {
-        const v = downloadJobs.toActivity({ ...running, stage, progress: text });
+        const v = toActivity({ ...running, stage, progress: text });
         assert.equal(v.progress, null);
         assert.equal(v.percent, null);
         assert.doesNotMatch(JSON.stringify(v), LEAK, text);
       }
     }
-    const up = downloadJobs.toActivity({ ...running, stage: 'uploading', progress: 'Uploading /home/bob/dl/feed.opus… 42%' });
+    const up = toActivity({ ...running, stage: 'uploading', progress: 'Uploading /home/bob/dl/feed.opus… 42%' });
     assert.deepEqual([up.stage, up.percent, up.progress], ['uploading', 42, null]);
     assert.doesNotMatch(JSON.stringify(up), LEAK);
-    assert.equal(downloadJobs.toActivity({ ...running, stage: 'uploading', progress: 'Uploading x… 420%' }).percent, null);
-    assert.equal(downloadJobs.toActivity({ ...running, stage: 'downloading', progress: 'Downloading 50%' }).percent, null, 'the percent is the upload\'s');
+    assert.equal(toActivity({ ...running, stage: 'uploading', progress: 'Uploading x… 420%' }).percent, null);
+    assert.equal(toActivity({ ...running, stage: 'downloading', progress: 'Downloading 50%' }).percent, null, 'the percent is the upload\'s');
   });
   it('a note is passed on only when this server wrote it', () => {
-    const note = (status, progress) => downloadJobs.toActivity({ ...row, status, stage: null, progress }).progress;
+    const note = (status: string, progress: string) => toActivity({ ...row, status, stage: null, progress }).progress;
     assert.equal(note('cancelled', 'Request dismissed'), 'Request dismissed');
     assert.equal(note('done', 'Uploaded by someone else'), 'Uploaded by someone else');
     assert.equal(note('queued', 'Downloader went away'), 'Downloader went away');
@@ -89,11 +94,11 @@ describe('downloadJobs.toActivity (what everyone may see of a job)', () => {
     for (const text of WORKER_TEXTS) assert.equal(note('queued', text), null, text);
   });
   it('raw input only when it is the video\'s link', () => {
-    assert.equal(downloadJobs.toActivity(row).input, row.input);
-    const list = downloadJobs.toActivity({ ...row, kind: 'playlist', title: null, input: 'https://www.youtube.com/playlist?list=PLprivate' });
+    assert.equal(toActivity(row).input, row.input);
+    const list = toActivity({ ...row, kind: 'playlist', title: null, input: 'https://www.youtube.com/playlist?list=PLprivate' });
     assert.equal(list.input, null);
     assert.equal(list.title, null);
-    const search = downloadJobs.toActivity({ ...row, kind: 'search', title: null, input: 'band song' });
+    const search = toActivity({ ...row, kind: 'search', title: null, input: 'band song' });
     assert.equal(search.input, null);
     assert.equal(search.title, 'band song');
   });

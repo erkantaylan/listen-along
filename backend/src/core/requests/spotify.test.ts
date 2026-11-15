@@ -1,6 +1,8 @@
-const { describe, it } = require('node:test');
-const assert = require('node:assert');
-const { parseSpotifyUrl } = require('./core/requests/index.ts').spotify;
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { spotify } from './index.ts';
+
+const { parseSpotifyUrl } = spotify;
 
 describe('spotify', () => {
   describe('parseSpotifyUrl', () => {

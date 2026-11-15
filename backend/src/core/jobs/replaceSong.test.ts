@@ -8,38 +8,45 @@
 //   - worker upload: details forced by the job, reports closed, old file gone,
 //     duration from the file; failures; deleted song; restart; reclaim
 //   - migration on a database from before these columns
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const { execSync, execFileSync } = require('node:child_process');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const { io: ioClient } = require('socket.io-client');
-const { cookieFor, adminCookie, startServer, requester } = require('./testServer');
-const { planAssignments, durationDiffers } = require('./core/jobs/index.ts');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { execSync, execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import pgModule from 'pg';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { io as ioClient } from 'socket.io-client';
+import type { Socket as ClientSocket } from 'socket.io-client';
+import { cookieFor, adminCookie, startServer, requester } from '../../testServer.js';
+import { planAssignments, durationDiffers } from './index.ts';
 
-let PostgreSqlContainer;
-try { PostgreSqlContainer = require('@testcontainers/postgresql').PostgreSqlContainer; } catch {}
-const has = (cmd) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
+// What the server answers (HTTP, sockets, worker messages, database rows):
+// JSON, read field by field below.
+type Payload = any;
+
+let PostgreSqlContainer: typeof import('@testcontainers/postgresql').PostgreSqlContainer | undefined;
+try { ({ PostgreSqlContainer } = await import('@testcontainers/postgresql')); } catch {}
+const has = (cmd: string) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
 const skip = !PostgreSqlContainer ? 'testcontainers package not installed'
   : !has('docker info') ? 'Docker not available'
   : !has('ffmpeg -version') || !has('ffprobe -version') ? 'ffmpeg/ffprobe not available'
   : typeof WebSocket !== 'function' ? 'no global WebSocket (Node >= 22)' : false;
 
 const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
-async function until(fn, what, ms = 8000) {
+async function until<T>(fn: () => T | Promise<T>, what: string, ms = 8000): Promise<NonNullable<T>> {
   const end = Date.now() + ms;
   for (;;) {
     const v = await fn();
-    if (v) return v;
+    if (v) return v as NonNullable<T>;
     if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
     await tick(25);
   }
 }
 
 describe('planAssignments: replace jobs', () => {
-  const w = (name, canReplace, userId = 'u', idleSince = 0) => ({ name, canReplace, userId, idleSince });
-  const j = (id, replace, requester = null) => ({ id, replace_song_id: replace ? 's' : null, requested_by_user_id: requester });
+  const w = (name: string, canReplace: boolean | undefined, userId = 'u', idleSince = 0) => ({ name, canReplace, userId, idleSince });
+  const j = (id: string, replace: boolean, requester: string | null = null) => ({ id, replace_song_id: replace ? 's' : null, requested_by_user_id: requester });
 
   it('never gives a replace job to a worker without the capability', () => {
     assert.deepEqual(planAssignments([j('1', true)], [w('old', false), w('old2', undefined)]), []);
@@ -70,18 +77,23 @@ describe('durationDiffers', () => {
 });
 
 describe('replace with… on Postgres', { skip, timeout: 300_000 }, () => {
-  let container;
-  let dbUrl;
-  let pg;
-  let srv;
-  let req;
-  let tmp;
-  let stubDir;
-  const ids = {};
-  const cookies = {};
-  const tok = {};
-  const workers = [];
-  const sockets = [];
+  /** A worker process stand-in: what it was sent, and how to answer. */
+  type Worker = {
+    ws: WebSocket; name: string; jobs: Payload[]; closed: number | null; id?: string;
+    ready: Promise<Worker>; send: (m: unknown) => void; nextJob: (n?: number) => Promise<Payload>; disconnect: () => Promise<void>;
+  };
+  let container: StartedPostgreSqlContainer;
+  let dbUrl: string;
+  let pg: pgModule.Client;
+  let srv: Awaited<ReturnType<typeof startServer>>;
+  let req: ReturnType<typeof requester>;
+  let tmp: string;
+  let stubDir: string;
+  const ids: Record<string, string> = {};
+  const cookies: Record<string, string> = {};
+  const tok: Record<string, string> = {};
+  const workers: Worker[] = [];
+  const sockets: ClientSocket[] = [];
   let toneN = 0;
   let videoN = 0;
   const NEW_VIDEO = () => `newvideo${String(videoN++).padStart(3, '0')}`.slice(0, 11);
@@ -90,15 +102,16 @@ describe('replace with… on Postgres', { skip, timeout: 300_000 }, () => {
     srv = await startServer({
       DATABASE_URL: dbUrl, SONGS_PATH: path.join(tmp, 'songs'), COVERS_DIR: path.join(tmp, 'covers'),
       WORKER_REQUEUE_GRACE_MS: '300', WORKER_HEARTBEAT_MS: '60000',
-      WORKER_OUTDATED_NUDGE_MS: '0', // stand-in workers say la 0.1.0 / 0.2.0 (close 4010: cli-release.test.js)
+      WORKER_OUTDATED_NUDGE_MS: '0', // stand-in workers say la 0.1.0 / 0.2.0 (close 4010: cliRelease.test.ts)
       PATH: `${stubDir}:${process.env.PATH}`, NODE_OPTIONS: `--require ${path.join(stubDir, 'oembed-stub.cjs')}`,
     });
     req = requester(srv.base);
   }
 
-  function connectWorker(token, name, { capabilities = ['replace'], ...extra } = {}) {
+  function connectWorker(token: string, name: string, { capabilities = ['replace'], ...extra }: { capabilities?: string[] | null; current_job_id?: string } = {}): Worker {
     const ws = new WebSocket(srv.base.replace(/^http/, 'ws') + '/api/workers/connect');
-    const w = { ws, name, jobs: [], closed: null };
+    // ready, send, nextJob and disconnect are set below.
+    const w = { ws, name, jobs: [], closed: null } as Partial<Worker> as Worker;
     ws.addEventListener('message', (ev) => {
       const msg = JSON.parse(ev.data);
       if (msg.type === 'ping') ws.send(JSON.stringify({ type: 'pong' }));
@@ -106,7 +119,7 @@ describe('replace with… on Postgres', { skip, timeout: 300_000 }, () => {
       if (msg.type === 'welcome') w.id = msg.worker.id;
     });
     ws.addEventListener('close', (ev) => { w.closed = ev.code; });
-    w.ready = new Promise((resolve, reject) => {
+    w.ready = new Promise<Worker>((resolve, reject) => {
       ws.addEventListener('open', () => ws.send(JSON.stringify({
         type: 'hello', protocol: 1, token, name, hostname: `${name}.lan`, platform: 'linux', arch: 'x64',
         cli_version: capabilities ? '0.2.0' : '0.1.0', node_version: '24.0.0', ytdlp_version: '2026.10.26',
@@ -130,18 +143,18 @@ describe('replace with… on Postgres', { skip, timeout: 300_000 }, () => {
     return file;
   }
 
-  async function multipart(url, { token, cookie, fields = {}, file }) {
+  async function multipart(url: string, { token, cookie, fields = {}, file }: { token?: string; cookie?: string; fields?: Record<string, unknown>; file: string }): Promise<{ status: number; body: Payload }> {
     const f = new FormData();
     f.append('file', new Blob([fs.readFileSync(file)], { type: 'audio/mp4' }), 'x.m4a');
     for (const [k, v] of Object.entries(fields)) f.append(k, String(v));
-    const headers = {};
+    const headers: Record<string, string> = {};
     if (token) headers.Authorization = `Bearer ${token}`;
     if (cookie) headers.cookie = cookie;
     const res = await fetch(srv.base + url, { method: 'POST', body: f, headers });
     return { status: res.status, body: await res.json() };
   }
 
-  async function makeSong(fields = {}) {
+  async function makeSong(fields: Record<string, unknown> = {}): Promise<Payload> {
     const n = toneN;
     const r = await multipart('/api/library/upload', {
       token: tok.alice, file: tone(),
@@ -151,25 +164,25 @@ describe('replace with… on Postgres', { skip, timeout: 300_000 }, () => {
     return r.body.song;
   }
 
-  const replaceJob = (who, song, input, extra = {}) => req('POST', '/api/jobs/replace', { cookie: cookies[who], body: { song_id: song.id, input, ...extra } });
-  const watch = (id) => `https://www.youtube.com/watch?v=${id}`;
-  const myJob = async (who, id) => (await req('GET', '/api/jobs', { cookie: cookies[who] })).body.jobs.find((j) => j.id === id);
-  const songRow = async (id) => (await pg.query('SELECT * FROM library_songs WHERE id = $1', [id])).rows[0];
+  const replaceJob = (who: string, song: { id: string }, input: string, extra: Record<string, unknown> = {}) => req('POST', '/api/jobs/replace', { cookie: cookies[who], body: { song_id: song.id, input, ...extra } });
+  const watch = (id: string) => `https://www.youtube.com/watch?v=${id}`;
+  const myJob = async (who: string, id: string): Promise<Payload> => (await req('GET', '/api/jobs', { cookie: cookies[who] })).body.jobs.find((j: Payload) => j.id === id);
+  const songRow = async (id: string): Promise<Payload> => (await pg.query('SELECT * FROM library_songs WHERE id = $1', [id])).rows[0];
 
   /** What `la worker` does for a replace job. */
-  const workerUpload = (w, job, { file, fields = {}, token = tok.bob } = {}) => multipart(`/api/library/${job.replace.song_id}/replace`, {
+  const workerUpload = (w: Worker, job: Payload, { file, fields = {}, token = tok.bob }: { file?: string; fields?: Record<string, unknown>; token?: string } = {}) => multipart(`/api/library/${job.replace.song_id}/replace`, {
     token, file: file || tone(3),
     fields: { title: 'Video Title (Official)', artist: 'Video Channel', album: 'Video Album', youtube_id: 'dQw4w9WgXcQ', duration_sec: 9999, job_id: job.id, worker_id: w.id, ...fields },
   });
 
-  function socketFor(who) {
+  function socketFor(who: string): Promise<ClientSocket> {
     const s = ioClient(srv.base, { transports: ['websocket'], forceNew: true, reconnection: false, extraHeaders: { cookie: cookies[who] } });
     sockets.push(s);
     return new Promise((resolve, reject) => { s.on('connect', () => resolve(s)); s.on('connect_error', reject); });
   }
 
   before(async () => {
-    container = await new PostgreSqlContainer('postgres:16-alpine')
+    container = await new PostgreSqlContainer!('postgres:16-alpine')
       .withDatabase('listen_replace').withUsername('test').withPassword('test').start();
     dbUrl = container.getConnectionUri();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'la-replace-'));
@@ -196,8 +209,7 @@ globalThis.fetch = async (url, opts) => {
   return real(url, opts);
 };`);
     await boot();
-    const { Client } = require('pg');
-    pg = new Client({ connectionString: dbUrl });
+    pg = new pgModule.Client({ connectionString: dbUrl });
     await pg.connect();
     for (const key of ['alice', 'bob', 'pending', 'denied']) {
       const status = key === 'pending' ? 'pending' : key === 'denied' ? 'denied' : 'approved';
@@ -292,7 +304,7 @@ globalThis.fetch = async (url, opts) => {
       const add = await req('POST', `/api/playlists/${id}/songs`, { cookie: cookies.alice, body: { songs: [song.id] } });
       assert.ok([200, 201].includes(add.status), add.text);
       const s = await socketFor('bob');
-      const seen = [];
+      const seen: Payload[] = [];
       s.on('library:updated', (p) => seen.push(p));
       const r = await req('PATCH', `/api/library/${song.id}`, { cookie: cookies.alice, body: { title: 'New Name' } });
       assert.equal(r.status, 200);
@@ -391,7 +403,7 @@ globalThis.fetch = async (url, opts) => {
       const theirs = await req('GET', `/api/jobs/replace/${song.id}`, { cookie: cookies.bob });
       assert.equal(theirs.body.job, null);
       assert.equal(theirs.body.active, true);
-      assert.ok(!(await req('GET', '/api/jobs', { cookie: cookies.bob })).body.jobs.some((j) => j.id === made.body.job.id));
+      assert.ok(!(await req('GET', '/api/jobs', { cookie: cookies.bob })).body.jobs.some((j: Payload) => j.id === made.body.job.id));
       assert.ok(!JSON.stringify(mine.body).includes(ids.alice));
       assert.equal((await req('POST', `/api/jobs/${made.body.job.id}/cancel`, { cookie: cookies.bob })).status, 409);
       await req('POST', `/api/jobs/${made.body.job.id}/cancel`, { cookie: cookies.alice });
@@ -437,8 +449,8 @@ globalThis.fetch = async (url, opts) => {
       await req('POST', `/api/library/${song.id}/report`, { cookie: cookies.bob, body: { reason: 'wrong' } });
       const made = await replaceJob('alice', song, watch(video), { title: 'Kept Title' });
       const s = await socketFor('alice');
-      const events = [];
-      const jobEvents = [];
+      const events: Payload[] = [];
+      const jobEvents: Payload[] = [];
       s.on('library:updated', (p) => events.push(p));
       s.on('jobs:update', (p) => jobEvents.push(p.job));
       const w = await connectWorker(tok.bob, 'flow-box').ready;
@@ -699,14 +711,14 @@ globalThis.fetch = async (url, opts) => {
       const made = await replaceJob('bob', song, watch(NEW_VIDEO()));
       const act = await req('GET', '/api/profile/activity', { cookie: cookies.bob });
       assert.equal(act.status, 200, act.text);
-      const row = act.body.downloads.find((j) => j.id === made.body.job.id);
+      const row = act.body.downloads.find((j: Payload) => j.id === made.body.job.id);
       assert.ok(row);
       assert.equal(row.replace.song_id, song.id);
       assert.ok(act.body.counts.downloads >= 1);
       const theirs = await req('GET', '/api/profile/activity', { cookie: cookies.alice });
-      assert.ok(!theirs.body.downloads.some((j) => j.id === made.body.job.id));
+      assert.ok(!theirs.body.downloads.some((j: Payload) => j.id === made.body.job.id));
       const adm = await req('GET', '/api/admin/jobs?status=active', { cookie: adminCookie() });
-      assert.ok(adm.body.jobs.find((j) => j.id === made.body.job.id).replace);
+      assert.ok(adm.body.jobs.find((j: Payload) => j.id === made.body.job.id).replace);
       assert.equal(await req('GET', `/api/library/${song.id}/replacements`, { cookie: cookies.alice }).then((r) => r.status), 200);
       await req('POST', `/api/jobs/${made.body.job.id}/cancel`, { cookie: cookies.bob });
     });
