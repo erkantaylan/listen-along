@@ -1,5 +1,5 @@
-// "Add to playlist" in the song menu (song-reports.js): a submenu of the
-// playlists this user can edit (a sheet on phones, context-menu.js), with search,
+// "Add to playlist" in the song menu (song-reports.ts): a submenu of the
+// playlists this user can edit (a sheet on phones, context-menu.ts), with search,
 // and "New playlist", which creates one and adds the song without leaving the page.
 // The server decides: POST /api/playlists/:id/songs says added, already in it, or
 // not in the library, and refuses what the user may not touch.
@@ -9,38 +9,62 @@
 // (the same library song / YouTube video) already in the playlist is refused by
 // the server, the user is asked "Add again?", and only then is it sent again
 // with allow_duplicates. Nothing is decided from a possibly stale local copy.
-import { state } from './shared/state.js';
-import { showToast, t } from './shared/ui.js';
-import { player } from './player/player.js';
-import { openContextMenu, refreshSubmenu } from './shared/context-menu.js';
-import { getPlaylists, loadPlaylists, onPlaylists, scheduleReload } from './features/playlists/playlist-store.js';
-import { groupPlaylists } from './features/playlists/playlist-filter.js';
-import { openNewPlaylistDialog } from './features/playlists/new-playlist.js';
-import { confirmDialog } from './features/playlists/playlist-actions.js';
-import { addOutcome } from './features/search/search-rules.js';
+import { state } from '../../shared/state.ts';
+import { showToast, t } from '../../shared/ui.ts';
+import { player } from '../../player/player.ts';
+import { openContextMenu, refreshSubmenu } from '../../shared/context-menu.ts';
+import { getPlaylists, loadPlaylists, onPlaylists, scheduleReload } from './playlist-store.ts';
+import { groupPlaylists } from './playlist-filter.ts';
+import { openNewPlaylistDialog } from './new-playlist.ts';
+import { confirmDialog } from './playlist-actions.ts';
+import { addOutcome } from '../search/search-rules.ts';
+import type { MenuItem } from '../../shared/context-menu.ts';
+import type { ReturnFocus } from './playlist-actions.ts';
+import type { AddAnswer } from '../search/search-rules.ts';
+import type { ApiError, PlaylistCreated, PlaylistSummary, Track, Visibility } from '../../shared/types.ts';
+
+/**
+ * The song to add: a library song (songId) and what the page knows of where it
+ * came from (to mark playlists whose held queue has it). No songId: the menu
+ * item is disabled. returnFocus: where focus goes after the "Add again?" dialog.
+ */
+export interface AddableSong {
+  songId?: string | null;
+  url?: string | null;
+  youtubeId?: string | null;
+  sourceUrl?: string | null;
+  title?: string;
+  returnFocus?: ReturnFocus;
+}
+
+/** The playlist to add to: an /api/playlists item or the page's own { id, name }. */
+export type PlaylistTarget = Pick<PlaylistSummary, 'id'> & { name?: string | null };
+
+/** addSongToPlaylist(): added, a duplicate the user chose not to add, or failed. */
+export type AddSongResult = 'added' | 'kept' | 'failed';
 
 const ADD_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 10H3v2h11v-2zm0-4H3v2h11V6zm4 8v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zM3 16h7v-2H3v2z"/></svg>';
 const PLUS_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>';
 
 // t() with {placeholders} filled in the fallback too (t returns it raw).
-const tf = (key, fallback, vars) => t(key, fallback, vars).replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
+const tf = (key: string, fallback: string, vars: Record<string, string | number>): string => t(key, fallback, vars).replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m));
 
-const nameOf = (pl) => pl.name || `Playlist ${pl.id}`;
+const nameOf = (pl: PlaylistTarget): string => pl.name || `Playlist ${pl.id}`;
 
 onPlaylists(() => refreshSubmenu());
 
-async function postJson(url, body) {
+async function postJson<T>(url: string, body: unknown): Promise<{ res: Response; data: T }> {
   const res = await fetch(url, {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  const data = await res.json().catch(() => ({}));
+  const data = await res.json().catch(() => ({})) as T;
   return { res, data };
 }
 
-function matchesEntry(entry, song) {
+function matchesEntry(entry: Pick<Track, 'url'> | null | undefined, song: AddableSong): boolean {
   if (!entry || !entry.url) return false;
   if (entry.url === `library:${song.songId}` || (song.url && entry.url === song.url) || (song.sourceUrl && entry.url === song.sourceUrl)) return true;
   return !!song.youtubeId && entry.url.includes(song.youtubeId);
@@ -48,15 +72,15 @@ function matchesEntry(entry, song) {
 
 // Only the queues this page already holds are known; for any other playlist the
 // server answers "already in it" when the song is added.
-function knownToContain(playlistId, song) {
-  const held = [];
+function knownToContain(playlistId: string, song: AddableSong): boolean {
+  const held: (readonly Pick<Track, 'url'>[] | null | undefined)[] = [];
   if (playlistId === state.lobbyId) held.push(state.queue);
-  if (player.context && player.context.lobbyId === playlistId) held.push(player.queue);
+  if (player.context && player.context.type === 'lobby' && player.context.lobbyId === playlistId) held.push(player.queue);
   return held.some((queue) => (queue || []).some((entry) => matchesEntry(entry, song)));
 }
 
 /** Ask before adding a song that is already in the playlist. */
-export function confirmDuplicate(name, returnFocus = null) {
+export function confirmDuplicate(name: string, returnFocus: ReturnFocus = null): Promise<boolean> {
   return confirmDialog({
     title: tf('addTo.duplicateTitle', 'Already in “{name}”', { name }),
     message: t('addTo.duplicateMessage', 'Already in this playlist. Add again?'),
@@ -69,9 +93,9 @@ export function confirmDuplicate(name, returnFocus = null) {
  * Add one library song (song.songId) to a playlist ({ id, name }). Returns
  * 'added' | 'kept' (a duplicate the user chose not to add) | 'failed'.
  */
-export async function addSongToPlaylist(playlist, song, { returnFocus = null } = {}) {
+export async function addSongToPlaylist(playlist: PlaylistTarget, song: AddableSong, { returnFocus = null }: { returnFocus?: ReturnFocus } = {}): Promise<AddSongResult> {
   const name = nameOf(playlist);
-  const send = (allow) => postJson(`/api/playlists/${encodeURIComponent(playlist.id)}/songs`, allow ? { songs: [song.songId], allow_duplicates: true } : { songs: [song.songId] });
+  const send = (allow: boolean) => postJson<AddAnswer>(`/api/playlists/${encodeURIComponent(playlist.id)}/songs`, allow ? { songs: [song.songId], allow_duplicates: true } : { songs: [song.songId] });
   try {
     let { res, data } = await send(false);
     let outcome = addOutcome(res.status, data);
@@ -91,28 +115,29 @@ export async function addSongToPlaylist(playlist, song, { returnFocus = null } =
     else throw new Error((data && data.error) || `HTTP ${res.status}`);
     return 'failed';
   } catch (err) {
-    showToast(tf('addTo.failed', 'Could not add to “{name}”: {error}', { name, error: err.message }), 'error');
+    showToast(tf('addTo.failed', 'Could not add to “{name}”: {error}', { name, error: (err as Error).message }), 'error');
     return 'failed';
   } finally {
     scheduleReload(0);
   }
 }
 
-const addTo = (playlist, song) => addSongToPlaylist(playlist, song, { returnFocus: song.returnFocus || null });
+const addTo = (playlist: PlaylistTarget, song: AddableSong): Promise<AddSongResult> => addSongToPlaylist(playlist, song, { returnFocus: song.returnFocus || null });
 
-async function createAndAdd({ name, visibility }, song) {
-  let res;
-  let data;
+async function createAndAdd({ name, visibility }: { name: string; visibility: Visibility }, song: AddableSong): Promise<void> {
+  let res: Response;
+  let data: Partial<ApiError>;
   try {
-    ({ res, data } = await postJson('/api/playlists', { name, visibility }));
+    ({ res, data } = await postJson<Partial<ApiError>>('/api/playlists', { name, visibility }));
   } catch {
     throw new Error(t('error.generic', 'Something went wrong'));
   }
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-  await addTo(data, song);
+  // 201: the new playlist (index.js POST /api/playlists).
+  await addTo(data as PlaylistCreated, song);
 }
 
-function rows(playlists, song) {
+function rows(playlists: PlaylistSummary[], song: AddableSong): MenuItem[] {
   return playlists.map((pl) => {
     const owner = pl.isOwner ? t('landing.byYou', 'by you') : pl.ownerName ? tf('landing.byOwner', 'by {name}', { name: pl.ownerName }) : t('landing.noOwner', 'shared');
     const parts = [owner];
@@ -123,12 +148,12 @@ function rows(playlists, song) {
   });
 }
 
-function section(header, playlists, song) {
+function section(header: string, playlists: PlaylistSummary[], song: AddableSong): MenuItem[] {
   return playlists.length ? [{ header }, ...rows(playlists, song)] : [];
 }
 
 /** The editable playlists in the menu's groups, as menu items (header rows included). */
-function playlistRows(query, song) {
+function playlistRows(query: string, song: AddableSong): MenuItem[] {
   const g = groupPlaylists(getPlaylists().filter((p) => p.canEdit), query);
   return [
     ...section(t('sidebar.pinned', 'Pinned'), g.pinned, song),
@@ -137,7 +162,7 @@ function playlistRows(query, song) {
   ];
 }
 
-function newPlaylistItem(song) {
+function newPlaylistItem(song: AddableSong): MenuItem {
   return {
     label: t('landing.newPlaylist', 'New playlist'),
     icon: PLUS_ICON,
@@ -152,7 +177,7 @@ function newPlaylistItem(song) {
  * The playlist chooser on its own (the search page's add button when there is
  * no current playlist): the same rows as the submenu, under the button.
  */
-export function openPlaylistChooser(anchor, song) {
+export function openPlaylistChooser(anchor: HTMLElement, song: AddableSong): void {
   const show = () => openContextMenu({ anchor }, [
     { header: t('addTo.label', 'Add to playlist') },
     ...playlistRows('', song).filter((it) => !it.header),
@@ -164,7 +189,7 @@ export function openPlaylistChooser(anchor, song) {
 }
 
 /** The menu item. song: { songId, url?, youtubeId?, sourceUrl?, title }. No songId: disabled. */
-export function addToPlaylistItem(song) {
+export function addToPlaylistItem(song: AddableSong): MenuItem {
   const label = t('addTo.label', 'Add to playlist');
   if (!song.songId) return { label, icon: ADD_ICON, description: t('addTo.notYet', 'Not in the library yet'), disabled: true };
   return {

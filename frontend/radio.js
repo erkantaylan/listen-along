@@ -12,8 +12,8 @@ import { player } from './player/player.js';
 import { libraryTrack } from './library.js';
 import { playCellHtml, playCellLabel, statsHtml } from './queue.js';
 import { closeDrawer } from './sidebar.js';
-import { bindSongMenu, songMenuButtonHtml } from './song-reports.js';
-import { isUnplayable, unplayableBadgeHtml, onFailuresChange } from './playback-failures.js';
+import { bindSongMenu, songMenuButtonHtml } from './features/library/song-reports.js';
+import { isUnplayable, unplayableBadgeHtml, onFailuresChange } from './player/playback-failures.js';
 import { createVirtualList } from './shared/virtual-list.js';
 import { nextRound, reconcile, reshuffledAround, shuffled } from './features/radio/radio-order.js';
 

@@ -1,34 +1,36 @@
-// Full-player controls. Playback itself is player.js; every listener plays at
+// Full-player controls. Playback itself is player.ts; every listener plays at
 // their own pace, and the server only learns what each listener is playing
 // (listener:now-playing, presence:now-playing). Listening along with another
 // user is listen-along.js.
-import { state, elements, STORAGE_KEYS, storageSet } from './shared/state.js';
-import { escapeHtml, getCoverUrl, sanitizeUrl, showToast, syncRangeFill, t } from './shared/ui.js';
-import { player } from './player/player.js';
-import { refreshPlayerBar } from './player-bar.js';
-import { clearFailureFor } from './playback-failures.js';
+import { state, elements, STORAGE_KEYS, storageSet } from '../shared/state.ts';
+import { escapeHtml, getCoverUrl, sanitizeUrl, showToast, syncRangeFill, t } from '../shared/ui.ts';
+import { player } from './player.ts';
+import { refreshPlayerBar } from './player-bar.ts';
+import { clearFailureFor } from './playback-failures.ts';
+import type { RepeatMode } from './player-queue.ts';
+import type { DownloadProgressPayload, DownloadStatusPayload, Track, UsersUpdatedPayload } from '../shared/types.ts';
 
 // These are imported lazily to avoid circular deps with queue.js
-let _updateQueue, _updateListeners;
-export function _setQueueFns(updateQueue, updateListeners) {
+let _updateQueue: (() => void) | undefined, _updateListeners: (() => void) | undefined;
+export function _setQueueFns(updateQueue: () => void, updateListeners: () => void): void {
   _updateQueue = updateQueue;
   _updateListeners = updateListeners;
 }
 
-export function handleDownloadStatus(data) {
+export function handleDownloadStatus(data: DownloadStatusPayload): void {
   state.downloadStatus[data.url] = { status: data.status, percent: data.percent || 0, error: data.error };
   if (data.status === 'ready') clearFailureFor(data.url); // it reached the library: worth playing again
   if (_updateQueue) _updateQueue();
 }
 
-export function handleDownloadProgress(data) {
+export function handleDownloadProgress(data: DownloadProgressPayload): void {
   if (state.downloadStatus[data.url]) { state.downloadStatus[data.url].percent = data.percent; }
   else { state.downloadStatus[data.url] = { status: 'downloading', percent: data.percent }; }
   updateQueueProgress(data.url, data.percent);
 }
 
 // users:updated for the lobby on screen refreshes its listener list.
-export function handleUsersUpdated(data) {
+export function handleUsersUpdated(data: UsersUpdatedPayload): void {
   const lobbyId = data.lobbyId || state.lobbyId;
   const users = data.users || [];
   if (lobbyId !== state.lobbyId) return;
@@ -38,21 +40,21 @@ export function handleUsersUpdated(data) {
 }
 
 // The lobby page's queue as a player context.
-export function viewedContext() {
+export function viewedContext(): { lobbyId: string | null; name: string | null } {
   return { lobbyId: state.lobbyId, name: state.lobbyName };
 }
 
 // Start the lobby on screen from its first song (shuffle, when on, takes over
 // from the next one). Songs waiting as requests are not in the queue.
-export function playViewedFromTop() {
+export function playViewedFromTop(): void {
   if (state.queue.length) player.playFrom(viewedContext(), state.queue, 0);
   else showToast(t('landing.emptyPlaylist', 'This playlist has no songs yet'), 'info');
 }
 
-export function updateQueueProgress(url, percent) {
-  const queueItems = elements.queueList.querySelectorAll('.queue-item');
+export function updateQueueProgress(url: string, percent: number): void {
+  const queueItems = elements.queueList.querySelectorAll<HTMLElement>('.queue-item');
   for (const item of queueItems) {
-    const progressBar = item.querySelector('.queue-item-progress-bar');
+    const progressBar = item.querySelector<HTMLElement>('.queue-item-progress-bar');
     if (progressBar && item.dataset.url === url) {
       progressBar.style.width = `${percent}%`;
       const percentText = item.querySelector('.queue-item-percent');
@@ -62,15 +64,15 @@ export function updateQueueProgress(url, percent) {
   }
 }
 
-export function cycleRepeatMode() {
-  const cycle = { 'off': 'all', 'all': 'one', 'one': 'off' };
+export function cycleRepeatMode(): void {
+  const cycle: Record<RepeatMode, RepeatMode> = { 'off': 'all', 'all': 'one', 'one': 'off' };
   const newRepeat = cycle[state.repeatMode] || 'off';
   state.repeatMode = newRepeat;
   storageSet(STORAGE_KEYS.REPEAT_MODE, newRepeat);
   updatePlaybackModeUI();
 }
 
-export function toggleShuffle() {
+export function toggleShuffle(): void {
   const newShuffle = !state.isShuffleEnabled;
   state.isShuffleEnabled = newShuffle;
   storageSet(STORAGE_KEYS.SHUFFLE_ENABLED, String(newShuffle));
@@ -78,24 +80,24 @@ export function toggleShuffle() {
 }
 
 // Full-player buttons. With nothing loaded, Play starts the lobby on screen.
-export function togglePlayback() {
+export function togglePlayback(): void {
   if (player.track) { player.toggle(); return; }
   if (state.viewPlay) { state.viewPlay(); return; }
   if (state.lobbyId && state.queue.length) player.playFrom(viewedContext(), state.queue, 0);
 }
 
-export function playPrevious() { player.previous(); }
+export function playPrevious(): void { player.previous(); }
 
-export function playNext() { player.next(); }
+export function playNext(): void { player.next(); }
 
-export function seekTo() {
+export function seekTo(): void {
   const percent = Number(elements.progressBar.value);
   if (player.duration) player.seek((percent / 100) * player.duration);
 }
 
 // Player bar readout for the loaded track (or the empty state); the
-// "artist · from" line and the enabled controls are player-bar.js.
-export function updateNowPlaying(track) {
+// "artist · from" line and the enabled controls are player-bar.ts.
+export function updateNowPlaying(track: Track | null | undefined): void {
   if (!track) { resetNowPlaying(); refreshPlayerBar(); return; }
   elements.trackTitle.textContent = track.title || 'Unknown Track';
   elements.trackArtist.textContent = track.artist || '';
@@ -107,8 +109,8 @@ export function updateNowPlaying(track) {
 
 const NOTE_ART = '<span class="placeholder-art"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg></span>';
 
-function resetNowPlaying() {
-  elements.progressBar.value = 0;
+function resetNowPlaying(): void {
+  elements.progressBar.value = String(0);
   syncRangeFill(elements.progressBar);
   elements.currentTime.textContent = '0:00';
   elements.duration.textContent = '0:00';
@@ -116,8 +118,8 @@ function resetNowPlaying() {
 }
 
 
-export function updatePlayButton() {
-  const icon = elements.playBtn.querySelector('svg');
+export function updatePlayButton(): void {
+  const icon = elements.playBtn.querySelector('svg') as SVGSVGElement;
   if (player.isPlaying) {
     icon.innerHTML = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
     elements.playBtn.setAttribute('aria-label', 'Pause');
@@ -127,7 +129,7 @@ export function updatePlayButton() {
   }
 }
 
-export function updatePlaybackModeUI() {
+export function updatePlaybackModeUI(): void {
   const repeatBtn = elements.repeatBtn;
   repeatBtn.classList.toggle('active', state.repeatMode !== 'off');
   if (state.repeatMode === 'all') {

@@ -107,9 +107,9 @@ where lobby persistence broke entirely on deployed instances.
   it); `library.replaceSong` resolves open reports in its transaction
   ('replaced'); admins dismiss via `/api/admin/library/reports/:id/dismiss` or
   `/api/admin/library/:songId/reports/dismiss`. Changes emit
-  `library:updated { reports }`. Frontend: `song-reports.js` +
+  `library:updated { reports }`. Frontend: `song-reports.ts` +
   the reusable `context-menu.ts` (DESIGN.md "Context menu").
-- **A song that fails to play** (web): `frontend/playback-failures.js` is the
+- **A song that fails to play** (web): `frontend/src/player/playback-failures.ts` is the
   glue to the page, `playback-failure-flow.ts` the state (injected probe /
   confirm / report / user, so the whole flow is tested without a browser),
   `playback-failure-rules.ts` the pure decisions. The `<audio>` error greys the
@@ -212,7 +212,7 @@ where lobby persistence broke entirely on deployed instances.
   requester's. Frontend: `activity.ts` (rows keep their element, a tick writes one
   text node; refetches on reconnect and on `playlists:changed`, only the latest
   load applies, and a row older by `updated_at` never replaces a newer one), pure
-  rules in `activity-rules.ts` (tested), the card shown by `social.js`
+  rules in `activity-rules.ts` (tested), the card shown by `social.ts`
   (`opts.activity`: approved only).
 - **Global search** (web only; DESIGN.md "Search"): `frontend/search.js` (the one field `#app-search`, the app shell's
   top bar at the top of the page column and centred in it, never moved into a page: `body.has-topbar` makes the page
@@ -231,7 +231,7 @@ where lobby persistence broke entirely on deployed instances.
   screen when the search STARTED (focus, Ctrl+K, the Search place; `pageTarget` / `startTarget` / `keepTarget`, it lasts while
   that search does), else the playlist last PLAYED from (`listen-lastPlayedPlaylist`); only while listed and `canEdit`.
 - **Duplicates on the web** = the same library song / YouTube video already in that playlist (another video of the same
-  song is not one). Every web add of one library song goes through `addSongToPlaylist` (`add-to-playlist.js`):
+  song is not one). Every web add of one library song goes through `addSongToPlaylist` (`add-to-playlist.ts`):
   `POST /api/playlists/:id/songs` refuses it (`already_in_playlist`, its default for every client), the user is asked,
   and only then it is sent with `allow_duplicates`. `POST /api/jobs { picks, playlist_id }` names such songs in
   `already_in_playlist` (additive) and adds them only with the opt-in `allow_duplicates: true`; without it, as before,

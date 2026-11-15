@@ -138,6 +138,9 @@ export interface AppState {
   listeningAlong: boolean;
   playRequested: boolean;
   lobbyName: string | null;
+  // The page on screen's "play from the top" (radio.js, artist-page.js set it;
+  // the player bar's Play uses it with nothing loaded). Not in the initial state.
+  viewPlay?: (() => void) | null;
 }
 
 // App State

@@ -1,26 +1,29 @@
 // The app-wide player bar (markup in index.html): fixed at the bottom of every
 // page, Spotify-style. Shows an empty state with disabled controls until
-// something is loaded. Track title/art/times are drawn by playback.js; this
+// something is loaded. Track title/art/times are drawn by playback.ts; this
 // module handles visibility, page padding, the empty state, the "from" line,
 // opening the context (playlist page or library) and the listen-along strip
 // ("Listening along with Ayşe" + Stop, or "Ayşe and 2 others are listening
 // along" for the person being listened to).
-import { state, elements } from './shared/state.js';
-import { navigateTo, t } from './shared/ui.js';
-import { player } from './player/player.js';
-import { artistPath, playlistPath, searchPath } from './router.js';
-import { listenState, onListenChange, followersText, stopListenAlong } from './features/social/listen-along.js';
-import { bindSongMenu, bindReportIcons, reportIconHtml, reportsFor, onReportsChange } from './song-reports.js';
+import { state, elements } from '../shared/state.ts';
+import { navigateTo, t } from '../shared/ui.ts';
+import { player } from './player.ts';
+import { artistPath, playlistPath, searchPath } from '../router.ts';
+import { listenState, onListenChange, followersText, stopListenAlong } from '../features/social/listen-along.ts';
+import { bindSongMenu, bindReportIcons, reportIconHtml, reportsFor, onReportsChange } from '../features/library/song-reports.ts';
+import { byId, maybeById } from '../shared/dom.ts';
+import type { MenuSong } from '../features/library/song-reports.ts';
+import type { PlayerContext } from './player.ts';
 
 // The current song as the song menu / reports see it.
-function currentSong() {
+function currentSong(): MenuSong | null {
   const track = player.track;
   if (!track) return null;
   return { songId: track.libraryId || null, url: track.url, title: track.title, artist: track.artist };
 }
 
 // The warning icon (reported song) and the ⋮ button follow the track.
-function refreshBroken() {
+function refreshBroken(): void {
   const song = currentSong();
   const el = $('track-broken');
   if (el) {
@@ -32,24 +35,24 @@ function refreshBroken() {
   if (btn) btn.hidden = !song;
 }
 
-const $ = (id) => document.getElementById(id);
+const $ = <T extends HTMLElement = HTMLElement>(id: string): T | null => maybeById<T>(id);
 // t() with {placeholders} filled in the fallback too (t returns it raw).
-const tf = (key, fallback, vars) => t(key, fallback, vars).replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
+const tf = (key: string, fallback: string, vars: Record<string, string>): string => t(key, fallback, vars).replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? vars[k] : m));
 const CONTROL_IDS = ['repeat-btn', 'shuffle-btn', 'prev-btn', 'next-btn', 'progress-bar'];
 
 // Hidden only before sign-in (login / pending approval, the admin login).
-function refreshVisibility() {
+function refreshVisibility(): void {
   const bar = $('player-bar');
   if (!bar) return;
   const signedOut = (elements.loginView && elements.loginView.classList.contains('active'))
     || (elements.pendingView && elements.pendingView.classList.contains('active'))
-    || (elements.dashboardView && elements.dashboardView.classList.contains('active') && !$('adm-gate').hidden);
+    || (elements.dashboardView && elements.dashboardView.classList.contains('active') && !byId('adm-gate').hidden);
   bar.hidden = signedOut;
   document.body.classList.toggle('has-player-bar', !signedOut);
 }
 
 // Where the music comes from, for the bar's second line and the open button.
-export function contextLabel(ctx) {
+export function contextLabel(ctx: PlayerContext | null | undefined): string {
   if (!ctx) return '';
   if (ctx.type === 'library') return t('player.fromLibrary', 'Music Library');
   if (ctx.type === 'radio') return t('radio.title', 'Radio');
@@ -63,7 +66,7 @@ export function contextLabel(ctx) {
   return ctx.name || `Playlist ${ctx.lobbyId}`;
 }
 
-function contextPath(ctx) {
+function contextPath(ctx: PlayerContext | null | undefined): string | null {
   if (!ctx) return null;
   if (ctx.type === 'library') return '/library';
   if (ctx.type === 'radio') return '/radio';
@@ -74,19 +77,19 @@ function contextPath(ctx) {
 }
 
 // Empty state, enabled controls and the "artist · from" line.
-export function refreshPlayerBar() {
+export function refreshPlayerBar(): void {
   const bar = $('player-bar');
   if (!bar) return;
   const track = player.track;
   bar.classList.toggle('is-empty', !track);
-  for (const id of CONTROL_IDS) { const el = $(id); if (el) el.disabled = !track; }
+  for (const id of CONTROL_IDS) { const el = $<HTMLButtonElement | HTMLInputElement>(id); if (el) el.disabled = !track; }
   // Radio is its own shuffle; a song from the search page is one song on repeat.
-  const shuffle = $('shuffle-btn');
+  const shuffle = $<HTMLButtonElement>('shuffle-btn');
   if (shuffle && player.context && (player.context.type === 'radio' || player.context.type === 'search')) shuffle.disabled = true;
   // With nothing loaded, Play starts the playlist or Radio on screen if it has songs.
-  const play = $('play-btn');
+  const play = $<HTMLButtonElement>('play-btn');
   if (play) play.disabled = !track && !state.viewPlay && !(state.lobbyId && state.queue.length);
-  const open = $('player-open');
+  const open = $<HTMLButtonElement>('player-open');
   const ctx = player.context;
   if (open) {
     open.disabled = !track || !contextPath(ctx);
@@ -106,12 +109,12 @@ export function refreshPlayerBar() {
 }
 
 // The strip above the bar's row: following someone, or being listened to.
-function refreshListenStrip() {
+function refreshListenStrip(): void {
   const strip = $('listen-strip');
   if (!strip) return;
   const { leader, ending, followers } = listenState();
-  const text = $('listen-strip-text');
-  const stop = $('listen-stop');
+  const text = byId('listen-strip-text');
+  const stop = byId('listen-stop');
   if (leader) {
     text.textContent = ending
       ? tf('listen.endingStrip', '{name} went offline · stops after this song', { name: leader.name })
@@ -127,7 +130,7 @@ function refreshListenStrip() {
   }
 }
 
-export function setupPlayerBar() {
+export function setupPlayerBar(): void {
   const bar = $('player-bar');
   if (!bar) return;
   // Keep page content clear of the bar whatever its height (phone/desktop). The
@@ -149,12 +152,13 @@ export function setupPlayerBar() {
 }
 
 // Interactive parts (only in the signed-in app, after the player is set up).
-export function setupPlayerBarControls() {
-  $('player-open').addEventListener('click', () => {
+export function setupPlayerBarControls(): void {
+  byId('player-open').addEventListener('click', () => {
     const path = contextPath(player.context);
     if (!path) return;
     // The playlist page brings the current song into view (queue.js).
-    state.revealPlayingIn = player.context.lobbyId || null;
+    // A path means a context; only a playlist's has a lobbyId (the others give null).
+    state.revealPlayingIn = (player.context as { lobbyId?: string }).lobbyId || null;
     navigateTo(path);
     document.dispatchEvent(new CustomEvent('app:reveal-playing'));
   });
@@ -164,7 +168,7 @@ export function setupPlayerBarControls() {
   onListenChange(refreshPlayerBar);
   $('listen-stop')?.addEventListener('click', () => stopListenAlong());
   // Right-click / long-press the current song, or its ⋮ button: the song menu.
-  bindSongMenu(document.querySelector('#player-bar .sticky-player-row'), '.player-open, .player-menu-btn', () => currentSong());
+  bindSongMenu(document.querySelector<HTMLElement>('#player-bar .sticky-player-row'), '.player-open, .player-menu-btn', () => currentSong());
   bindReportIcons($('track-broken'), () => { const song = currentSong(); return song ? reportsFor(song) : []; });
   onReportsChange(refreshBroken);
   refreshPlayerBar();

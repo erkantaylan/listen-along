@@ -3,15 +3,15 @@ import { state, elements, auth, socket, STORAGE_KEYS, viewActivators, setSocket,
 import { showView, showToast, switchTab, setupLanguageSelector, setupAppMeta, t, setupRangeFill, navigateTo } from './shared/ui.js';
 import { setupAudioPlayer } from './shared/audio.js';
 import { player, setupPlayer } from './player/player.js';
-import { setupPlaybackFailures } from './playback-failures.js';
-import { setupPlayerBar, setupPlayerBarControls, refreshPlayerBar } from './player-bar.js';
+import { setupPlaybackFailures } from './player/playback-failures.js';
+import { setupPlayerBar, setupPlayerBarControls, refreshPlayerBar } from './player/player-bar.js';
 import { checkAuth, setupLoginView, showPendingCard, setupProfilePage, loadProfilePage } from './auth.js';
-import { setupSocial, applySocialRoute, toggleSocial, refreshPeople, reportNowPlaying as reportPresence } from './social.js';
+import { setupSocial, applySocialRoute, toggleSocial, refreshPeople, reportNowPlaying as reportPresence } from './features/social/social.js';
 import { setupListenAlong, listenAlongWith, isListeningWith, stopListenAlong, onListenChange } from './features/social/listen-along.js';
 import { checkUrlForDashboard, dashboardJoinLobby, dashboardRemoveLobby, dashboardApproveUser, dashboardRejectUser } from './features/admin/dashboard.js';
 import { setupLibraryPage, openLibraryPage, closeLibraryPage, isLibraryOpen, showLibraryRoute, handleLibraryUpdated, handleRequestsUpdated } from './library.js';
 import { handleJobUpdate, handleWorkersUpdate } from './features/library/jobs.js';
-import { loadReports } from './song-reports.js';
+import { loadReports } from './features/library/song-reports.js';
 import { parseRoute, legacyRedirect } from './router.js';
 import { openNewPlaylistDialog } from './features/playlists/new-playlist.js';
 import { setupSidebar, closeDrawer } from './sidebar.js';
@@ -22,7 +22,7 @@ import { setupArtistPage, openArtistPage, closeArtistPage, handleArtistLibraryUp
 import { setupRowDoubleClick } from './shared/row-double-click.js';
 import { scheduleReload } from './features/playlists/playlist-store.js';
 import { shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyUpdated, openPlaylistHeaderMenu, setupLandingMenus, handleUserJoined, handleUserLeft, handleLobbyClosed, checkForLastLobby, joinLobbyFromCard, updatePinButton, togglePin, quickPlayLobby, toggleLobbyPlayback, openLobbyPage, closeLobbyPage, syncMembership, resyncMembership, reportNowPlaying } from './lobby.js';
-import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, updatePlayButton, updatePlaybackModeUI, updateNowPlaying, _setQueueFns } from './playback.js';
+import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, updatePlayButton, updatePlaybackModeUI, updateNowPlaying, _setQueueFns } from './player/playback.js';
 import { closePickDialog } from './features/picker/pick-dialog.js';
 import { setupSearch, openSearchPage, closeSearchPage, searchRouteChanged, handleSearchLibraryUpdated } from './search.js';
 import { handleQueueUpdated, handleSongAdded, removeSong, clearQueue, downloadPlaylist, cancelPlaylistDownload, moveSongUp, moveSongDown, playSongAt, setupQueueInteractions, setupQueueSearch, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './queue.js';

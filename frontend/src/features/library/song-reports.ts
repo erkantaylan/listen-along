@@ -1,5 +1,5 @@
 // "Mark as broken — needs replacement" for library songs, plus the song
-// context menu built on context-menu.js.
+// context menu built on context-menu.ts.
 //
 // - A store of every song with an open report (GET /api/library?reported=1),
 //   indexed by song id, YouTube id and source link so a playlist entry
@@ -9,42 +9,81 @@
 //   opens a popover with the report count, reasons and reporters.
 // - songMenuItems(): the menu items for one song. Add new song actions here.
 // - bindSongMenu(): context menu on rows of a list.
-import { showToast, t, copyToClipboard } from './shared/ui.js';
-import { bindContextMenu, openContextMenu, closeContextMenu, isContextMenuOpen } from './shared/context-menu.js';
-import { addToPlaylistItem } from './add-to-playlist.js';
-import { openReplaceDialog } from './features/library/replace-dialog.js';
-import { songSourceLink, sourceSubmenu } from './features/library/song-menu-rules.js';
+import { showToast, t, copyToClipboard } from '../../shared/ui.ts';
+import { bindContextMenu, openContextMenu, closeContextMenu, isContextMenuOpen } from '../../shared/context-menu.ts';
+import { addToPlaylistItem } from '../playlists/add-to-playlist.ts';
+import { openReplaceDialog } from './replace-dialog.ts';
+import { songSourceLink, sourceSubmenu } from './song-menu-rules.ts';
+import { maybeById } from '../../shared/dom.ts';
+import type { MenuItem } from '../../shared/context-menu.ts';
+import type { ApiError, LibraryListResponse, LibrarySong, LibrarySongResponse, SongReport, SongReportResponse } from '../../shared/types.ts';
+
+/** Which song: a library song id, or a queue / player url (`library:<id>` or a YouTube url). */
+export interface SongRef {
+  songId?: string | null;
+  url?: string | null;
+}
+
+/** One song as the song menu sees it (a row's describe(), the player bar's current song). */
+export interface MenuSong extends SongRef {
+  title?: string;
+  artist?: string | null;
+  youtubeId?: string | null;
+  sourceUrl?: string | null;
+  /** Only on a playlist row the viewer may edit (song-menu-rules.ts canRemoveFromPlaylist). */
+  onRemove?: (() => void) | null;
+}
+
+export interface ReportDialogOptions {
+  songId: string;
+  title?: string;
+  artist?: string | null;
+  /** The viewer's own open report: the dialog edits it. */
+  current?: SongReport | null;
+  returnFocus?: HTMLElement | null;
+}
+
+// The dialog element keeps where focus goes back to on close.
+type ReportDialog = HTMLDivElement & { _returnFocus?: HTMLElement | null };
 
 const MAX_REASON = 200;
 const PRESET_REASONS = ['Wrong song', 'Bad audio', 'Cut off', 'Too quiet / too loud'];
 
-const store = {
+const store: {
+  byId: Map<string, LibrarySong>;
+  byYoutube: Map<string, string>;
+  bySource: Map<string, string>;
+  loaded: boolean;
+  timer: ReturnType<typeof setTimeout> | undefined;
+  seq: number;
+} = {
   byId: new Map(),     // song id -> public song (with reports)
   byYoutube: new Map(),
   bySource: new Map(),
   loaded: false,
-  timer: null,
+  timer: undefined,
   seq: 0,
 };
-const listeners = new Set();
-const resolved = new Map(); // queue url -> song id | null (cache of lookups)
-const songDetails = new Map(); // song id -> { youtube_id, source_url } (cache for the menu)
+const listeners = new Set<() => void>();
+// An undefined url is cached too (resolveSongId without a url), as before.
+const resolved = new Map<string | null | undefined, string | null>(); // queue url -> song id | null (cache of lookups)
+const songDetails = new Map<string, Partial<LibrarySong>>(); // song id -> { youtube_id, source_url } (cache for the menu)
 
-function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function escapeHtml(value: unknown): string {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c]);
 }
 
-function youtubeIdFromUrl(url) {
+function youtubeIdFromUrl(url: string | null | undefined): string | null {
   const m = /(?:[?&]v=|youtu\.be\/|\/shorts\/|\/embed\/)([A-Za-z0-9_-]{11})/.exec(String(url || ''));
   return m ? m[1] : null;
 }
 
-export function onReportsChange(fn) {
+export function onReportsChange(fn: () => void): () => boolean {
   listeners.add(fn);
   return () => listeners.delete(fn);
 }
 
-function setSongs(songs) {
+function setSongs(songs: LibrarySong[]): void {
   store.byId.clear(); store.byYoutube.clear(); store.bySource.clear();
   for (const s of songs) {
     if (!s || !s.report_count) continue;
@@ -56,19 +95,19 @@ function setSongs(songs) {
   listeners.forEach((fn) => { try { fn(); } catch (err) { console.error(err); } });
 }
 
-export async function loadReports() {
+export async function loadReports(): Promise<void> {
   const mine = ++store.seq;
   try {
     const res = await fetch('/api/library?reported=1&limit=1000', { credentials: 'same-origin' });
     if (!res.ok) return;
-    const data = await res.json();
+    const data = await res.json() as LibraryListResponse;
     if (mine !== store.seq) return;
     setSongs(data.songs || []);
   } catch {}
 }
 
 // library:updated (any change: upload, replace, delete, reports) -> reload, coalesced.
-export function handleReportsUpdated() {
+export function handleReportsUpdated(): void {
   // Also on uploads: a song that was "not in the library" may be there now.
   resolved.clear();
   songDetails.clear();
@@ -76,16 +115,16 @@ export function handleReportsUpdated() {
   store.timer = setTimeout(loadReports, 150);
 }
 
-export function reportsLoaded() {
+export function reportsLoaded(): boolean {
   return store.loaded;
 }
 
-export function reportedCount() {
+export function reportedCount(): number {
   return store.byId.size;
 }
 
 /** The library song id a queue/player url refers to, if known without asking the server. */
-function knownSongId(url) {
+function knownSongId(url: string | null | undefined): string | null | undefined {
   if (!url) return null;
   if (url.startsWith('library:')) return url.slice(8);
   const yt = youtubeIdFromUrl(url);
@@ -95,31 +134,31 @@ function knownSongId(url) {
 }
 
 /** Open reports of a song, by song id or by a queue url. */
-export function reportsFor({ songId, url } = {}) {
+export function reportsFor({ songId, url }: SongRef = {}): SongReport[] {
   const id = songId || knownSongId(url);
   const song = id ? store.byId.get(id) : null;
   return song ? song.reports || [] : [];
 }
 
 /** Resolve a queue / player url to a library song id (asks the server for YouTube urls). */
-export async function resolveSongId({ songId, url } = {}) {
+export async function resolveSongId({ songId, url }: SongRef = {}): Promise<string | null> {
   if (songId) return songId;
   const known = knownSongId(url);
   if (known) return known;
-  if (resolved.has(url)) return resolved.get(url);
+  if (resolved.has(url)) return resolved.get(url) as string | null;
   const yt = youtubeIdFromUrl(url);
-  let id = null;
+  let id: string | null = null;
   if (yt) {
     try {
       const res = await fetch(`/api/library?youtube_id=${encodeURIComponent(yt)}&limit=1`, { credentials: 'same-origin' });
-      if (res.ok) { const data = await res.json(); id = data.songs && data.songs[0] ? data.songs[0].id : null; }
+      if (res.ok) { const data = await res.json() as LibraryListResponse; id = data.songs && data.songs[0] ? data.songs[0].id : null; }
     } catch {}
   }
   resolved.set(url, id);
   return id;
 }
 
-function relative(value) {
+function relative(value: string): string {
   const ts = Date.parse(value);
   if (!Number.isFinite(ts)) return '';
   const s = Math.max(0, (Date.now() - ts) / 1000);
@@ -131,17 +170,17 @@ function relative(value) {
 }
 
 // What a report says: its reason, or that the player filed it by itself.
-function reasonText(r) {
+function reasonText(r: SongReport): string {
   if (r.auto) return t('reports.autoReason', 'Failed to play (reported automatically)');
   return r.reason || 'No reason given';
 }
 
 /** One line per report: "“wrong song” — Ayşe, 2h ago". */
-export function reportLines(reports) {
+export function reportLines(reports: SongReport[] | null | undefined): string[] {
   return (reports || []).map((r) => `${r.reason && !r.auto ? `“${r.reason}”` : reasonText(r)} — ${r.mine ? 'you' : r.reported_by}, ${relative(r.updated_at || r.created_at)}`);
 }
 
-function reportSummary(n) {
+function reportSummary(n: number): string {
   return `Needs replacement — marked as broken by ${n} ${n === 1 ? 'person' : 'people'}`;
 }
 
@@ -152,18 +191,18 @@ const WARN_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="tru
  * reports). A real button: clicking it opens the details popover
  * (bindSongMenu / bindReportIcons wire the click).
  */
-export function reportIconHtml(reports) {
+export function reportIconHtml(reports: SongReport[] | null | undefined): string {
   if (!reports || !reports.length) return '';
   const label = `${reportSummary(reports.length)}. Show details`;
   return `<button type="button" class="btn-text theme-warning btn-icon btn-xs song-broken-btn" aria-haspopup="dialog" aria-expanded="false" aria-label="${escapeHtml(label)}" title="${escapeHtml(reportSummary(reports.length))}">${WARN_ICON}</button>`;
 }
 
 /** The details popover of a reported song, under its icon. */
-export function openReportPopover(anchor, reports) {
+export function openReportPopover(anchor: HTMLElement, reports: SongReport[] | null | undefined): void {
   if (!reports || !reports.length) return;
   if (isContextMenuOpen() && anchor.getAttribute('aria-expanded') === 'true') { closeContextMenu(); return; }
   const n = reports.length;
-  const items = [{ header: `Needs replacement · ${n} ${n === 1 ? 'report' : 'reports'}` }];
+  const items: MenuItem[] = [{ header: `Needs replacement · ${n} ${n === 1 ? 'report' : 'reports'}` }];
   for (const r of reports) {
     items.push({ text: reasonText(r) });
     items.push({ text: `${r.mine ? 'you' : r.reported_by}, ${relative(r.updated_at || r.created_at)}`, muted: true });
@@ -172,10 +211,10 @@ export function openReportPopover(anchor, reports) {
 }
 
 /** Clicks on report icons inside root open the popover. describe(icon) -> reports. */
-export function bindReportIcons(root, getReports) {
+export function bindReportIcons(root: HTMLElement | null, getReports: (icon: HTMLElement) => SongReport[] | null | undefined): void {
   if (!root) return;
   root.addEventListener('click', (e) => {
-    const icon = e.target.closest('.song-broken-btn');
+    const icon = (e.target as Element).closest<HTMLElement>('.song-broken-btn');
     if (!icon || !root.contains(icon)) return;
     e.preventDefault();
     e.stopPropagation();
@@ -185,33 +224,33 @@ export function bindReportIcons(root, getReports) {
 
 // --- Mark / unmark ---------------------------------------------------------
 
-// auto: the player's own report of a song that failed to play (playback-failures.js).
-export async function sendReport(songId, reason, { auto = false } = {}) {
+// auto: the player's own report of a song that failed to play (playback-failures.ts).
+export async function sendReport(songId: string, reason: string | undefined, { auto = false }: { auto?: boolean } = {}): Promise<SongReportResponse> {
   const res = await fetch(`/api/library/${encodeURIComponent(songId)}/report`, {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(auto ? { auto: true } : { reason }),
   });
-  const data = await res.json().catch(() => ({}));
+  const data = await res.json().catch(() => ({})) as SongReportResponse & Partial<ApiError>;
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
 }
 
-export async function unmarkBroken(songId) {
+export async function unmarkBroken(songId: string): Promise<void> {
   try {
     const res = await fetch(`/api/library/${encodeURIComponent(songId)}/report`, { method: 'DELETE', credentials: 'same-origin' });
-    const data = await res.json().catch(() => ({}));
+    const data = await res.json().catch(() => ({})) as Partial<ApiError>;
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     showToast('Unmarked: no longer reported by you', 'success');
     loadReports();
   } catch (err) {
-    showToast(`Could not unmark: ${err.message}`, 'error');
+    showToast(`Could not unmark: ${(err as Error).message}`, 'error');
   }
 }
 
-function closeReportDialog() {
-  const d = document.getElementById('report-dialog');
+function closeReportDialog(): void {
+  const d = maybeById<ReportDialog>('report-dialog');
   if (d) {
     const back = d._returnFocus;
     d.remove();
@@ -219,20 +258,20 @@ function closeReportDialog() {
   }
 }
 
-export function isReportDialogOpen() {
-  return !!document.getElementById('report-dialog');
+export function isReportDialogOpen(): boolean {
+  return !!maybeById('report-dialog');
 }
 
 /** The "Mark as broken" dialog: optional reason (presets or free text). */
-export function openReportDialog({ songId, title, artist, current = null, returnFocus = null }) {
+export function openReportDialog({ songId, title, artist, current = null, returnFocus = null }: ReportDialogOptions): void {
   closeReportDialog();
-  const dialog = document.createElement('div');
+  const dialog: ReportDialog = document.createElement('div');
   dialog.id = 'report-dialog';
   dialog.className = 'app-modal report-overlay';
   dialog.setAttribute('role', 'dialog');
   dialog.setAttribute('aria-modal', 'true');
   dialog.setAttribute('aria-labelledby', 'report-title');
-  dialog._returnFocus = returnFocus || document.activeElement;
+  dialog._returnFocus = returnFocus || document.activeElement as HTMLElement | null;
   const editing = !!current;
   dialog.innerHTML = `<form class="card app-modal-card report-form" novalidate>
     <div class="card-header d-flex flex-row align-items-center justify-content-between gap-2">
@@ -257,12 +296,12 @@ export function openReportDialog({ songId, title, artist, current = null, return
     </div>
   </form>`;
   document.body.appendChild(dialog);
-  const input = dialog.querySelector('#report-reason');
-  const count = dialog.querySelector('#report-count');
-  const err = dialog.querySelector('.report-error');
+  const input = dialog.querySelector('#report-reason') as HTMLInputElement;
+  const count = dialog.querySelector('#report-count') as HTMLElement;
+  const err = dialog.querySelector('.report-error') as HTMLElement;
   const syncCount = () => {
     count.textContent = `${input.value.length}/${MAX_REASON}`;
-    dialog.querySelectorAll('.report-preset').forEach((b) => {
+    dialog.querySelectorAll<HTMLButtonElement>('.report-preset').forEach((b) => {
       const on = b.dataset.reason === input.value.trim();
       b.classList.toggle('active', on);
       b.setAttribute('aria-pressed', String(on));
@@ -270,19 +309,19 @@ export function openReportDialog({ songId, title, artist, current = null, return
   };
   syncCount();
   input.addEventListener('input', syncCount);
-  dialog.querySelectorAll('.report-preset').forEach((b) => b.addEventListener('click', () => {
-    input.value = input.value.trim() === b.dataset.reason ? '' : b.dataset.reason;
+  dialog.querySelectorAll<HTMLButtonElement>('.report-preset').forEach((b) => b.addEventListener('click', () => {
+    input.value = input.value.trim() === b.dataset.reason ? '' : b.dataset.reason as string;
     syncCount();
     input.focus();
   }));
-  dialog.querySelector('.report-close').addEventListener('click', closeReportDialog);
-  dialog.querySelector('.report-cancel').addEventListener('click', closeReportDialog);
+  (dialog.querySelector('.report-close') as HTMLButtonElement).addEventListener('click', closeReportDialog);
+  (dialog.querySelector('.report-cancel') as HTMLButtonElement).addEventListener('click', closeReportDialog);
   dialog.addEventListener('click', (e) => { if (e.target === dialog) closeReportDialog(); });
   dialog.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); closeReportDialog(); } });
-  dialog.querySelector('form').addEventListener('submit', async (e) => {
+  (dialog.querySelector('form') as HTMLFormElement).addEventListener('submit', async (e) => {
     e.preventDefault();
     err.hidden = true;
-    const submit = dialog.querySelector('.report-submit');
+    const submit = dialog.querySelector('.report-submit') as HTMLButtonElement;
     submit.disabled = true;
     try {
       await sendReport(songId, input.value.trim());
@@ -290,7 +329,7 @@ export function openReportDialog({ songId, title, artist, current = null, return
       showToast(editing ? 'Report updated' : `Marked “${title || 'song'}” as broken`, 'success');
       loadReports();
     } catch (ex) {
-      err.textContent = `Could not mark it: ${ex.message}`;
+      err.textContent = `Could not mark it: ${(ex as Error).message}`;
       err.hidden = false;
       submit.disabled = false;
     }
@@ -311,13 +350,14 @@ const ICONS = {
   edit: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>',
 };
 
-async function loadSongDetails(songId) {
-  if (songDetails.has(songId)) return songDetails.get(songId);
-  let details = {};
+async function loadSongDetails(songId: string): Promise<Partial<LibrarySong>> {
+  if (songDetails.has(songId)) return songDetails.get(songId) as Partial<LibrarySong>;
+  let details: Partial<LibrarySong> = {};
   try {
     const res = await fetch(`/api/library/${encodeURIComponent(songId)}`, { credentials: 'same-origin' });
     if (res.ok) {
-      const data = await res.json();
+      // GET /api/library/:id answers { song }; a bare song is taken as is.
+      const data = await res.json() as Partial<LibrarySongResponse> & Partial<LibrarySong>;
       details = data.song || data;
       songDetails.set(songId, details);
     }
@@ -326,7 +366,7 @@ async function loadSongDetails(songId) {
 }
 
 // Source ▸ Open in new tab / Copy YouTube link. No source link: no item at all.
-function sourceItems(link) {
+function sourceItems(link: ReturnType<typeof songSourceLink>): MenuItem[] {
   const plan = sourceSubmenu(link);
   if (!plan) return [];
   const label = t('songMenu.source', 'Source');
@@ -345,8 +385,8 @@ function sourceItems(link) {
 }
 
 // Last, apart from the rest: only on rows of a playlist the viewer may edit
-// (the row's describe() passes onRemove; song-menu-rules.js decides).
-function removeItems(song) {
+// (the row's describe() passes onRemove; song-menu-rules.ts decides).
+function removeItems(song: MenuSong): MenuItem[] {
   if (typeof song.onRemove !== 'function') return [];
   return [
     { divider: true },
@@ -359,8 +399,8 @@ function removeItems(song) {
  * sourceUrl?, onRemove? } (onRemove: a playlist row the viewer may edit).
  * Resolves the library song first (a playlist entry may be a YouTube url).
  */
-export async function songMenuItems(song, { returnFocus = null } = {}) {
-  const items = [{ header: song.title || 'Song' }];
+export async function songMenuItems(song: MenuSong, { returnFocus = null }: { returnFocus?: HTMLElement | null } = {}): Promise<MenuItem[]> {
+  const items: MenuItem[] = [{ header: song.title || 'Song' }];
   const songId = await resolveSongId(song);
   if (!songId) {
     items.push(addToPlaylistItem({}));
@@ -398,9 +438,9 @@ export async function songMenuItems(song, { returnFocus = null } = {}) {
 /**
  * Context menu on a list's song rows. describe(row) -> { songId?, url?, title, artist } | null.
  */
-export function bindSongMenu(root, rowSelector, describe) {
+export function bindSongMenu(root: HTMLElement | null, rowSelector: string, describe: (row: HTMLElement) => MenuSong | null | undefined): void {
   bindReportIcons(root, (icon) => {
-    const row = icon.closest(rowSelector);
+    const row = icon.closest<HTMLElement>(rowSelector);
     const d = row ? describe(row) : null;
     return d ? reportsFor(d) : [];
   });
@@ -410,12 +450,12 @@ export function bindSongMenu(root, rowSelector, describe) {
     label: (row) => { const d = describe(row); return d && d.title ? `Actions for ${d.title}` : 'Song actions'; },
     getItems: (row) => {
       const d = describe(row);
-      return d ? songMenuItems(d, { returnFocus: row.querySelector('.song-menu-btn') || row }) : null;
+      return d ? songMenuItems(d, { returnFocus: row.querySelector<HTMLElement>('.song-menu-btn') || row }) : null;
     },
   });
 }
 
 /** The visible "⋮" button that opens a row's menu (keyboard / touch). */
-export function songMenuButtonHtml(title, extraClass = '') {
+export function songMenuButtonHtml(title: string | null | undefined, extraClass = ''): string {
   return `<button class="btn-text theme-secondary btn-icon btn-sm song-menu-btn${extraClass ? ` ${extraClass}` : ''}" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="More actions for ${escapeHtml(title || 'this song')}" title="More actions"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg></button>`;
 }

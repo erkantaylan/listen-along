@@ -1,10 +1,10 @@
 // Songs that fail to play. The <audio> error lands here: the song is greyed in
 // the lists, playback goes on to the next one, and a song that is itself broken
-// is reported as "needs replacement" (an automatic report, song-reports.js).
+// is reported as "needs replacement" (an automatic report, song-reports.ts).
 // This module is the glue to the page: it asks the questions (the url probed
 // past the cache, the file fetched whole and played from memory) and shows the
-// outcome. The state and the order of things are playback-failure-flow.js, the
-// decisions playback-failure-rules.js; both are tested without a browser.
+// outcome. The state and the order of things are playback-failure-flow.ts, the
+// decisions playback-failure-rules.ts; both are tested without a browser.
 //
 // - Greyed is local and for this page load only (keys `library:<id>` and the
 //   queue url). It clears when the song plays (a click on the row tries again),
@@ -18,12 +18,20 @@
 // - Listening along: the leader decides what plays and hears the same file, so
 //   a follower greys the song and nothing else (listen-along.js shows its own
 //   notice and waits for the next song).
-import { state, elements, auth } from './shared/state.js';
-import { player } from './player/player.js';
-import { showToast, t } from './shared/ui.js';
-import { reportsFor, resolveSongId, sendReport, unmarkBroken } from './song-reports.js';
-import { STREAK_LIMIT, MEDIA_ERR_ABORTED, MEDIA_ERR_DECODE, codecQuery, trackKeys } from './player/playback-failure-rules.js';
-import { createFailureFlow } from './player/playback-failure-flow.js';
+import { state, elements, auth } from '../shared/state.ts';
+import { player } from './player.ts';
+import { showToast, t } from '../shared/ui.ts';
+import { reportsFor, resolveSongId, sendReport, unmarkBroken } from '../features/library/song-reports.ts';
+import { STREAK_LIMIT, MEDIA_ERR_ABORTED, MEDIA_ERR_DECODE, codecQuery, trackKeys } from './playback-failure-rules.ts';
+import { createFailureFlow } from './playback-failure-flow.ts';
+import type { FailureFlowDeps, FailureTrack } from './playback-failure-flow.ts';
+import type { BytesVerdict, FailureCause, ProbeAnswer, ServedProbe } from './playback-failure-rules.ts';
+import type { LibraryUpdatedPayload, Track } from '../shared/types.ts';
+
+// library:updated { replaced }: what changed (clearReplacedFailure).
+type ReplacedChange = Extract<LibraryUpdatedPayload, { replaced: unknown }>['replaced'];
+// What confirm() is asked (the flow's deps.confirm).
+type ConfirmQuestion = Parameters<FailureFlowDeps<Track>['confirm']>[0];
 
 const PROBE_TIMEOUT_MS = 8000;
 // Checking that a file does not decode means fetching all of it: not for huge
@@ -32,15 +40,15 @@ const CONFIRM_MAX_BYTES = 64 * 1024 * 1024;
 const CONFIRM_FETCH_MS = 60000;
 const CONFIRM_PLAY_MS = 15000;
 
-const listeners = new Set();
+const listeners = new Set<() => void>();
 
 // t() with {placeholders} filled in the fallback too (t returns it raw).
-const tf = (key, fallback, vars = {}) => t(key, fallback, vars).replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
+const tf = (key: string, fallback: string, vars: Record<string, string | number> = {}): string => t(key, fallback, vars).replace(/\{(\w+)\}/g, (m: string, k: string) => (k in vars ? String(vars[k]) : m));
 
-const flow = createFailureFlow({
+const flow = createFailureFlow<Track>({
   online: () => navigator.onLine !== false,
   probe,
-  canPlay: (mime) => {
+  canPlay: (mime: string | null | undefined) => {
     const query = codecQuery(mime);
     return !!query && document.createElement('audio').canPlayType(query) === 'probably';
   },
@@ -52,7 +60,7 @@ const flow = createFailureFlow({
     return player.track ? { keys: trackKeys(player.track), src: audio.currentSrc || audio.src } : null;
   },
   user: () => (auth.authenticated && auth.user && auth.user.id) || null,
-  hasReport: (track) => reportsFor({ songId: track.libraryId, url: track.url }).length > 0,
+  hasReport: (track: Track) => reportsFor({ songId: track.libraryId, url: track.url }).length > 0,
   report: fileReport,
   changed: () => {
     for (const fn of listeners) { try { fn(); } catch (err) { console.error('playback-failures listener failed:', err); } }
@@ -60,49 +68,49 @@ const flow = createFailureFlow({
 });
 
 /** Lists re-render their greyed rows on this. */
-export function onFailuresChange(fn) {
+export function onFailuresChange(fn: () => void): () => boolean {
   listeners.add(fn);
   return () => listeners.delete(fn);
 }
 
 /** Did this song (a queue entry or a library track) fail to play here? */
-export function isUnplayable(track) {
+export function isUnplayable(track: FailureTrack | null | undefined): boolean {
   return flow.isFailed(track);
 }
 
 /** The row badge of a greyed song ('' otherwise). The row stays the play target: a click tries again. */
-export function unplayableBadgeHtml(track) {
+export function unplayableBadgeHtml(track: FailureTrack | null | undefined): string {
   if (!isUnplayable(track)) return '';
-  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const esc = (s: unknown) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c]);
   return `<span class="badge badge-subtle theme-secondary queue-item-badge" title="${esc(t('playFail.badgeTitle', 'It could not be played here and is skipped. Click the song to try again.'))}">${esc(t('playFail.badge', 'could not play'))}</span>`;
 }
 
 /** library:updated { replaced }: the file changed, so the song is worth playing again. */
-export function clearReplacedFailure(replaced) {
+export function clearReplacedFailure(replaced: ReplacedChange | null | undefined): void {
   if (!replaced || !replaced.id) return;
   flow.clear([`library:${replaced.id}`, ...(replaced.oldUrls || []), replaced.url].filter(Boolean), { forget: true });
 }
 
 /** download:status ready: a queue entry reached the library. */
-export function clearFailureFor(url) {
+export function clearFailureFor(url: string | null | undefined): void {
   if (url) flow.clear([url]);
 }
 
 // The song's url asked again, past the browser cache: did the server answer, and with what?
 // `version` names the file served (ETag, else Last-Modified + length).
-async function probe(src) {
+async function probe(src: string): Promise<ProbeAnswer> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS);
   try {
     const res = await fetch(src, { credentials: 'same-origin', cache: 'no-store', signal: ctrl.signal });
-    const out = { status: res.status, mime: res.headers.get('Content-Type') };
+    const out: ServedProbe = { status: res.status, mime: res.headers.get('Content-Type') };
     if (res.ok) {
       const modified = res.headers.get('Last-Modified');
       const length = res.headers.get('Content-Length');
       out.version = res.headers.get('ETag') || (modified && length ? `${modified}|${length}` : null);
       if (res.body) res.body.cancel().catch(() => {}); // the headers were the answer
     } else {
-      const body = await res.json().catch(() => null);
+      const body = await res.json().catch(() => null) as { code?: string | null } | null;
       out.code = body && body.code;
     }
     return out;
@@ -115,7 +123,7 @@ async function probe(src) {
 
 // Every byte of the file, or null: a plain 200 whose body is exactly as long as
 // the server said. Anything short of that proves nothing about the song.
-async function fetchWhole(src) {
+async function fetchWhole(src: string): Promise<ArrayBuffer | null> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), CONFIRM_FETCH_MS);
   try {
@@ -139,15 +147,15 @@ async function fetchWhole(src) {
 // fail here, so an error is the file. A file that would not open
 // (MEDIA_ERR_SRC_NOT_SUPPORTED) is settled by its metadata; a decode error is
 // looked for by playing over the place where it happened.
-function playsFromMemory(bytes, mime, errorCode, position) {
-  return new Promise((resolve) => {
+function playsFromMemory(bytes: ArrayBuffer, mime: string | null | undefined, errorCode: number, position: number): Promise<BytesVerdict> {
+  return new Promise<BytesVerdict>((resolve) => {
     const url = URL.createObjectURL(new Blob([bytes], { type: String(mime || '').split(';')[0].trim() }));
     const el = new Audio();
     el.muted = true;
     el.preload = 'auto';
-    let timer = null;
-    const done = (value) => {
-      clearTimeout(timer);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const done = (value: BytesVerdict) => {
+      clearTimeout(timer ?? undefined);
       el.onerror = el.onloadedmetadata = el.ontimeupdate = el.onended = null;
       el.pause();
       el.removeAttribute('src');
@@ -170,14 +178,14 @@ function playsFromMemory(bytes, mime, errorCode, position) {
   });
 }
 
-async function confirm({ src, mime, errorCode, position }) {
+async function confirm({ src, mime, errorCode, position }: ConfirmQuestion): Promise<BytesVerdict> {
   const bytes = await fetchWhole(src);
   if (!bytes) return 'incomplete';
   return playsFromMemory(bytes, mime, errorCode, position);
 }
 
-function failureMessage(cause, title, skipping) {
-  let text;
+function failureMessage(cause: FailureCause, title: string, skipping: boolean): string {
+  let text: string;
   if (cause === 'not-in-library') text = tf('playFail.notInLibrary', '“{title}” is not in the library yet.', { title });
   else if (cause === 'unsupported') text = tf('playFail.unsupported', 'This browser cannot play “{title}”.', { title });
   else text = tf('playFail.failed', 'Could not play “{title}”.', { title });
@@ -187,7 +195,7 @@ function failureMessage(cause, title, skipping) {
 // -> true when the server stored the report. It checks the song itself and may
 // answer { reported: false, code: 'NOT_CONFIRMED' }: then nothing is said and
 // the song simply stays greyed.
-async function fileReport(track) {
+async function fileReport(track: Track): Promise<boolean> {
   const songId = await resolveSongId({ songId: track.libraryId, url: track.url });
   // Not a library song (any more), or already on the list: nothing to add.
   if (!songId || reportsFor({ songId }).length) return false;
@@ -202,20 +210,20 @@ async function fileReport(track) {
 }
 
 /** Logout: what was collected belongs to the account that just left. */
-export function resetPlaybackFailures() {
+export function resetPlaybackFailures(): void {
   flow.reset();
 }
 
 // A song is sounding: it is fine. Whether everything a failed song depends on
 // is fine too is asked from the server (flow.played).
-function onPlaying() {
+function onPlaying(): void {
   const track = player.track;
   if (!track) return;
   const audio = elements.audioPlayer;
   flow.played({ track, src: audio.currentSrc || audio.src }).catch((err) => console.warn('Automatic report failed:', err));
 }
 
-async function onError() {
+async function onError(): Promise<void> {
   const audio = elements.audioPlayer;
   if (!audio.getAttribute('src') || audio.src === window.location.href) return;
   const track = player.track;
@@ -243,7 +251,7 @@ async function onError() {
 }
 
 /** Call once at start-up, after the player is wired. */
-export function setupPlaybackFailures() {
+export function setupPlaybackFailures(): void {
   const audio = elements.audioPlayer;
   audio.addEventListener('error', onError);
   audio.addEventListener('playing', onPlaying);

@@ -265,7 +265,7 @@ are `--app-panel-radius`; no panel has an outline (see "Elevation and border rul
   panel's head. With a mouse the panel scrolls inside, as the page column did; touch keeps document scrolling,
   with `body` padded by `--app-player-height`.
 - The player bar floats a gap above the window's bottom (or the safe area). `--app-player-height` is the room it
-  takes, both gaps included (`player-bar.js` adds its `bottom` and its `margin-top`), so every column and overlay
+  takes, both gaps included (`player-bar.ts` adds its `bottom` and its `margin-top`), so every column and overlay
   that stops at `--app-player-height` stops a gap above it. With no player bar (pending) they stop a gap above the
   window's edge.
 - The music library overlay (`.library-page`) is a panel in exactly the page panel's place.
@@ -750,7 +750,7 @@ Song lists behave like Spotify's. **Normal mode** (always the default):
   (from the library song, not stored on the entry, null for requests) and only strips the artist off the combined title (`songParts`).
   `anonymous` (the placeholder of old rows) and missing values show blank.
 - Right-click / long-press / ⋮ open the song menu as always (see "Context menu").
-- **A song that failed to play** (`playback-failures.js`; playlist, Radio and artist rows) is greyed with `.is-unplayable`: the title in
+- **A song that failed to play** (`playback-failures.ts`; playlist, Radio and artist rows) is greyed with `.is-unplayable`: the title in
   `--app-text-muted` at normal weight, the cover at 45% and desaturated, and a `.badge.badge-subtle.theme-secondary` "could not play" on the
   meta line whose `title` says a click tries again. Nothing else changes: the row stays the play target with its hover fill and menu, no
   bar or border marks it, and the playing tint wins while the song is loaded. It is this page load's memory only: it clears when the song
@@ -839,7 +839,7 @@ Bootstrap 6 `.menu` / `.menu-item` / `.menu-header` / `.menu-divider` markup, no
   Escape and Tab close and return focus to the trigger/row; outside click, any scroll, resize and
   window blur close it (the closing tap or click does not also press a song row, nor anything under a sheet; on touch, nothing under it at all). Opened from the keyboard, focus goes to the first item. Coarse pointers get
   2.75rem items.
-- Song rows use it through `song-reports.js` (`bindSongMenu`, `songMenuItems`): library rows,
+- Song rows use it through `song-reports.ts` (`bindSongMenu`, `songMenuItems`): library rows,
   playlist queue rows and the player bar's current song (right-click / long-press on the song,
   plus `#player-menu-btn`, hidden in the slim phone bar where long-press is the way in). Add new
   song actions to `songMenuItems` — keep labels short ("Mark as broken", "Unmark broken").
@@ -853,10 +853,10 @@ Bootstrap 6 `.menu` / `.menu-item` / `.menu-header` / `.menu-divider` markup, no
   not the library, Radio, artist pages or the player bar). It is Edit mode's remove (`removeSong` in `queue.js`: gone at once,
   `queue:remove`, the 6s **Undo** toast sending `queue:restore`, which puts it back at the same position); no confirm. The
   server checks the right to edit again.
-- **Add to playlist** (`add-to-playlist.js`, a submenu): search with `matchesQuery` (Turkish-aware), groups Pinned /
+- **Add to playlist** (`add-to-playlist.ts`, a submenu): search with `matchesQuery` (Turkish-aware), groups Pinned /
   Your playlists / Public playlists from `playlist-store.ts`, only `canEdit` playlists, and a fixed **New playlist** at the bottom (the usual
   dialog, "Create and add"; it stays on the page). Rows say "by … · Private", and "Already added" for the playlist on screen and the
-  one playing, whose queues the page holds; such a row is still choosable. Goes through `addSongToPlaylist` (`add-to-playlist.js`), the
+  one playing, whose queues the page holds; such a row is still choosable. Goes through `addSongToPlaylist` (`add-to-playlist.ts`), the
   one way the web adds a library song to a playlist (this menu, the library's Add, the search page): `POST /api/playlists/:id/songs`;
   when the server answers `already_in_playlist` (the same library song / YouTube video is in it; another video of the same song is
   not a duplicate) the **duplicate question** opens (`confirmDialog` in `playlist-actions.ts`: "Already in “X”", "Already in this
@@ -931,7 +931,7 @@ One persistent bar, fixed to the bottom of every signed-in SPA page (landing, li
 overlay, profile, dashboard, every playlist page), Spotify-style: a rounded `--app-raised` panel floating a
 `--app-gap` clear of the window's left, right and bottom edges (the safe area, if larger), no outline, no shadow. Markup: `#player-bar` in
 `index.html`; behaviour: `player.ts` (the only thing that touches `<audio id="audio-player">`),
-`player-bar.js` (visibility, padding, empty state, "from" line) and `playback.js` (title,
+`player-bar.ts` (visibility, padding, empty state, "from" line) and `playback.ts` (title,
 art, times, buttons).
 
 - Listen-along strip (`#listen-strip`, `role="status"`, hidden when idle): one line in
@@ -974,7 +974,7 @@ art, times, buttons).
 
 ### Chat and people panel
 
-One `aside#social-panel` in `index.html`, driven by `social.js` (pure helpers in
+One `aside#social-panel` in `index.html`, driven by `social.ts` (pure helpers in
 `chat-format.ts`; server in `backend/src/social.js`). It is shown by body classes,
 never by `[hidden]`: `has-social` (signed in, socket up), `social-collapsed`
 (desktop, remembered in localStorage), `social-route` (the `/social` URL).

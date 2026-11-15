@@ -117,7 +117,8 @@ export interface ArtistWithSongs extends Artist {
 // libraryRoutes POST /api/library/:id/report (201/200 with a report, or 200 not confirmed for auto)
 export type SongReportResponse =
   | { report: SongReport; song: LibrarySong }
-  | { reported: false; code: 'NOT_CONFIRMED' };
+  // report?: undefined (never sent) so callers can read `data.report` on either answer.
+  | { reported: false; code: 'NOT_CONFIRMED'; report?: undefined };
 
 // libraryRoutes PATCH /api/library/:id and GET /api/library/:id
 export interface LibrarySongResponse {
@@ -395,9 +396,18 @@ export interface RequestFulfilledPayload {
 }
 
 // index.js emitUnavailableSongs / handleLibrarySong{Added,Replaced} — download:status
+// (the absent field is spelled out as `?: undefined` so the client can read
+// `data.percent` / `data.error` on either kind, playback.ts handleDownloadStatus)
 export type DownloadStatusPayload =
-  | { url: string; status: 'unavailable'; error: string }
-  | { url: string; status: 'ready'; percent: 100 };
+  | { url: string; status: 'unavailable'; error: string; percent?: undefined }
+  | { url: string; status: 'ready'; percent: 100; error?: undefined };
+
+// download:progress — the server never sends it (no emit in backend/src);
+// app.js still listens for it (playback.ts handleDownloadProgress).
+export interface DownloadProgressPayload {
+  url: string;
+  percent: number;
+}
 
 // index.js library hooks / handleLibrarySong{Added,Replaced,DetailsChanged} — library:updated
 export type LibraryUpdatedPayload =
@@ -1049,6 +1059,8 @@ export interface ServerToClientEvents {
   // library (index.js)
   'library:updated': (p: LibraryUpdatedPayload) => void;
   'download:status': (p: DownloadStatusPayload) => void;
+  /** Never sent by the server (no emit in backend/src); app.js keeps a listener. */
+  'download:progress': (p: DownloadProgressPayload) => void;
   // downloads (index.js, activityFeed.js)
   'jobs:update': (p: JobsUpdatePayload) => void;
   'workers:update': (p: WorkerStats) => void;

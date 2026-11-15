@@ -5,7 +5,7 @@ import { state, elements, socket, STORAGE_KEYS, viewActivators, storageSet, stor
 import { showView, showToast, escapeHtml, formatAge, copyToClipboard, t, navigateTo } from './shared/ui.js';
 import { parseRoute, playlistPath } from './router.js';
 import { player } from './player/player.js';
-import { playViewedFromTop } from './playback.js';
+import { playViewedFromTop } from './player/playback.js';
 import { desiredMembership, membershipActions } from './player/player-queue.js';
 import { isEditMode, setEditMode } from './features/queue/queue-edit.js';
 import { isNewPlaylistPending, newPlaylistCreated, newPlaylistFailed } from './features/playlists/new-playlist.js';

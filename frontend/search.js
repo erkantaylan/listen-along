@@ -24,15 +24,15 @@ import { escapeHtml, formatDuration, navigateTo, showToast, t } from './shared/u
 import { player } from './player/player.js';
 import { isLibraryOpen, libraryTrack } from './library.js';
 import { searchPath, searchQueryOf, artistPath, playlistPath } from './router.js';
-import { bindSongMenu, songMenuButtonHtml } from './song-reports.js';
+import { bindSongMenu, songMenuButtonHtml } from './features/library/song-reports.js';
 import { bindContextMenu, closeContextMenu, isContextMenuOpen, openContextMenu } from './shared/context-menu.js';
-import { addSongToPlaylist, confirmDuplicate, openPlaylistChooser } from './add-to-playlist.js';
+import { addSongToPlaylist, confirmDuplicate, openPlaylistChooser } from './features/playlists/add-to-playlist.js';
 import { getPlaylists, isLoaded as playlistsLoaded, loadPlaylists, onPlaylists, scheduleReload } from './features/playlists/playlist-store.js';
 import { groupPlaylists, playlistCoverIndex, playlistInitials } from './features/playlists/playlist-filter.js';
 import { ensureArtists, coverUrl, songCountText } from './artists.js';
 import { importPlaylist } from './features/picker/pick-dialog.js';
 import { thumbUrl, watchUrl } from './features/picker/pick-rules.js';
-import { isUnplayable } from './playback-failures.js';
+import { isUnplayable } from './player/playback-failures.js';
 import { closeDrawer } from './sidebar.js';
 import {
   ADD_KEY, SONGS_MAX, SONGS_SHOWN, addTarget, isAddKey, isSearchShortcut, isSpotifyLink, keepTarget, lastPlayedFrom, libraryChangeMatters,
