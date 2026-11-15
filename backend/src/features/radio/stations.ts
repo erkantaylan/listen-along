@@ -14,7 +14,7 @@
  */
 import express from 'express';
 import type { Request, Response, Router } from 'express';
-import dbModule from '../../db.js';
+import dbModule from '../../shared/db.ts';
 import { OPEN_REPORT_EXISTS_SQL } from '../../songReports.js';
 import type { Db, LibrarySongRow } from '../../shared/types.ts';
 

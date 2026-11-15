@@ -23,7 +23,7 @@
  */
 
 const express = require('express');
-const db = require('./db');
+const db = require('./shared/db.ts');
 const library = require('./library');
 const jobs = require('./downloadJobs');
 const adminAuth = require('./adminAuth');

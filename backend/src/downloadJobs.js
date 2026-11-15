@@ -20,7 +20,7 @@
  * (adminWorkerView); everyone else sees a worker's name and owner only.
  */
 
-const db = require('./db');
+const db = require('./shared/db.ts');
 const library = require('./library');
 const ytdlp = require('./ytdlp');
 const spotify = require('./spotify');

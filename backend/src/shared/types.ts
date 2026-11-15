@@ -1,8 +1,8 @@
 // Domain types shared by more than one area. Type-only: nothing here exists at
 // run time, so import it with `import type`.
 //
-// Row types are written from the SQL in db.js (CREATE TABLE plus the ALTER
-// migrations after it), with node-postgres' default parsing: BIGINT and
+// Row types are written from the SQL in db.ts (CREATE TABLE
+// plus the ALTER migrations after it), with node-postgres' default parsing: BIGINT and
 // NUMERIC arrive as strings, REAL / INTEGER / SMALLINT as numbers,
 // TIMESTAMPTZ as Date, JSONB parsed, and a nullable column as `| null`.
 // Change them with the schema.
@@ -27,18 +27,8 @@ export type Io = Server<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, So
 /** One Socket.IO connection. */
 export type AppSocket = Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>;
 
-/** What converted code uses of db.js (CommonJS until shared/ moves): the pool's query, or a client's in a transaction. */
-export interface QueryResult<R> {
-  rows: R[];
-  rowCount: number | null;
-}
-export interface Queryable {
-  query<R = Record<string, unknown>>(text: string, params?: unknown[]): Promise<QueryResult<R>>;
-}
-export interface Db extends Queryable {
-  /** false without DATABASE_URL, or before init() connected. */
-  isAvailable(): boolean;
-}
+/** The database's shapes live with it (db.ts); re-exported here for the areas that import them from this file. */
+export type { QueryResult, Queryable, Db } from './db.ts';
 
 /** users.status: approved = everything, pending = chat / people / own profile, denied / rejected = nothing. */
 export type AccountStatus = 'approved' | 'pending' | 'denied' | 'rejected';

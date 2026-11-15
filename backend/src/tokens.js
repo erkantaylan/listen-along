@@ -10,7 +10,7 @@
  */
 
 const crypto = require('crypto');
-const db = require('./db');
+const db = require('./shared/db.ts');
 const { isMobileToken } = require('./mobileTokens');
 
 const TOKEN_PREFIX = 'la_';

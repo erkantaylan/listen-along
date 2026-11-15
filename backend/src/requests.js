@@ -5,7 +5,7 @@
  * dismisses it.
  */
 
-const db = require('./db');
+const db = require('./shared/db.ts');
 const { isUuid } = require('./library');
 
 const STATUSES = ['pending', 'fulfilled', 'dismissed'];

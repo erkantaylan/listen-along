@@ -79,7 +79,7 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
 
     process.env.DATABASE_URL = container.getConnectionUri();
 
-    db = require('./db');
+    db = require('./shared/db.ts');
     const initialized = await db.init();
     assert.ok(initialized, 'Database should initialize successfully');
   });
@@ -89,7 +89,7 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
     if (container) await container.stop();
     delete process.env.DATABASE_URL;
 
-    delete require.cache[require.resolve('./db')];
+    delete require.cache[require.resolve('./shared/db.ts')];
     delete require.cache[require.resolve('./lobby')];
     delete require.cache[require.resolve('./queue')];
   });

@@ -1,6 +1,6 @@
 /**
  * "Mark as broken — needs replacement" reports on library songs
- * (Postgres `library_song_reports`, see db.js).
+ * (Postgres `library_song_reports`, see shared/db.ts).
  *
  * - Any approved user (web session or a token with an owner) can report a
  *   song with an optional short reason; one OPEN report per user per song,
@@ -21,7 +21,7 @@
  * { id, reason, auto, reported_by (name), created_at, mine }.
  */
 
-const db = require('./db');
+const db = require('./shared/db.ts');
 
 const MAX_REASON = 200;
 

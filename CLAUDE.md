@@ -5,7 +5,7 @@
 **CRITICAL: `CREATE TABLE IF NOT EXISTS` does NOT modify existing tables.**
 
 When adding a new column to an existing table, you MUST add an explicit migration
-in `backend/src/db.js` in the migrations section (after `createTables()`):
+in `backend/src/shared/db.ts` in the migrations section (after `createTables()`):
 
 ```js
 await pool.query(`
@@ -53,7 +53,7 @@ where lobby persistence broke entirely on deployed instances.
   `reactions.js`: the cross-area functions (`emitJob`, `queueRequestJob`, `notifyPlaylistsChanged`, `destroyLobby`,
   `accountStatusChanged`, `addLibrarySongToLobby`, `handleLibrarySong{Added,Replaced,DetailsChanged}`,
   `rewriteQueueEntries`, …). Areas get them through their deps and never require each other
-- Domain modules: lobby.js, playlistAccess.js, queue.js, covers.js, db.js,
+- Domain modules: lobby.js, playlistAccess.js, queue.js, covers.js, shared/db.ts,
   workerHub.js / downloadJobs.js / jobRoutes.js (downloaders + jobs, see below),
   library.js (music library + upload validation (m4a / Ogg Opus) + legacy cache migration +
   duplicate checks + replace), songMatch.js (normalized "artist|title" key for
@@ -389,7 +389,7 @@ where lobby persistence broke entirely on deployed instances.
   A root going offline (after the presence grace) ends it after the current
   song. Any own playback action of the follower ends it (`player.ts`
   play/pause/seek take `{ keepDriver }` for the driver). The old per-playlist
-  follow (`follow:*`) is gone. Do not name a table `chat_messages`: db.js drops that
+  follow (`follow:*`) is gone. Do not name a table `chat_messages`: shared/db.ts drops that
   (old per-playlist chat) on every boot.
 
 ## User Identity
@@ -433,7 +433,7 @@ where lobby persistence broke entirely on deployed instances.
   user=<id> ...` / `central-login: refused ...` log line per sign-in. A denied /
   rejected user is refused at sign-in. `DATABASE_URL` set but no pool = sign-in
   and sessions fail closed (memory only without any database). Accounts created
-  by central login have provider `oidc`; the db.js user_providers backfill must
+  by central login have provider `oidc`; the shared/db.ts user_providers backfill must
   skip them.
   Half / broken / missing config stops the boot; an unreachable IdP does not.
   Rollback is redeploying the previous commit (no env switch back to Google /
@@ -481,7 +481,7 @@ where lobby persistence broke entirely on deployed instances.
 - `users.status` decides access: `approved` = everything; `pending` = chat /
   people panel and own profile only; `denied` / `rejected` = nothing (sockets
   refused). The auth guard (`authRoutes.js`) is deny-by-default (`policyFor()` in
-  userAuth.js). Only an admin changes a status — db.js must never rewrite
+  userAuth.js). Only an admin changes a status — shared/db.ts must never rewrite
   statuses on boot (a restart once promoted every pending user). Blocking an
   account (`accountStatusChanged`) disconnects its sockets and, with central
   login, deletes all its sessions; its CLI tokens stop by themselves. The
@@ -581,22 +581,31 @@ TypeScript one area at a time; until an area is converted its files stay
   - A converted area is a folder of ES-module `.ts` (`backend/src/features/<name>/`), moved with `git mv` so
     history follows, its tests next to it as `*.test.ts` (plain `node --test` finds them). The folder holding
     converted areas has a `package.json` that is only `{"type": "module"}` (`backend/src/features/`, `shared/`;
-    add the same to `auth/`, `core/` when they start). Without it Node guesses the format of each `.ts`
+    add the same to `auth/`, `core/` when they start). Everything under them is ES modules, so a file moves
+    there only once converted (never a CommonJS `.js`). Without it Node guesses the format of each `.ts`
     and prints `MODULE_TYPELESS_PACKAGE_JSON` at boot and in tests; with it there is no warning and no flag. It
     goes away when `backend/package.json` becomes `"type": "module"`.
   - Still-CommonJS files `require('./features/<name>/index.ts')` (extension spelled out, always the folder's
-    `index.ts`, never its internals). Node's `require(esm)` and every `import` share one module instance (checked:
-    module state is not duplicated), so a store or singleton may be reached from both. No top-level `await` in
+    `index.ts`, never its internals; `shared/` has no index: `require('./shared/db.ts')`, one file each).
+    Node's `require(esm)` and every `import` share one module instance (checked: module state is not
+    duplicated), so a store or singleton may be reached from both. No top-level `await` in
     anything that is `require`d (`ERR_REQUIRE_ASYNC_MODULE`); test files may use it.
-  - From `.ts`, import a CommonJS file by its real name (`../../db.js`). Use the default import (`import db from
-    '../../db.js'`, the live `module.exports` object) when the code calls `db.query(...)`: tests replace properties
-    on such objects, and named imports of CommonJS are a snapshot. Named imports only work for the
+  - From `.ts`, import a CommonJS file by its real name (`../../library.js`). Use the default import (`import x
+    from '../../library.js'`, the live `module.exports` object) when the code calls `x.f(...)`: tests replace
+    properties on such objects, and named imports of CommonJS are a snapshot. Named imports only work for the
     `module.exports = { a, b }` shorthand. Packages: `import pg from 'pg'` then `pg.Client`.
+  - An ES module whose functions tests replace (`shared/db.ts`, imported everywhere as `import db from
+    './shared/db.ts'` / `require('./shared/db.ts')`): export ONE object as the default AND as `export { db as
+    'module.exports' }`. Then `require()` returns that same object (not the module namespace, whose properties
+    cannot be assigned), so `db.query = …` in a CommonJS test reaches `.ts` callers that call `db.query(...)`.
+    `delete require.cache[…]` does not give a fresh copy of an ES module (the same instance comes back): reset
+    its state through its own functions (`db.close()`, then `db.init()`).
   - `import.meta.dirname` for `__dirname`; `createRequire(import.meta.url)` only where a test needs `require.cache`.
   - Each area's `index.ts` exports its `create…({ deps })` factory with a typed deps interface (what the area needs
     from the composition root) and the types of what it sends to clients. Rows and objects used by more than one
-    area (users, library songs, playlists, jobs, the Socket.IO server, the `Db` shape of db.js) are in
-    `backend/src/shared/types.ts`, type-only and written from the SQL in `db.js` (pg's parsing: BIGINT is a
+    area (users, library songs, playlists, jobs, the Socket.IO server) are in `backend/src/shared/types.ts`
+    (which also re-exports `Db` / `Queryable` from `shared/db.ts`), type-only and written from the SQL in
+    `shared/db.ts` (pg's parsing: BIGINT is a
     string, TIMESTAMPTZ a Date); change them with the schema. A dependency still in CommonJS gets a small
     structural interface of what the area uses, not `any`; a CommonJS helper imported by `.ts` (e.g.
     `testServer.js`) may get JSDoc `@param` / `@returns` instead. index.js is not typechecked, so a test checks
@@ -609,7 +618,12 @@ TypeScript one area at a time; until an area is converted its files stay
     `node --test 'src/features/<name>/*.test.ts'` (a directory argument is not searched).
   - Every importer changes in the same commit, and so does every path this file cites. When a test that cannot
     be edited yet still requires an old path, a folder with the old name holds a one-line `index.js`
-    re-export (`backend/src/chat/`, `presence/`), so the move stays a rename in git history.
+    re-export (`backend/src/chat/`, `presence/`, `db/` for `queue-rows.test.js`), so the move stays a rename in
+    git history. A unit test of a moved module that sits inside a bigger test file moves out next to the module
+    (the secret box and settings tests left `central-login.test.js`).
+  - Preloads stay CommonJS until the final step: `telemetry.js` (+ `telemetryRules.js`) is loaded with `--require`
+    before any module is set up. A CommonJS package imported from an ES-module `.ts` (`pg` from `shared/db.ts`)
+    is still patched by that preload (checked: pg spans arrive); an ES-module package or file would not be.
   - Left in CommonJS on purpose: `ytdlp.js` (the resolver, the download jobs and `/health` use it) and
     `songReports.js` / `songVerify.js` (library.js and libraryRoutes.js use them inside the library's own
     queries and routes) go to `core/` with the library, not to `features/`. The artist pages import the radio's

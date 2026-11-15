@@ -69,7 +69,7 @@ describe('library duplicate detection and replace', { skip, timeout: 240_000 }, 
     // insert it with meta_key NULL and check the backfill fills it.
     process.env.DATABASE_URL = url;
     process.env.SONGS_PATH = songsDir;
-    const db = require('./db');
+    const db = require('./shared/db.ts');
     assert.ok(await db.init());
     const library = require('./library');
     const legacy = await db.query(

@@ -1,5 +1,5 @@
 const { v4: uuidv4 } = require('uuid');
-const db = require('./db');
+const db = require('./shared/db.ts');
 
 // In-memory storage (fallback if no database)
 const lobbies = new Map();

@@ -59,7 +59,7 @@ describe('Playlist migration from the old lobby schema', { skip: skipReason, tim
     await pg.query(`INSERT INTO chat_messages (id, lobby_id, user_id, username, content, created_at)
       VALUES (gen_random_uuid(), 'own-pub', 'u', 'U', 'hello', ${now})`);
 
-    db = require('./db');
+    db = require('./shared/db.ts');
     assert.ok(await db.init(), 'db.init should succeed on the old schema');
   });
 
@@ -68,7 +68,7 @@ describe('Playlist migration from the old lobby schema', { skip: skipReason, tim
     if (db) await db.close();
     if (container) await container.stop();
     delete process.env.DATABASE_URL;
-    delete require.cache[require.resolve('./db')];
+    delete require.cache[require.resolve('./shared/db.ts')];
     delete require.cache[require.resolve('./lobby')];
     delete require.cache[require.resolve('./queue')];
   });
@@ -96,8 +96,8 @@ describe('Playlist migration from the old lobby schema', { skip: skipReason, tim
   it('is idempotent: a second boot changes nothing', async () => {
     await db.query(`UPDATE lobbies SET visibility = 'private' WHERE id = 'own-pub'`);
     await db.close();
-    delete require.cache[require.resolve('./db')];
-    db = require('./db');
+    delete require.cache[require.resolve('./shared/db.ts')];
+    db = require('./shared/db.ts');
     assert.ok(await db.init());
     const r = await db.query(`SELECT visibility FROM lobbies WHERE id = 'own-pub'`);
     assert.equal(r.rows[0].visibility, 'private', 'a later choice is not overwritten on restart');

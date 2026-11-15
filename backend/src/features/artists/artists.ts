@@ -22,7 +22,7 @@
  */
 import express from 'express';
 import type { Request, Response, Router } from 'express';
-import dbModule from '../../db.js';
+import dbModule from '../../shared/db.ts';
 import { OPEN_REPORT_EXISTS_SQL } from '../../songReports.js';
 import { splitArtistCredit, knownArtistKeys, MAX_KEY } from './artistCredits.ts';
 import type { CreditedArtist } from './artistCredits.ts';

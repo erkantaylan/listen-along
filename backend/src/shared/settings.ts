@@ -13,7 +13,7 @@
  * boot). Once saved (dashboard), the stored value wins and the env var is
  * ignored. Read on every use (a single-row lookup), so a change applies at once.
  */
-import type { Db } from './types.ts';
+import type { Db } from './db.ts';
 
 export class SettingsConfigError extends Error {}
 

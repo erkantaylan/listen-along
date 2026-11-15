@@ -22,7 +22,7 @@ describe('library meta_key backfill', { skip, timeout: 180_000 }, () => {
     container = await new PostgreSqlContainer('postgres:16-alpine')
       .withDatabase('listen_backfill').withUsername('test').withPassword('test').start();
     process.env.DATABASE_URL = container.getConnectionUri();
-    db = require('./db');
+    db = require('./shared/db.ts');
     assert.ok(await db.init());
     library = require('./library');
     songMatch = require('./songMatch');

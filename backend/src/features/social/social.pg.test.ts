@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { execSync } from 'node:child_process';
 import pg from 'pg';
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
-import dbModule from '../../db.js';
+import dbModule from '../../shared/db.ts';
 import * as chat from './chat.ts';
 import { createSocial } from './social.ts';
 import type { SocialIo } from './social.ts';

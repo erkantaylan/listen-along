@@ -1,16 +1,37 @@
 /**
  * PostgreSQL database module for lobby persistence
+ *
+ * The module object (the default export, and what require() returns) is the
+ * live one: tests replace its functions, so call them as `db.query(...)`.
  */
 
-const { Pool } = require('pg');
+import pg from 'pg';
+import type { Pool, PoolClient } from 'pg';
+
+/** What a query answers (the parts of pg's result the code uses). */
+export interface QueryResult<R> {
+  rows: R[];
+  rowCount: number | null;
+}
+
+/** Anything that runs a query: the pool (db.query) or a client in a transaction. */
+export interface Queryable {
+  query<R = Record<string, unknown>>(text: string, params?: unknown[]): Promise<QueryResult<R>>;
+}
+
+/** What stores use of this module. */
+export interface Db extends Queryable {
+  /** false without DATABASE_URL, or before init() connected. */
+  isAvailable(): boolean;
+}
 
 // Connection pool
-let pool = null;
+let pool: Pool | null = null;
 
 /**
  * Initialize database connection and create tables
  */
-async function init() {
+async function init(): Promise<boolean> {
   const connectionString = process.env.DATABASE_URL;
 
   if (!connectionString) {
@@ -19,7 +40,7 @@ async function init() {
   }
 
   try {
-    pool = new Pool({
+    pool = new pg.Pool({
       connectionString,
       max: 10,
       idleTimeoutMillis: 30000,
@@ -36,11 +57,11 @@ async function init() {
     console.log('Connected to PostgreSQL');
 
     // Create tables
-    await createTables();
+    await createTables(pool);
 
     return true;
   } catch (err) {
-    console.error('Failed to connect to PostgreSQL:', err.message);
+    console.error('Failed to connect to PostgreSQL:', (err as Error).message);
     pool = null;
     return false;
   }
@@ -49,7 +70,7 @@ async function init() {
 /**
  * Create database tables if they don't exist
  */
-async function createTables() {
+async function createTables(pool: Pool): Promise<void> {
   const createLobbiesTable = `
     CREATE TABLE IF NOT EXISTS lobbies (
       id VARCHAR(8) PRIMARY KEY,
@@ -495,7 +516,7 @@ async function createTables() {
   // sub is never linked to two users (NULLs do not clash).
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS oidc_sub TEXT`).catch(() => {});
   await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc_sub ON users(oidc_sub)`)
-    .catch((err) => console.error('Could not create idx_users_oidc_sub:', err.message));
+    .catch((err: Error) => console.error('Could not create idx_users_oidc_sub:', err.message));
   // Server-side sessions: only the SHA-256 of the cookie's id is stored; the
   // tokens are AES-256-GCM encrypted (secretBox.js). Go with the user.
   await pool.query(`
@@ -544,24 +565,27 @@ async function createTables() {
 /**
  * Check if database is available
  */
-function isAvailable() {
+function isAvailable(): boolean {
   return pool !== null;
 }
 
 /**
  * Execute a query
  */
-async function query(text, params) {
+async function query<R = Record<string, unknown>>(text: string, params?: unknown[]): Promise<QueryResult<R>> {
   if (!pool) {
     throw new Error('Database not initialized');
   }
-  return pool.query(text, params);
+  // The rows are what the SQL selects: R is the caller's word for it (pg's
+  // own result type has `any` rows).
+  const result = await pool.query(text, params);
+  return result;
 }
 
 /**
  * Get a client from the pool for transactions
  */
-async function getClient() {
+async function getClient(): Promise<PoolClient> {
   if (!pool) {
     throw new Error('Database not initialized');
   }
@@ -574,14 +598,14 @@ async function getClient() {
  * lobby. This no-op remains only so any stale caller does not crash; it never
  * deletes rows.
  */
-async function cleanupExpiredLobbies() {
+async function cleanupExpiredLobbies(): Promise<number> {
   return 0;
 }
 
 /**
  * Close database connection
  */
-async function close() {
+async function close(): Promise<void> {
   if (pool) {
     await pool.end();
     pool = null;
@@ -591,11 +615,20 @@ async function close() {
 /**
  * Get the connection pool (for session store, etc.)
  */
-function getPool() {
+function getPool(): Pool | null {
   return pool;
 }
 
-module.exports = {
+/** The module's functions; tests replace them on this object. */
+export interface DbModule extends Db {
+  init(): Promise<boolean>;
+  getClient(): Promise<PoolClient>;
+  getPool(): Pool | null;
+  cleanupExpiredLobbies(): Promise<number>;
+  close(): Promise<void>;
+}
+
+const db: DbModule = {
   init,
   isAvailable,
   query,
@@ -604,3 +637,8 @@ module.exports = {
   cleanupExpiredLobbies,
   close
 };
+
+export default db;
+// require('./shared/db.ts') from CommonJS returns this same object, not a
+// module namespace (whose properties tests could not replace).
+export { db as 'module.exports' };

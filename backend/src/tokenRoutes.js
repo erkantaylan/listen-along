@@ -13,7 +13,7 @@
  */
 
 const express = require('express');
-const db = require('./db');
+const db = require('./shared/db.ts');
 const tokens = require('./tokens');
 const library = require('./library');
 const { make } = require('./shared/rateLimits.ts');

@@ -1,6 +1,6 @@
 /**
  * Per-user playlist pins (the sidebar's "Pinned" group): Postgres
- * `playlist_pins` (see db.js), or memory when there is no database.
+ * `playlist_pins` (see shared/db.ts), or memory when there is no database.
  *
  * A pin belongs to one user and is never visible to anyone else. It says
  * nothing about access: callers check playlistAccess first, and the list view
@@ -8,7 +8,7 @@
  * that went private stays hidden (it comes back if the playlist goes public
  * again). Not to be confused with the older shared `lobbies.pinned` flag.
  */
-const db = require('./db');
+const db = require('./shared/db.ts');
 
 const memory = new Map(); // userId -> Map(lobbyId -> pinnedAt ms)
 

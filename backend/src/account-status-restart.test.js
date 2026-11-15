@@ -1,4 +1,4 @@
-// A server restart must never change an account's status. db.js runs its
+// A server restart must never change an account's status. shared/db.ts runs its
 // migrations on every boot; an old line in it promoted every pending user to
 // approved, so a deploy silently undid the admin's decisions.
 const { describe, it, before, after } = require('node:test');

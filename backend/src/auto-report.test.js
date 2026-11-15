@@ -277,7 +277,7 @@ describe('automatic song reports: the server verifies', { skip, timeout: 240_000
   it('the report is stored only while the song still has the file that was checked', async () => {
     // In-process, on the same database: the insert itself, with a verdict about another file.
     process.env.DATABASE_URL = container.getConnectionUri();
-    const db = require('./db');
+    const db = require('./shared/db.ts');
     assert.ok(await db.init());
     try {
       const songReports = require('./songReports');

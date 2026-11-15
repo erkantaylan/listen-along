@@ -34,7 +34,7 @@ function simulateRestart() {
 }
 
 // Playlist (lobby) ownership + visibility + no-auto-expiry. Exercises the data
-// layer (db.js + lobby.js + playlistAccess.js). The HTTP / socket checks are
+// layer (shared/db.ts + lobby.js + playlistAccess.js). The HTTP / socket checks are
 // covered against a running server in playlist-permissions.test.js.
 describe('Lobby ownership, visibility, persistence', { skip: skipReason, timeout: 120_000 }, () => {
   let container;
@@ -52,7 +52,7 @@ describe('Lobby ownership, visibility, persistence', { skip: skipReason, timeout
 
     process.env.DATABASE_URL = container.getConnectionUri();
 
-    db = require('./db');
+    db = require('./shared/db.ts');
     const initialized = await db.init();
     assert.ok(initialized, 'Database should initialize successfully');
   });
@@ -62,7 +62,7 @@ describe('Lobby ownership, visibility, persistence', { skip: skipReason, timeout
     if (container) await container.stop();
     delete process.env.DATABASE_URL;
 
-    delete require.cache[require.resolve('./db')];
+    delete require.cache[require.resolve('./shared/db.ts')];
     delete require.cache[require.resolve('./lobby')];
     delete require.cache[require.resolve('./queue')];
   });

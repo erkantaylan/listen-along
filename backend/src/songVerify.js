@@ -24,7 +24,7 @@
 
 const fs = require('fs');
 const { spawn } = require('child_process');
-const db = require('./db');
+const db = require('./shared/db.ts');
 
 // --- Storage health ---------------------------------------------------------
 // A bad mount after a redeploy leaves an empty folder; one upload later it is
