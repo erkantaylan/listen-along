@@ -9,7 +9,7 @@
  * nothing that reaches the library). Every query is scoped to the caller's
  * users.id, so nobody can see or revoke another user's (or a legacy) token:
  * those are simply "not found". The dashboard manages all tokens through
- * /api/admin/tokens (libraryRoutes.js).
+ * /api/admin/tokens (core/library/libraryRoutes.ts).
  */
 
 import express from 'express';

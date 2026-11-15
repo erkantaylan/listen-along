@@ -243,7 +243,7 @@ export interface ListenSync {
 export type ListenSocket = Pick<AppSocket, 'id' | 'data' | 'on' | 'emit'>;
 
 export interface ListenAlong {
-  /** Registers this connection's listen:* handlers (socketServer.js, after social's attach). */
+  /** Registers this connection's listen:* handlers (app/sockets.ts, after social's attach). */
   attach(socket: ListenSocket): void;
   graph: ListenGraph;
   followersPayload(r: string): FollowersPayload;

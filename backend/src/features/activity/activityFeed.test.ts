@@ -1,5 +1,5 @@
 // activityFeed.ts against a stand-in Socket.IO server: who gets which row, and
-// how progress is held back. (The real server and sockets: worker-jobs.test.js.)
+// how progress is held back. (The real server and sockets: core/jobs/workerJobs.test.ts.)
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createActivityFeed } from './activityFeed.ts';

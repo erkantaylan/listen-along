@@ -11,7 +11,7 @@
  * Paging /api/library for this would take three requests at 2,500 songs, could
  * skip or repeat songs when an upload lands in between, and has no "not broken"
  * filter. These routes are approved accounts only: the guard's default for
- * /api/... (policyFor in userAuth.js); CLI tokens do not get in.
+ * /api/... (policyFor in auth/userAuth.ts); CLI tokens do not get in.
  */
 import express from 'express';
 import type { Request, Response, Router } from 'express';

@@ -1,4 +1,4 @@
-// The global search's relevance order (songSearch.js), without a database.
+// The global search's relevance order (core/library/songSearch.ts), without a database.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { songSearch as s } from './index.ts';

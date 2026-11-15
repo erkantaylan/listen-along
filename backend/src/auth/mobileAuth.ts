@@ -34,7 +34,7 @@
  *        static page whose button hands the same query to the app through an
  *        intent: URL naming the package. It exchanges nothing, the code never
  *        appears in the HTML (the page's script reads location.search), the
- *        query stays out of the access log (httpApp.js), no-store, no referrer.
+ *        query stays out of the access log (app/http.ts), no-store, no referrer.
  *   GET  /.well-known/assetlinks.json   the Digital Asset Links statement that
  *        lets Android verify the App Link: package + release signing
  *        certificate (ANDROID_APP_PACKAGE, ANDROID_APP_CERT_SHA256).
@@ -59,7 +59,7 @@
  *        session row.
  *   GET  /api/me              (Bearer lam_...) { name, user: { id, name, status },
  *        session: { kind: 'app' } }; pending accounts too. A CLI token's
- *        /api/me stays in libraryRoutes.js.
+ *        /api/me stays in core/library/libraryRoutes.ts.
  *
  * What stops what:
  *   - someone else's code (intercepted redirect, another app claiming the
@@ -481,7 +481,7 @@ export function createMobileAuthRouter({
   }
 
   router.post('/auth/mobile/exchange', limiter, async (req, res) => {
-    // The body is parsed by the app-wide express.json() (httpApp.js, 100 kB:
+    // The body is parsed by the app-wide express.json() (app/http.ts, 100 kB:
     // a bigger body is a 413, malformed JSON a 400, before this runs).
     res.set('Cache-Control', 'no-store');
     // Untrusted JSON: every field is checked just below before any is used.

@@ -660,7 +660,7 @@ suffixes; a song row always shows the song's full credit. Songs with an open rep
 ### Search
 
 One field for the whole signed-in app and one page, `/search?q=…` (`search.ts`, rules in `search-rules.ts`, relevance on the server
-in `backend/src/songSearch.js`).
+in `backend/src/core/library/songSearch.ts`).
 
 - **The field** (`form#app-search[role=search]`, `#app-search-input`): the shell's **top bar** (see "App shell"), one element that never
   moves: at the top of the page column and centred in it (not in the window), above the page panel, from 768px (landing, playlist, Radio, artists, an artist, search, profile, `/app`, and

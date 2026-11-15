@@ -7,7 +7,7 @@
 //                                               the old audio until it is done
 //   title, artist, album   "Save"               saved now; the audio is untouched
 //   nothing                disabled
-// The server enforces every rule again (backend/src/jobRoutes.js, libraryRoutes.js).
+// The server enforces every rule again (backend/src/core/jobs/jobRoutes.ts, core/library/libraryRoutes.ts).
 import { showToast, trapFocus, formatDuration, t } from '../../shared/ui.ts';
 import { jobStatusText, onJobChange, handleJobUpdate } from './jobs.ts';
 import type { WorkerCounts } from './jobs.ts';

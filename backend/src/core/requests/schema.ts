@@ -1,6 +1,5 @@
-// Song requests (requests.js). Run by shared/db.ts, in the order of its SCHEMA
-// list. Only the schema lives here so far; requests.js moves into this folder
-// with the core.
+// Song requests (requests.ts). Run by shared/db.ts, in the order of its SCHEMA
+// list.
 import type { Migration } from '../../shared/db.ts';
 
 export const tables: readonly string[] = [

@@ -35,7 +35,7 @@
  *     then it ends (fail closed)
  *   - a session without a refresh token (the IdP did not grant
  *     offline_access) cannot be re-checked and ends at that same cap
- * Long-lived sockets are re-checked by a timer in socketServer.js (checkSession).
+ * Long-lived sockets are re-checked by a timer in app/sockets.ts (checkSession).
  */
 
 import crypto from 'crypto';

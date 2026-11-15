@@ -1,8 +1,8 @@
 /**
  * The global chat and the people panel over Socket.IO.
  *
- * Who takes part: every socket whose login (userAuth.js) names a user
- * (socket.data.userId, set in socketServer.js from the handshake — never an id the
+ * Who takes part: every socket whose login (auth/userAuth.ts) names a user
+ * (socket.data.userId, set in app/sockets.ts from the handshake — never an id the
  * client sends) whose account is not 'denied' / 'rejected'. Pending users take
  * part fully (read, write, appear in the list). Denied and rejected accounts
  * are left out of the people list and cannot use the chat; anonymous sockets
@@ -103,7 +103,7 @@ export interface SocialDeps {
 }
 
 export interface Social {
-  /** Registers this connection's social handlers (socketServer.js); sets socket.data.socialReady. */
+  /** Registers this connection's social handlers (app/sockets.ts); sets socket.data.socialReady. */
   attach(socket: SocialSocket): void;
   listPeople(viewerId: string | null): Promise<Person[]>;
   /** Admin moderation: removes a message and tells everyone. */

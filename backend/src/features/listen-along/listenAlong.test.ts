@@ -10,7 +10,7 @@ import type { ListenIo, ListenPresence, ListenSocket } from './listenAlong.ts';
 import type { Presence } from '../social/index.ts';
 import type { AppSocket, Io } from '../../shared/types.ts';
 
-// What index.js and socketServer.js pass (typecheck only).
+// What index.js and app/sockets.ts pass (typecheck only).
 export const realServerFits = (io: Io): ListenIo => io;
 export const realSocketFits = (socket: AppSocket): ListenSocket => socket;
 // index.js hands it social's presence.

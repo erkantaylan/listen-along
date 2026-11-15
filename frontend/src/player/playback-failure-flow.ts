@@ -18,7 +18,7 @@
 //
 // All of this is only a first filter that saves pointless requests. The server
 // checks the song itself before it stores an automatic report (backend
-// songVerify.js) and may refuse; a refusal is final for this page load, the
+// core/library/songVerify.ts) and may refuse; a refusal is final for this page load, the
 // song just stays greyed.
 //
 // Everything here belongs to the signed-in account: when that changes (logout,

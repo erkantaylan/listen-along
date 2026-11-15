@@ -1,7 +1,7 @@
 /**
  * The live side of the downloads activity log (the third tab of the chat and
  * people panel): every download job, as it changes, for every approved account.
- * The list itself is GET /api/activity/downloads (jobRoutes.js); the row is
+ * The list itself is GET /api/activity/downloads (core/jobs/jobRoutes.ts); the row is
  * downloadJobs.toActivity.
  *
  * Server -> client (APP_ROOM: sockets of approved accounts)

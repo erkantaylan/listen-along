@@ -46,7 +46,7 @@ export interface PlaylistSocketsDeps {
   emitUnavailableSongs: (target: { emit(event: string, payload?: unknown): unknown }, songs: QueueSong[]) => Promise<void> | void;
 }
 
-/** The connection's account helpers (socketServer.js). */
+/** The connection's account helpers (app/sockets.ts). */
 export interface PlaylistSocketContext {
   /** from the handshake, never the client */
   userId: string;

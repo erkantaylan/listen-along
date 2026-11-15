@@ -80,7 +80,7 @@ export function progressOf(job: Pick<ActivityRow, 'status' | 'stage' | 'percent'
 
 // Why a job failed, by its error code (the downloader's or the server's): the
 // row never carries the downloader's message. Codes: cli/src/ytdlp.js
-// parseError, pipeline.js, api.js; backend downloadJobs.js / library.js.
+// parseError, pipeline.js, api.js; backend core/jobs/downloadJobs.ts / core/library/library.ts.
 const FAILURES: Readonly<Record<string, string>> = {
   VIDEO_UNAVAILABLE: 'unavailable',
   VIDEO_PRIVATE: 'private',

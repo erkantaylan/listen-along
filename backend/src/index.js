@@ -62,14 +62,14 @@ const resolver = createResolver({ videoTitles: picker.titles });
 const PORT = process.env.PORT || 3000;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
 
-// The admin login's in-memory limit (shared/memoryRateLimit.ts; libraryRoutes.js loginRateLimit).
+// The admin login's in-memory limit (shared/memoryRateLimit.ts; core/library/libraryRoutes.ts loginRateLimit).
 const rateLimit = createMemoryRateLimit();
 
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 
-// Sign-in, fixed at boot. Central login (OIDC, see oidcConfig.js) is the only
+// Sign-in, fixed at boot. Central login (OIDC, see auth/oidcConfig.ts) is the only
 // one in production and is required there. Local development and the tests may
-// use the dev sign-in instead (INSECURE_DEV_LOGIN=1, devLogin.js), which is
+// use the dev sign-in instead (INSECURE_DEV_LOGIN=1, auth/devLogin.ts), which is
 // refused unless NODE_ENV is development or test. A missing, half or broken
 // configuration, or no sign-in at all, stops the server here, on purpose.
 let OIDC;
@@ -113,7 +113,7 @@ const oidcSessions = OIDC.enabled ? createOidcSessions({
 
 // Who is calling: the la_session server-side session (central login) or the
 // signed la_dev_login cookie (dev sign-in) + the account's status
-// (approved / pending / denied). See userAuth.js for the levels.
+// (approved / pending / denied). See auth/userAuth.ts for the levels.
 const userAuth = createUserAuth({ secret: SESSION_SECRET, db, sessions: oidcSessions, devLogin: DEV_LOGIN });
 
 // Serve static frontend files
@@ -129,17 +129,17 @@ const corsOptions = {
 };
 
 // The Express app and its HTTP server, with what runs before every route:
-// client IP, CORS, JSON bodies, the request log, the static files (httpApp.js).
+// client IP, CORS, JSON bodies, the request log, the static files (app/http.ts).
 const { app, server, clientIpOf } = createHttpApp({ corsOptions, frontendPath });
 
 if (!process.env.SESSION_SECRET) {
   console.log('Warning: SESSION_SECRET not set, using random secret (logins will not survive a restart)');
 }
 
-// Socket.IO setup with CORS (socketServer.js, which also names the rooms).
+// Socket.IO setup with CORS (app/sockets.ts, which also names the rooms).
 const io = createSocketServer({ server, cors: corsOptions });
 
-// Sign-in over HTTP (authRoutes.js): the guard here, before every route; the
+// Sign-in over HTTP (auth/authRoutes.ts): the guard here, before every route; the
 // legacy status checks and the sign-in / sign-out routes further down.
 const auth = createAuthRoutes({
   oidc: OIDC, devLogin: DEV_LOGIN, sessionSecret: SESSION_SECRET, dbExpected: DB_EXPECTED, env: process.env, frontendPath,
@@ -147,11 +147,11 @@ const auth = createAuthRoutes({
 });
 app.use(auth.guard); // also counts the playlist API against apiLimiter, before any credential is checked
 
-// Health, build info, changelog, the playlist QR code (appRoutes.js). The
+// Health, build info, changelog, the playlist QR code (app/appRoutes.ts). The
 // changelog routes count against apiLimiter themselves; /health never does.
 app.use(createInfoRouter({ db, ytdlp, frontendPath, apiLimiter }));
 
-// Legacy status checks: POST /api/auth/register, GET /api/auth/status (authRoutes.js).
+// Legacy status checks: POST /api/auth/register, GET /api/auth/status (auth/authRoutes.ts).
 app.use(auth.statusRouter);
 
 // The downloads activity log, live (features/activity; fed by emitJob).
@@ -163,7 +163,7 @@ const activityFeed = createActivityFeed({
   progressMs: process.env.ACTIVITY_PROGRESS_MS ? Number(process.env.ACTIVITY_PROGRESS_MS) : undefined,
 });
 
-// Cross-area reactions (reactions.js): what happens elsewhere when a job
+// Cross-area reactions (app/reactions.ts): what happens elsewhere when a job
 // changes, a song is added / replaced / edited, a playlist changes or goes
 // away, or an account is blocked. Areas get these functions, never each other.
 const {
@@ -176,7 +176,7 @@ const {
 });
 
 // Download workers (`la worker` on users' machines) and their jobs: see
-// workerHub.js (WebSocket, routing), downloadJobs.js (store), jobRoutes.js
+// core/jobs/workerHub.ts (WebSocket, routing), core/jobs/downloadJobs.ts (store), core/jobs/jobRoutes.ts
 // (HTTP API). Live job status goes to the requester's sockets (jobs:update),
 // worker counts to every approved socket (workers:update), and a reduced
 // view of every job to every approved socket (features/activity).
@@ -188,7 +188,7 @@ function upgradeIp(req) {
   return clientIpOf(req);
 }
 // The la CLI this image ships (cli/): offered to workers in the welcome and
-// through /api/cli/latest|bundle so they update themselves (cliRelease.js).
+// through /api/cli/latest|bundle so they update themselves (core/jobs/cliRelease.ts).
 const cliRelease = createCliRelease();
 cliRelease.load();
 app.use(createCliRouter({ release: cliRelease, requireToken: tokens.requireToken, limiter: apiLimiter }));
@@ -217,7 +217,7 @@ const silenceScanner = createSilenceScanner({
   startDelayMs: envMs('SILENCE_START_DELAY_MS'), pauseMs: envMs('SILENCE_PAUSE_MS'),
 });
 
-// Music library, song requests, CLI tokens and admin API (see libraryRoutes.js)
+// Music library, song requests, CLI tokens and admin API (see core/library/libraryRoutes.ts)
 app.use(createLibraryRouter({
   onJobUpload: (job, song) => { addJobSongsToPlaylist(job, [song]).catch(err => console.error('[jobs] playlist add failed:', err.message)); },
   onRequestDismissed: (request) => {
@@ -255,7 +255,7 @@ app.use(createTokenRouter({
   }),
 }));
 
-// Download jobs, workers, profile activity (jobRoutes.js).
+// Download jobs, workers, profile activity (core/jobs/jobRoutes.ts).
 const withAccount = (level) => (req, res, next) => userAuth.requireLevel(level)(req, res, () => {
   req.account = req._listenAuth.account;
   next();
@@ -287,15 +287,15 @@ app.use(createJobRouter({
 
 // The latest Android release for the /app page (features/app-release).
 const appRelease = createAppRelease(process.env.APP_RELEASES_API_URL ? { apiUrl: process.env.APP_RELEASES_API_URL } : {});
-// Redirects, SPA views, the Android release, the dashboard shell, "/" (appRoutes.js).
+// Redirects, SPA views, the Android release, the dashboard shell, "/" (app/appRoutes.ts).
 app.use(createPageRouter({ frontendPath, apiLimiter, adminAuth, appRelease }));
 
-// Audio for queue entries and their covers (mediaRoutes.js).
+// Audio for queue entries and their covers (core/library/mediaRoutes.ts).
 app.use(createMediaRouter({ db, library, covers, apiLimiter, sendSongFile }));
 // The silence numbers of a queue entry's song, and the scan's progress for admins.
 app.use(createSilenceRouter({ db, resolveQueueUrl: (url) => library.resolveQueueUrl(url), apiLimiter, requireAdmin: adminAuth.requireAdmin, scanner: silenceScanner }));
 
-// Playlists over HTTP, songs included (playlistRoutes.js).
+// Playlists over HTTP, songs included (core/playlists/playlistRoutes.ts).
 const { router: playlistRouter, ownerNames } = createPlaylistRoutes({
   io, db, playlist, getQueueAsync, library, playlistPins, userAuth, adminAuth, getSocial: () => social, userRoom,
   notifyPlaylistsChanged, destroyPlaylist, addLibrarySongToPlaylist,
@@ -315,18 +315,18 @@ app.use(createPlaylistFolderRouter({
 }));
 
 // Central login / dev sign-in round trips, /api/auth/me, logout, the login
-// page and /api/auth/providers (authRoutes.js). /api/auth/* counts against
+// page and /api/auth/providers (auth/authRoutes.ts). /api/auth/* counts against
 // apiLimiter here (the dashboard's /api/auth/users too, on its way to adminRoutes).
 app.use('/api/auth', apiLimiter);
 app.use(auth.router);
 
-// The caller's own profile (profileRoutes.js). /api/profile/activity was
+// The caller's own profile (app/profileRoutes.ts). /api/profile/activity was
 // answered (and counted) by jobRoutes above, so it never gets here.
 app.use('/api/profile', apiLimiter);
 app.use(createProfileRouter({ db, userAuth, getSocial: () => social }));
 
 // Dashboard APIs: users, statuses, settings, stats, playlist and chat
-// moderation (adminRoutes.js). All behind adminAuth.requireAdmin. The
+// moderation (app/adminRoutes.ts). All behind adminAuth.requireAdmin. The
 // settings routes count against apiLimiter themselves.
 app.use(['/api/dashboard', '/api/chat'], apiLimiter);
 app.use(createAdminRouter({
@@ -334,8 +334,8 @@ app.use(createAdminRouter({
   accountStatusChanged, destroyPlaylist, getSocial: () => social,
 }));
 
-// Playlist membership and queue socket handlers (playlistSockets.js,
-// queueSockets.js), registered per connection below.
+// Playlist membership and queue socket handlers (core/playlists/playlistSockets.ts,
+// core/queue/queueSockets.ts), registered per connection below.
 const playlistSockets = createPlaylistSockets({
   io, playlist, getQueueAsync, adminAuth, getSocial: () => social, ownerNames, notifyPlaylistsChanged, emitUnavailableSongs,
 });
@@ -344,7 +344,7 @@ const queueSockets = createQueueSockets({
 });
 
 // The handshake, the central-login re-check of open sockets, and every
-// connection's handlers (socketServer.js).
+// connection's handlers (app/sockets.ts).
 attachSocketHandlers({
   io, env: process.env, db, userAuth, oidc: OIDC, oidcSessions,
   getSocial: () => social, getListenAlong: () => listenAlong, playlistSockets, queueSockets,

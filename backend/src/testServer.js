@@ -13,7 +13,7 @@ const ADMIN_PASSWORD = 'test-admin-pw';
 const FRONTEND = path.join(__dirname, '..', '..', 'frontend');
 
 /**
- * A dev sign-in cookie (`la_dev_login`, devLogin.js) for users.id `userId`.
+ * A dev sign-in cookie (`la_dev_login`, auth/devLogin.ts) for users.id `userId`.
  * startServer() turns the dev sign-in on unless the test configures central
  * login, so this is the login of every server a test starts without OIDC_*.
  */

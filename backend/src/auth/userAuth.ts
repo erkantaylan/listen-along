@@ -153,7 +153,7 @@ const PUBLIC_PREFIXES: readonly string[] = [
   '/lobby/',                // 301 to /playlist/..., which is guarded
 ];
 
-// Routes with their own middleware (see index.js / libraryRoutes.js).
+// Routes with their own middleware (see index.js / core/library/libraryRoutes.ts).
 const SELF_EXACT: ReadonlySet<string> = new Set(['/api/me', '/api/library', '/api/requests', '/dashboard', '/api/auth/users']);
 const SELF_PREFIXES: readonly string[] = [
   '/api/library/',
@@ -162,7 +162,7 @@ const SELF_PREFIXES: readonly string[] = [
   '/api/dashboard/',
   '/api/auth/users/',
   '/api/chat/messages/',
-  '/api/cli/',          // la self-update: CLI Bearer token (cliRelease.js)
+  '/api/cli/',          // la self-update: CLI Bearer token (core/jobs/cliRelease.ts)
 ];
 
 // Pending users may use these too (their own account; /app, the install page).

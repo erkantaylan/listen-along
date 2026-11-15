@@ -1,8 +1,6 @@
-// Playlists (table `lobbies`, internally still "lobby"), the per-user
-// sidebar pins and the per-user sidebar folders (folders.ts). Run by
-// shared/db.ts, in the order of its SCHEMA list.
-// Of the code, only the folders live here so far; lobby.js, playlistAccess.js
-// and playlistPins.js move into this folder with the core.
+// Playlists (table `lobbies`: the old name stays in storage), the per-user
+// sidebar pins and the per-user sidebar folders (playlist.ts, playlistPins.ts,
+// folders.ts). Run by shared/db.ts, in the order of its SCHEMA list.
 import type { Migration } from '../../shared/db.ts';
 
 export const tables: readonly string[] = [
@@ -16,7 +14,7 @@ export const tables: readonly string[] = [
       last_activity BIGINT NOT NULL
     )
   `,
-  // Per-user playlist pins (playlistPins.js). Goes with both the user and the
+  // Per-user playlist pins (core/playlists/playlistPins.ts). Goes with both the user and the
   // playlist. Unrelated to the shared lobbies.pinned column.
   `
     CREATE TABLE IF NOT EXISTS playlist_pins (

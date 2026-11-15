@@ -1,6 +1,6 @@
 // Playlists (on the wire still "lobbies": lobby:* events, lobbyId fields):
 // creating, opening, sharing, the landing list and the owner controls. The
-// server decides who may see / edit what (backend/src/playlistAccess.js); this
+// server decides who may see / edit what (backend/src/core/playlists/playlistAccess.ts); this
 // only mirrors it in the UI.
 import { state, elements, socket, STORAGE_KEYS, viewActivators, storageSet, storageRemove, setSuppressJoinToasts, setLobbiesInterval } from '../../shared/state.ts';
 import { showView, showToast, escapeHtml, formatAge, copyToClipboard, t, navigateTo } from '../../shared/ui.ts';
@@ -243,7 +243,7 @@ export function handlePlaylistJoined(data: LobbyJoinedPayload, updatePinButton: 
   }
   if (data.lobbyId !== state.lobbyId) return;
   applyPlaylistMeta(data);
-  // The server never sends `listeners` (backend/src/playlistSockets.js sends `users`); read as before.
+  // The server never sends `listeners` (backend/src/core/playlists/playlistSockets.ts sends `users`); read as before.
   state.listeners = (data as LobbyJoinedPayload & { listeners?: LobbyUser[] }).listeners || data.users || [];
   setSuppressJoinToasts(true);
   setTimeout(function() { setSuppressJoinToasts(false); }, 2000);

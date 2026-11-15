@@ -1,6 +1,6 @@
 // The schema list (db.ts SCHEMA, each area's schema.ts): the rules init()
 // relies on, checked without a database. The schema itself is exercised on
-// Postgres by playlist-migration.test.js, account-status-restart.test.js and
+// Postgres by core/playlists/playlistMigration.test.ts, app/accountStatusRestart.test.ts and
 // every store test.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

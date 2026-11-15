@@ -36,7 +36,7 @@ yt-dlp is still installed in the image, but only for **metadata**, never audio:
 | Title for a pasted video link | YouTube oEmbed (`/oembed?url=…`) over plain HTTPS | No |
 | Spotify track link | `spotify-url-info` page scrape → title/artist | No |
 
-All of these are best effort (`backend/src/ytdlp.js`, `backend/src/songResolver.js`).
+All of these are best effort (`backend/src/core/requests/ytdlp.ts`, `backend/src/core/requests/songResolver.ts`).
 If they fail, queueing still works: typed text falls back to a library text
 search, and anything not found becomes a **song request**.
 

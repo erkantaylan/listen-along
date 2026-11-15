@@ -437,7 +437,7 @@ export function createAuthRoutes({
 
   // The Android app's sign-in (mobileAuth.ts): /auth/mobile/start | exchange |
   // logout (public in policyFor) and GET /api/me for an app session (the CLI
-  // token's /api/me in libraryRoutes.js passes it on with next('route')).
+  // token's /api/me in core/library/libraryRoutes.ts passes it on with next('route')).
   router.use(createMobileAuthRouter({
     oidc: oidcClient, cfg: OIDC, store: sessionStore, settings, userAuth, db, dbExpected: DB_EXPECTED,
     devLogin: DEV_LOGIN, secret: SESSION_SECRET, env,

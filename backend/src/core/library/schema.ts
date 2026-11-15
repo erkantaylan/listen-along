@@ -1,8 +1,6 @@
 // The music library: songs, their replace / edit history, broken-song reports,
-// and the legacy yt-dlp cache table. Run by shared/db.ts, in the order of its
-// SCHEMA list. The schema and the silence measurements (silence.ts) live here
-// so far; library.js, songReports.js and the rest move into this folder with
-// the core.
+// and the legacy yt-dlp cache table (library.ts, songReports.ts, silence.ts).
+// Run by shared/db.ts, in the order of its SCHEMA list.
 import type { Migration } from '../../shared/db.ts';
 
 export const tables: readonly string[] = [
@@ -69,7 +67,7 @@ export const tables: readonly string[] = [
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )
   `,
-  // "Mark as broken — needs replacement" reports (songReports.js). One OPEN
+  // "Mark as broken — needs replacement" reports (core/library/songReports.ts). One OPEN
   // report per user per song (partial unique index); re-marking updates the
   // reason. A report is resolved when the song's audio is replaced
   // (resolution 'replaced', in library.replaceSong's transaction) or an admin
@@ -110,7 +108,7 @@ export const migrations: readonly Migration[] = [
     ALTER TABLE library_songs ADD COLUMN IF NOT EXISTS uploaded_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL
   `,
   // Migration: duplicate detection. meta_key = normalized "artist|title"
-  // (songMatch.js), meta_key_version = the normalization it was computed
+  // (core/library/songMatch.ts), meta_key_version = the normalization it was computed
   // with; library.backfillMetaKeys() fills / refreshes them in the
   // background after boot. sha256 (file bytes) already exists, NOT NULL UNIQUE.
   `ALTER TABLE library_songs ADD COLUMN IF NOT EXISTS meta_key TEXT`,
@@ -130,7 +128,7 @@ export const migrations: readonly Migration[] = [
 
   `ALTER TABLE library_song_reports ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()`,
   `ALTER TABLE library_song_reports ADD COLUMN IF NOT EXISTS resolved_by VARCHAR(255)`,
-  // auto: filed by the web player when the song failed to play (songReports.js), not by a person.
+  // auto: filed by the web player when the song failed to play (core/library/songReports.ts), not by a person.
   `ALTER TABLE library_song_reports ADD COLUMN IF NOT EXISTS auto BOOLEAN NOT NULL DEFAULT false`,
   `
     CREATE UNIQUE INDEX IF NOT EXISTS idx_song_reports_open_user

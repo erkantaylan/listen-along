@@ -2,7 +2,7 @@
  * What the web's "pick the video" dialog shows before a download job or a song
  * request is made: the first YouTube results for what was typed (or for a
  * Spotify track's "artist - title"), the one video of a link, or the videos of
- * a playlist link. Metadata only, through ytdlp.js (flat search, playlist
+ * a playlist link. Metadata only, through core/requests/ytdlp.ts (flat search, playlist
  * listing, oEmbed); results are kept a while so the same search does not go
  * to YouTube twice.
  *
@@ -55,13 +55,13 @@ export type PickAnswer =
   | { kind: 'video'; results: MarkedVideo[] }
   | { kind: 'playlist'; results: MarkedVideo[]; total: number; title: string | null };
 
-/** A refused lookup: `status` is the HTTP status jobRoutes.js answers with, `code` the body's code. */
+/** A refused lookup: `status` is the HTTP status core/jobs/jobRoutes.ts answers with, `code` the body's code. */
 export type PickError = Error & { status: number; code: 'BAD_INPUT' | 'LOOKUP_FAILED' };
 
 /** The library row fields the picker reads. */
 export type PickerSong = Pick<LibrarySongRow, 'id' | 'title'> & { youtube_id?: string | null; artist: string | null };
 
-/** What the picker uses of library.js (CommonJS until core/ moves). */
+/** What the picker uses of core/library/library.ts (CommonJS until core/ moves). */
 export interface PickerLibrary {
   getByYoutubeId(youtubeId: string): Promise<PickerSong | null>;
   getByYoutubeIds(youtubeIds: string[]): Promise<Map<string, PickerSong>>;
@@ -70,7 +70,7 @@ export interface PickerLibrary {
   toPublic(song: PickerSong): unknown;
 }
 
-/** A yt-dlp search or playlist entry (ytdlp.js). */
+/** A yt-dlp search or playlist entry (core/requests/ytdlp.ts). */
 export interface YtEntry {
   id: string;
   title?: string | null;
@@ -78,7 +78,7 @@ export interface YtEntry {
   duration?: number | string | null;
 }
 
-/** What the picker uses of ytdlp.js (metadata only). */
+/** What the picker uses of core/requests/ytdlp.ts (metadata only). */
 export interface PickerYtdlp {
   searchYoutubeMany(query: string, count: number): Promise<YtEntry[]>;
   previewVideo(youtubeId: string): Promise<{ title: string | null; channel: string | null; duration_sec: number | null } | null>;
@@ -87,7 +87,7 @@ export interface PickerYtdlp {
   getOembed(youtubeId: string): Promise<{ title?: string | null; channel?: string | null } | null>;
 }
 
-/** What the picker uses of spotify.js. */
+/** What the picker uses of core/requests/spotify.ts. */
 export interface PickerSpotify {
   getTrack(url: string): Promise<{ name?: string | null; title?: string | null; artist?: string | null } | null>;
 }

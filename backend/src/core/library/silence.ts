@@ -25,7 +25,7 @@
 // outside the songs folder (library.songsFile) is never opened. Off
 // without a database, without ffmpeg, without the songs folder, or with
 // SILENCE_SCAN=off. It has its own queue: uploads and the decode check of
-// automatic reports (songVerify.js) never wait for it.
+// automatic reports (core/library/songVerify.ts) never wait for it.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import type { Queryable } from '../../shared/db.ts';

@@ -1,6 +1,5 @@
-// Each playlist's queue (queue.js). Run by shared/db.ts, in the order of its
-// SCHEMA list. Only the schema lives here so far; queue.js moves into this
-// folder with the core.
+// Each playlist's queue (queue.ts). Run by shared/db.ts, in the order of its
+// SCHEMA list.
 import type { Migration } from '../../shared/db.ts';
 
 export const tables: readonly string[] = [

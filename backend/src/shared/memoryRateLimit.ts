@@ -1,6 +1,6 @@
 /**
  * The simple in-memory rate limits (20 per minute): the HTTP one for the
- * admin login (libraryRoutes.js loginRateLimit), keyed by client IP, and a
+ * admin login (core/library/libraryRoutes.ts loginRateLimit), keyed by client IP, and a
  * per-socket one for expensive socket operations (queue:add). The library /
  * API limiters are express-rate-limit (rateLimits.ts).
  */

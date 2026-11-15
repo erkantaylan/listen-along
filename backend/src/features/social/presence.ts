@@ -1,7 +1,7 @@
 /**
  * Who is online and what each user is playing. Pure in-memory state with no
  * Socket.IO or database access (social.ts wires it up), so it is unit tested
- * directly (social.test.js) and can be reused by listen-along (follow a user).
+ * directly (features/social/socialServer.test.ts) and can be reused by listen-along (follow a user).
  *
  * Presence: a user is online while they have at least one connected socket;
  * several tabs/devices count once. When the last socket goes, the user stays

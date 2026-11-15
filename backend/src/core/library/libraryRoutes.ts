@@ -122,7 +122,7 @@ export const sendSongFile: SendSongFile = (req, res, song, { download = false } 
   });
 };
 
-/** A song request as the API sends it (requests.js toPublic). */
+/** A song request as the API sends it (core/requests/requests.ts toPublic). */
 export interface SongRequestView {
   id: string;
   title: string | null;

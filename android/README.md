@@ -94,7 +94,7 @@ there). The same account rules as the web apply (see [Signing in](#signing-in)).
 ## Signing in
 
 The app signs in through the owner's central login the way the web does
-(server side: `backend/src/mobileAuth.js`, CENTRAL-LOGIN.md "The Android
+(server side: `backend/src/auth/mobileAuth.ts`, CENTRAL-LOGIN.md "The Android
 app"). It never asks for a token and never holds the central login's tokens.
 
 - **Sign in** makes a PKCE verifier, `state` and `nonce` (`core/auth/AuthFlow`;
@@ -444,7 +444,7 @@ APK, checks its certificate and version, and publishes a GitHub Release with
   somewhere else. Certificate SHA-256 (public):
   `ddb6d8fe68097be1505d533755ee3c59d165e6e31852dbba9cc6a65f4561c3f5`.
   The server publishes it in `/.well-known/assetlinks.json` for the sign-in
-  App Link (`backend/src/mobileAuth.js` `RELEASE_CERT_SHA256`): a new key
+  App Link (`backend/src/auth/mobileAuth.ts` `RELEASE_CERT_SHA256`): a new key
   means setting `ANDROID_APP_CERT_SHA256` on the server (new and old while
   old installs remain), or the App Link stops verifying.
 - **Build one locally**: `set -a; . ~/keys/listen-along-release.env; set +a;

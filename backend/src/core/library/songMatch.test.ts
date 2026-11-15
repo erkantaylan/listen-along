@@ -1,4 +1,4 @@
-// Normalization used for "probable duplicate" detection (songMatch.js).
+// Normalization used for "probable duplicate" detection (core/library/songMatch.ts).
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { songMatch as m } from './index.ts';

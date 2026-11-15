@@ -15,7 +15,7 @@
  *   PUT    /api/playlist-folders/:id/playlists/:playlistId  file a playlist here (out of any other folder)
  *   DELETE /api/playlist-folders/:id/playlists/:playlistId  take it out of this folder (to the top level)
  *
- * The visibility rule is the pins' (playlistPins.js): a playlist the caller
+ * The visibility rule is the pins' (core/playlists/playlistPins.ts): a playlist the caller
  * cannot see is a 404 "Playlist not found" exactly like one that does not
  * exist (checked first, from the in-memory playlists, before any database
  * work), and it is left out of every list. A filed playlist that goes private
@@ -85,7 +85,7 @@ class NotFound extends Error {
 class LimitReached extends Error {}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-// Playlist ids are 8 characters of a uuid (lobby.js); anything else cannot be one.
+// Playlist ids are 8 characters of a uuid (core/playlists/playlist.ts); anything else cannot be one.
 const PLAYLIST_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 // Control characters and line breaks have no place in a sidebar row.
 const BAD_NAME_RE = /[\p{Cc}\p{Zl}\p{Zp}]/u;

@@ -1,11 +1,10 @@
-// Downloaders ("workers") and download jobs (workerHub.js, downloadJobs.js).
-// Run by shared/db.ts, in the order of its SCHEMA list. Only the schema lives
-// here so far; the jobs code moves into this folder with the core.
+// Downloaders ("workers") and download jobs (workerHub.ts, downloadJobs.ts).
+// Run by shared/db.ts, in the order of its SCHEMA list.
 import type { Migration } from '../../shared/db.ts';
 
 export const tables: readonly string[] = [
   // Downloaders ("workers"): `la worker` processes on users' own machines
-  // that connect out to the server and run download jobs (workerHub.js).
+  // that connect out to the server and run download jobs (core/jobs/workerHub.ts).
   // One row per (owner, name); a legacy ownerless token keys on token_id.
   // hostname / platform / os_release / last_ip are admin-only.
   `
@@ -31,7 +30,7 @@ export const tables: readonly string[] = [
     )
   `,
   // Download jobs: a song request (automatic) or the web "Download" box.
-  // Routed to a connected worker (workerHub.js); survive restarts (an
+  // Routed to a connected worker (core/jobs/workerHub.ts); survive restarts (an
   // 'assigned' job whose worker is gone goes back to 'queued').
   // status: queued | assigned | done | failed | cancelled.
   // request_id / playlist_id / song_id have no FKs that cascade: the job

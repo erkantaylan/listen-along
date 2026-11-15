@@ -10,19 +10,19 @@ import type { DefaultEventsMap, Server, Socket } from 'socket.io';
 
 /** What the server keeps on a connection (`socket.data`). Never anything the client sent. */
 export interface SocketData {
-  /** users.id of the account, from the handshake (socketServer.js); absent for an anonymous socket */
+  /** users.id of the account, from the handshake (app/sockets.ts); absent for an anonymous socket */
   userId?: string;
-  /** the central-login session's hash (socketServer.js) */
+  /** the central-login session's hash (app/sockets.ts) */
   sessionId?: string;
   /** set by social once the account may use chat and the people panel */
   social?: boolean;
   /** resolves when social's per-connection setup is done: true when the account may use it */
   socialReady?: Promise<boolean>;
-  /** playlistSockets.js: leaves a playlist that went private */
+  /** core/playlists/playlistSockets.ts: leaves a playlist that went private */
   evict?: (lobbyId: string) => void;
 }
 
-/** The Socket.IO server (socketServer.js createSocketServer). Event names and payloads are not typed (yet). */
+/** The Socket.IO server (app/sockets.ts createSocketServer). Event names and payloads are not typed (yet). */
 export type Io = Server<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>;
 /** One Socket.IO connection. */
 export type AppSocket = Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>;
@@ -88,8 +88,8 @@ export interface LibrarySongRow {
 export type Visibility = 'public' | 'private';
 
 /**
- * A playlist as lobby.js keeps it in memory (rowToLobby / createLobby; table
- * `lobbies`, internally still "lobby"). playlistAccess.js decides who sees it.
+ * A playlist as core/playlists/playlist.ts keeps it in memory (rowToLobby / createLobby; table
+ * `lobbies`, internally still "lobby"). core/playlists/playlistAccess.ts decides who sees it.
  */
 export interface Playlist {
   id: string;

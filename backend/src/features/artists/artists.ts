@@ -18,7 +18,7 @@
  *                                songs are the stations' lean rows, by title; 404 when no song has that key
  *
  * Approved accounts only: the guard's default for /api/... (policyFor in
- * userAuth.js); CLI tokens do not get in.
+ * auth/userAuth.ts); CLI tokens do not get in.
  */
 import express from 'express';
 import type { Request, Response, Router } from 'express';

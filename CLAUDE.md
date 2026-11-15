@@ -44,44 +44,76 @@ of a fresh database and of a migrated old one.
 - Frontend: single-page TypeScript, no framework or bundler (`frontend/src`, compiled by `tsc` to `frontend/dist`; see "TypeScript")
 - UI is stock Bootstrap 6 (vendored in `frontend/vendor/`) with light theming; read `DESIGN.md` before changing any page or CSS
 - Column widths: `frontend/src/shared/layout-rules.ts` (pure, tested) decides when the sidebar is a rail (automatically up to 1100px, `RAIL_MAX`, and above that while expanding it would leave the page column under 616px) and from where the chat docks (1010px); keep its numbers in step with `app.css` (DESIGN.md "Columns and breakpoints"). Queue entries' `artistName` is derived from the library on load (`Queue._loadArtists`), not a column; `title` stays "Title - Artist" for the CLI and Android
+- The backend's folders (`backend/src/`; every folder below is ES-module TypeScript behind an `index.ts`, the only
+  file other folders import):
+  ```
+  index.js           composition root (CommonJS until the final step: main.ts)
+  testServer.js  fakeOidcIssuer.js  telemetry.js  telemetryRules.js   (CommonJS until the final step: testing/, the preload)
+  app/               the app's own wiring: http.ts (Express app + server), frontendStatic.ts, sockets.ts (Socket.IO,
+                     handshake, connection handler), reactions.ts (cross-area functions), appRoutes.ts (health,
+                     version, changelog, QR, pages), profileRoutes.ts, adminRoutes.ts (dashboard accounts, settings,
+                     stats, moderation)
+  core/library/      library.ts (songs, uploads, duplicates, replace), libraryRoutes.ts (/api/library, /api/requests,
+                     /api/me, /api/admin/...), mediaRoutes.ts (/api/stream, /api/covers), songMatch.ts, songSearch.ts,
+                     songReports.ts, songVerify.ts, covers.ts, silence.ts + silenceRoutes.ts, schema.ts
+  core/requests/     requests.ts (song requests), songResolver.ts, picks.ts (cleanPicks), ytdlp.ts, spotify.ts, schema.ts
+  core/jobs/         downloadJobs.ts (store + views), workerHub.ts (protocol types: protocol.ts), jobRoutes.ts,
+                     cliRelease.ts (la self-update bundle), schema.ts
+  core/queue/        queue.ts (a playlist's songs), queueSockets.ts (queue:*), schema.ts
+  core/playlists/    playlist.ts (was lobby.js), playlistAccess.ts, playlistPins.ts, folders.ts, playlistRoutes.ts,
+                     playlistSockets.ts (lobby:*), schema.ts
+  auth/              sign-in, sessions, tokens, the guard (see "User Identity")
+  features/<name>/   activity, app-release, artists, listen-along, picker, radio, social
+  shared/            db.ts, types.ts, ids.ts (isUuid), logger, rateLimits, memoryRateLimit, clientIp, secretBox,
+                     settings, build-info, schema.ts
+  ```
+  Imports point inward: `features/*` may import `core/*`, `auth/` and `shared/`; `core/*` may import `auth/`
+  (adminAuth, tokens and the Account / ApiUser types its routes check) and `shared/`, and another core area only
+  through its `index.ts`; `auth/` imports `shared/` only; nothing imports `app/` or a feature except `index.js`.
+  Core areas import each other in two cycles that only call functions, never at load time: library <-> jobs
+  (the library routes finish and drop replace jobs, the job store reads the library's id helpers) and requests
+  <-> library (the resolver and the library routes); each `index.ts` exports the module the others need first.
+  Playlists -> queue and queue -> library are one-way.
 - `index.js` is the composition root (about 460 lines, no routes or handlers of its own): reads the config (sign-in
   is fixed at boot), builds the stores and services, builds each area through its `create…({ deps })` factory, mounts
   the routers and registers the socket handlers, then `start()` (database, OIDC boot check, social / listen-along,
   listen) and the shutdown. Areas never require each other: what one needs from another comes in its deps.
-  `httpApp.js`: the Express app and HTTP server with what runs before every route (client IP, CORS, JSON, request
+  `app/http.ts`: the Express app and HTTP server with what runs before every route (client IP, CORS, JSON, request
   log, static files). HTTP route modules (each a `create…Router({ deps })` mounted by index.js; mount order is semantics):
-  `appRoutes.js` (`createInfoRouter`: health, version, changelog, QR, before the library router; `createPageRouter`:
+  `app/appRoutes.ts` (`createInfoRouter`: health, version, changelog, QR, before the library router; `createPageRouter`:
   redirects, SPA views, `/api/app/latest`, `/dashboard`, `/`). Rate limits: `rateLimits.apiLimiter` (3000/min per
   client address) counts each request ONCE where its route is (the route lists it, the library / job router for its
   own paths, a path-scoped `app.use(paths, apiLimiter)` in index.js right before the router serving them, the guard
   for the playlist API before any credential is checked); never `router.use(apiLimiter)` without paths (it charges
   every request that passes by). Not limited: `/health`, `/api/version`, `/api/qr`, the legacy status checks
-  (`rate-limits.test.js`),
-  `mediaRoutes.js` (`/api/stream`, `/api/covers/:id`), `profileRoutes.js` (`GET|PUT /api/profile`),
-  `adminRoutes.js` (dashboard users / statuses / settings / stats / playlist and chat moderation, all `requireAdmin`),
+  (`app/rateLimits.test.ts`),
+  `core/library/mediaRoutes.ts` (`/api/stream`, `/api/covers/:id`), `app/profileRoutes.ts` (`GET|PUT /api/profile`),
+  `app/adminRoutes.ts` (dashboard users / statuses / settings / stats / playlist and chat moderation, all `requireAdmin`),
   `auth/authRoutes.ts` (the auth guard right after the static files; legacy `/api/auth/register|status`; the
   central-login / dev sign-in round trips, `/api/auth/me`, logout, `/login`, `/api/auth/providers`; it mounts
   the Android app's sign-in, `auth/mobileAuth.ts`, on its `router`),
-  `playlistRoutes.js` (`/api/playlists` + `/api/lobbies`, songs included; `requireViewer`, `findVisiblePlaylist`;
+  `core/playlists/playlistRoutes.ts` (`/api/playlists` + `/api/lobbies`, songs included; `requireViewer`, `findVisiblePlaylist`;
   returns `ownerNames`, whose cache the socket handlers share), `core/playlists/folders.ts` (`/api/playlist-folders`, the
   user's own sidebar folders; below).
-  `socketServer.js`: the Socket.IO server, the room names (`APP_ROOM`, `userRoom`, `sessionRoom`), the handshake
+  `app/sockets.ts`: the Socket.IO server, the room names (`APP_ROOM`, `userRoom`, `sessionRoom`), the handshake
   (origin check, account, rooms), the central-login re-check of open sockets, and the connection handler: the
   connection's account helpers, then `social` / `listenAlong` `attach`, then each area's `register`, then `disconnect`.
   Socket handler modules (`create…Sockets({ deps })`, whose `register(socket, ctx)` runs per connection):
-  `playlistSockets.js` (`lobby:*`, `user:update`, `listener:now-playing`; owns `visibleLobby` / `editableLobby`
-  and hands them to the queue handlers), `queueSockets.js` (`queue:*`). `shared/memoryRateLimit.ts`: the 20/min in-memory limits (admin login, `queue:add`).
-  `reactions.js`: the cross-area functions (`emitJob`, `queueRequestJob`, `notifyPlaylistsChanged`, `destroyLobby`,
-  `accountStatusChanged`, `addLibrarySongToLobby`, `handleLibrarySong{Added,Replaced,DetailsChanged}`,
+  `core/playlists/playlistSockets.ts` (`lobby:*`, `user:update`, `listener:now-playing`; owns `visiblePlaylist` /
+  `editablePlaylist` and hands them to the queue handlers), `core/queue/queueSockets.ts` (`queue:*`).
+  `shared/memoryRateLimit.ts`: the 20/min in-memory limits (admin login, `queue:add`).
+  `app/reactions.ts`: the cross-area functions (`emitJob`, `queueRequestJob`, `notifyPlaylistsChanged`, `destroyPlaylist`,
+  `accountStatusChanged`, `addLibrarySongToPlaylist`, `handleLibrarySong{Added,Replaced,DetailsChanged}`,
   `rewriteQueueEntries`, …). Areas get them through their deps and never require each other
-- Domain modules: lobby.js, playlistAccess.js, queue.js, covers.js, shared/db.ts (pool + schema runner),
-  workerHub.js / downloadJobs.js / jobRoutes.js (downloaders + jobs, see below),
-  library.js (music library + upload validation (m4a / Ogg Opus) + legacy cache migration +
-  duplicate checks + replace), songMatch.js (normalized "artist|title" key for
+- Domain modules: `core/playlists/playlist.ts` (the playlists in memory + table `lobbies`), `playlistAccess.ts`,
+  `core/queue/queue.ts`, `core/library/covers.ts`, `shared/db.ts` (pool + schema runner),
+  `core/jobs/workerHub.ts` / `downloadJobs.ts` / `jobRoutes.ts` (downloaders + jobs, see below),
+  `core/library/library.ts` (music library + upload validation (m4a / Ogg Opus) + legacy cache migration +
+  duplicate checks + replace), `core/library/songMatch.ts` (normalized "artist|title" key for
   probable duplicates; bump META_KEY_VERSION when changing it — boot recomputes),
-  requests.js (song requests), auth/tokens.ts (CLI tokens), auth/mobileAuth.ts (the
-  Android app's sign-in, below), auth/adminAuth.ts (/dashboard),
-  libraryRoutes.js (library/requests/admin HTTP API), songResolver.js
+  `core/requests/requests.ts` (song requests), `auth/tokens.ts` (CLI tokens), `auth/mobileAuth.ts` (the
+  Android app's sign-in, below), `auth/adminAuth.ts` (/dashboard),
+  `core/library/libraryRoutes.ts` (library/requests/admin HTTP API), `core/requests/songResolver.ts`
   (what a user typed -> library song or song request)
 - **The server does not download audio.** Songs are uploaded by the
   listen-along CLI (`cli/`) with a Bearer token created on the profile page.
@@ -102,7 +134,7 @@ of a fresh database and of a migrated old one.
   first via `POST /api/library/check`.
 - Replace (`POST /api/library/:id/replace`, any valid token or approved web
   user): new audio + metadata under the same song id, audit row in
-  `library_song_replacements`, old file deleted after commit; reactions.js
+  `library_song_replacements`, old file deleted after commit; app/reactions.ts
   rewrites queue entries of every playlist holding it and emits
   `library:updated { replaced }` (players reload the new file). Audio
   responses are `no-cache` unless the url has `?v=<file_version>`: never mark
@@ -120,7 +152,7 @@ of a fresh database and of a migrated old one.
   hand drops a waiting job and is refused (409) while one runs. A details edit
   updates an active job's kept fields. Deleting the song fails its jobs
   (`SONG_DELETED`).
-- Broken songs ("needs replacement", `songReports.js`, table
+- Broken songs ("needs replacement", `core/library/songReports.ts`, table
   `library_song_reports`): approved users / owned tokens `POST|DELETE
   /api/library/:id/report` (one open report per user per song, partial unique
   index; only your own can be withdrawn); songs carry `reports` +
@@ -230,7 +262,7 @@ of a fresh database and of a migrated old one.
   commands/worker.js) runs on users' machines and connects OUT over a
   WebSocket to `/api/workers/connect` (raw `ws` server on the HTTP server's
   upgrade event, not Socket.IO; token in the first `hello` message; protocol
-  documented at the top of `backend/src/workerHub.js`). `workerHub.js`
+  documented at the top of `backend/src/core/jobs/workerHub.ts`). `core/jobs/workerHub.ts`
   routes queued jobs (`planAssignments`: requester's own idle worker first,
   else any idle worker longest-idle first, else wait; one job per worker;
   replace jobs only to a worker whose hello has capability `replace`, la 0.2.0+:
@@ -238,17 +270,17 @@ of a fresh database and of a migrated old one.
   requeues a job whose worker disconnects after `WORKER_REQUEUE_GRACE_MS`
   (default 20s; a reconnecting worker reclaims it via `current_job_id`),
   requeues all `assigned` jobs at boot. Self-update: the image ships cli/;
-  `cliRelease.js` bundles it at boot (`GET /api/cli/latest|bundle`, any token),
+  `core/jobs/cliRelease.ts` bundles it at boot (`GET /api/cli/latest|bundle`, any token),
   the welcome carries `cli_latest`, and la 0.4+ (`update` capability) swaps its
   files while idle and restarts under its supervisor (cli/src/update.js,
   supervisor.js; exit 75 = restart). Older workers get close 4010 with an
   "update" reason once a day (`WORKER_OUTDATED_NUDGE_MS`), never a block.
-  `downloadJobs.js` is the store
+  `core/jobs/downloadJobs.ts` is the store
   (Postgres `download_jobs`, `download_workers`) and the views:
   `publicWorkerView` = name + owner only; `adminWorkerView` adds hostname /
   OS / IP / versions — never send those to non-admins. Jobs come from every
-  new song request (reactions.js `queueRequestJob`) and the web Download box
-  (`POST /api/jobs`, `jobRoutes.js`, which also serves `/api/workers`,
+  new song request (app/reactions.ts `queueRequestJob`) and the web Download box
+  (`POST /api/jobs`, `core/jobs/jobRoutes.ts`, which also serves `/api/workers`,
   `/api/profile/activity` (caller's own only) and `/api/admin/workers|jobs`).
   Uploads carry `job_id` + `worker_id` (`downloadJobs.uploadContext`):
   library_songs records `uploaded_by_worker_id` / `uploaded_by_worker`
@@ -269,10 +301,10 @@ of a fresh database and of a migrated old one.
   upload `percent`, and `progress` is passed on only when it is one of the server's
   own notes (`SERVER_NOTES`: add a new server-written note there). A playlist ONLY
   when the caller passes one the viewer can see now; never `row.playlist_name`
-  (that join ignores the viewer). List: `GET /api/activity/downloads` (jobRoutes.js;
+  (that join ignores the viewer). List: `GET /api/activity/downloads` (core/jobs/jobRoutes.ts;
   guard default: approved, no tokens; `listActivity`: newest `ACTIVITY_LIMIT` = 60
   plus every active job; empty without a database). Live: `backend/src/features/activity/`, fed by
-  `emitJob` in reactions.js, so every job change reaches it (a details edit of a song
+  `emitJob` in app/reactions.ts, so every job change reaches it (a details edit of a song
   with an active replace job emits it too): `activity:job { job }` to `APP_ROOM`,
   where a private playlist's owner gets the row with the playlist and everyone else
   the same row without (looked up at every emit, as `emitNowPlaying` does), and
@@ -289,7 +321,7 @@ of a fresh database and of a migrated old one.
   panel and the library overlay start at `--app-top`; the sidebar and the chat column stay full height from the top gap;
   Ctrl+K / Cmd+K; the page `/search?q=`), pure rules in `frontend/src/features/search/search-rules.ts` (tested in
   `search-rules.test.js`). Library songs: `GET /api/library?sort=relevance` (opt-in; `library.searchRelevant`, order in
-  `songSearch.js`, pure and tested: exact / prefix title and artist before loose all-words matches; Turkish-folded in SQL
+  `core/library/songSearch.ts`, pure and tested: exact / prefix title and artist before loose all-words matches; Turkish-folded in SQL
   with `translate()` and in JS the same way; at most 400 candidates; `searchLimiter` 120/min per account (token owner or
   web user; the client address only without one), only for `sort=relevance`; NUL bytes in `q` are dropped; without `sort=relevance` the list is unchanged).
   Artists and playlists are filtered in the browser from `/api/artists` and the viewer's own `/api/playlists` (so the
@@ -309,7 +341,7 @@ of a fresh database and of a migrated old one.
   or button; the global search started on that page adds to it).
 - **Pick the video** (web only, before a job or request exists): `frontend/src/features/picker/pick-dialog.ts`
   (rules in `pick-rules.ts`, tested; DESIGN.md "Pick the video") asks
-  `POST /api/jobs/picks` (jobRoutes.js -> `backend/src/features/picker/`; approved accounts, no tokens,
+  `POST /api/jobs/picks` (core/jobs/jobRoutes.ts -> `backend/src/features/picker/`; approved accounts, no tokens,
   `pickLimiter` 30/min per `req.clientIp`, answers cached 10 min, library marking
   never cached): `{ input, match_library? }` is read by `classifyInput` and answers
   `search` (5 results via `ytdlp.searchYoutubeMany`; a Spotify track is "artist - title"),
@@ -420,20 +452,21 @@ of a fresh database and of a migrated old one.
 
 ## Playlists (internally "lobbies")
 
-- Users see **playlists**; the server code, DB table (`lobbies`), socket events
-  (`lobby:*`), `lobbyId` fields, DOM ids (`#lobby-view`) and storage keys keep
-  the old name (the web's own code says playlist: `features/playlists/playlist.ts`). URLs are `/playlist/<id>`
+- Users see **playlists**, and so does the code (`core/playlists/playlist.ts`, `getPlaylistAsync`,
+  `visiblePlaylist`, ...; the web's `features/playlists/playlist.ts`). The DB table (`lobbies`) and its
+  `lobby_id` columns, socket events (`lobby:*`), `lobbyId` fields, `/api/lobbies`, DOM ids (`#lobby-view`), storage
+  keys and some log lines keep the old name until they are renamed together. URLs are `/playlist/<id>`
   and `/playlist/<id>/library`; old `/lobby/...` URLs 301 to them (and the SPA
   rewrites them, `legacyRedirect` in `frontend/src/router.ts`). HTTP API:
   `/api/playlists` (`/api/lobbies` is an alias). It also takes a CLI Bearer
   token (auth guard in auth/authRoutes.ts → `requireViewer`): the token acts as its
   owner; a legacy ownerless token sees/edits public playlists only, creates
   only ownerless (public) ones and manages nothing (`viewerCan*` in
-  playlistAccess.js). Song endpoints (`/:id/songs`, used by `la playlist` and
-  `la download/upload --playlist`) go through `addLibrarySongToLobby` / the
+  core/playlists/playlistAccess.ts). Song endpoints (`/:id/songs`, used by `la playlist` and
+  `la download/upload --playlist`) go through `addLibrarySongToPlaylist` / the
   Queue and emit `queue:update` like the socket handlers.
 - Each playlist has an owner (`host_id` = `users.id`, JS `ownerId`) and
-  `visibility` 'public' | 'private'. Rules live in `backend/src/playlistAccess.js`:
+  `visibility` 'public' | 'private'. Rules live in `backend/src/core/playlists/playlistAccess.ts`:
   public = every logged-in user can see and edit (songs, pin); private =
   owner only, and to everyone else it does not exist (404 / `lobby:not-found`,
   never 403). Only the owner renames (others get 403 on a public playlist),
@@ -441,10 +474,10 @@ of a fresh database and of a migrated old one.
   public; only admins rename them (admin cookie, `canRename`) or delete them
   (dashboard).
 - Enforce on the server in every HTTP route and socket handler that touches a
-  playlist or its queue — use `visibleLobby` / `editableLobby` in the socket
+  playlist or its queue — use `visiblePlaylist` / `editablePlaylist` in the socket
   handler and `findVisiblePlaylist` for HTTP. Going private evicts other
   users' sockets (`evictNonOwners`).
-- **Sidebar pins are per user**: `playlistPins.js` (Postgres `playlist_pins`, in
+- **Sidebar pins are per user**: `core/playlists/playlistPins.ts` (Postgres `playlist_pins`, in
   memory without a DB), `PUT|DELETE /api/playlists/:id/pin`, `pinnedByMe` /
   `pinnedAt` in playlist responses. Same 404 rule as everything else: only
   visible playlists are annotated, so a pin never reveals one that went private
@@ -463,7 +496,7 @@ of a fresh database and of a migrated old one.
   limits }`), `POST` `{ name, playlistId? }`, `PATCH /:id` `{ name }`, `DELETE /:id`, `PUT|DELETE
   /:id/playlists/:playlistId`; 100 folders per user (`FOLDER_LIMIT` 409, decided under a per-user advisory lock).
   Same rule as pins: a playlist the caller cannot see is 404 `NOT_FOUND` exactly like a missing one (checked first,
-  from the in-memory playlists, `lobby.lobbies`, no database lookup: no timing difference) and is left out of
+  from the in-memory playlists, `playlist.playlists`, no database lookup: no timing difference) and is left out of
   `playlistIds`; a filed playlist that goes private keeps its row, hidden, and is back in its folder when public again.
   Another user's folder is `FOLDER_NOT_FOUND`. Who: the guard's default (`approved`: web cookie and the Android app's
   `lam_` session; not `/api/playlists`, so CLI tokens get 401). Each change emits `playlists:changed` to the caller's
@@ -473,7 +506,7 @@ of a fresh database and of a migrated old one.
   sidebar"). Collapsed folders: `listen-sidebarFolders` in localStorage.
 - The web sidebar (`frontend/src/features/playlists/sidebar.ts`, list in `playlist-store.ts`, search in
   `playlist-filter.ts`) refetches `/api/playlists` on socket `playlists:changed`
-  (`notifyPlaylistsChanged` in reactions.js). The signal carries no data; a private
+  (`notifyPlaylistsChanged` in app/reactions.ts). The signal carries no data; a private
   playlist's changes go only to its owner's `userRoom`. Emit it from anything that
   creates, renames, deletes or changes the visibility of a playlist.
 - The page holds the full queue (`queue:update`, about 230 bytes per song) and windows only the rows:
@@ -489,7 +522,7 @@ of a fresh database and of a migrated old one.
   presence entry to a client: `viewNowPlaying()` drops a playlist the
   viewer cannot see.
 - **Listen along** = follow a user (not a playlist): `backend/src/features/listen-along/`
-  (graph + socket events `listen:*`, attached per connection in socketServer.js) and
+  (graph + socket events `listen:*`, attached per connection in app/sockets.ts) and
   `frontend/src/features/social/listen-along.ts` (drives `player.ts` as its driver). Everyone hears
   the root of their chain (chains collapse); the follow lives in one socket;
   followers get only the song + `/api/library/:id/file`, never the playlist.
@@ -582,7 +615,7 @@ of a fresh database and of a migrated old one.
   request dismiss; never a 401). A refused app session is 401 `SESSION_ENDED`
   (`refusal(account, { mobile })`): the app's ONLY signal to sign in again, so
   never answer 401 for an outage. `GET /api/me` with it is answered by
-  auth/mobileAuth.ts (libraryRoutes.js passes with `next('route')`). Exchange
+  auth/mobileAuth.ts (core/library/libraryRoutes.ts passes with `next('route')`). Exchange
   codes: `invalid_request`, `signin_failed`, `account_disabled`,
   `registrations_closed`, `link_conflict`, `signin_unavailable`; a code is
   refused the second time before the IdP is asked (released again only after
@@ -655,7 +688,7 @@ TypeScript one area at a time; until an area is converted its files stay
   `backend/` alone), `npm run dev` (= `make dev`: builds the
   frontend once, then backend watch + `tsc -w`; sets `FRONTEND_PATH` to this
   checkout's `frontend/`). There is no CI: run `typecheck`, `build` and `test` locally.
-- Serving (`backend/src/frontendStatic.js`): `<FRONTEND_PATH>/dist` and
+- Serving (`backend/src/app/frontendStatic.ts`): `<FRONTEND_PATH>/dist` and
   `<FRONTEND_PATH>` are both mounted at the site root, dist first, so
   `frontend/src/shared/x.ts` is `/shared/x.js` (and a compiled file wins over a
   file of the same name in `frontend/`). Same `no-cache` for `.js`, `.css`, `.map`; `/src/**/*.ts` is
@@ -694,9 +727,7 @@ TypeScript one area at a time; until an area is converted its files stay
   - A converted area is a folder of ES-module `.ts` (`backend/src/features/<name>/`), moved with `git mv` so
     history follows, its tests next to it as `*.test.ts` (plain `node --test` finds them). The folder holding
     converted areas has a `package.json` that is only `{"type": "module"}` (`backend/src/features/`, `shared/`,
-    `auth/`, `core/`; `core/` holds its areas' `schema.ts` files, `core/playlists/folders.ts` and `core/library/`'s
-    silence scanner and its routes (behind its `index.ts`) so far).
-    Everything under them is ES modules,
+    `auth/`, `core/`, `app/`). Everything under them is ES modules,
     so a file moves there only once converted (never a CommonJS `.js`). Without it Node guesses the format of each `.ts`
     and prints `MODULE_TYPELESS_PACKAGE_JSON` at boot and in tests; with it there is no warning and no flag. It
     goes away when `backend/package.json` becomes `"type": "module"`.
@@ -758,8 +789,8 @@ TypeScript one area at a time; until an area is converted its files stay
     be edited yet still requires an old path, a folder with the old name holds a one-line `index.js`
     re-export, so the move stays a rename in git history; delete it as soon as that test can be edited (none
     is left). A unit test of a moved module that sits inside a bigger test file moves out next to the module
-    (the secret box and settings tests left `central-login.test.js`, now `auth/centralLogin.test.ts`; the token and
-    admin-cookie tests left `library-unit.test.js` for `auth/tokens.test.ts` and `auth/adminAuth.test.ts`).
+    (the secret box and settings tests left `auth/centralLogin.test.ts`, now `auth/centralLogin.test.ts`; the token and
+    admin-cookie tests left `core/library/library.test.ts` for `auth/tokens.test.ts` and `auth/adminAuth.test.ts`).
   - Schema: an area's tables and migrations go in its folder's `schema.ts` (`{ tables, migrations }`, typed by
     `AreaSchema` / `Migration` from `shared/db.ts` with `import type`, so there is no import cycle at run time),
     listed once in `SCHEMA` in `shared/db.ts`; rules in "Database Migrations" above. An area that has not moved
@@ -767,12 +798,34 @@ TypeScript one area at a time; until an area is converted its files stay
     Moving schema is proven by a byte-identical `pg_dump --schema-only --no-owner` of a fresh database before and
     after, and of an old database migrated by the old and the new code.
   - Preloads stay CommonJS until the final step: `telemetry.js` (+ `telemetryRules.js`) is loaded with `--require`
-    before any module is set up. A CommonJS package imported from an ES-module `.ts` (`pg` from `shared/db.ts`)
-    is still patched by that preload (checked: pg spans arrive); an ES-module package or file would not be.
-  - Left in CommonJS on purpose: `ytdlp.js` (the resolver, the download jobs and `/health` use it) and
-    `songReports.js` / `songVerify.js` (library.js and libraryRoutes.js use them inside the library's own
-    queries and routes) go to `core/` with the library, not to `features/`. The artist pages import the radio's
-    `toStationSong`: the one feature-to-feature import, until that row moves to the library.
+    before any module is set up. Its instrumentations patch a CommonJS package when something `require()`s it:
+    an ES module's `import` of the same package is not seen (pg's spans still arrive: it requires its own
+    parts). Express is not required by anything CommonJS any more, so `index.js` does `require('express')` near the
+    top (without it spans lose their route names: `telemetry.test.js` checks). The same goes for any package an
+    instrumentation patches: keep one CommonJS `require` of it before the ES modules use it, until `--import`.
+  - The core moved last (`core/library`, `core/requests`, `core/jobs`, `core/queue`, `core/playlists`, then `app/`),
+    each area in two commits: the sources (`git mv`, then typed in place; tests repointed), then its tests as
+    `.test.ts`. What it taught:
+    - A cycle between areas is fine in ES modules as long as nothing is used at load time: export the module the
+      others need first in the area's `index.ts` (`core/library/index.ts` exports `library` before the routes,
+      which import the jobs area, which imports the library back). While one side is still CommonJS, a
+      `require()` of an ES module that is still evaluating throws (`ERR_REQUIRE_CYCLE_MODULE`): the CommonJS side
+      requires the leaf file it needs (`./core/library/library.ts`) until it moves too.
+    - A module with in-memory state that tests "restart" by deleting `require.cache` gets a `forgetAll()` (the
+      playlists, the queues): an ES module is never loaded afresh.
+    - Static imports are hoisted: a test that sets `SONGS_PATH` / `COVERS_DIR` before loading the library uses
+      `await import(...)` at that point.
+    - A module whose functions the area calls as `x.f()` and no test patches is exported as a namespace from
+      `index.ts` (`export * as library from './library.ts'`); CommonJS gets the same object with
+      `const { library } = require('./core/library/index.ts')`.
+    - Payloads from clients (socket events, worker messages, request bodies) are typed with `unknown` fields; the
+      id a client sent is passed on exactly as before (`playlistId as string` after the existing check), so a
+      type never changes what is accepted. Wire names stay in payload keys (`{ lobbyId: playlistId }`).
+    - `__dirname/..` paths (`cliRelease`, `appRoutes`' CHANGELOG.md / package.json) are computed from the src/
+      folder (`path.join(import.meta.dirname, '..', '..')`), so the probing is the same as before; the image also
+      sets `CLI_DIR=/app/cli`.
+    - Prove it beyond the suite: the registered routes in order and the socket events, a request matrix (several
+      identities × the API) and the boot log, compared with the commit before, and the CLI bundle's sha256.
 - `frontend/src/globals.d.ts` types the classic-script globals (`io`,
   `window.i18n`, `MediaSessionManager`); `shared/i18n.ts` and
   `shared/media-session.ts` are classic scripts (no import / export).
