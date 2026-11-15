@@ -88,14 +88,28 @@ class Downloads(
     /**
      * Queues [songs] (skipping ones already here or queued). Returns how many
      * were added. [manual]: the user asked (the default); false: playlist sync.
+     * The user asking makes every one of [songs] theirs: a file playlist sync
+     * saved, or a song it queued, becomes manual and is never removed by the
+     * sync. Manual is never turned back into the sync's.
      */
     fun enqueue(songs: List<Song>, manual: Boolean = true): Int {
         val ids = songs.mapTo(HashSet()) { it.id }
         failures.update { it - ids }
-        val added = queue.enqueue(songs.map { QueuedSong.of(it, manual) }, index::contains)
+        val added = synchronized(ownership) {
+            if (manual) index.markManual(ids)
+            queue.enqueue(songs.map { QueuedSong.of(it, manual) }, index::contains)
+        }
         if (queue.pending.value.isNotEmpty()) kick()
         return added.size
     }
+
+    /**
+     * Who owns a song is decided under this lock: [enqueue] marking it the
+     * user's, and a finished download reading the queue's flag and saving.
+     * Either the user's request comes first (the queue entry says manual when
+     * the file is saved) or after (the saved entry is marked manual).
+     */
+    private val ownership = Any()
 
     /** Forgets the last failure of these songs (a playlist's Retry). */
     fun clearFailures(songIds: Collection<String>) {
@@ -263,8 +277,12 @@ class Downloads(
                     progress.update { it + (id to Progress(read, total)) }
                 })
             }
-            index.put(local)
-            queue.finish(id)
+            synchronized(ownership) {
+                // The queue's flag now, not the claimed copy's: the user may have asked meanwhile.
+                val manual = song.manual || queue.isManual(id)
+                index.put(if (manual) local.copy(manual = true) else local)
+                queue.finish(id)
+            }
             stats.done.incrementAndGet()
             runCatching { onSaved(local) }
         } catch (c: CancellationException) {

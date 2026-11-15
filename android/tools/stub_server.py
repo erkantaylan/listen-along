@@ -46,6 +46,13 @@ Serves every .m4a / .opus / .ogg / .mp3 under --music as a library song
   POST /stub/missing?song=<title or id>      that song's file answers 404
                                              FILE_MISSING (as a lost file);
                                              &restore=1 brings it back
+  POST /stub/degrade?playlist=<name or id>&mode=nulls|nosongs|off
+                                             its songs endpoint answers as
+                                             the server does when its library
+                                             lookup fails (200, every
+                                             library_id null), or 200 without
+                                             `songs`; playlist sync must
+                                             delete nothing on either
   POST /stub/hide?playlist=<name or id>      the playlist becomes someone
                                              else's private one (404 for us);
                                              &restore=1 makes it ours again
@@ -268,6 +275,7 @@ class Handler(BaseHTTPRequestHandler):
         return raw if (raw != REDIRECT_URI or self.custom_scheme) else None
     throttle_kbps = 0
     playlists = {}
+    degraded = {}  # playlist id -> "nulls" | "nosongs" (/stub/degrade)
     reports = {}  # song id -> [report]
     next_report = 100
 
@@ -400,7 +408,13 @@ class Handler(BaseHTTPRequestHandler):
             if p is None:
                 return self.send_json(404, {"error": "Playlist not found", "code": "NOT_FOUND"})
             if len(parts) == 4 and parts[3] == "songs":
-                return self.send_json(200, {"playlist": self.playlist_info(p), "songs": self.entry_views(p)})
+                degraded = self.degraded.get(p["id"])
+                if degraded == "nosongs":
+                    return self.send_json(200, {"playlist": self.playlist_info(p)})
+                songs = self.entry_views(p)
+                if degraded == "nulls":
+                    songs = [dict(e, library_id=None, artist=None, available=False) for e in songs]
+                return self.send_json(200, {"playlist": self.playlist_info(p), "songs": songs})
             return self.send_json(200, self.playlist_info(p))
 
         if parts == ["api", "library"]:
@@ -654,6 +668,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(404, {"error": "No such song"})
             song["_missing"] = not restore
             return self.send_json(200, {"song": song["id"], "missing": song["_missing"]})
+        if what == "degrade":
+            p = find_playlist(qs.get("playlist", [""])[0])
+            if p is None:
+                return self.send_json(404, {"error": "No such playlist"})
+            mode = qs.get("mode", ["nulls"])[0]
+            if restore or mode == "off":
+                self.degraded.pop(p["id"], None)
+            elif mode in ("nulls", "nosongs"):
+                self.degraded[p["id"]] = mode
+            else:
+                return self.send_json(400, {"error": "mode: nulls, nosongs or off"})
+            return self.send_json(200, {"degraded": self.degraded.get(p["id"])})
         if what == "hide":
             p = find_playlist(qs.get("playlist", [""])[0])
             if p is None:

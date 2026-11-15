@@ -52,6 +52,7 @@ import kotlinx.coroutines.launch
 import com.erkantaylan.listenalong.core.data.PlaylistDownloads
 import com.erkantaylan.listenalong.core.domain.PlaylistDownloadStatus
 import com.erkantaylan.listenalong.core.domain.PlaylistSyncPlanner
+import com.erkantaylan.listenalong.core.data.SyncClock
 import com.erkantaylan.listenalong.core.model.PlaylistSongs
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -192,8 +193,31 @@ class AppContainer(context: Context) {
             downloads = downloads,
             prefs = settings,
             network = { connectivity.network.value },
+            now = SyncClock::now,
             schedule = { enabled, allowMetered -> DownloadScheduler.schedulePlaylistSync(app, enabled, allowMetered) },
+            account = { settings.config.value.let { if (it.signedIn) it.userId else null } },
+            learnAccount = ::learnAccount,
+            corruptStore = PrefsTextStore(app, "downloads", "playlists_unreadable"),
+            onDetached = { gone ->
+                messages.say(
+                    if (gone.size == 1) "\"${gone[0].name}\" is no longer synced: its songs stay on the phone as your downloads"
+                    else "${gone.size} downloaded playlists are no longer synced: their songs stay on the phone as your downloads"
+                )
+            },
         )
+    }
+
+    /**
+     * The signed-in account's id, asked from the server for a session saved
+     * before the app kept it (downloaded playlists are saved per account).
+     */
+    private suspend fun learnAccount(): String? {
+        val config = settings.config.value
+        if (!config.signedIn) return null
+        config.userId?.let { return it }
+        val id = client().me().user?.id?.takeIf { it.isNotBlank() } ?: return null
+        settings.rememberAccount(config.token!!, id)
+        return settings.config.value.userId
     }
 
     /** Every downloaded playlist's status (the marks on rows, On device, a playlist's header). */

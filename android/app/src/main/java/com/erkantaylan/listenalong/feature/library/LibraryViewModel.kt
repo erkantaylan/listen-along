@@ -188,7 +188,7 @@ class LibraryViewModel(
     fun confirmBulk(): Int {
         val plan = (_state.value.bulk as? BulkUi.Ready)?.plan ?: return 0
         _state.update { it.copy(bulk = null) }
-        return downloads.enqueue(plan.toDownload)
+        return downloads.enqueue(plan.all)
     }
 
     fun dismissBulk() {

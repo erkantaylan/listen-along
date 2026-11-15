@@ -49,6 +49,9 @@ class DownloadQueue(private val store: TextStore) {
 
     fun isRunning(id: String): Boolean = synchronized(lock) { id in running }
 
+    /** Whether [id] is queued as the user's (true) rather than playlist sync's. */
+    fun isManual(id: String): Boolean = _pending.value.any { it.id == id && it.manual }
+
     /**
      * Adds [songs] in order, skipping anything already queued, anything
      * [isDownloaded] says is on the device, and repeats within [songs] itself.

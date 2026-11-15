@@ -188,7 +188,8 @@ fun SettingsScreen(viewModel: SettingsViewModel, actions: AppActions) {
                 SwitchRow(
                     "Remove downloads of songs removed from a playlist",
                     if (sync.removeUnlisted) "On: when a song leaves a downloaded playlist, its file is removed too — only if the app " +
-                        "downloaded it for a playlist, no other downloaded playlist holds it, and you did not download it yourself."
+                        "downloaded it for that playlist, no other downloaded playlist holds it, and you did not download it yourself. " +
+                        "A playlist that suddenly loses more than half of its songs waits a day first."
                     else "Off: songs removed from a playlist stay on this phone.",
                     sync.removeUnlisted, viewModel::setRemoveUnlisted, tag = "setting-remove-unlisted",
                 )

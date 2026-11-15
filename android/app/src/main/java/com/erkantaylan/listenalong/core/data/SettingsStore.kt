@@ -20,7 +20,17 @@ import okhttp3.HttpUrl
  * own session token from the central login (`lam_...`, backend/src/mobileAuth.js),
  * sent as `Authorization: Bearer`. [userName] is who signed in, for display.
  */
-data class ServerConfig(val baseUrl: HttpUrl, val token: String?, val userName: String? = null) {
+data class ServerConfig(
+    val baseUrl: HttpUrl,
+    val token: String?,
+    val userName: String? = null,
+    /**
+     * The signed-in account's id (the server's user id), when known: what
+     * downloaded playlists are saved under, with the server. Null signed out,
+     * and for a session made before the app kept it until `/api/me` says.
+     */
+    val userId: String? = null,
+) {
     val signedIn: Boolean get() = !token.isNullOrBlank()
 }
 
@@ -28,7 +38,7 @@ data class ServerConfig(val baseUrl: HttpUrl, val token: String?, val userName: 
 interface SessionHolder {
     /** The server in force and its session, if any. */
     val current: ServerConfig
-    fun signIn(token: String, userName: String?)
+    fun signIn(token: String, userName: String?, userId: String?)
     /** Forgets [token] if it is still the session in force; true when it was. */
     fun endSession(token: String): Boolean
 }
@@ -128,19 +138,32 @@ class SettingsStore(context: Context) : SessionHolder, ServerSettings, DownloadP
         return changed
     }
 
-    override fun signIn(token: String, userName: String?) {
+    override fun signIn(token: String, userName: String?, userId: String?) {
         val clean = token.trim()
         if (_overridden.value) {
             // The debug override is this process only: so is a session made against it.
-            _config.update { it.copy(token = clean, userName = userName) }
+            _config.update { it.copy(token = clean, userName = userName, userId = userId) }
             return
         }
         secrets.edit(commit = true) {
             putString(KEY_SESSION, clean)
             putString(KEY_SESSION_SERVER, _config.value.baseUrl.toString())
             if (userName != null) putString(KEY_SESSION_USER, userName) else remove(KEY_SESSION_USER)
+            if (userId != null) putString(KEY_SESSION_USER_ID, userId) else remove(KEY_SESSION_USER_ID)
         }
         _config.value = load()
+    }
+
+    /**
+     * Who [token]'s session belongs to, learnt from `/api/me` (a session made
+     * before the app kept the id). Ignored when the session has changed since.
+     */
+    @Synchronized
+    fun rememberAccount(token: String, userId: String) {
+        val config = _config.value
+        if (config.token != token || config.userId == userId) return
+        if (!_overridden.value) secrets.edit(commit = true) { putString(KEY_SESSION_USER_ID, userId) }
+        _config.value = config.copy(userId = userId)
     }
 
     @Synchronized
@@ -148,7 +171,7 @@ class SettingsStore(context: Context) : SessionHolder, ServerSettings, DownloadP
         val config = _config.value
         if (config.token == null || config.token != token.trim()) return false
         if (!_overridden.value) clearSession()
-        _config.value = config.copy(token = null, userName = null)
+        _config.value = config.copy(token = null, userName = null, userId = null)
         return true
     }
 
@@ -167,6 +190,7 @@ class SettingsStore(context: Context) : SessionHolder, ServerSettings, DownloadP
             remove(KEY_SESSION)
             remove(KEY_SESSION_SERVER)
             remove(KEY_SESSION_USER)
+            remove(KEY_SESSION_USER_ID)
         }
     }
 
@@ -179,7 +203,11 @@ class SettingsStore(context: Context) : SessionHolder, ServerSettings, DownloadP
             clearSession()
             return ServerConfig(url, null)
         }
-        return ServerConfig(url, token, if (token != null) secrets.getString(KEY_SESSION_USER, null) else null)
+        return ServerConfig(
+            url, token,
+            userName = if (token != null) secrets.getString(KEY_SESSION_USER, null) else null,
+            userId = if (token != null) secrets.getString(KEY_SESSION_USER_ID, null) else null,
+        )
     }
 
     companion object {
@@ -189,6 +217,7 @@ class SettingsStore(context: Context) : SessionHolder, ServerSettings, DownloadP
         private const val KEY_SESSION = "session_token"
         private const val KEY_SESSION_SERVER = "session_server"
         private const val KEY_SESSION_USER = "session_user"
+        private const val KEY_SESSION_USER_ID = "session_user_id"
         private const val KEY_PENDING = "pending_sign_in"
         private const val KEY_ALLOW_METERED = "sync_allow_metered"
         private const val KEY_REMOVE_UNLISTED = "sync_remove_unlisted"

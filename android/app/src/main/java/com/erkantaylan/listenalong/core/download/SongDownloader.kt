@@ -70,6 +70,7 @@ class SongDownloader(private val sink: AudioSink) {
                     bytes = written,
                     savedAt = now(),
                     youtubeId = song.youtubeId,
+                    // As queued when claimed; Downloads re-reads the queue's flag when it saves.
                     manual = song.manual,
                 )
             } catch (t: Throwable) {

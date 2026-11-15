@@ -135,7 +135,7 @@ class AuthController(
                     fail("dev_refused")
                     return@launch
                 }
-                sessions.signIn(grant.token, grant.user?.name?.takeIf { it.isNotBlank() })
+                sessions.signIn(grant.token, grant.user?.name?.takeIf { it.isNotBlank() }, grant.user?.id?.takeIf { it.isNotBlank() })
                 _ui.value = SignInUi.Idle(
                     if (grant.user?.status == "pending") "Signed in. Your account is waiting for approval." else null,
                 )

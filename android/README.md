@@ -283,24 +283,62 @@ Spotify's model, run by `core/data/PlaylistDownloads` over a pure plan
   background** (`PlaylistSyncWorker`, WorkManager, scheduled only while a
   playlist is downloaded; battery not low; any network but roaming, or
   unmetered only when mobile data is off). Each run is idempotent and
-  resumable: the queue, the index and the saved records (per server) let an
-  interrupted or repeated run pick up where it stopped; a song that is on the
-  phone, queued, or in two downloaded playlists is fetched once.
+  resumable: the queue, the index and the saved records let an interrupted or
+  repeated run pick up where it stopped; a song that is on the phone, queued,
+  or in two downloaded playlists is fetched once. All of it (enable, disable,
+  sync) runs under one lock.
+- **Saved per server and account.** The records (`playlists_v1` in the
+  `downloads` prefs: `{version: 2, records: [{server, account, playlists,
+  missing}]}`) are keyed by the server address AND the signed-in account's id
+  (from the sign-in's answer, or `/api/me` once for a session made before
+  the app kept it; nothing syncs while it is not known). The download index
+  is one for the phone, so no record ever removes what it did not itself
+  want. Another server's or account's records are not shown; when the app
+  can no longer sync a record — the server address changed (even http →
+  https), or another account signed in — the first sync or Download switch
+  under the new server and account stops it: its playlists stop being
+  synced (a message says so) and their files become **yours** (`manual`)
+  before the record is forgotten, so nothing can remove them later. Until
+  then nothing touches them either (no removal can come from another
+  record). Signing out alone changes nothing: the
+  same account signing in again carries on. A record store that cannot be
+  read is copied to `playlists_unreadable`, every file playlist sync saved
+  becomes yours, and it starts over (no removals). A sync whose server or
+  account changes while it runs applies nothing.
 - **Why a file is there.** The download index records it: `manual` = you
-  asked (a song's download button, *Download all shown*, or kept when you
-  turned a playlist's Download off), otherwise playlist sync saved it.
-  Downloads from before this version have no such field and count as yours.
+  asked (a song's download button, *Download all shown* / *Download
+  playlist*, or kept when you turned a playlist's Download off), otherwise
+  playlist sync saved it. Asking for a song playlist sync already saved or
+  queued makes it yours, also when you ask while its download is running;
+  yours is never turned back into the sync's. Downloads from before this
+  version have no such field and count as yours.
 - **Removed songs.** Settings → *Remove downloads of songs removed from a
-  playlist* (**on** by default): when a song leaves a downloaded playlist its
-  file is removed too — only if playlist sync saved it, it was not found in the
-  folder from an earlier install, and no other downloaded playlist holds it.
-  Files you downloaded yourself, and every download from before playlist
-  sync, are never removed. Off: removed songs stay; turning it on later
-  applies at the next sync.
-- **Guard.** A playlist that comes back empty after having songs, or that
-  loses more than half of them (and at least two) at once, deletes nothing on
-  that sync: the same list on a later sync confirms it (its new songs still
-  download). A failed or offline fetch never removes anything.
+  playlist* (**on** by default): when a complete answer from the server
+  drops a song from a downloaded playlist, its file is removed too — only if
+  that playlist wanted it before, no downloaded playlist (of any server or
+  account) wants it now, playlist sync saved it, and it was not found in the
+  folder from an earlier install. Removal is decided at that moment, from
+  what the playlist itself wanted; nothing is ever removed for "not being in
+  any playlist". Files you downloaded yourself, and every download from
+  before playlist sync, are never removed. Off: removed songs stay (turning it
+  on later does not remove them). A file that cannot be deleted (scoped
+  storage) stays and is not tried again.
+- **Only complete answers remove anything.** An answer in which any entry
+  names no library song (the server's library lookup failing answers 200
+  with `library_id: null` everywhere; an old YouTube-only entry), or that
+  cannot be read (a 200 without `songs`), is never a reason to remove: its
+  readable songs still download. A failed or offline fetch never removes
+  anything either.
+- **Guard.** A complete answer that is empty after having songs, or that
+  loses more than half of them (and at least two) at once, deletes nothing:
+  it is held with the time it was first seen (saved, so it survives a
+  restart or a reboot; its new songs still download) and accepted only by a
+  complete answer with the same list **at least 24 hours** later. A
+  different list starts the wait again; a clock set back restarts it rather
+  than confirming early. There is no per-run cap on removals (runs come
+  seconds apart, so a cap would not slow anything down); the 24 hours and
+  the rules above are the guard. Debug builds can move the sync's clock
+  forward for one process (`--el clock_offset_ms <ms>`, see Dev loop).
 - **Turning Download off** asks: *Keep songs* (they become yours) or
   *Remove* (the files it downloaded that no other downloaded playlist holds).
 - **A playlist you can no longer see** (deleted, or made private: the server
@@ -463,7 +501,12 @@ tried against it. To watch playlist sync, change a playlist
 curl -X POST 'localhost:8091/stub/change?playlist=Stub%20mix&add=2&remove=1'  # someone adds 2, removes 1
 curl -X POST 'localhost:8091/stub/missing?song=Cambodia'          # its file answers 404 FILE_MISSING
 curl -X POST 'localhost:8091/stub/hide?playlist=Stub%20mix'       # it goes private to someone else (404)
+curl -X POST 'localhost:8091/stub/degrade?playlist=Stub%20mix&mode=nulls'   # 200, every library_id null (mode=nosongs: no `songs`; mode=off)
 ```
+
+The 24-hour rule for a big shrink: start the app again with the sync's clock
+moved forward (debug builds only, this process only):
+`adb -s emulator-5554 shell am start -n com.erkantaylan.listenalong.debug/com.erkantaylan.listenalong.MainActivity --es server http://localhost:8091 --es session devtoken --el clock_offset_ms 90000000`.
 
 `./dev.sh --stub` starts it, tunnels it to the phone's `localhost:8091` with
 `adb reverse`, and launches the app with `--es server http://localhost:8091

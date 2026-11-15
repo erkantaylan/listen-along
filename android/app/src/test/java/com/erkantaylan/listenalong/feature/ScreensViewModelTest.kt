@@ -94,7 +94,7 @@ class ScreensViewModelTest {
             config.value = ServerConfig(baseUrl, if (changed) null else config.value.token)
             return changed
         }
-        override fun signIn(token: String, userName: String?) { config.value = config.value.copy(token = token, userName = userName) }
+        override fun signIn(token: String, userName: String?, userId: String?) { config.value = config.value.copy(token = token, userName = userName, userId = userId) }
         override fun endSession(token: String): Boolean { config.value = config.value.copy(token = null); return true }
     }
 

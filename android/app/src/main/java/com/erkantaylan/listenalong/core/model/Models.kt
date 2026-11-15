@@ -160,10 +160,15 @@ data class PlaylistEntry(
     }
 }
 
+/**
+ * A playlist's songs. [songs] is required: an answer without it is not an
+ * empty playlist but an unreadable answer (kept from the cache, never a
+ * reason for playlist sync to remove anything).
+ */
 @Serializable
 data class PlaylistSongs(
     val playlist: Playlist? = null,
-    val songs: List<PlaylistEntry> = emptyList(),
+    val songs: List<PlaylistEntry>,
 )
 
 @Serializable

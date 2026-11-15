@@ -61,7 +61,11 @@ class DownloadIndex(private val store: TextStore) {
 
     fun contains(songId: String): Boolean = _entries.value.containsKey(songId)
 
-    fun put(song: LocalSong) = mutate { it + (song.songId to song) }
+    /** Adds or replaces [song]; an entry that was the user's (`manual`) stays theirs. */
+    fun put(song: LocalSong) = mutate { current ->
+        val keepManual = current[song.songId]?.manual == true && !song.manual
+        current + (song.songId to if (keepManual) song.copy(manual = true) else song)
+    }
 
     fun remove(songId: String) = mutate { it - songId }
 

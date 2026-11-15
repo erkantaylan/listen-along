@@ -26,8 +26,8 @@ class AuthControllerTest {
 
     private class FakeSessions(var config: ServerConfig) : SessionHolder {
         override val current: ServerConfig get() = config
-        override fun signIn(token: String, userName: String?) {
-            config = config.copy(token = token, userName = userName)
+        override fun signIn(token: String, userName: String?, userId: String?) {
+            config = config.copy(token = token, userName = userName, userId = userId)
         }
         override fun endSession(token: String): Boolean {
             if (config.token != token) return false
@@ -88,6 +88,7 @@ class AuthControllerTest {
         assertEquals(listOf("c1", pending.state, pending.verifier, pending.nonce, "https://id", null), r.api.exchanges.single())
         assertEquals("lam_new", r.sessions.config.token)
         assertEquals("Erkan", r.sessions.config.userName)
+        assertEquals("the account id keys downloaded playlists", "u1", r.sessions.config.userId)
         assertEquals(SignInUi.Idle(), r.auth.ui.value)
     }
 

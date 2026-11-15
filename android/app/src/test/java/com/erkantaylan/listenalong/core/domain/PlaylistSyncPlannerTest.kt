@@ -4,6 +4,7 @@ import com.erkantaylan.listenalong.core.domain.PlaylistFetch.Fresh
 import com.erkantaylan.listenalong.core.domain.PlaylistFetch.Gone
 import com.erkantaylan.listenalong.core.domain.PlaylistFetch.Stale
 import com.erkantaylan.listenalong.core.storage.LocalSong
+import com.erkantaylan.listenalong.testing.entry
 import com.erkantaylan.listenalong.testing.local
 import com.erkantaylan.listenalong.testing.song
 import org.junit.Assert.assertEquals
@@ -28,8 +29,10 @@ class PlaylistSyncPlannerTest {
         missing: Map<String, Long> = emptyMap(),
         settings: SyncSettings = SyncSettings(),
         network: NetworkInfo = NetworkInfo(),
+        at: Long = now,
+        elsewhere: Set<String> = emptySet(),
     ) = PlaylistSyncPlanner.plan(
-        SyncInput(playlists.toList(), downloaded.associateBy { it.songId }, queued, missing, settings, network, now)
+        SyncInput(playlists.toList(), downloaded.associateBy { it.songId }, queued, missing, settings, network, at, elsewhere)
     )
 
     // --- Additions ------------------------------------------------------------
@@ -151,8 +154,10 @@ class PlaylistSyncPlannerTest {
 
     // --- The mass-deletion guard ----------------------------------------------
 
+    private val day = PlaylistSyncPlanner.SHRINK_CONFIRM_MS
+
     @Test
-    fun `an empty playlist after a full one deletes nothing until a later fetch says the same`() {
+    fun `an empty playlist after a full one deletes nothing until a complete answer a day later says the same`() {
         val files = listOf(synced("a"), synced("b"), synced("c"))
         val first = plan(record("p", "a", "b", "c") to Fresh(emptyList()), downloaded = files)
         assertTrue(first.delete.isEmpty())
@@ -160,11 +165,142 @@ class PlaylistSyncPlannerTest {
         val held = first.playlists.single()
         assertEquals(listOf("a", "b", "c"), held.known)
         assertEquals(emptyList<String>(), held.pendingShrink)
+        assertEquals(now, held.pendingSince)
+        assertEquals(PlaylistSyncPlanner.fingerprint(emptyList()), held.pendingHash)
 
-        val second = plan(held to Fresh(emptyList()), downloaded = files)
-        assertEquals(listOf("a", "b", "c"), second.delete.sorted())
-        assertNull(second.playlists.single().pendingShrink)
-        assertTrue(second.playlists.single().known.isEmpty())
+        // Seconds later, an hour later, a minute short of a day: still held, the first sighting kept.
+        listOf(1_000L, 3_600_000L, day - 60_000).forEach { later ->
+            val again = plan(held to Fresh(emptyList()), downloaded = files, at = now + later)
+            assertTrue(again.delete.isEmpty())
+            assertEquals(now, again.playlists.single().pendingSince)
+        }
+
+        val confirmed = plan(held to Fresh(emptyList()), downloaded = files, at = now + day)
+        assertEquals(listOf("a", "b", "c"), confirmed.delete.sorted())
+        assertNull(confirmed.playlists.single().pendingShrink)
+        assertNull(confirmed.playlists.single().pendingSince)
+        assertTrue(confirmed.playlists.single().known.isEmpty())
+    }
+
+    @Test
+    fun `the held shrink survives a restart (it is saved with the record)`() {
+        val held = plan(record("p", "a", "b", "c") to Fresh(emptyList())).playlists.single()
+        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+        val restored = json.decodeFromString<DownloadedPlaylist>(json.encodeToString(held))
+        assertEquals(held, restored)
+        val p = plan(restored to Fresh(emptyList()), downloaded = listOf(synced("a")), at = now + day)
+        assertEquals(listOf("a"), p.delete)
+    }
+
+    @Test
+    fun `a differing answer resets the wait`() {
+        val files = listOf("a", "b", "c", "d").map(::synced)
+        val held = plan(record("p", "a", "b", "c", "d") to Fresh(songs("a")), downloaded = files).playlists.single()
+        val other = plan(held to Fresh(songs("b")), downloaded = files, at = now + day - 1).playlists.single()
+        assertEquals(now + day - 1, other.pendingSince)
+        assertEquals(listOf("b"), other.pendingShrink)
+        val still = plan(other to Fresh(songs("b")), downloaded = files, at = now + day + 1)
+        assertTrue("a day after the FIRST list is not enough", still.delete.isEmpty())
+        val done = plan(other to Fresh(songs("b")), downloaded = files, at = now + 2 * day - 1)
+        assertEquals(listOf("a", "c", "d"), done.delete)
+    }
+
+    @Test
+    fun `a clock set back restarts the wait instead of confirming`() {
+        val files = listOf(synced("a"), synced("b"))
+        val held = record("p", "a", "b").copy(pendingShrink = emptyList(), pendingSince = now, pendingHash = PlaylistSyncPlanner.fingerprint(emptyList()))
+        val back = plan(held to Fresh(emptyList()), downloaded = files, at = now - 5 * day)
+        assertTrue(back.delete.isEmpty())
+        assertEquals(now - 5 * day, back.playlists.single().pendingSince)
+        // Far in the past it would look "older than a day" only if the difference were taken as a distance.
+        val stillBack = plan(back.playlists.single() to Fresh(emptyList()), downloaded = files, at = now - 5 * day + day - 1)
+        assertTrue(stillBack.delete.isEmpty())
+    }
+
+    @Test
+    fun `a held shrink from an earlier build (no time saved) starts its wait now`() {
+        val files = listOf(synced("a"), synced("b"))
+        val old = record("p", "a", "b", pending = emptyList())
+        val p = plan(old to Fresh(emptyList()), downloaded = files)
+        assertTrue(p.delete.isEmpty())
+        assertEquals(now, p.playlists.single().pendingSince)
+    }
+
+    // --- Answers that cannot remove anything (finding 1) ---------------------------------
+
+    @Test
+    fun `only an answer where every entry names its library song is complete`() {
+        assertEquals(Fresh(songs("a", "b")), PlaylistFetch.of(listOf(entry("e1", "a"), entry("e2", "b"))).let { f ->
+            (f as Fresh).copy(songs = f.songs.map { song(it.id) }) })
+        assertTrue(PlaylistFetch.of(emptyList()) is Fresh)
+        assertTrue(PlaylistFetch.of(listOf(entry("e1", "a"), entry("e2", null))) is PlaylistFetch.Partial)
+        assertTrue(PlaylistFetch.of(listOf(entry("e1", null), entry("e2", null))) is PlaylistFetch.Partial)
+        assertTrue(PlaylistFetch.of(listOf(entry("e1", " "))) is PlaylistFetch.Partial)
+    }
+
+    @Test
+    fun `80 synced songs and a database hiccup - nothing is deleted, however often it answers`() {
+        val ids = (1..80).map { "s$it" }
+        val files = ids.map(::synced)
+        var r = record("p", *ids.toTypedArray())
+        // The server answers 200 with library_id null on every entry, sync after sync, for days.
+        val degraded = PlaylistFetch.of(ids.mapIndexed { i, _ -> entry("e$i", null) })
+        repeat(5) { n ->
+            val p = plan(r to degraded, downloaded = files, at = now + n * day)
+            assertTrue(p.delete.isEmpty())
+            assertTrue(p.heldShrinks.isEmpty())
+            r = p.playlists.single()
+        }
+        assertEquals(ids, r.known)
+        assertNull(r.pendingShrink)
+    }
+
+    @Test
+    fun `a partial answer adds its new songs but neither confirms nor resets a held shrink`() {
+        val held = record("p", "a", "b", "c").copy(pendingShrink = emptyList(), pendingSince = now, pendingHash = PlaylistSyncPlanner.fingerprint(emptyList()))
+        val p = plan(held to PlaylistFetch.Partial(songs("d")), downloaded = listOf(synced("a")), at = now + 2 * day)
+        assertTrue(p.delete.isEmpty())
+        assertEquals(listOf("d"), p.download.map { it.id })
+        val r = p.playlists.single()
+        assertEquals(listOf("a", "b", "c", "d"), r.known)
+        assertEquals(now, r.pendingSince)
+        assertEquals(emptyList<String>(), r.pendingShrink)
+    }
+
+    // --- Removals come only from a record's own previous list (finding 2) -------------------
+
+    @Test
+    fun `turning Download on for a new playlist deletes none of the files already here`() {
+        // 80 sync-owned files from another server's playlists: the global index holds them, no record here wants them.
+        val files = (1..80).map { synced("s$it") }
+        val p = plan(record("new") to Fresh(songs("x")), downloaded = files)
+        assertTrue(p.delete.isEmpty())
+        assertEquals(listOf("x"), p.download.map { it.id })
+    }
+
+    @Test
+    fun `a song another server's or account's playlist wants is never deleted`() {
+        val p = plan(
+            record("p", "a", "b", "c") to Fresh(songs("a", "b")),
+            downloaded = listOf(synced("a"), synced("b"), synced("c")),
+            elsewhere = setOf("c"),
+        )
+        assertTrue(p.delete.isEmpty())
+        val r = PlaylistSyncPlanner.release(record("p", "a", "c"), emptyList(), listOf(synced("a"), synced("c")).associateBy { it.songId }, emptyMap(), elsewhere = setOf("c"))
+        assertEquals(listOf("a"), r.removable)
+    }
+
+    @Test
+    fun `a sync-saved file no playlist ever wanted is left alone`() {
+        val p = plan(record("p", "a") to Fresh(songs("a")), downloaded = listOf(synced("a"), synced("orphan")))
+        assertTrue(p.delete.isEmpty())
+    }
+
+    @Test
+    fun `a dropped song the user has queued is not deleted`() {
+        val p = plan(record("p", "a", "b", "c") to Fresh(songs("a", "b")), downloaded = listOf(synced("a"), synced("b"), synced("c")),
+                     queued = mapOf("c" to true))
+        assertTrue(p.delete.isEmpty())
     }
 
     @Test

@@ -96,6 +96,12 @@ class FakeApi(override val baseUrl: HttpUrl = TEST_SERVER) : ListenAlongApi {
     val reports = mutableMapOf<String, List<SongReport>>()
     /** The bytes each song's file returns; absent = 404. */
     val files = mutableMapOf<String, ByteArray>()
+    /** Runs inside each playlist songs call, before it answers (a test holds a sync there). */
+    var beforeSongs: (suspend (String) -> Unit)? = null
+    /** Per playlist id: the answer is read as the real client would but every entry lost its library id (the server's failed lookup). */
+    val degraded = mutableSetOf<String>()
+    /** Runs while a song's file is being streamed (a test acts mid-download). */
+    var duringStream: ((String) -> Unit)? = null
     private val ids = AtomicInteger()
 
     private fun check(call: String) {
@@ -145,9 +151,10 @@ class FakeApi(override val baseUrl: HttpUrl = TEST_SERVER) : ListenAlongApi {
 
     override suspend fun playlistSongs(id: String): PlaylistSongs {
         check("songs:$id")
+        beforeSongs?.invoke(id)
         playlistErrors[id]?.let { throw it }
         val p = playlists[id] ?: throw ApiException(404, "Playlist not found", "NOT_FOUND")
-        val list = entries[id].orEmpty().mapIndexed { i, e -> e.copy(position = i + 1) }
+        val list = entries[id].orEmpty().mapIndexed { i, e -> e.copy(position = i + 1, libraryId = e.libraryId.takeIf { id !in degraded }) }
         return PlaylistSongs(p.copy(songCount = list.size), list)
     }
 
@@ -214,6 +221,7 @@ class FakeApi(override val baseUrl: HttpUrl = TEST_SERVER) : ListenAlongApi {
         calls += "file:$songId"
         fail?.let { throw it }
         val bytes = files[songId] ?: throw ApiException(404, "Not on the server", "FILE_MISSING")
+        duringStream?.invoke(songId)
         return block("audio/mp4", bytes.size.toLong(), ByteArrayInputStream(bytes))
     }
 }
@@ -222,6 +230,9 @@ class FakeApi(override val baseUrl: HttpUrl = TEST_SERVER) : ListenAlongApi {
 class MemorySink : AudioSink {
     val saved = linkedMapOf<String, ByteArray>()
     val deleted = mutableListOf<String>()
+    /** Deletes throw as scoped storage does for a file this app may not delete; every attempt is counted. */
+    var failDeletes = false
+    val deleteAttempts = mutableListOf<String>()
     var free: Long? = null
     private val counter = AtomicInteger()
 
@@ -241,6 +252,8 @@ class MemorySink : AudioSink {
     override fun exists(uri: String): Boolean = uri in saved || (uri.startsWith("content://fake/") && uri !in deleted)
 
     override fun delete(uri: String): Boolean {
+        deleteAttempts += uri
+        if (failDeletes) throw SecurityException("$uri is not this app's to delete")
         deleted += uri
         saved.remove(uri)
         return true

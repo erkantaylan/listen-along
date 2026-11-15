@@ -144,7 +144,14 @@ class PlaylistViewModel(
     fun startDownload() {
         val p = _state.value.playlist ?: return
         viewModelScope.launch {
-            runCatching { playlistDownloads.enable(p, PlaylistSongs(p, _state.value.entries).takeIf { !_state.value.fromCache }) }
+            try {
+                playlistDownloads.enable(p, PlaylistSongs(p, _state.value.entries).takeIf { !_state.value.fromCache })
+            } catch (c: kotlinx.coroutines.CancellationException) {
+                throw c
+            } catch (e: Exception) {
+                // Who is signed in could not be told (offline with a session from an older version).
+                messages.say(e.message ?: "Could not turn Download on")
+            }
         }
     }
 
@@ -208,8 +215,8 @@ class PlaylistViewModel(
     /** What "Download playlist" would fetch, for its confirm dialog. */
     fun downloadPlan(): BulkPlan = BulkPlan.of(_state.value.songs, downloads.snapshot())
 
-    /** Queues the plan's songs. Returns how many were added. */
-    fun download(plan: BulkPlan): Int = downloads.enqueue(plan.toDownload)
+    /** Queues the plan's songs (and makes the ones already here the user's own). Returns how many were added. */
+    fun download(plan: BulkPlan): Int = downloads.enqueue(plan.all)
 
     fun downloadSong(song: Song) {
         downloads.enqueue(listOf(song))

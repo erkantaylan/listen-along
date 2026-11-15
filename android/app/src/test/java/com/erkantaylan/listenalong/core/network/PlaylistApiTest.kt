@@ -97,6 +97,26 @@ class PlaylistApiTest {
     }
 
     @Test
+    fun `a 200 without songs, or with songs null, is an unreadable answer, not an empty playlist`() = runTest {
+        // Playlist sync must never read these as "the playlist is empty now" (core/domain/PlaylistFetch).
+        listOf(
+            """{"playlist":{"id":"p1","name":"Road"}}""",
+            """{"playlist":{"id":"p1","name":"Road"},"songs":null}""",
+            """{}""",
+        ).forEach { body ->
+            server.enqueue(json(body))
+            try {
+                client().playlistSongs("p1")
+                fail("read as a playlist: $body")
+            } catch (_: java.io.IOException) {
+            }
+        }
+        // An empty list said so is a list.
+        server.enqueue(json("""{"playlist":{"id":"p1","name":"Road"},"songs":[]}"""))
+        assertTrue(client().playlistSongs("p1").songs.isEmpty())
+    }
+
+    @Test
     fun `create, update, add and move send the bodies the server expects`() = runTest {
         server.enqueue(json("""{"id":"new","name":"Fresh","visibility":"private","isOwner":true,"canManage":true,"link":"/playlist/new"}""", 201))
         server.enqueue(json("""{"id":"new","name":"Renamed","visibility":"private","isOwner":true,"canManage":true}"""))

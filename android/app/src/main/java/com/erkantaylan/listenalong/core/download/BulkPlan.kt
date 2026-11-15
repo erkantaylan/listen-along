@@ -13,6 +13,11 @@ data class BulkPlan(
     val estimatedMb: Int,
     /** Songs with no duration, counted at [ASSUMED_MINUTES] each. */
     val unknownDurations: Int,
+    /**
+     * Every song shown, each once: what is queued, so the ones already here
+     * or already queued (by playlist sync too) become the user's own.
+     */
+    val all: List<Song> = toDownload,
 ) {
     val count: Int get() = toDownload.size
 
@@ -39,6 +44,7 @@ data class BulkPlan(
                 alreadyHave = songs.distinctBy { it.id }.size - wanted.size,
                 estimatedMb = estimateMb(wanted),
                 unknownDurations = unknown,
+                all = songs.distinctBy { it.id },
             )
         }
 

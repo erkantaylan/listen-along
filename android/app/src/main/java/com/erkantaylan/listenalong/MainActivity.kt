@@ -40,6 +40,7 @@ import com.erkantaylan.listenalong.app.MusicAccessState
 import com.erkantaylan.listenalong.app.PlatformActions
 import com.erkantaylan.listenalong.core.designsystem.ListenAlongTheme
 import com.erkantaylan.listenalong.core.designsystem.Palette
+import com.erkantaylan.listenalong.core.data.SyncClock
 import com.erkantaylan.listenalong.core.model.CoverArt
 import com.erkantaylan.listenalong.core.network.ServerUrl
 import com.erkantaylan.listenalong.core.player.ExternalPlayer
@@ -168,6 +169,8 @@ class MainActivity : ComponentActivity(), PlatformActions {
         val server = intent?.getStringExtra(EXTRA_DEBUG_SERVER) ?: return
         if (!debuggable) return
         val url = ServerUrl.normalize(server) ?: return
+        // Moves playlist sync's clock forward for this process (the 24-hour shrink rule on the emulator).
+        if (intent.hasExtra(EXTRA_DEBUG_CLOCK_OFFSET)) SyncClock.offsetMs = intent.getLongExtra(EXTRA_DEBUG_CLOCK_OFFSET, 0)
         container.settings.overrideForSession(url, intent.getStringExtra(EXTRA_DEBUG_SESSION))
         // The stub serves its own thumbnails, so the dev loop never asks YouTube.
         intent.getStringExtra(EXTRA_DEBUG_THUMBS)?.let { CoverArt.base = it }
@@ -281,6 +284,7 @@ class MainActivity : ComponentActivity(), PlatformActions {
         const val EXTRA_DEBUG_SESSION = "session"
         const val EXTRA_DEBUG_THUMBS = "thumbs"
         const val EXTRA_DEBUG_UPDATES = "updates"
+        const val EXTRA_DEBUG_CLOCK_OFFSET = "clock_offset_ms"
         private const val PREF_PROMPT_DISMISSED = "prompt_dismissed"
         private const val PREF_DECLINED = "declined"
     }
