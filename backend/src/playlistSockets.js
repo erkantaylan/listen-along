@@ -287,7 +287,7 @@ function createPlaylistSockets({ io, lobby, getQueueAsync, adminAuth, getSocial,
     });
 
     // Report what this listener is playing (shown next to queue items). Listening
-    // along with a user is listenAlong.js (presence:now-playing).
+    // along with a user is features/listen-along (presence:now-playing).
     socket.on('listener:now-playing', async ({ lobbyId, track } = {}) => {
       if (lobbyId && lobbyId !== currentLobby) return;
       lobbyId = currentLobby;

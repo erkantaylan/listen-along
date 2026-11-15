@@ -26,7 +26,7 @@
  *   people:user   { user: person }          name/avatar changed, or a new account
  *   people:removed { userId }               account denied / rejected
  *
- *   people:listeners { userId, count }       how many listen along (listenAlong.js)
+ *   people:listeners { userId, count }       how many listen along (features/listen-along)
  *
  * person = { id, name, emoji, avatarUrl, pending, online, lastSeen, nowPlaying, listeners }
  * listeners = how many people listen along with them (a count, no names).

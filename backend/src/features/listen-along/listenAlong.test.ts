@@ -1,10 +1,20 @@
 // Listen along (follow a user): the pure follow graph, then the real server
 // (in-memory, no Postgres) over Socket.IO with four signed-in users.
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const { io: ioClient } = require('socket.io-client');
-const { createListenGraph, createSourceResolver } = require('./listenAlong');
-const { startServer, cookieFor } = require('./testServer');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { io as ioClient } from 'socket.io-client';
+import type { Socket as ClientSocket } from 'socket.io-client';
+import { createListenGraph, createSourceResolver } from './listenAlong.ts';
+import { startServer, cookieFor } from '../../testServer.js';
+import type { ListenIo, ListenSocket } from './listenAlong.ts';
+import type { AppSocket, Io } from '../../shared/types.ts';
+
+// What index.js and socketServer.js pass (typecheck only).
+export const realServerFits = (io: Io): ListenIo => io;
+export const realSocketFits = (socket: AppSocket): ListenSocket => socket;
+
+// What the server sends over the socket: JSON, read field by field below.
+type Payload = any;
 
 describe('listen-along graph', () => {
   it('collapses chains: everyone hears the root', () => {
@@ -62,7 +72,7 @@ describe('listen-along graph', () => {
   it('resolves library urls without a database and others through the lookup', async () => {
     const id = '0b6f3a3e-1c1d-4a4e-9b7e-0123456789ab';
     let calls = 0;
-    const resolve = createSourceResolver(async (url) => { calls++; return url.includes('watch') ? id : null; });
+    const resolve = createSourceResolver(async (url: string) => { calls++; return url.includes('watch') ? id : null; });
     assert.equal(await resolve(`library:${id}`), id);
     assert.equal(await resolve('library:../../etc'), null);
     assert.equal(await resolve('https://www.youtube.com/watch?v=abc'), id);
@@ -82,9 +92,9 @@ const SONG1 = '11111111-1111-4111-8111-111111111111';
 const SONG2 = '22222222-2222-4222-8222-222222222222';
 
 describe('listen along against a running server', { timeout: 60_000 }, () => {
-  let srv;
-  const sockets = [];
-  const s = {};
+  let srv: Awaited<ReturnType<typeof startServer>>;
+  const sockets: ClientSocket[] = [];
+  const s: Record<'A' | 'B' | 'C' | 'D', ClientSocket> = {} as Record<'A' | 'B' | 'C' | 'D', ClientSocket>;
 
   before(async () => { srv = await startServer(); });
   after(async () => {
@@ -92,7 +102,7 @@ describe('listen along against a running server', { timeout: 60_000 }, () => {
     if (srv) await srv.stop();
   });
 
-  function connect(userId, name) {
+  function connect(userId: string, name: string): Promise<ClientSocket> {
     const sock = ioClient(srv.base, { transports: ['websocket'], forceNew: true, extraHeaders: { cookie: cookieFor(userId) } });
     sockets.push(sock);
     return new Promise((resolve, reject) => {
@@ -100,27 +110,27 @@ describe('listen along against a running server', { timeout: 60_000 }, () => {
       sock.on('connect_error', reject);
     });
   }
-  const ask = (sock, event, arg) => new Promise((resolve) => sock.emit(event, arg, resolve));
-  function next(sock, event, pred = () => true, ms = 1500) {
+  const ask = (sock: ClientSocket, event: string, arg?: unknown): Promise<Payload> => new Promise((resolve) => sock.emit(event, arg, resolve));
+  function next(sock: ClientSocket, event: string, pred: (data: Payload) => unknown = () => true, ms = 1500): Promise<Payload> {
     return new Promise((resolve) => {
-      const h = (data) => { if (pred(data)) { clearTimeout(timer); sock.off(event, h); resolve(data); } };
+      const h = (data: Payload) => { if (pred(data)) { clearTimeout(timer); sock.off(event, h); resolve(data); } };
       const timer = setTimeout(() => { sock.off(event, h); resolve('timeout'); }, ms);
       sock.on(event, h);
     });
   }
   // Collect every payload of `event` for `ms`.
-  function collect(sock, event, ms = 400) {
+  function collect(sock: ClientSocket, event: string, ms = 400): Promise<Payload[]> {
     return new Promise((resolve) => {
-      const got = [];
-      const h = (d) => got.push(d);
+      const got: Payload[] = [];
+      const h = (d: Payload) => got.push(d);
       sock.on(event, h);
       setTimeout(() => { sock.off(event, h); resolve(got); }, ms);
     });
   }
-  const play = (sock, { song = SONG1, title = 'Song One', playing = true, position = 0, context = { type: 'library' } } = {}) =>
+  const play = (sock: ClientSocket, { song = SONG1, title = 'Song One', playing = true, position = 0, context = { type: 'library' } as object | null } = {}) =>
     sock.emit('presence:now-playing', { track: { id: 'q1', title, artist: 'Artist', url: `library:${song}` }, context, playing, position, duration: 200 });
 
-  let privId;
+  let privId: string;
 
   it('setup: four users online; C plays from a private playlist', async () => {
     s.A = await connect(U.A, 'Ann');
@@ -131,7 +141,7 @@ describe('listen along against a running server', { timeout: 60_000 }, () => {
       method: 'POST', headers: { cookie: cookieFor(U.C), 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'Cem Secret Mix', visibility: 'private' }),
     });
-    privId = (await r.json()).id;
+    privId = ((await r.json()) as { id: string }).id;
     assert.ok(privId);
     const seen = next(s.A, 'people:now-playing', d => d.userId === U.C);
     play(s.C, { position: 30, context: { type: 'lobby', lobbyId: privId } });
@@ -156,7 +166,7 @@ describe('listen along against a running server', { timeout: 60_000 }, () => {
     // Everyone else sees a count (the people card), no names.
     assert.deepEqual(await atD, { userId: U.C, count: 1 });
     const list = await ask(s.D, 'people:list');
-    const cem = list.people.find(p => p.id === U.C);
+    const cem = list.people.find((p: Payload) => p.id === U.C);
     assert.equal(cem.listeners, 1);
     assert.equal(cem.nowPlaying.context, null, 'private playlist dropped for others');
     assert.ok(!JSON.stringify(cem).includes('Secret'));

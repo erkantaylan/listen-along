@@ -6,12 +6,26 @@
 // NUMERIC arrive as strings, REAL / INTEGER / SMALLINT as numbers,
 // TIMESTAMPTZ as Date, JSONB parsed, and a nullable column as `| null`.
 // Change them with the schema.
-import type { Server, Socket } from 'socket.io';
+import type { DefaultEventsMap, Server, Socket } from 'socket.io';
 
-/** The Socket.IO server (socketServer.js createSocketServer). */
-export type Io = Server;
-/** One Socket.IO connection. `socket.data.userId` is set by the handshake (socketServer.js). */
-export type AppSocket = Socket;
+/** What the server keeps on a connection (`socket.data`). Never anything the client sent. */
+export interface SocketData {
+  /** users.id of the account, from the handshake (socketServer.js); absent for an anonymous socket */
+  userId?: string;
+  /** the central-login session's hash (socketServer.js) */
+  sessionId?: string;
+  /** set by social once the account may use chat and the people panel */
+  social?: boolean;
+  /** resolves when social's per-connection setup is done: true when the account may use it */
+  socialReady?: Promise<boolean>;
+  /** playlistSockets.js: leaves a playlist that went private */
+  evict?: (lobbyId: string) => void;
+}
+
+/** The Socket.IO server (socketServer.js createSocketServer). Event names and payloads are not typed (yet). */
+export type Io = Server<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>;
+/** One Socket.IO connection. */
+export type AppSocket = Socket<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>;
 
 /** What converted code uses of db.js (CommonJS until shared/ moves): the pool's query, or a client's in a transaction. */
 export interface QueryResult<R> {

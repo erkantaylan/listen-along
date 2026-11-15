@@ -2,7 +2,7 @@
  * The Socket.IO server: its rooms, the handshake (who may connect), the
  * central-login re-check of open sockets, and the connection handler, which
  * builds one connection's account helpers and hands them to each area's
- * register(socket, ctx): social.js and listenAlong.js (attach), then
+ * register(socket, ctx): social.js and features/listen-along (attach), then
  * playlistSockets.js and queueSockets.js, then the disconnect handler. The
  * order of registration is the order of the handlers, keep it.
  *
@@ -124,7 +124,7 @@ function attachSocketHandlers({ io, env, db, userAuth, oidc: OIDC, oidcSessions,
     // Global chat + people panel (presence, now playing): see social.js.
     const social = getSocial();
     if (social) social.attach(socket);
-    // Listen along with another user (follows their now-playing): listenAlong.js.
+    // Listen along with another user (follows their now-playing): features/listen-along.
     const listenAlong = getListenAlong();
     if (listenAlong) listenAlong.attach(socket);
 

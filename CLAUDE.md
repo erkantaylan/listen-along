@@ -373,7 +373,7 @@ where lobby persistence broke entirely on deployed instances.
   one now-playing entry per user, server-timestamped). Never send a raw
   presence entry to a client: `viewNowPlaying()` drops a playlist the
   viewer cannot see.
-- **Listen along** = follow a user (not a playlist): `backend/src/listenAlong.js`
+- **Listen along** = follow a user (not a playlist): `backend/src/features/listen-along/`
   (graph + socket events `listen:*`, attached per connection in socketServer.js) and
   `frontend/listen-along.js` (drives `player.js` as its driver). Everyone hears
   the root of their chain (chains collapse); the follow lives in one socket;

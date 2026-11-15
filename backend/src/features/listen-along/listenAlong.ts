@@ -45,25 +45,51 @@
  * shows a notice and waits for the next song).
  */
 
+import type { AppSocket } from '../../shared/types.ts';
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_NAMES = 3;
 const SOCIAL_ROOM = 'social'; // social.js ROOM
 
-/** Pure follow graph (unit tested on its own). */
-function createListenGraph() {
-  const chose = new Map();   // follower -> chosen user
-  const sockets = new Map(); // follower -> socketId
+/** The follow graph: users.id -> the user they picked, and the socket that plays along. */
+export interface ListenGraph {
+  /** Whom `u` hears: the end of their chain (u itself when following nobody). */
+  root(u: string): string;
+  /** follower -> root for everyone listening along. */
+  snapshot(): Map<string, string>;
+  chosen(u: string): string | null;
+  socketOf(u: string): string | null;
+  isFollowing(u: string): boolean;
+  followersOf(r: string): string[];
+  /** Users whose follow lives in this socket. */
+  usersOnSocket(socketId: string): string[];
+  /** `follower` picks `leader`. */
+  follow(follower: string, leader: string, socketId: string):
+    | { ok: true; root: string; error?: undefined }
+    | { error: 'invalid' | 'self' | 'cycle'; ok?: undefined; root?: undefined };
+  /** Stop listening along. Those who picked `u` keep that choice (u is a root now). */
+  unfollow(u: string): boolean;
+  /** `u`'s tab went away: re-point those who picked u to u's own choice. */
+  splice(u: string): boolean;
+  /** Dissolve everyone under root `r` (r went offline). Returns those users. */
+  endTree(r: string): string[];
+}
 
-  function root(u) {
+/** Pure follow graph (unit tested on its own). */
+export function createListenGraph(): ListenGraph {
+  const chose = new Map<string, string>();   // follower -> chosen user
+  const sockets = new Map<string, string>(); // follower -> socketId
+
+  function root(u: string): string {
     let cur = u;
-    const seen = new Set();
-    while (chose.has(cur) && !seen.has(cur)) { seen.add(cur); cur = chose.get(cur); }
+    const seen = new Set<string>();
+    while (chose.has(cur) && !seen.has(cur)) { seen.add(cur); cur = chose.get(cur) as string; }
     return cur;
   }
 
   /** follower -> root for everyone listening along. */
-  function snapshot() {
-    const m = new Map();
+  function snapshot(): Map<string, string> {
+    const m = new Map<string, string>();
     for (const f of chose.keys()) m.set(f, root(f));
     return m;
   }
@@ -75,7 +101,7 @@ function createListenGraph() {
     socketOf: (u) => sockets.get(u) || null,
     isFollowing: (u) => chose.has(u),
     followersOf(r) {
-      const out = [];
+      const out: string[] = [];
       for (const f of chose.keys()) if (root(f) === r) out.push(f);
       return out;
     },
@@ -113,7 +139,7 @@ function createListenGraph() {
 
     /** Dissolve everyone under root `r` (r went offline). Returns those users. */
     endTree(r) {
-      const gone = [];
+      const gone: string[] = [];
       for (const f of [...chose.keys()]) if (root(f) === r) gone.push(f);
       for (const f of gone) { chose.delete(f); sockets.delete(f); }
       return gone;
@@ -121,45 +147,116 @@ function createListenGraph() {
   };
 }
 
+/** A now-playing source (a queue url) -> the library song id, or null. */
+export type SourceResolver = (url: unknown) => Promise<string | null>;
+
 /** `library:<uuid>` resolves without a database; anything else via `lookup`. */
-function createSourceResolver(lookup) {
-  const cache = new Map();
+export function createSourceResolver(lookup: ((url: string) => Promise<string | null>) | null): SourceResolver {
+  const cache = new Map<string, string>();
   return async function resolveSource(url) {
     if (typeof url !== 'string' || !url) return null;
     if (url.startsWith('library:')) {
       const id = url.slice('library:'.length);
       return UUID_RE.test(id) ? id : null;
     }
-    if (cache.has(url)) return cache.get(url);
-    let id = null;
+    if (cache.has(url)) return cache.get(url) as string;
+    let id: string | null = null;
     try { id = lookup ? await lookup(url) : null; } catch { id = null; }
-    if (cache.size > 500) cache.delete(cache.keys().next().value);
+    if (cache.size > 500) cache.delete(cache.keys().next().value as string);
     if (id) cache.set(url, id);
     return id;
   };
 }
 
-/**
- * @param io          Socket.IO server
- * @param presence    createPresence() instance
- * @param nameOf      (userId) -> display name
- * @param isApproved  async (userId) -> boolean (only approved accounts play)
- * @param resolveSource async (url) -> library song id | null
- * @param now         clock (tests)
- */
-function createListenAlong({ io, presence, nameOf = () => 'User', isApproved = async () => true, resolveSource = createSourceResolver(null), now = Date.now }) {
+/** What listen-along reads of a now-playing entry (presence.js). */
+export interface ListenNowPlaying {
+  track: { title: string; artist: string | null; thumbnail: string | null };
+  /** the queue url (`library:<uuid>` or a YouTube URL), never sent as it is */
+  source: string | null;
+  playing: boolean;
+  position: number;
+  duration: number;
+  /** server time of the report: the anchor for `position` */
+  updatedAt: number;
+}
+
+/** What listen-along uses of the presence instance (social's createPresence). */
+export interface ListenPresence {
+  getNowPlaying(userId: string): ListenNowPlaying | null;
+  isOnline(userId: string): boolean;
+  socketIds(userId: string): string[];
+  on(event: 'now-playing', listener: (userId: string, entry: ListenNowPlaying | null) => void): unknown;
+  on(event: 'offline', listener: (userId: string, lastSeen: number) => void): unknown;
+}
+
+/** What listen-along uses of the Socket.IO server (the real one fits). */
+export interface ListenIo {
+  to(room: string): { emit(event: string, payload: unknown): unknown };
+}
+
+export interface ListenAlongDeps {
+  /** Socket.IO server */
+  io: ListenIo;
+  /** the presence instance social uses (who is online, what each user plays) */
+  presence: ListenPresence;
+  /** (userId) -> display name */
+  nameOf?: (userId: string) => string | null | undefined;
+  /** (userId) -> whether the account is approved (only approved accounts play) */
+  isApproved?: (userId: string) => Promise<boolean>;
+  /** (url) -> library song id | null */
+  resolveSource?: SourceResolver;
+  /** clock (tests) */
+  now?: () => number;
+}
+
+/** A user as listen-along names them. */
+export interface ListenPerson {
+  id: string;
+  name: string;
+}
+
+/** listen:followers */
+export interface FollowersPayload {
+  count: number;
+  names: string[];
+}
+
+/** listen:sync */
+export interface ListenSync {
+  leaderId: string;
+  track: { title: string; artist: string | null; thumbnail: string | null; libraryId: string | null; src: string | null } | null;
+  playing: boolean;
+  position: number;
+  duration: number;
+  updatedAt: number;
+  serverNow: number;
+}
+
+/** What attach uses of a connection. */
+export type ListenSocket = Pick<AppSocket, 'id' | 'data' | 'on' | 'emit'>;
+
+export interface ListenAlong {
+  /** Registers this connection's listen:* handlers (socketServer.js, after social's attach). */
+  attach(socket: ListenSocket): void;
+  graph: ListenGraph;
+  followersPayload(r: string): FollowersPayload;
+}
+
+type Ack = (payload: unknown) => void;
+
+export function createListenAlong({ io, presence, nameOf = () => 'User', isApproved = async () => true, resolveSource = createSourceResolver(null), now = Date.now }: ListenAlongDeps): ListenAlong {
   const graph = createListenGraph();
-  const userRoom = (id) => `user:${id}`;
-  const seq = new Map(); // root -> counter, drops stale async syncs
+  const userRoom = (id: string) => `user:${id}`;
+  const seq = new Map<string, number>(); // root -> counter, drops stale async syncs
 
-  const person = (id) => (id ? { id, name: nameOf(id) || 'User' } : null);
+  const person = (id: string | null): ListenPerson | null => (id ? { id, name: nameOf(id) || 'User' } : null);
 
-  function followersPayload(r) {
+  function followersPayload(r: string): FollowersPayload {
     const ids = graph.followersOf(r);
     return { count: ids.length, names: ids.slice(0, MAX_NAMES).map(id => nameOf(id) || 'User') };
   }
 
-  async function buildSync(r) {
+  async function buildSync(r: string): Promise<ListenSync> {
     const entry = presence.getNowPlaying(r);
     if (!entry) return { leaderId: r, track: null, playing: false, position: 0, duration: 0, updatedAt: now(), serverNow: now() };
     const libraryId = await resolveSource(entry.source);
@@ -183,18 +280,18 @@ function createListenAlong({ io, presence, nameOf = () => 'User', isApproved = a
   }
 
   // The root's own sockets get names; everyone in the people panel a count.
-  function emitFollowers(r) {
+  function emitFollowers(r: string): void {
     const payload = followersPayload(r);
     io.to(userRoom(r)).emit('listen:followers', payload);
     io.to(SOCIAL_ROOM).emit('people:listeners', { userId: r, count: payload.count });
   }
 
-  function emitTo(userId, event, payload) {
+  function emitTo(userId: string, event: string, payload: unknown): void {
     const s = graph.socketOf(userId);
     if (s) io.to(s).emit(event, payload);
   }
 
-  async function syncFollowers(r, only = null) {
+  async function syncFollowers(r: string, only: string[] | null = null): Promise<void> {
     const n = (seq.get(r) || 0) + 1;
     seq.set(r, n);
     const targets = only || graph.followersOf(r);
@@ -205,13 +302,13 @@ function createListenAlong({ io, presence, nameOf = () => 'User', isApproved = a
   }
 
   // After any change: tell followers whose root moved, roots whose set changed.
-  function reconcile(before, { reason = 'changed', skip = new Set() } = {}) {
+  function reconcile(before: Map<string, string>, { reason = 'changed', skip = new Set<string>() }: { reason?: string; skip?: Set<string> } = {}): void {
     const after = graph.snapshot();
-    const roots = new Set();
+    const roots = new Set<string>();
     for (const [f, r] of after) {
       if (before.get(f) !== r) {
         roots.add(r);
-        if (before.has(f)) roots.add(before.get(f));
+        if (before.has(f)) roots.add(before.get(f) as string);
         if (!skip.has(f)) {
           emitTo(f, 'listen:following', { leader: person(r), chosen: graph.chosen(f), reason });
           syncFollowers(r, [f]);
@@ -232,7 +329,7 @@ function createListenAlong({ io, presence, nameOf = () => 'User', isApproved = a
 
   // follower -> socket, kept here too: endTree drops the graph's copy before
   // 'offline' tells those sockets.
-  const lastSockets = new Map();
+  const lastSockets = new Map<string, string>();
 
   presence.on('offline', (userId) => {
     // A follower going offline already left on its socket's disconnect.
@@ -246,9 +343,9 @@ function createListenAlong({ io, presence, nameOf = () => 'User', isApproved = a
     emitFollowers(userId);
   });
 
-  function attach(socket) {
+  function attach(socket: ListenSocket): void {
     const userId = socket.data.userId;
-    const reply = (ack, payload) => { if (typeof ack === 'function') ack(payload); };
+    const reply = (ack: Ack | undefined, payload: unknown) => { if (typeof ack === 'function') ack(payload); };
     const ready = socket.data.socialReady || Promise.resolve(!!userId);
 
     // A root that reloads still sees who listens along.
@@ -256,7 +353,7 @@ function createListenAlong({ io, presence, nameOf = () => 'User', isApproved = a
       if (ok && userId && graph.followersOf(userId).length) socket.emit('listen:followers', followersPayload(userId));
     });
 
-    socket.on('listen:follow', async (arg, ack) => {
+    socket.on('listen:follow', async (arg: { userId?: unknown } | Ack | undefined, ack?: Ack) => {
       if (typeof arg === 'function') { ack = arg; arg = {}; }
       if (!userId || !(await ready) || !(await isApproved(userId))) return reply(ack, { error: 'Not signed in' });
       const target = arg && typeof arg.userId === 'string' ? arg.userId.slice(0, 64) : '';
@@ -274,8 +371,8 @@ function createListenAlong({ io, presence, nameOf = () => 'User', isApproved = a
       reply(ack, { ok: true, leader: person(res.root), chosen: target, sync: await buildSync(res.root) });
     });
 
-    socket.on('listen:stop', async (arg, ack) => {
-      if (typeof arg === 'function') ack = arg;
+    socket.on('listen:stop', async (arg: unknown, ack?: Ack) => {
+      if (typeof arg === 'function') ack = arg as Ack;
       if (!userId || graph.socketOf(userId) !== socket.id) return reply(ack, { ok: true });
       const before = graph.snapshot();
       graph.unfollow(userId);
@@ -297,4 +394,3 @@ function createListenAlong({ io, presence, nameOf = () => 'User', isApproved = a
   return { attach, graph, followersPayload };
 }
 
-module.exports = { createListenAlong, createListenGraph, createSourceResolver };
