@@ -215,7 +215,8 @@ where lobby persistence broke entirely on deployed instances.
   rules in `activity-rules.js` (tested), the card shown by `social.js`
   (`opts.activity`: approved only).
 - **Global search** (web only; DESIGN.md "Search"): `frontend/search.js` (the one field `#app-search`, the app shell's
-  top bar centred above the panels, never moved into a page: `body.has-topbar` makes every column start at `--app-top`;
+  top bar at the top of the page column and centred in it, never moved into a page: `body.has-topbar` makes the page
+  panel and the library overlay start at `--app-top`; the sidebar and the chat column stay full height from the top gap;
   Ctrl+K / Cmd+K; the page `/search?q=`), pure rules in `frontend/search-rules.js` (tested in
   `search-rules.test.js`). Library songs: `GET /api/library?sort=relevance` (opt-in; `library.searchRelevant`, order in
   `songSearch.js`, pure and tested: exact / prefix title and artist before loose all-words matches; Turkish-folded in SQL

@@ -43,8 +43,10 @@
      panel-widths.js puts them: --app-sidebar-width and --app-social-inset are
      whole columns, each holding its panel plus the outer gap. --app-player-height
      is the room the floating player bar takes, its gaps included (player-bar.js).
-     --app-top is where the panels start: a gap below the window's top, or a gap
-     below the top bar (the search field, body.has-topbar, see "Top bar"). */
+     The sidebar and the chat column (or its rail) always start a gap below the
+     window's top. --app-top is where the page column's panels start (the page
+     panel, the library overlay): the same gap, or a gap below the top bar (the
+     search field at the top of the page column, body.has-topbar, see "Top bar"). */
   body { --app-view-height: 100dvh; --app-top: var(--app-gap); --app-topbar-height: 2.5rem; }
   body.has-player-bar { --app-view-height: calc(100dvh - var(--app-player-height, 0px)); }
   body.has-plnav { --app-view-height: calc(100dvh - var(--app-player-height, 0px) - var(--app-top)); }
@@ -965,7 +967,7 @@
     body.has-plnav { padding-left: var(--app-sidebar-width); }
     body.has-plnav .app-sidebar {
       position: fixed;
-      top: var(--app-top);
+      top: var(--app-gap);
       bottom: max(var(--app-player-height, 0px), var(--app-gap));
       left: var(--app-gap);
       z-index: calc(var(--bs-z-fixed) + 1); /* its drag handle reaches over the library overlay */
@@ -1357,7 +1359,7 @@
     body.has-social { --app-social-inset: var(--app-rail-width); padding-right: var(--app-social-inset); }
     body.has-social .social-rail {
       position: fixed;
-      top: var(--app-top);
+      top: var(--app-gap);
       right: var(--app-gap);
       bottom: max(var(--app-player-height, 0px), var(--app-gap));
       z-index: var(--bs-z-fixed);
@@ -1388,7 +1390,7 @@
     body.has-social:not(.social-collapsed) .social-rail { display: none; }
     body.has-social:not(.social-collapsed) .social-panel {
       position: fixed;
-      top: var(--app-top);
+      top: var(--app-gap);
       right: var(--app-gap);
       bottom: max(var(--app-player-height, 0px), var(--app-gap));
       z-index: var(--bs-z-fixed);
@@ -1702,13 +1704,16 @@
   .dashboard-user-avatar-img { width: 2.5rem; height: 2.5rem; }
 
   /* ------------------------------------------------------------- Top bar */
-  /* The app shell's top bar (DESIGN.md "App shell", "Search"): one row above the
-     panels holding only the global search field, centred in the window (not in
-     the page column), as Spotify has it. It sits on the page colour with a gap
-     above and below; no card, no rule. From 768px it is fixed and the panels
-     start under it (--app-top); below 768px it is only on the search page,
-     between the row of places and the page panel. Shown = body.has-topbar
-     (search.js); login, pending and /dashboard never have it, so no gap. */
+  /* The app shell's top bar (DESIGN.md "App shell", "Search"): one row at the top
+     of the page column holding only the global search field, centred in that
+     column. The sidebar and the chat column (or its rail) run past it to the
+     window's top, as Spotify's side panels do. It sits on the page colour with a
+     gap above and below; no card, no rule. From 768px it is fixed, spans the page
+     column (the body's padding: --app-sidebar-width on the left, --app-social-inset
+     on the right) and the page panel and the library overlay start under it
+     (--app-top); below 768px it is only on the search page, between the row of
+     places and the page panel. Shown = body.has-topbar (search.js); login,
+     pending and /dashboard never have it, so no gap. */
   .app-search { display: none; }
   .app-search-field { position: relative; flex: 1 1 auto; min-width: 0; max-width: 32rem; }
   @media (width >= 768px) {
@@ -1716,7 +1721,7 @@
     body.has-topbar .app-search {
       position: fixed;
       top: 0;
-      right: 0;
+      right: var(--app-social-inset, 0px);
       left: 0;
       z-index: var(--bs-z-fixed);
       display: flex;
@@ -1727,6 +1732,7 @@
       /* Touch scrolls the document: content passing under the bar stays hidden. */
       background-color: var(--app-page-bg);
     }
+    body.has-plnav.has-topbar .app-search { left: var(--app-sidebar-width); }
   }
   @media (width < 768px) {
     body.has-topbar .app-search {

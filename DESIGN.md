@@ -203,7 +203,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 
 | Need | Use |
 | --- | --- |
-| Top bar | `nav.navbar.app-navbar > .container` (brand `.app-brand` or back button + `h1.h6`, actions on the right). In the signed-in app it is the page panel's head: same surface, no rule under it, the title a size up (`--bs-font-size-lg`). Not to be confused with the shell's top bar above the panels, which holds only the search field (see "App shell"). |
+| Top bar | `nav.navbar.app-navbar > .container` (brand `.app-brand` or back button + `h1.h6`, actions on the right). In the signed-in app it is the page panel's head: same surface, no rule under it, the title a size up (`--bs-font-size-lg`). Not to be confused with the shell's top bar above the page panel, which holds only the search field (see "App shell"). |
 | Version, Android app, changelog, GitHub | One place only: the About card at the bottom of the profile page (`#profile-about`). Android app is an in-app link to `/app`; the others open a new tab so playback continues; `setupAppMeta()` in `ui.js` fills the version from `/api/version` and leaves it hidden on failure. Never in a navbar. |
 | Grouped content | `.card` with `.card-header` (h6) / `.card-body` / `.card-footer`. |
 | Lists of items (songs, playlists, users, tokens) | `ul.list-group` with `li.list-group-item` (flex row: `.app-thumb`, text block `min-w-0 flex-grow-1`, actions). Clickable rows: `.list-group-item-action` + `tabindex="0"` + Enter/Space handler. Empty state: `li.list-group-item.app-empty`. |
@@ -240,17 +240,24 @@ bar across the bottom; on phones the sidebar is a drawer and a row of places is 
 `--app-gap` (8px, 6px on phones) sits between them and around the window's edge; corners
 are `--app-panel-radius`; no panel has an outline (see "Elevation and border rules").
 
-- **The top bar** (`form#app-search`, `body.has-topbar`, "Top bar" in `app.css`): from 768px a row above all the panels holding
-  only the global search field, centred in the **window** (Spotify's place for it), never in the page column, 32rem at most.
-  It sits on the page colour, a gap from the window's top and a gap above the panels, with no card, rule or shadow; the sidebar,
-  the page, the library overlay and the chat column or its rail all start under it, at `--app-top` (a gap, plus the bar's
-  2.5rem and a gap when it is shown), and `--app-view-height` takes it off. It is fixed: it never scrolls and is never moved
-  into a page. Nothing else goes in it (brand, GitHub, profile and the collapse toggle stay in the sidebar's top panel), so the
-  field cannot collide with anything; at 768px it still has 112px either side. It is shown on the signed-in pages that have the
+- **The side columns are full height**, as Spotify's side panels are: the sidebar's two panels and the chat column (or
+  its rail) always start a gap below the window's top and end a gap above the player bar, whatever the top bar does.
+- **The top bar** (`form#app-search`, `body.has-topbar`, "Top bar" in `app.css`): from 768px a row at the top of the
+  **page column** only, holding only the global search field, centred in the **page column** (not in the window any more:
+  the side columns run past it to the top), 32rem at most. It spans exactly the page column (fixed, `left` =
+  `--app-sidebar-width`, `right` = `--app-social-inset`, so it follows the rail, a dragged width and the chat opening or
+  closing) with a gap inside on each side, as the page panel has, so the field's centre is the page panel's centre. It sits
+  on the page colour, a gap from the window's top and a gap above the page panel, with no card, rule or shadow; the page
+  panel and the library overlay start under it, at `--app-top` (a gap, plus the bar's 2.5rem and a gap when it is shown),
+  and `--app-view-height` takes it off. It is fixed: it never scrolls and is never moved into a page. Nothing else goes in
+  it (brand, GitHub, profile and the collapse toggle stay in the sidebar's top panel), so the field cannot collide with
+  anything; at 768px with the rail it still has 84px either side, and in a page column narrower than the field it
+  narrows with it. It is shown on the signed-in pages that have the
   search (Home, playlist, Radio, artists, an artist, search, profile, `/app`, and the library overlay); login, pending and
-  `/dashboard` have no bar and no gap (`--app-top` stays one gap). The full-screen `/social` below 1010px covers it. Below 768px
-  it is only on the search page, a sticky row between the row of places and the page panel (`--app-topbar-room`). In the tab
-  order it comes before the page.
+  `/dashboard` have no bar and no gap (`--app-top` stays one gap). The full-screen `/social` below 1010px covers it. Below
+  768px it is only on the search page, a sticky row between the row of places and the page panel (`--app-topbar-room`).
+  Layout is by position, not a grid: the DOM order is unchanged (the row of places, the field, the views, the sidebar,
+  the chat column, the player bar), so in the tab order the field comes before the page.
 - The columns are where "Columns and breakpoints" puts them: `--app-sidebar-width` and `--app-social-inset` are
   whole columns, each holding its panel and the gap at the window's edge; the page panel has a gap on both sides.
   So the page panel is 16px narrower than the page column in the table, and `@container page` rules see that.
@@ -499,8 +506,8 @@ Two rounded panels, a gap apart (see "App shell"):
   and only the list scrolls.
 
 - **From 768px**: fixed left column, `--app-sidebar-width` (16.5rem, 19rem from 1440px; 4.5rem as the rail),
-  the whole column including the gap at the window's edge, from `--app-top` (a gap below the top bar, or below the window's
-  top without one) down to a gap above the player bar. `body` gets the same `padding-left`, and the library overlay's `left` follows it, as the chat column does on
+  the whole column including the gap at the window's edge, from a gap below the window's top (the top bar with the search
+  is in the page column only, see "App shell") down to a gap above the player bar. `body` gets the same `padding-left`, and the library overlay's `left` follows it, as the chat column does on
   the right.
 - **Rail** (`body.plnav-rail`, 72px, see "Columns and breakpoints" for when): the same two panels, re-styled. Brand
   icon, GitHub, profile, the toggle (`#plnav-toggle`, chevron, "Expand / Collapse playlists", `aria-expanded`), the places as
@@ -617,7 +624,7 @@ One field for the whole signed-in app and one page, `/search?q=…` (`search.js`
 in `backend/src/songSearch.js`).
 
 - **The field** (`form#app-search[role=search]`, `#app-search-input`): the shell's **top bar** (see "App shell"), one element that never
-  moves: centred in the window above the panels from 768px (landing, playlist, Radio, artists, an artist, search, profile, `/app`, and
+  moves: at the top of the page column and centred in it (not in the window), above the page panel, from 768px (landing, playlist, Radio, artists, an artist, search, profile, `/app`, and
   the library overlay while it is open), shown or hidden by `search.js` (`body.has-topbar`). Not on login, pending or `/dashboard`. A `.form-control`
   pill, 2.5rem, max 32rem, with the search icon inside at the start and a `kbd` hint at the end ("Ctrl K", "⌘K" on a Mac; hidden
   while there is text and on touch). Placeholder "Search songs, artists, playlists, or paste a link"; "Find songs to add to <name>"
@@ -981,7 +988,8 @@ when they do not fit. Each card is a labelled `section` (`aria-labelledby` its t
 can move focus there).
 
 - **Desktop (>= 1010px)**: fixed right column, `--app-social-width` (17.5rem, 20rem from 1200px) wide including
-  the gap at the window's edge, from `--app-top` (under the top bar, see "App shell") down to a gap above the player bar,
+  the gap at the window's edge, from a gap below the window's top (beside the top bar, which is in the page column only,
+  see "App shell") down to a gap above the player bar,
   as is the rail. `body` gets the same `padding-right`, so every page (and the library overlay, via `right`) shifts left
   rather than sitting under it. Collapse with the chevron in the People card. Present on every
   signed-in page (landing, playlist, library overlay, profile), next to the pending-approval

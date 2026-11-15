@@ -77,18 +77,22 @@ describe('frontend: the shell top bar and the playlist header', () => {
     for (const id of ['search-view', 'landing-view', 'lobby-view', 'profile-view']) assert.doesNotMatch(viewHtml(id), /id="app-search"/, id);
     assert.doesNotMatch(read('search.js'), /\.prepend\(bar\)|is-stuck/, 'never moved into a page');
   });
-  it('every column starts under it (--app-top), centred field, no rule or accent edge', () => {
+  it('the side columns are full height; the page column starts under it (--app-top), field centred in that column, no rule or accent edge', () => {
     for (const sel of ['body.has-plnav .app-sidebar {', 'body.has-social .social-rail {', 'body.has-social:not(.social-collapsed) .social-panel {']) {
       const rule = css.slice(css.indexOf(sel), css.indexOf('}', css.indexOf(sel)));
-      assert.match(rule, /top: var\(--app-top\)/, sel);
+      assert.match(rule, /top: var\(--app-gap\)/, sel);
+      assert.doesNotMatch(rule, /--app-top/, sel);
     }
     assert.match(css, /\.library-page \{[^}]*inset: var\(--app-top\)/);
     assert.match(css, /body\.has-plnav \.view \{[^}]*margin: var\(--app-top\)/);
     const bar = css.match(/body\.has-topbar \.app-search \{([^}]*)\}/);
     assert.ok(bar, 'top bar rule');
     assert.match(bar[1], /justify-content: center/);
+    assert.match(bar[1], /padding: var\(--app-gap\)/);
+    // It spans the page column: between the sidebar and the chat column (or its rail).
     assert.match(bar[1], /left: 0/);
-    assert.match(bar[1], /right: 0/);
+    assert.match(bar[1], /right: var\(--app-social-inset, 0px\)/);
+    assert.match(css, /body\.has-plnav\.has-topbar \.app-search \{ left: var\(--app-sidebar-width\); \}/);
     assert.doesNotMatch(bar[1], /border|box-shadow/);
   });
   it('the playlist page: header, then one toolbar; no Add songs, library button or stats pills', () => {
