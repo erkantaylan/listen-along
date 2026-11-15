@@ -18,7 +18,7 @@
  * spliced out: A is re-pointed to whomever B had picked, so A keeps hearing
  * the same music.
  *
- * Root's now-playing (presence.js) is the source of truth: every change goes
+ * Root's now-playing (features/social presence.ts) is the source of truth: every change goes
  * to each follower socket as `listen:sync` with the server timestamp of the
  * report, so the follower computes the target position itself.
  *
@@ -49,7 +49,7 @@ import type { AppSocket } from '../../shared/types.ts';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_NAMES = 3;
-const SOCIAL_ROOM = 'social'; // social.js ROOM
+const SOCIAL_ROOM = 'social'; // features/social ROOM
 
 /** The follow graph: users.id -> the user they picked, and the socket that plays along. */
 export interface ListenGraph {
@@ -168,7 +168,7 @@ export function createSourceResolver(lookup: ((url: string) => Promise<string | 
   };
 }
 
-/** What listen-along reads of a now-playing entry (presence.js). */
+/** What listen-along reads of a now-playing entry (features/social presence.ts). */
 export interface ListenNowPlaying {
   track: { title: string; artist: string | null; thumbnail: string | null };
   /** the queue url (`library:<uuid>` or a YouTube URL), never sent as it is */

@@ -2,7 +2,7 @@
  * The Socket.IO server: its rooms, the handshake (who may connect), the
  * central-login re-check of open sockets, and the connection handler, which
  * builds one connection's account helpers and hands them to each area's
- * register(socket, ctx): social.js and features/listen-along (attach), then
+ * register(socket, ctx): features/social and features/listen-along (attach), then
  * playlistSockets.js and queueSockets.js, then the disconnect handler. The
  * order of registration is the order of the handlers, keep it.
  *
@@ -121,7 +121,7 @@ function attachSocketHandlers({ io, env, db, userAuth, oidc: OIDC, oidcSessions,
     // a client-supplied id).
     const userId = socket.data.userId;
 
-    // Global chat + people panel (presence, now playing): see social.js.
+    // Global chat + people panel (presence, now playing): see features/social.
     const social = getSocial();
     if (social) social.attach(socket);
     // Listen along with another user (follows their now-playing): features/listen-along.
@@ -142,7 +142,7 @@ function attachSocketHandlers({ io, env, db, userAuth, oidc: OIDC, oidcSessions,
     };
     // The name shown for this socket in playlists and on queued songs: the
     // account's display name. Only without a database (no users table) is the
-    // client's name used, as social.js does.
+    // client's name used, as features/social does.
     const cleanName = (v) => (typeof v === 'string' ? v.trim().slice(0, 30) : '');
     const cleanEmoji = (v) => (typeof v === 'string' && v ? v.slice(0, 10) : null);
     const displayName = async (clientName) => {

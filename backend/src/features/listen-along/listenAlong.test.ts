@@ -6,12 +6,15 @@ import { io as ioClient } from 'socket.io-client';
 import type { Socket as ClientSocket } from 'socket.io-client';
 import { createListenGraph, createSourceResolver } from './listenAlong.ts';
 import { startServer, cookieFor } from '../../testServer.js';
-import type { ListenIo, ListenSocket } from './listenAlong.ts';
+import type { ListenIo, ListenPresence, ListenSocket } from './listenAlong.ts';
+import type { Presence } from '../social/index.ts';
 import type { AppSocket, Io } from '../../shared/types.ts';
 
 // What index.js and socketServer.js pass (typecheck only).
 export const realServerFits = (io: Io): ListenIo => io;
 export const realSocketFits = (socket: AppSocket): ListenSocket => socket;
+// index.js hands it social's presence.
+export const presenceFits = (presence: Presence): ListenPresence => presence;
 
 // What the server sends over the socket: JSON, read field by field below.
 type Payload = any;

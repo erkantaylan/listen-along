@@ -14,7 +14,7 @@ const express = require('express');
  * @param {object} deps
  * @param {{ isAvailable: () => boolean, query: Function }} deps.db
  * @param {{ userIdFor: (req: object) => Promise<string|null>, invalidate: (userId: string) => void }} deps.userAuth
- * @param {() => ({ profileChanged: (userId: string) => void }|null)} deps.getSocial - social.js, once start() made it
+ * @param {() => ({ profileChanged: (userId: string) => void }|null)} deps.getSocial - features/social, once start() made it
  * @returns {import('express').Router}
  */
 function createProfileRouter({ db, userAuth, getSocial }) {

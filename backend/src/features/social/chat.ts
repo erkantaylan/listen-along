@@ -17,9 +17,45 @@
  * time (so renames show up); author_name is a snapshot kept as a fallback.
  */
 
-const MAX_LENGTH = 1000;
-const PAGE_SIZE = 50;
-const MAX_PAGE_SIZE = 100;
+import type { Queryable } from '../../shared/types.ts';
+
+export const MAX_LENGTH = 1000;
+export const PAGE_SIZE = 50;
+export const MAX_PAGE_SIZE = 100;
+
+/** A chat message as clients get it (chat:message, chat:history). */
+export interface ChatMessage {
+  id: number;
+  userId: string | null;
+  authorName: string;
+  authorEmoji: string | null;
+  authorAvatar: string | null;
+  text: string;
+  /** ms */
+  createdAt: number;
+}
+
+/** The author's display details at the time of writing (the name is kept as a fallback). */
+export interface ChatAuthor {
+  name?: string | null;
+  emoji?: string | null;
+  avatarUrl?: string | null;
+}
+
+/** The same async interface with Postgres or in memory. */
+export interface ChatStore {
+  kind: 'memory' | 'postgres';
+  add(message: { userId: string | null; author?: ChatAuthor; text: string; createdAt?: number }): Promise<ChatMessage>;
+  /** Newest page before the cursor (a message id), oldest first. */
+  page(opts?: { before?: unknown; limit?: unknown }): Promise<{ messages: ChatMessage[]; hasMore: boolean }>;
+  remove(id: unknown): Promise<boolean>;
+}
+
+export interface RateLimiter {
+  /** Counts a hit; false when `key` is over its budget. */
+  hit(key: string): boolean;
+  reset(key: string): void;
+}
 
 // Control characters (except tab/newline) and bidi overrides, which could be
 // used to make a message look like something else.
@@ -28,7 +64,7 @@ const STRIP_RE = /[\u0000-\u0008\u000B-\u001F\u007F‪-‮⁦-⁩]/g;
 /**
  * Clean up a message from a client. Returns { text } or { error }.
  */
-function normalizeText(raw) {
+export function normalizeText(raw: unknown): { text: string; error?: undefined } | { error: string; text?: undefined } {
   if (typeof raw !== 'string') return { error: 'Message must be text' };
   const text = raw
     .replace(/\r\n?/g, '\n')
@@ -40,14 +76,14 @@ function normalizeText(raw) {
   return { text };
 }
 
-function clampLimit(limit) {
-  const n = Number.parseInt(limit, 10);
+function clampLimit(limit: unknown): number {
+  const n = Number.parseInt(limit as string, 10);
   if (!Number.isFinite(n) || n <= 0) return PAGE_SIZE;
   return Math.min(n, MAX_PAGE_SIZE);
 }
 
 // A keyset cursor: the id of the oldest message the client already has.
-function parseCursor(before) {
+export function parseCursor(before: unknown): number | null {
   if (before === undefined || before === null || before === '') return null;
   const n = Number(before);
   return Number.isSafeInteger(n) && n > 0 ? n : null;
@@ -57,8 +93,8 @@ function parseCursor(before) {
  * Sliding-window limiter keyed by user: at most `limit` hits per `windowMs`.
  * Keyed per user (not per socket) so several tabs share one budget.
  */
-function createRateLimiter({ limit = 5, windowMs = 10_000, now = Date.now } = {}) {
-  const hits = new Map(); // key -> timestamps (ascending)
+export function createRateLimiter({ limit = 5, windowMs = 10_000, now = Date.now }: { limit?: number; windowMs?: number; now?: () => number } = {}): RateLimiter {
+  const hits = new Map<string, number[]>(); // key -> timestamps (ascending)
   return {
     hit(key) {
       const t = now();
@@ -72,13 +108,13 @@ function createRateLimiter({ limit = 5, windowMs = 10_000, now = Date.now } = {}
   };
 }
 
-function createMemoryStore() {
-  const messages = []; // ascending by id
+export function createMemoryStore(): ChatStore {
+  const messages: ChatMessage[] = []; // ascending by id
   let nextId = 1;
   return {
     kind: 'memory',
     async add({ userId, author = {}, text, createdAt = Date.now() }) {
-      const msg = {
+      const msg: ChatMessage = {
         id: nextId++,
         userId,
         authorName: author.name || 'User',
@@ -113,7 +149,20 @@ function createMemoryStore() {
   };
 }
 
-function rowToMessage(r) {
+/** A message row with its author's current details (SELECT_MESSAGES). */
+interface MessageRow {
+  id: string;
+  user_id: string | null;
+  author_name: string | null;
+  body: string;
+  /** BIGINT ms */
+  created_at: string;
+  current_name: string | null;
+  emoji: string | null;
+  avatar_url: string | null;
+}
+
+function rowToMessage(r: MessageRow): ChatMessage {
   return {
     id: Number(r.id),
     userId: r.user_id || null,
@@ -131,25 +180,25 @@ const SELECT_MESSAGES = `
   FROM global_chat_messages m
   LEFT JOIN users u ON u.id = m.user_id`;
 
-function createPgStore(db) {
+export function createPgStore(db: Queryable): ChatStore {
   return {
     kind: 'postgres',
     async add({ userId, author = {}, text, createdAt = Date.now() }) {
-      const ins = await db.query(
+      const ins = await db.query<{ id: string }>(
         `INSERT INTO global_chat_messages (user_id, author_name, body, created_at)
          VALUES ($1, $2, $3, $4) RETURNING id`,
         [userId, author.name || null, text, createdAt]
       );
-      const r = await db.query(`${SELECT_MESSAGES} WHERE m.id = $1`, [ins.rows[0].id]);
+      const r = await db.query<MessageRow>(`${SELECT_MESSAGES} WHERE m.id = $1`, [ins.rows[0].id]);
       return rowToMessage(r.rows[0]);
     },
     async page({ before, limit } = {}) {
       const n = clampLimit(limit);
       const cursor = parseCursor(before);
-      const params = [n + 1];
+      const params: number[] = [n + 1];
       let where = '';
       if (cursor !== null) { params.push(cursor); where = 'WHERE m.id < $2'; }
-      const r = await db.query(`${SELECT_MESSAGES} ${where} ORDER BY m.id DESC LIMIT $1`, params);
+      const r = await db.query<MessageRow>(`${SELECT_MESSAGES} ${where} ORDER BY m.id DESC LIMIT $1`, params);
       const hasMore = r.rows.length > n;
       const rows = r.rows.slice(0, n).reverse();
       return { messages: rows.map(rowToMessage), hasMore };
@@ -158,18 +207,7 @@ function createPgStore(db) {
       const n = parseCursor(id);
       if (n === null) return false;
       const r = await db.query('DELETE FROM global_chat_messages WHERE id = $1', [n]);
-      return r.rowCount > 0;
+      return (r.rowCount as number) > 0;
     },
   };
 }
-
-module.exports = {
-  MAX_LENGTH,
-  PAGE_SIZE,
-  MAX_PAGE_SIZE,
-  normalizeText,
-  parseCursor,
-  createRateLimiter,
-  createMemoryStore,
-  createPgStore,
-};

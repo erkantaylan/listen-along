@@ -367,9 +367,9 @@ where lobby persistence broke entirely on deployed instances.
   Stats are client-side over the full queue (`playlist-stats.js`). `/:id/songs` still returns everything.
 - There is no per-playlist chat. There is one global chat plus a people panel
   (web: column from 1200px, full-screen `/social` below; `#social-rail` is the opener from 1024px, DESIGN.md)
-  (presence + now playing): `backend/src/social.js` (socket events, privacy),
-  `chat.js` (store: Postgres `global_chat_messages`, in-memory without a DB;
-  keyset pagination), `presence.js` (online = >= 1 socket, `users.last_seen`,
+  (presence + now playing): `backend/src/features/social/`: `social.ts` (socket events, privacy),
+  `chat.ts` (store: Postgres `global_chat_messages`, in-memory without a DB;
+  keyset pagination), `presence.ts` (online = >= 1 socket, `users.last_seen`,
   one now-playing entry per user, server-timestamped). Never send a raw
   presence entry to a client: `viewNowPlaying()` drops a playlist the
   viewer cannot see.

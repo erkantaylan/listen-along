@@ -1,6 +1,6 @@
 /**
  * Who is online and what each user is playing. Pure in-memory state with no
- * Socket.IO or database access (social.js wires it up), so it is unit tested
+ * Socket.IO or database access (social.ts wires it up), so it is unit tested
  * directly (social.test.js) and can be reused by listen-along (follow a user).
  *
  * Presence: a user is online while they have at least one connected socket;
@@ -27,7 +27,7 @@
  * the anchor for `position`.
  * context = { type: 'library' } | { type: 'radio' } | { type: 'artist', key, name }
  *         | { type: 'lobby', lobbyId } | null
- * An artist context is public to every viewer (artists.js lists them for all
+ * An artist context is public to every viewer (features/artists lists them for all
  * approved accounts): the key is checked, the name is the client's text, like
  * the track's own title and artist.
  *
@@ -35,20 +35,92 @@
  * it is: viewNowPlaying() drops the playlist unless the viewer may see it.
  */
 
-const { EventEmitter } = require('events');
+import { EventEmitter } from 'node:events';
+import type { Playlist } from '../../shared/types.ts';
 
 const MAX_FIELD = 300;
-// artists.js keys: artistCredits.artistNameKey, letters and digits only.
+// features/artists keys: artistCredits.artistNameKey, letters and digits only.
 const ARTIST_KEY_RE = /^[\p{L}\p{N}]{1,200}$/u;
 
-function str(v, max = MAX_FIELD) {
+/** Where a song is played from, as recorded (checked) from a client's report. */
+export type PlayContext =
+  | { type: 'library' }
+  | { type: 'radio' }
+  | { type: 'artist'; key: string; name: string | null }
+  | { type: 'lobby'; lobbyId: string };
+
+/** A client's report, checked. */
+export interface NowPlayingReport {
+  track: { id: string | null; title: string; artist: string | null; thumbnail: string | null };
+  /** the queue url (`library:<uuid>` or a YouTube URL); never sent to clients */
+  source: string | null;
+  context: PlayContext | null;
+  playing: boolean;
+  position: number;
+  duration: number;
+}
+
+/** What presence keeps per user: the report, the socket that sent it, and when. */
+export interface NowPlayingEntry extends NowPlayingReport {
+  socketId: string;
+  /** server time of the report: the anchor for `position` */
+  updatedAt: number;
+}
+
+/** What a viewer may see of an entry (viewNowPlaying). */
+export interface NowPlayingView {
+  track: NowPlayingReport['track'];
+  context:
+    | { type: 'library' }
+    | { type: 'radio' }
+    | { type: 'artist'; key: string; name: string | null }
+    | { type: 'lobby'; lobbyId: string; name: string | null; socketId: string }
+    | null;
+  playing: boolean;
+  position: number;
+  duration: number;
+  updatedAt: number;
+}
+
+export interface PresenceEvents {
+  online: [userId: string];
+  offline: [userId: string, lastSeen: number];
+  'now-playing': [userId: string, entry: NowPlayingEntry | null];
+}
+
+export interface Presence {
+  on<E extends keyof PresenceEvents>(event: E, listener: (...args: PresenceEvents[E]) => void): Presence;
+  off<E extends keyof PresenceEvents>(event: E, listener: (...args: PresenceEvents[E]) => void): Presence;
+  /** A socket of `userId` connected. Returns { online } (true = just came online). */
+  connect(userId: string, socketId: string): { online: boolean };
+  /** A socket went away. Returns { offline } (true = user is now offline, grace 0 only). */
+  disconnect(userId: string, socketId: string): { offline: boolean };
+  isOnline(userId: string): boolean;
+  onlineUserIds(): string[];
+  socketIds(userId: string): string[];
+  lastSeen(userId: string): number | null;
+  /** Seed from the database (users.last_seen). */
+  setLastSeen(userId: string, ms: string | number | null | undefined): void;
+  /**
+   * Record what a socket of `userId` reports. Only connected sockets count.
+   * Returns the new entry, null when cleared, or undefined when ignored.
+   */
+  setNowPlaying(userId: string, socketId: string, report: unknown): NowPlayingEntry | null | undefined;
+  getNowPlaying(userId: string): NowPlayingEntry | null;
+  /** Users whose now-playing context is this playlist. */
+  usersPlayingFromLobby(lobbyId: string): string[];
+  /** Stop all timers (tests, shutdown). */
+  close(): void;
+}
+
+function str(v: unknown, max = MAX_FIELD): string | null {
   if (typeof v !== 'string') return null;
   const s = v.trim();
   return s ? s.slice(0, max) : null;
 }
 
 // What a queue entry / library track carries as `url`.
-function source(v) {
+function source(v: unknown): string | null {
   const s = str(v, 300);
   if (!s) return null;
   if (/^library:[0-9a-f-]{36}$/i.test(s)) return s;
@@ -56,18 +128,28 @@ function source(v) {
   return null;
 }
 
-function num(v) {
+function num(v: unknown): number {
   const n = Number(v);
   return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
+/** A client's report as it arrives: anything, read field by field. */
+interface RawReport {
+  track?: { id?: unknown; title?: unknown; artist?: unknown; thumbnail?: unknown; url?: unknown } | null;
+  context?: { type?: unknown; key?: unknown; name?: unknown; lobbyId?: unknown } | null;
+  playing?: unknown;
+  position?: unknown;
+  duration?: unknown;
+}
+
 /** Validate a client report. Returns null when nothing is playing. */
-function normalizeReport(report) {
+export function normalizeReport(input: unknown): NowPlayingReport | null {
+  const report = input as RawReport | null | undefined;
   if (!report || typeof report !== 'object' || !report.track || typeof report.track !== 'object') return null;
   const t = report.track;
   const title = str(t.title);
   if (!title) return null;
-  let context = null;
+  let context: PlayContext | null = null;
   const c = report.context;
   if (c && c.type === 'library') context = { type: 'library' };
   else if (c && c.type === 'radio') context = { type: 'radio' };
@@ -86,14 +168,14 @@ function normalizeReport(report) {
   };
 }
 
-function createPresence({ graceMs = 5000, now = Date.now } = {}) {
+export function createPresence({ graceMs = 5000, now = Date.now }: { graceMs?: number; now?: () => number } = {}): Presence {
   const events = new EventEmitter();
-  const sockets = new Map();   // userId -> Set<socketId>
-  const offlineTimers = new Map(); // userId -> timeout (in grace)
-  const lastSeen = new Map();  // userId -> ms
-  const playing = new Map();   // userId -> entry
+  const sockets = new Map<string, Set<string>>();   // userId -> Set<socketId>
+  const offlineTimers = new Map<string, NodeJS.Timeout>(); // userId -> timeout (in grace)
+  const lastSeen = new Map<string, number>();  // userId -> ms
+  const playing = new Map<string, NowPlayingEntry>();   // userId -> entry
 
-  function goOffline(userId) {
+  function goOffline(userId: string): void {
     offlineTimers.delete(userId);
     sockets.delete(userId);
     const t = now();
@@ -102,11 +184,10 @@ function createPresence({ graceMs = 5000, now = Date.now } = {}) {
     events.emit('offline', userId, t);
   }
 
-  const presence = {
-    on: (...a) => { events.on(...a); return presence; },
-    off: (...a) => { events.off(...a); return presence; },
+  const presence: Presence = {
+    on: (event, listener) => { events.on(event, listener); return presence; },
+    off: (event, listener) => { events.off(event, listener); return presence; },
 
-    /** A socket of `userId` connected. Returns { online } (true = just came online). */
     connect(userId, socketId) {
       if (!userId || !socketId) return { online: false };
       const timer = offlineTimers.get(userId);
@@ -119,7 +200,6 @@ function createPresence({ graceMs = 5000, now = Date.now } = {}) {
       return { online: !wasOnline };
     },
 
-    /** A socket went away. Returns { offline } (true = user is now offline, grace 0 only). */
     disconnect(userId, socketId) {
       const set = sockets.get(userId);
       if (!set || !set.delete(socketId)) return { offline: false };
@@ -147,13 +227,8 @@ function createPresence({ graceMs = 5000, now = Date.now } = {}) {
     socketIds(userId) { return [...(sockets.get(userId) || [])]; },
 
     lastSeen(userId) { return lastSeen.get(userId) || null; },
-    /** Seed from the database (users.last_seen). */
     setLastSeen(userId, ms) { if (ms) lastSeen.set(userId, Number(ms)); },
 
-    /**
-     * Record what a socket of `userId` reports. Only connected sockets count.
-     * Returns the new entry, null when cleared, or undefined when ignored.
-     */
     setNowPlaying(userId, socketId, report) {
       if (!sockets.get(userId)?.has(socketId)) return undefined;
       const r = normalizeReport(report);
@@ -167,7 +242,7 @@ function createPresence({ graceMs = 5000, now = Date.now } = {}) {
       // browser) must not override the tab that is now playing.
       const current = playing.get(userId);
       if (current && current.socketId !== socketId && current.playing && !r.playing) return undefined;
-      const entry = { socketId, ...r, updatedAt: now() };
+      const entry: NowPlayingEntry = { socketId, ...r, updatedAt: now() };
       playing.set(userId, entry);
       events.emit('now-playing', userId, entry);
       return entry;
@@ -175,14 +250,12 @@ function createPresence({ graceMs = 5000, now = Date.now } = {}) {
 
     getNowPlaying(userId) { return playing.get(userId) || null; },
 
-    /** Users whose now-playing context is this playlist. */
     usersPlayingFromLobby(lobbyId) {
       return [...playing.entries()]
         .filter(([, e]) => e.context && e.context.type === 'lobby' && e.context.lobbyId === lobbyId)
         .map(([u]) => u);
     },
 
-    /** Stop all timers (tests, shutdown). */
     close() {
       for (const t of offlineTimers.values()) clearTimeout(t);
       offlineTimers.clear();
@@ -197,9 +270,12 @@ function createPresence({ graceMs = 5000, now = Date.now } = {}) {
  * cannot see (someone else's private one, or deleted) is dropped entirely:
  * no name, no id, just the song.
  */
-function viewNowPlaying(entry, lobbyFor) {
+export function viewNowPlaying(
+  entry: NowPlayingEntry | null | undefined,
+  lobbyFor: (lobbyId: string) => Pick<Playlist, 'id' | 'name'> | null | undefined,
+): NowPlayingView | null {
   if (!entry) return null;
-  let context = null;
+  let context: NowPlayingView['context'] = null;
   if (entry.context && entry.context.type === 'library') {
     context = { type: 'library' };
   } else if (entry.context && entry.context.type === 'radio') {
@@ -219,5 +295,3 @@ function viewNowPlaying(entry, lobbyFor) {
     updatedAt: entry.updatedAt,
   };
 }
-
-module.exports = { createPresence, viewNowPlaying, normalizeReport };

@@ -14,7 +14,8 @@ import { policyFor } from '../../userAuth.js';
 import { groupArtists, listArtists } from './artists.ts';
 import type { ArtistSummary, GroupableRow } from './artists.ts';
 import type { StationSong } from '../radio/index.ts';
-import { normalizeReport, viewNowPlaying } from '../../presence.js';
+import { normalizeReport, viewNowPlaying } from '../social/index.ts';
+import type { NowPlayingEntry } from '../social/index.ts';
 
 let PostgreSqlContainer: typeof import('@testcontainers/postgresql').PostgreSqlContainer | undefined;
 try { ({ PostgreSqlContainer } = await import('@testcontainers/postgresql')); } catch {}
@@ -96,7 +97,7 @@ describe('artists: policy and presence', () => {
   it('an artist context keeps a checked key and the name, and nothing else', () => {
     const report = { track: { title: 'Şımarık' }, context: { type: 'artist', key: 'tarkan', name: ' Tarkan ', lobbyId: 'abc' }, playing: true };
     assert.deepEqual(normalizeReport(report)!.context, { type: 'artist', key: 'tarkan', name: 'Tarkan' });
-    assert.deepEqual(viewNowPlaying(normalizeReport(report)!, () => null)!.context, { type: 'artist', key: 'tarkan', name: 'Tarkan' });
+    assert.deepEqual(viewNowPlaying(normalizeReport(report) as NowPlayingEntry, () => null)!.context, { type: 'artist', key: 'tarkan', name: 'Tarkan' });
     for (const key of ['', 'a b', '../x', 'x'.repeat(201), 42, null]) {
       assert.equal(normalizeReport({ ...report, context: { type: 'artist', key, name: 'X' } })!.context, null, String(key));
     }
