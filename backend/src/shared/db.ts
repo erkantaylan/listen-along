@@ -8,9 +8,14 @@
  * fail closed instead.
  *
  * The schema lives with the area that owns it, as a `schema.ts` exporting
- * `{ tables, migrations }` (SCHEMA below). init() runs every area's tables, then
- * every area's migrations, in the order of that list. Rules (CLAUDE.md,
- * "Database Migrations"):
+ * `{ tables, migrations }` and, rarely, `before` (SCHEMA below). init() runs
+ * every area's `before` steps, then every area's tables, then every area's
+ * migrations, in the order of that list. Rules (CLAUDE.md, "Database
+ * Migrations"):
+ * - `before`: what must happen before any CREATE TABLE IF NOT EXISTS runs:
+ *   renaming a table or column in place (a CREATE of the new name would
+ *   otherwise make an empty table first). Each step must succeed, and must be
+ *   idempotent and atomic on its own (one statement, e.g. a DO block).
  * - `tables`: CREATE TABLE IF NOT EXISTS only, in foreign-key order. Each must
  *   succeed.
  * - `migrations`: everything else, in the order it must run: every column
@@ -67,6 +72,8 @@ export type Migration =
 
 /** An area's schema.ts. */
 export interface AreaSchema {
+  /** Steps before any table is created (renames in place); each must succeed. */
+  before?: readonly string[];
   /** CREATE TABLE IF NOT EXISTS statements; each must succeed. */
   tables: readonly string[];
   migrations: readonly Migration[];
@@ -131,11 +138,15 @@ async function init(): Promise<boolean> {
 }
 
 /**
- * Create the tables if they don't exist, then run the migrations (SCHEMA).
+ * The `before` steps, then the tables if they don't exist, then the
+ * migrations (SCHEMA).
  */
 async function createTables(): Promise<void> {
   const q: Queryable = { query };
 
+  for (const { schema } of SCHEMA) {
+    for (const sql of schema.before || []) await q.query(sql);
+  }
   for (const { schema } of SCHEMA) {
     for (const sql of schema.tables) await q.query(sql);
   }

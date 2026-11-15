@@ -40,6 +40,14 @@ describe('the schema list', () => {
     }
   });
 
+  it('never drops a table named playlists by name (only the legacy one, in core/playlists before)', () => {
+    for (const { schema } of SCHEMA) {
+      for (const sql of [...(schema.before || []), ...schema.tables, ...schema.migrations.map(migrationSql)]) {
+        assert.doesNotMatch(sql, /DROP TABLE IF EXISTS[^;]*\bplaylists\b/i);
+      }
+    }
+  });
+
   it('never creates chat_messages and never rewrites a user status', () => {
     for (const { schema } of SCHEMA) {
       for (const sql of [...schema.tables, ...schema.migrations.map(migrationSql)]) {

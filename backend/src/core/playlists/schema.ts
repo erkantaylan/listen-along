@@ -3,6 +3,41 @@
 // folders.ts). Run by shared/db.ts, in the order of its SCHEMA list.
 import type { Migration } from '../../shared/db.ts';
 
+// Before any table is created (shared/db.ts runs every area's `before` first).
+// One DO block each: atomic, so a boot that dies half-way changes nothing.
+export const before: readonly string[] = [
+  // The personal-playlist feature (removed long ago) left the tables
+  // playlist_songs and playlists, and every boot used to drop both BY NAME. Only
+  // those legacy tables go now: a `playlists` with host_id is this app's own
+  // (the playlists table, see below) and is never dropped.
+  // Then a rollback guard: older images still run
+  // `DROP TABLE IF EXISTS playlist_songs, playlists CASCADE` on every boot.
+  // A VIEW named playlist_songs makes that whole statement fail (DROP TABLE
+  // refuses a view, even with IF EXISTS), and an older image ignores that
+  // error, so it can never drop the playlists table. Keep the view while an
+  // image with that DROP may still be started against this database.
+  `
+    DO $legacy$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                 WHERE n.nspname = 'public' AND c.relname = 'playlist_songs' AND c.relkind = 'r') THEN
+        DROP TABLE public.playlist_songs CASCADE;
+      END IF;
+      IF to_regclass('public.playlists') IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'playlists' AND column_name = 'host_id'
+      ) THEN
+        DROP TABLE public.playlists CASCADE;
+      END IF;
+      IF to_regclass('public.playlist_songs') IS NULL THEN
+        CREATE VIEW public.playlist_songs AS SELECT NULL::integer AS rollback_guard WHERE false;
+        COMMENT ON VIEW public.playlist_songs IS 'Rollback guard: makes the DROP TABLE of older images fail (core/playlists/schema.ts)';
+      END IF;
+    END
+    $legacy$
+  `,
+];
+
 export const tables: readonly string[] = [
   `
     CREATE TABLE IF NOT EXISTS lobbies (
@@ -54,13 +89,7 @@ export const tables: readonly string[] = [
 ];
 
 export const migrations: readonly Migration[] = [
-  // The personal-playlist feature was removed; drop its tables so existing
-  // deployments are cleaned up (CASCADE also clears playlist_songs).
-  // NOTE for the lobby -> playlist rename: this drops any table named
-  // `playlists` on every boot; it must go (or change) before `lobbies` is
-  // renamed to `playlists`.
-  `DROP TABLE IF EXISTS playlist_songs, playlists CASCADE`,
-
+  // (The personal-playlist feature's tables: see `before`.)
   { sql: `CREATE INDEX IF NOT EXISTS idx_lobbies_last_activity ON lobbies(last_activity);`, mustSucceed: true },
 
   // Migrations for existing databases
