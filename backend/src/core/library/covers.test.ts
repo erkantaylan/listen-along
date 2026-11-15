@@ -1,14 +1,16 @@
-const { describe, it, beforeEach, afterEach } = require('node:test');
-const assert = require('node:assert');
-const fs = require('fs');
-const path = require('path');
-const http = require('http');
+import { describe, it, beforeEach, afterEach } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 
 // Set up test covers directory before importing module
 const TEST_COVERS_DIR = '/tmp/test-covers-' + Date.now();
 process.env.COVERS_DIR = TEST_COVERS_DIR;
 
-const covers = require('./core/library/index.ts').covers;
+// covers.ts reads COVERS_DIR when it loads.
+const { covers } = await import('./index.ts');
 
 describe('covers module', () => {
   beforeEach(() => {
@@ -48,8 +50,8 @@ describe('covers module', () => {
 
       const result = covers.getCachedCover('test-song');
       assert.notStrictEqual(result, null);
-      assert.strictEqual(result.path, testPath);
-      assert.strictEqual(result.contentType, 'image/jpeg');
+      assert.strictEqual(result?.path, testPath);
+      assert.strictEqual(result?.contentType, 'image/jpeg');
     });
 
     it('finds covers with different extensions', () => {
@@ -61,7 +63,7 @@ describe('covers module', () => {
 
       const result = covers.getCachedCover('test-png');
       assert.notStrictEqual(result, null);
-      assert.strictEqual(result.contentType, 'image/png');
+      assert.strictEqual(result?.contentType, 'image/png');
     });
   });
 
@@ -121,35 +123,35 @@ describe('covers module', () => {
     it('downloads and caches image from URL', async () => {
       // Create a simple HTTP server to serve a test image
       const testImageData = Buffer.from('fake image content');
-      const server = http.createServer((req, res) => {
+      const server = http.createServer((_req, res) => {
         res.setHeader('Content-Type', 'image/jpeg');
         res.end(testImageData);
       });
 
-      await new Promise(resolve => server.listen(0, resolve));
-      const port = server.address().port;
+      await new Promise<void>(resolve => server.listen(0, resolve));
+      const port = (server.address() as AddressInfo).port;
 
       try {
         const result = await covers.cacheCover('download-test', `http://localhost:${port}/test.jpg`);
         assert.notStrictEqual(result, null);
-        assert.ok(fs.existsSync(result));
+        assert.ok(fs.existsSync(result ?? ''));
 
         const cached = covers.getCachedCover('download-test');
         assert.notStrictEqual(cached, null);
-        assert.strictEqual(cached.contentType, 'image/jpeg');
+        assert.strictEqual(cached?.contentType, 'image/jpeg');
       } finally {
         server.close();
       }
     });
 
     it('handles HTTP errors gracefully', async () => {
-      const server = http.createServer((req, res) => {
+      const server = http.createServer((_req, res) => {
         res.statusCode = 404;
         res.end('Not found');
       });
 
-      await new Promise(resolve => server.listen(0, resolve));
-      const port = server.address().port;
+      await new Promise<void>(resolve => server.listen(0, resolve));
+      const port = (server.address() as AddressInfo).port;
 
       try {
         const result = await covers.cacheCover('error-test', `http://localhost:${port}/notfound.jpg`);

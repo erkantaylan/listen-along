@@ -9,56 +9,61 @@
 //     writes the audit row, deletes the old file, serves the new one
 //   - who may replace / check: any valid token, any approved web user; not
 //     pending / denied users, not revoked tokens
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const { execSync, execFileSync } = require('node:child_process');
-const crypto = require('node:crypto');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const { cookieFor, startServer, requester } = require('./testServer');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { execSync, execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import pgModule from 'pg';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { cookieFor, startServer, requester } from '../../testServer.js';
 
-let PostgreSqlContainer;
-try { PostgreSqlContainer = require('@testcontainers/postgresql').PostgreSqlContainer; } catch {}
-const has = (cmd) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
+// Server JSON and database rows.
+type Payload = any;
+
+let PostgreSqlContainer: typeof import('@testcontainers/postgresql').PostgreSqlContainer | undefined;
+try { ({ PostgreSqlContainer } = await import('@testcontainers/postgresql')); } catch {}
+const has = (cmd: string) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
 const skip = !PostgreSqlContainer ? 'testcontainers package not installed'
   : !has('docker info') ? 'Docker not available'
   : !has('ffmpeg -version') || !has('ffprobe -version') ? 'ffmpeg/ffprobe not available' : false;
 
-const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+const sha256 = (file: string) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 
 describe('library duplicate detection and replace', { skip, timeout: 240_000 }, () => {
-  let container;
-  let pg;
-  let srv;
-  let req;
-  let tmp;
-  let songsDir;
-  const ids = {};
-  const cookies = {};
-  const tok = {};
-  const fx = {};
-  let legacyId;
+  let container: StartedPostgreSqlContainer | undefined;
+  let pg: pgModule.Client;
+  let srv: Awaited<ReturnType<typeof startServer>>;
+  let req: ReturnType<typeof requester>;
+  let tmp: string;
+  let songsDir: string;
+  const ids: Record<string, string> = {};
+  const cookies: Record<string, string> = {};
+  const tok: Record<string, string> = {};
+  const fx: Record<string, string> = {};
+  let legacyId: string;
 
-  function makeAudio(name, freq, seconds = 2) {
+  function makeAudio(name: string, freq: number, seconds = 2) {
     const out = path.join(tmp, 'fx', name);
     execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `sine=frequency=${freq}:duration=${seconds}`, '-c:a', 'aac', out]);
     return out;
   }
 
-  async function post(url, { file, fields = {}, headers = {} } = {}) {
+  async function post(url: string, { file, fields = {}, headers = {} }: { file?: string; fields?: Record<string, unknown>; headers?: Record<string, string> } = {}): Promise<{ status: number; body: Payload }> {
     const fd = new FormData();
     if (file) fd.append('file', new Blob([fs.readFileSync(file)], { type: 'audio/mp4' }), path.basename(file));
     for (const [k, v] of Object.entries(fields)) fd.append(k, String(v));
     const res = await fetch(srv.base + url, { method: 'POST', headers, body: fd });
     return { status: res.status, body: await res.json().catch(() => null) };
   }
-  const bearer = (who) => ({ Authorization: `Bearer ${tok[who]}` });
-  const upload = (file, fields, who = 'alice') => post('/api/library/upload', { file, fields, headers: bearer(who) });
-  const check = (body, who = 'alice') => req('POST', '/api/library/check', { headers: bearer(who), body });
+  const bearer = (who: string) => ({ Authorization: `Bearer ${tok[who]}` });
+  const upload = (file: string, fields: Record<string, unknown>, who = 'alice') => post('/api/library/upload', { file, fields, headers: bearer(who) });
+  const check = (body: unknown, who = 'alice') => req('POST', '/api/library/check', { headers: bearer(who), body });
 
   before(async () => {
-    container = await new PostgreSqlContainer('postgres:16-alpine')
+    container = await new PostgreSqlContainer!('postgres:16-alpine')
       .withDatabase('listen_dedupe').withUsername('test').withPassword('test').start();
     const url = container.getConnectionUri();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'la-dedupe-'));
@@ -69,10 +74,11 @@ describe('library duplicate detection and replace', { skip, timeout: 240_000 }, 
     // insert it with meta_key NULL and check the backfill fills it.
     process.env.DATABASE_URL = url;
     process.env.SONGS_PATH = songsDir;
-    const db = require('./shared/db.ts');
+    // Loaded only now: library.ts reads SONGS_PATH when it loads.
+    const db = (await import('../../shared/db.ts')).default;
     assert.ok(await db.init());
-    const library = require('./core/library/index.ts').library;
-    const legacy = await db.query(
+    const { library, songMatch } = await import('./index.ts');
+    const legacy = await db.query<Payload>(
       `INSERT INTO library_songs (title, artist, duration_sec, file_path, sha256, uploaded_by)
        VALUES ('Sevda Çiçeği (Sözleri)', 'Müslüm Gürses', 200, '/nope.m4a', $1, 'server') RETURNING id, meta_key`,
       [crypto.createHash('sha256').update('legacy').digest('hex')]
@@ -82,14 +88,13 @@ describe('library duplicate detection and replace', { skip, timeout: 240_000 }, 
     assert.ok(await library.backfillMetaKeys({ pauseMs: 0 }) >= 1);
     const after = await db.query('SELECT meta_key, meta_key_version FROM library_songs WHERE id = $1', [legacyId]);
     assert.equal(after.rows[0].meta_key, 'muslumgurses|sevda cicegi');
-    assert.equal(after.rows[0].meta_key_version, require('./core/library/index.ts').songMatch.META_KEY_VERSION);
+    assert.equal(after.rows[0].meta_key_version, songMatch.META_KEY_VERSION);
     assert.equal(await library.backfillMetaKeys({ pauseMs: 0 }), 0, 'idempotent');
     await db.close();
 
     srv = await startServer({ DATABASE_URL: url, SONGS_PATH: songsDir, COVERS_DIR: path.join(tmp, 'covers') });
     req = requester(srv.base);
-    const { Client } = require('pg');
-    pg = new Client({ connectionString: url });
+    pg = new pgModule.Client({ connectionString: url });
     await pg.connect();
     for (const key of ['alice', 'bob', 'pending', 'denied', 'revoked']) {
       const r = await pg.query(
@@ -133,7 +138,7 @@ describe('library duplicate detection and replace', { skip, timeout: 240_000 }, 
     if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  const songs = {};
+  const songs: Record<string, Payload> = {};
 
   it('the check endpoint needs a valid token of an approved user', async () => {
     assert.equal((await req('POST', '/api/library/check', { body: {} })).status, 401);
@@ -210,7 +215,7 @@ describe('library duplicate detection and replace', { skip, timeout: 240_000 }, 
       upload(fx.e, { title: 'Race Song (Official Audio)', artist: 'Racer' }),
     ]);
     assert.deepEqual(rs.map((r) => r.status).sort(), [201, 409]);
-    assert.equal(rs.find((r) => r.status === 409).body.code, 'duplicate_metadata');
+    assert.equal(rs.find((r) => r.status === 409)?.body.code, 'duplicate_metadata');
 
     // Same bytes, no metadata overlap: the sha256 unique index.
     rs = await Promise.all([
@@ -218,14 +223,14 @@ describe('library duplicate detection and replace', { skip, timeout: 240_000 }, 
       upload(fx.f, { title: 'Twin Two', artist: 'Twins B' }),
     ]);
     assert.deepEqual(rs.map((r) => r.status).sort(), [201, 409]);
-    assert.equal(rs.find((r) => r.status === 409).body.code, 'duplicate_hash');
+    assert.equal(rs.find((r) => r.status === 409)?.body.code, 'duplicate_hash');
     const n = await pg.query('SELECT count(*)::int AS n FROM library_songs WHERE title LIKE $1', ['Twin%']);
     assert.equal(n.rows[0].n, 1);
   });
 
   it('replace keeps the id, fixes every playlist holding the song, audits, swaps the file', async () => {
     // A playlist holding song A (queued by its YouTube watch URL).
-    let r = await req('POST', '/api/playlists', { headers: bearer('alice'), body: { name: 'Fix me' } });
+    let r: { status: number; body: Payload } = await req('POST', '/api/playlists', { headers: bearer('alice'), body: { name: 'Fix me' } });
     assert.equal(r.status, 201);
     const playlistId = r.body.id;
     r = await req('POST', `/api/playlists/${playlistId}/songs`, { headers: bearer('alice'), body: { songs: [songs.a.id] } });
@@ -273,7 +278,7 @@ describe('library duplicate detection and replace', { skip, timeout: 240_000 }, 
 
     // The playlist entry (same entry id) now points at the new song version
     // and streams the new file.
-    let entryAfter;
+    let entryAfter: Payload;
     for (let i = 0; i < 50; i++) {
       r = await req('GET', `/api/playlists/${playlistId}/songs`, { headers: bearer('alice') });
       entryAfter = r.body.songs[0];
@@ -294,7 +299,7 @@ describe('library duplicate detection and replace', { skip, timeout: 240_000 }, 
       assert.equal(crypto.createHash('sha256').update(Buffer.from(await s.arrayBuffer())).digest('hex'), newRow.sha256, `${q} plays the new file`);
     }
     const v = await fetch(`${srv.base}/api/library/${songs.a.id}/file?v=${newRow.sha256.slice(0, 16)}`, { headers: bearer('alice') });
-    assert.match(v.headers.get('cache-control'), /immutable/, 'versioned url is cached forever');
+    assert.match(v.headers.get('cache-control') ?? '', /immutable/, 'versioned url is cached forever');
     await v.arrayBuffer();
 
     // The metadata key follows the new title.

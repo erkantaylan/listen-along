@@ -1,37 +1,37 @@
-// The server's own "is this file broken?" check (songVerify.js), on files in a
+// The server's own "is this file broken?" check (songVerify.ts), on files in a
 // temp folder (no database: verifyBroken only asks it for a MISSING file).
 // "Broken" needs ffmpeg to blame the file, twice, with the file unchanged;
 // everything else (unreadable, out of memory, no ffmpeg, a timeout, a file
 // that vanished or changed, a full queue) is "not established".
 // VERIFY_FFMPEG puts a stand-in script in ffmpeg's place.
-const { describe, it, before, after, afterEach } = require('node:test');
-const assert = require('node:assert/strict');
-const crypto = require('node:crypto');
-const { execSync, execFileSync } = require('node:child_process');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
+import { describe, it, before, after, afterEach } from 'node:test';
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import { execSync, execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
-const has = (cmd) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
+const has = (cmd: string) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
 const BAD_INPUT = 'Error opening input: Invalid data found when processing input';
 // Fixed noise (SHA-256 in counter mode), so every run checks the same bytes: a
 // fixture that changes per run makes a test that changes per run.
-const noise = (size, seed) => {
+const noise = (size: number, seed: string) => {
   const out = Buffer.alloc(size);
   for (let i = 0, at = 0; at < size; i++) at += crypto.createHash('sha256').update(`${seed}:${i}`).digest().copy(out, at);
   return out;
 };
 
 describe('songVerify: the decode check', { skip: !has('ffmpeg -version') && 'ffmpeg not available' }, () => {
-  let verifyBroken;
-  let dir;
+  let verifyBroken: typeof import('./index.ts').songVerify.verifyBroken;
+  let dir: string;
   let n = 0;
   const garbage = () => { const p = path.join(dir, `bad${++n}.m4a`); fs.writeFileSync(p, noise(20000, `garbage-${n}`)); return p; };
-  const fake = (body) => { const p = path.join(dir, `fake${++n}.sh`); fs.writeFileSync(p, `#!/bin/sh\n${body}\n`, { mode: 0o755 }); return p; };
-  const check = (file_path) => verifyBroken({ id: 'x', file_path });
+  const fake = (body: string) => { const p = path.join(dir, `fake${++n}.sh`); fs.writeFileSync(p, `#!/bin/sh\n${body}\n`, { mode: 0o755 }); return p; };
+  const check = (file_path: string) => verifyBroken({ id: 'x', file_path });
 
-  before(() => {
-    ({ verifyBroken } = require('./core/library/index.ts').songVerify);
+  before(async () => {
+    ({ verifyBroken } = (await import('./index.ts')).songVerify);
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'la-verify-'));
   });
   after(() => { fs.rmSync(dir, { recursive: true, force: true }); });
@@ -105,13 +105,13 @@ describe('songVerify: the decode check', { skip: !has('ffmpeg -version') && 'ffm
     ].join('\n');
     // Bytes that probe as something without audio (lyrics, a video): ffmpeg 7 names
     // the map, ffmpeg 8 does not.
-    const noAudio = (map) => [
+    const noAudio = (map: string) => [
       `Stream map '${map}' matches no streams.`,
       "To ignore this, add a trailing '?' to the map.",
       "Failed to set value '0:a:0' for option 'map': Invalid argument",
       'Error opening output files: Invalid argument',
     ].join('\n');
-    for (const [stderr, code] of [[decoderMinusOne, 255], [noAudio('0:a:0'), 234], [noAudio(''), 234]]) {
+    for (const [stderr, code] of [[decoderMinusOne, 255], [noAudio('0:a:0'), 234], [noAudio(''), 234]] as Array<[string, number]>) {
       const p = garbage();
       process.env.VERIFY_FFMPEG = fake(`cat <<'MSG' >&2\n${stderr}\nMSG\nexit ${code}`);
       assert.equal((await check(p)).broken, 'undecodable', stderr);

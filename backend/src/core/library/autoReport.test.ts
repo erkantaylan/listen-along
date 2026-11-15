@@ -1,7 +1,7 @@
 // Automatic "needs replacement" reports (`auto: true`, filed by the web player
 // when a song fails to play), against the real server on Postgres
 // (testcontainers) with ffmpeg-made fixtures. The server takes nobody's word
-// for it (songVerify.js):
+// for it (songVerify.ts):
 //   - accepted only when the file is missing while the storage is healthy, or
 //     when ffmpeg cannot decode the file; refused (200 NOT_CONFIRMED, nothing
 //     stored) for a good m4a / Ogg Opus file and whenever the storage is not
@@ -13,75 +13,81 @@
 //   - flagged in listings, no reason stored, never replaces the caller's own
 //     report, withdrawn like any other; manual reports are unchanged
 //   - a per-account rate limit, one decode at a time, admin bulk dismiss
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const crypto = require('node:crypto');
-const { execSync, execFileSync } = require('node:child_process');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const { cookieFor, adminCookie, startServer, requester } = require('./testServer');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import { execSync, execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import pgModule from 'pg';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { cookieFor, adminCookie, startServer, requester } from '../../testServer.js';
+import type { Reporter } from './index.ts';
 
-let PostgreSqlContainer;
-try { PostgreSqlContainer = require('@testcontainers/postgresql').PostgreSqlContainer; } catch {}
-const has = (cmd) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
+// Server JSON and database rows.
+type Payload = any;
+type Server = Awaited<ReturnType<typeof startServer>>;
+
+let PostgreSqlContainer: typeof import('@testcontainers/postgresql').PostgreSqlContainer | undefined;
+try { ({ PostgreSqlContainer } = await import('@testcontainers/postgresql')); } catch {}
+const has = (cmd: string) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
 const skip = !PostgreSqlContainer ? 'testcontainers package not installed'
   : !has('docker info') ? 'Docker not available'
   : !has('ffmpeg -version') || !has('ffprobe -version') ? 'ffmpeg/ffprobe not available' : false;
 
 const NOT_CONFIRMED = { reported: false, code: 'NOT_CONFIRMED' };
 // Fixed noise (SHA-256 in counter mode): the same damaged files on every run.
-const noise = (size, seed) => {
+const noise = (size: number, seed: string) => {
   const out = Buffer.alloc(size);
   for (let i = 0, at = 0; at < size; i++) at += crypto.createHash('sha256').update(`${seed}:${i}`).digest().copy(out, at);
   return out;
 };
 
 describe('automatic song reports: the server verifies', { skip, timeout: 240_000 }, () => {
-  let container;
-  let pg;
-  let srv;
-  let req;
-  let tmp;
-  let libDir;
-  const cookies = {};
-  const tok = {};
-  const songs = []; // 8 m4a (0..7) then 1 Ogg Opus (8), oldest first
-  const paths = [];
+  let container: StartedPostgreSqlContainer | undefined;
+  let pg: pgModule.Client;
+  let srv: Server;
+  let req: ReturnType<typeof requester>;
+  let tmp: string;
+  let libDir: string;
+  const cookies: Record<string, string> = {};
+  const tok: Record<string, string> = {};
+  const songs: Payload[] = []; // 8 m4a (0..7) then 1 Ogg Opus (8), oldest first
+  const paths: string[] = [];
 
-  function makeAudio(name, freq, codec = 'aac') {
+  function makeAudio(name: string, freq: number, codec = 'aac') {
     const out = path.join(tmp, 'fx', name);
     execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `sine=frequency=${freq}:duration=3`, '-c:a', codec, out]);
     return out;
   }
-  async function upload(file, title, type = 'audio/mp4') {
+  async function upload(file: string, title: string, type = 'audio/mp4'): Promise<Payload> {
     const fd = new FormData();
     fd.append('file', new Blob([fs.readFileSync(file)], { type }), path.basename(file));
     fd.append('title', title);
     fd.append('artist', 'Tester');
     const res = await fetch(`${srv.base}/api/library/upload`, { method: 'POST', headers: { Authorization: `Bearer ${tok.alice}` }, body: fd });
-    const body = await res.json();
+    const body = await res.json() as Payload;
     assert.equal(res.status, 201, JSON.stringify(body));
     return body.song;
   }
-  const auto = (i, who) => req('POST', `/api/library/${songs[i].id}/report`, { cookie: cookies[who], body: { auto: true } });
-  const mark = (i, who, body) => req('POST', `/api/library/${songs[i].id}/report`, { cookie: cookies[who], body });
-  const fileOf = (i, who = 'alice') => req('GET', `/api/library/${songs[i].id}/file`, { cookie: cookies[who] });
-  const openRows = async (i) => (await pg.query('SELECT * FROM library_song_reports WHERE song_id = $1 AND resolved_at IS NULL ORDER BY id', [songs[i].id])).rows;
-  const hold = (i) => fs.renameSync(paths[i], `${paths[i]}.held`);
-  const restore = (i) => fs.renameSync(`${paths[i]}.held`, paths[i]);
+  const auto = (i: number, who: string) => req('POST', `/api/library/${songs[i].id}/report`, { cookie: cookies[who], body: { auto: true } });
+  const mark = (i: number, who: string, body: unknown) => req('POST', `/api/library/${songs[i].id}/report`, { cookie: cookies[who], body });
+  const fileOf = (i: number, who = 'alice') => req('GET', `/api/library/${songs[i].id}/file`, { cookie: cookies[who] });
+  const openRows = async (i: number): Promise<Payload[]> => (await pg.query('SELECT * FROM library_song_reports WHERE song_id = $1 AND resolved_at IS NULL ORDER BY id', [songs[i].id])).rows;
+  const hold = (i: number) => fs.renameSync(paths[i], `${paths[i]}.held`);
+  const restore = (i: number) => fs.renameSync(`${paths[i]}.held`, paths[i]);
   const clearReports = () => pg.query('DELETE FROM library_song_reports');
 
   before(async () => {
-    container = await new PostgreSqlContainer('postgres:16-alpine')
+    container = await new PostgreSqlContainer!('postgres:16-alpine')
       .withDatabase('listen_auto').withUsername('test').withPassword('test').start();
     const url = container.getConnectionUri();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'la-auto-'));
     fs.mkdirSync(path.join(tmp, 'fx'));
     srv = await startServer({ DATABASE_URL: url, SONGS_PATH: path.join(tmp, 'songs'), COVERS_DIR: path.join(tmp, 'covers') });
     req = requester(srv.base);
-    const { Client } = require('pg');
-    pg = new Client({ connectionString: url });
+    pg = new pgModule.Client({ connectionString: url });
     await pg.connect();
     for (const key of ['alice', 'bob', 'carol', 'dave']) {
       const r = await pg.query(
@@ -170,8 +176,8 @@ describe('automatic song reports: the server verifies', { skip, timeout: 240_000
       // Listings carry the flag; a person's report says auto: false.
       await mark(3, 'bob', { reason: 'cut off' });
       const list = await req('GET', '/api/library?reported=1', { cookie: cookies.carol });
-      const s = list.body.songs.find((x) => x.id === songs[3].id);
-      assert.deepEqual(s.reports.map((x) => [x.reported_by, x.auto, x.reason]), [['Alice', true, null], ['Bob', false, 'cut off']]);
+      const s = list.body.songs.find((x: Payload) => x.id === songs[3].id);
+      assert.deepEqual(s.reports.map((x: Payload) => [x.reported_by, x.auto, x.reason]), [['Alice', true, null], ['Bob', false, 'cut off']]);
       // It never replaces a report the user already filed by hand...
       const kept = await auto(3, 'bob');
       assert.equal(kept.status, 200);
@@ -181,7 +187,7 @@ describe('automatic song reports: the server verifies', { skip, timeout: 240_000
       const mine = await mark(3, 'alice', { reason: 'really broken' });
       assert.equal(mine.body.report.auto, false);
       rows = await openRows(3);
-      assert.deepEqual(rows.map((x) => [x.auto, x.reason]), [[false, 'really broken'], [false, 'cut off']]);
+      assert.deepEqual(rows.map((x: Payload) => [x.auto, x.reason]), [[false, 'really broken'], [false, 'cut off']]);
 
       // Withdrawn like any other.
       assert.equal((await auto(3, 'carol')).status, 201);
@@ -259,9 +265,9 @@ describe('automatic song reports: the server verifies', { skip, timeout: 240_000
     assert.equal(r.status, 200);
     assert.equal(r.body.dismissed, 3);
     assert.equal((await openRows(6)).length, 0);
-    assert.deepEqual((await openRows(7)).map((x) => x.reason), ['bad audio']);
+    assert.deepEqual((await openRows(7)).map((x: Payload) => x.reason), ['bad audio']);
     const rows = (await pg.query(`SELECT resolution, resolved_by FROM library_song_reports WHERE auto`)).rows;
-    assert.ok(rows.length === 3 && rows.every((x) => x.resolution === 'dismissed' && x.resolved_by === 'admin'));
+    assert.ok(rows.length === 3 && rows.every((x: Payload) => x.resolution === 'dismissed' && x.resolved_by === 'admin'));
     assert.equal((await req('POST', url, { cookie: adminCookie() })).body.dismissed, 0);
     await clearReports();
   });
@@ -273,7 +279,7 @@ describe('automatic song reports: the server verifies', { skip, timeout: 240_000
     assert.equal(r.body.report.auto, false);
     assert.equal(r.body.report.reason, 'wrong song');
     const rows = await openRows(0);
-    assert.deepEqual(rows.map((x) => [x.auto, x.reason]), [[false, 'wrong song']]);
+    assert.deepEqual(rows.map((x: Payload) => [x.auto, x.reason]), [[false, 'wrong song']]);
     // Withdrawn: the next automatic one is verified like any other (a good file: refused).
     assert.equal((await req('DELETE', `/api/library/${songs[0].id}/report`, { cookie: cookies.bob })).status, 200);
     assert.deepEqual((await auto(0, 'bob')).body, NOT_CONFIRMED);
@@ -282,20 +288,22 @@ describe('automatic song reports: the server verifies', { skip, timeout: 240_000
 
   it('the report is stored only while the song still has the file that was checked', async () => {
     // In-process, on the same database: the insert itself, with a verdict about another file.
-    process.env.DATABASE_URL = container.getConnectionUri();
-    const db = require('./shared/db.ts');
+    process.env.DATABASE_URL = container!.getConnectionUri();
+    const db = (await import('../../shared/db.ts')).default;
     assert.ok(await db.init());
     try {
-      const songReports = require('./core/library/index.ts').songReports;
-      const actor = { userId: (await pg.query(`SELECT id FROM users WHERE provider_id = 'carol'`)).rows[0].id, name: 'Carol' };
+      const { songReports } = await import('./index.ts');
+      const actor: Reporter = { userId: (await pg.query(`SELECT id FROM users WHERE provider_id = 'carol'`)).rows[0].id, name: 'Carol' };
       // The song was replaced between the check and the insert: its row has another file now.
       assert.equal(await songReports.reportVerified(songs[4].id, actor, `${paths[4]}.old`), null);
       assert.equal((await openRows(4)).length, 0);
       const stored = await songReports.reportVerified(songs[4].id, actor, paths[4]);
-      assert.equal(stored.auto, true);
+      assert.equal(stored?.auto, true);
       assert.equal(await songReports.reportVerified(songs[4].id, actor, paths[4]), null, 'the caller has one already: nothing inserted');
       assert.equal((await openRows(4)).length, 1);
-      await assert.rejects(() => songReports.reportVerified(songs[4].id, actor), /verified file path/);
+      // As an untyped caller would call it, without the path.
+      const withoutPath = songReports.reportVerified as (songId: string, actor: Reporter) => Promise<unknown>;
+      await assert.rejects(() => withoutPath(songs[4].id, actor), /verified file path/);
     } finally {
       await db.close();
       delete process.env.DATABASE_URL;
@@ -305,12 +313,12 @@ describe('automatic song reports: the server verifies', { skip, timeout: 240_000
 
   describe('with a slow decoder that blames every file', () => {
     // A stand-in for ffmpeg: takes a while, then fails the way a corrupt file does.
-    let slow;
-    let sreq;
+    let slow: Server | undefined;
+    let sreq: ReturnType<typeof requester>;
     before(async () => {
       const fake = path.join(tmp, 'slow-bad-ffmpeg.sh');
       fs.writeFileSync(fake, '#!/bin/sh\nsleep 0.8\necho "Error opening input: Invalid data found when processing input" >&2\nexit 1\n', { mode: 0o755 });
-      slow = await startServer({ DATABASE_URL: container.getConnectionUri(), SONGS_PATH: path.join(tmp, 'songs'), COVERS_DIR: path.join(tmp, 'covers'), VERIFY_FFMPEG: fake });
+      slow = await startServer({ DATABASE_URL: container!.getConnectionUri(), SONGS_PATH: path.join(tmp, 'songs'), COVERS_DIR: path.join(tmp, 'covers'), VERIFY_FFMPEG: fake });
       sreq = requester(slow.base);
     });
     after(async () => { if (slow) await slow.stop(); });
@@ -346,7 +354,7 @@ describe('automatic song reports: the server verifies', { skip, timeout: 240_000
   });
 
   it('rate limit: automatic reports per account are limited; manual ones are not touched by it', async () => {
-    let limited = null;
+    let limited: number | null = null;
     for (let n = 1; n <= 25 && limited === null; n++) {
       const r = await auto(0, 'dave');
       if (r.status === 429) limited = n;

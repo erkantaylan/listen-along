@@ -2,30 +2,31 @@
 // rows whose title/artist normalize to nothing (meta_key NULL) are still
 // marked done (meta_key_version set), so neither this run nor the next boot
 // selects them again. Also: ~1,000 songs take well under a few seconds.
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const { execSync } = require('node:child_process');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { execSync } from 'node:child_process';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import type { DbModule } from '../../shared/db.ts';
 
-let PostgreSqlContainer;
-try { PostgreSqlContainer = require('@testcontainers/postgresql').PostgreSqlContainer; } catch {}
-const has = (cmd) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
+let PostgreSqlContainer: typeof import('@testcontainers/postgresql').PostgreSqlContainer | undefined;
+try { ({ PostgreSqlContainer } = await import('@testcontainers/postgresql')); } catch {}
+const has = (cmd: string) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
 const skip = !PostgreSqlContainer ? 'testcontainers package not installed'
   : !has('docker info') ? 'Docker not available' : false;
 
 describe('library meta_key backfill', { skip, timeout: 180_000 }, () => {
-  let container;
-  let db;
-  let library;
-  let songMatch;
+  let container: StartedPostgreSqlContainer | undefined;
+  let db: DbModule;
+  let library: typeof import('./index.ts').library;
+  let songMatch: typeof import('./index.ts').songMatch;
 
   before(async () => {
-    container = await new PostgreSqlContainer('postgres:16-alpine')
+    container = await new PostgreSqlContainer!('postgres:16-alpine')
       .withDatabase('listen_backfill').withUsername('test').withPassword('test').start();
     process.env.DATABASE_URL = container.getConnectionUri();
-    db = require('./shared/db.ts');
+    db = (await import('../../shared/db.ts')).default;
     assert.ok(await db.init());
-    library = require('./core/library/index.ts').library;
-    songMatch = require('./core/library/index.ts').songMatch;
+    ({ library, songMatch } = await import('./index.ts'));
   });
 
   after(async () => {

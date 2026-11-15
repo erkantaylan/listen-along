@@ -1,9 +1,19 @@
 // Unit tests for the music library helpers that need no database.
-const { describe, it } = require('node:test');
-const assert = require('node:assert/strict');
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { library } from './index.ts';
+import type { PublicSongRow } from './index.ts';
+import type { Probe, ProbeStream, ProbeVerdict, UploadVerdict } from './library.ts';
+import type { LibrarySongRow } from '../../shared/types.ts';
+import { Queue } from '../queue/index.ts';
 
-const library = require('./core/library/index.ts').library;
-const { createResolver } = require('./core/requests/index.ts');
+/** A refusal's reason ('' when it was accepted, which no pattern below matches). */
+const reason = (v: ProbeVerdict | UploadVerdict): string => (v.ok ? '' : v.reason);
+/** A partial row for toPublic. */
+const row = (r: Partial<PublicSongRow>) => r as PublicSongRow;
 
 describe('library.parseYoutubeId', () => {
   it('accepts bare ids and the common URL shapes', () => {
@@ -31,7 +41,7 @@ describe('library.parseYoutubeId', () => {
 });
 
 describe('library.classifyM4a', () => {
-  const probe = (format_name, streams) => ({ format: { format_name, duration: '12.5' }, streams });
+  const probe = (format_name: string, streams: ProbeStream[]): Probe => ({ format: { format_name, duration: '12.5' }, streams });
 
   it('accepts AAC in an MP4 container', () => {
     const r = library.classifyM4a(probe('mov,mp4,m4a,3gp,3g2,mj2', [{ codec_type: 'audio', codec_name: 'aac' }]));
@@ -48,18 +58,18 @@ describe('library.classifyM4a', () => {
 
   it('rejects mp3, opus-in-mp4, real video, and non-media', () => {
     assert.equal(library.classifyM4a(probe('mp3', [{ codec_type: 'audio', codec_name: 'mp3' }])).ok, false);
-    assert.match(library.classifyM4a(probe('mov,mp4,m4a', [{ codec_type: 'audio', codec_name: 'opus' }])).reason, /AAC/);
-    assert.match(library.classifyM4a(probe('mov,mp4,m4a', [
+    assert.match(reason(library.classifyM4a(probe('mov,mp4,m4a', [{ codec_type: 'audio', codec_name: 'opus' }]))), /AAC/);
+    assert.match(reason(library.classifyM4a(probe('mov,mp4,m4a', [
       { codec_type: 'audio', codec_name: 'aac' },
       { codec_type: 'video', codec_name: 'h264', disposition: { attached_pic: 0 } },
-    ])).reason, /video/);
+    ]))), /video/);
     assert.equal(library.classifyM4a(probe('mov,mp4,m4a', [])).ok, false);
     assert.equal(library.classifyM4a(null).ok, false);
   });
 });
 
 describe('library.classifyUpload (m4a or Ogg Opus, by content)', () => {
-  const probe = (format_name, streams) => ({ format: { format_name, duration: '12.5' }, streams });
+  const probe = (format_name: string, streams: ProbeStream[]): Probe => ({ format: { format_name, duration: '12.5' }, streams });
 
   it('AAC in MP4 is stored as .m4a, served as audio/mp4', () => {
     const r = library.classifyUpload(probe('mov,mp4,m4a,3gp,3g2,mj2', [{ codec_type: 'audio', codec_name: 'aac' }]));
@@ -75,13 +85,13 @@ describe('library.classifyUpload (m4a or Ogg Opus, by content)', () => {
   });
 
   it('refuses Vorbis or FLAC in Ogg, Theora video, Opus in WebM, mp3 and non-media', () => {
-    assert.match(library.classifyUpload(probe('ogg', [{ codec_type: 'audio', codec_name: 'vorbis' }])).reason, /Opus/);
-    assert.match(library.classifyUpload(probe('ogg', [{ codec_type: 'audio', codec_name: 'flac' }])).reason, /Opus/);
-    assert.match(library.classifyUpload(probe('ogg', [
+    assert.match(reason(library.classifyUpload(probe('ogg', [{ codec_type: 'audio', codec_name: 'vorbis' }]))), /Opus/);
+    assert.match(reason(library.classifyUpload(probe('ogg', [{ codec_type: 'audio', codec_name: 'flac' }]))), /Opus/);
+    assert.match(reason(library.classifyUpload(probe('ogg', [
       { codec_type: 'audio', codec_name: 'opus' },
       { codec_type: 'video', codec_name: 'theora', disposition: { attached_pic: 0 } },
-    ])).reason, /video/);
-    assert.match(library.classifyUpload(probe('matroska,webm', [{ codec_type: 'audio', codec_name: 'opus' }])).reason, /container/);
+    ]))), /video/);
+    assert.match(reason(library.classifyUpload(probe('matroska,webm', [{ codec_type: 'audio', codec_name: 'opus' }]))), /container/);
     assert.equal(library.classifyUpload(probe('mp3', [{ codec_type: 'audio', codec_name: 'mp3' }])).ok, false);
     assert.equal(library.classifyUpload(probe('ogg', [])).ok, false);
     assert.equal(library.classifyUpload(null).ok, false);
@@ -147,10 +157,10 @@ describe('library source_url', () => {
   });
 
   it('toPublic exposes source_url, falling back to the YouTube watch URL', () => {
-    assert.equal(library.toPublic({ id: '1', youtube_id: null, source_url: 'https://x.com/s' }).source_url, 'https://x.com/s');
-    assert.equal(library.toPublic({ id: '1', youtube_id: 'dQw4w9WgXcQ', source_url: null }).source_url,
+    assert.equal(library.toPublic(row({ id: '1', youtube_id: null, source_url: 'https://x.com/s' })).source_url, 'https://x.com/s');
+    assert.equal(library.toPublic(row({ id: '1', youtube_id: 'dQw4w9WgXcQ', source_url: null })).source_url,
       'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
-    assert.equal(library.toPublic({ id: '1', youtube_id: null, source_url: null }).source_url, null);
+    assert.equal(library.toPublic(row({ id: '1', youtube_id: null, source_url: null })).source_url, null);
   });
 });
 
@@ -178,15 +188,14 @@ describe('library queue url helpers', () => {
   });
 });
 
-// queue:add with a libraryId refuses a song the lobby already has queued
+// queue:add with a libraryId refuses a song the playlist already has queued
 // (index.js addLibrarySongToLobby with skipIfQueued), based on this check.
 describe('library.isQueued', () => {
-  const { Queue } = require('./core/queue/index.ts');
-  const ytSong = { id: '11111111-1111-4111-8111-111111111111', youtube_id: 'dQw4w9WgXcQ', title: 'Y', artist: 'A' };
-  const plainSong = { id: '22222222-2222-4222-8222-222222222222', youtube_id: null, title: 'P', artist: 'A' };
+  const ytSong = { id: '11111111-1111-4111-8111-111111111111', youtube_id: 'dQw4w9WgXcQ', title: 'Y', artist: 'A' } as LibrarySongRow;
+  const plainSong = { id: '22222222-2222-4222-8222-222222222222', youtube_id: null, title: 'P', artist: 'A' } as LibrarySongRow;
 
   it('is false for an empty queue or a different song', () => {
-    const q = new Queue('lobby');
+    const q = new Queue('playlist');
     assert.equal(library.isQueued(q.getSongs(), ytSong), false);
     q.addSong({ ...library.toQueueEntry(plainSong), addedBy: 'x' });
     assert.equal(library.isQueued(q.getSongs(), ytSong), false);
@@ -194,7 +203,7 @@ describe('library.isQueued', () => {
   });
 
   it('matches a queued library song by its queue url, and stops once it is removed', () => {
-    const q = new Queue('lobby');
+    const q = new Queue('playlist');
     const entry = q.addSong({ ...library.toQueueEntry(ytSong), addedBy: 'x' });
     assert.equal(library.isQueued(q.getSongs(), ytSong), true);
     q.removeSong(entry.id);
@@ -210,87 +219,7 @@ describe('library.isQueued', () => {
   });
 });
 
-describe('songResolver', () => {
-  const song = { id: '11111111-1111-4111-8111-111111111111', youtube_id: 'dQw4w9WgXcQ', title: 'Never', artist: 'Rick' };
-  function fakes(over = {}) {
-    const library2 = {
-      parseYoutubeId: library.parseYoutubeId,
-      youtubeUrl: library.youtubeUrl,
-      getById: async (id) => (id === song.id ? song : null),
-      getByYoutubeId: async (id) => (id === song.youtube_id ? song : null),
-      findBestTextMatch: async () => null,
-      findByTitleArtist: async () => null,
-      resolveQueueUrl: async () => null,
-      ...over.library,
-    };
-    const ytdlp = {
-      parsePlaylistId: require('./core/requests/index.ts').ytdlp.parsePlaylistId,
-      searchYoutube: async () => null,
-      getOembed: async () => ({ title: 'From oEmbed', channel: 'Chan' }),
-      getPlaylistEntries: async () => [],
-      ...over.ytdlp,
-    };
-    const spotify = { parseSpotifyUrl: require('./core/requests/index.ts').spotify.parseSpotifyUrl, getTrack: async () => ({}), ...over.spotify };
-    return createResolver({ library: library2, ytdlp, spotify });
-  }
-
-  it('resolves libraryId and in-library YouTube links to the library song', async () => {
-    const r = fakes();
-    assert.deepEqual(await r.resolve({ libraryId: song.id }), { type: 'library', song });
-    assert.deepEqual(await r.resolve({ input: 'https://youtu.be/dQw4w9WgXcQ' }), { type: 'library', song });
-    assert.equal((await r.resolve({ libraryId: '22222222-2222-4222-8222-222222222222' })).type, 'error');
-  });
-
-  it('turns a YouTube link not in the library into a request (title via oEmbed)', async () => {
-    const r = await fakes().resolve({ input: 'https://www.youtube.com/watch?v=9bZkp7q19f0' });
-    assert.deepEqual(r, {
-      type: 'request',
-      request: { youtubeId: '9bZkp7q19f0', url: 'https://www.youtube.com/watch?v=9bZkp7q19f0', title: 'From oEmbed', artist: null },
-    });
-  });
-
-  it('free text: YouTube search hit in library > library text match > request', async () => {
-    const hit = { id: 'dQw4w9WgXcQ', url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', title: 'Rick' };
-    assert.equal((await fakes({ ytdlp: { searchYoutube: async () => hit } }).resolve({ input: 'rick' })).type, 'library');
-
-    const other = { id: '9bZkp7q19f0', url: 'https://www.youtube.com/watch?v=9bZkp7q19f0', title: 'Gangnam' };
-    const viaText = await fakes({ ytdlp: { searchYoutube: async () => other }, library: { findBestTextMatch: async () => song } }).resolve({ input: 'never' });
-    assert.deepEqual(viaText, { type: 'library', song });
-
-    const req = await fakes({ ytdlp: { searchYoutube: async () => other } }).resolve({ input: 'gangnam' });
-    assert.deepEqual(req.request, { youtubeId: '9bZkp7q19f0', url: other.url, title: 'Gangnam', artist: null });
-
-    // search fails (IP blocked) and nothing matches -> text-only request
-    const blocked = await fakes({ ytdlp: { searchYoutube: async () => { throw new Error('bot'); } } }).resolve({ input: 'some song' });
-    assert.deepEqual(blocked, { type: 'request', request: { youtubeId: null, url: null, title: 'some song', artist: null } });
-  });
-
-  it('playlists split into library songs and requests', async () => {
-    const r = await fakes({
-      ytdlp: { getPlaylistEntries: async () => [{ id: 'dQw4w9WgXcQ', title: 'a' }, { id: '9bZkp7q19f0', title: 'b' }] },
-    }).resolve({ input: 'https://www.youtube.com/playlist?list=PLabc' });
-    assert.equal(r.type, 'playlist');
-    assert.deepEqual(r.items.map((i) => i.type), ['library', 'request']);
-    assert.equal(r.items[1].request.youtubeId, '9bZkp7q19f0');
-  });
-
-  it('spotify links match title+artist in the library, else request with title/artist', async () => {
-    const track = { name: 'Never', artist: 'Rick', searchQuery: 'Never Rick' };
-    const lib = await fakes({ spotify: { getTrack: async () => track }, library: { findByTitleArtist: async () => song } })
-      .resolve({ input: 'https://open.spotify.com/track/abc123' });
-    assert.equal(lib.type, 'library');
-    const req = await fakes({ spotify: { getTrack: async () => track } }).resolve({ input: 'https://open.spotify.com/track/abc123' });
-    assert.deepEqual(req.request, { youtubeId: null, url: 'https://open.spotify.com/track/abc123', title: 'Never', artist: 'Rick' });
-  });
-
-  it('rejects unsupported links and empty input', async () => {
-    assert.equal((await fakes().resolve({ input: 'https://example.com/song.mp3' })).type, 'error');
-    assert.equal((await fakes().resolve({ input: '   ' })).type, 'error');
-  });
-});
-
 describe('library.uploadTmpPath', () => {
-  const path = require('node:path');
   it('resolves multer temp files inside UPLOAD_TMP_DIR only', () => {
     const root = path.resolve(library.UPLOAD_TMP_DIR);
     assert.equal(library.uploadTmpPath({ path: path.join(root, 'abc.part') }), path.join(root, 'abc.part'));
@@ -303,10 +232,6 @@ describe('library.uploadTmpPath', () => {
 });
 
 describe('library.pathInside / songsFile: every renamed, stat-ed or deleted path stays in the songs folder', () => {
-  const path = require('node:path');
-  const fs = require('node:fs');
-  const os = require('node:os');
-
   it('keeps paths inside the folder and refuses traversal, other absolute paths, the folder itself and its look-alikes', () => {
     const root = path.resolve('/srv/songs');
     assert.equal(library.pathInside(root, '/srv/songs/library/a.m4a'), '/srv/songs/library/a.m4a');
@@ -335,28 +260,6 @@ describe('library.pathInside / songsFile: every renamed, stat-ed or deleted path
       assert.equal(fs.readFileSync(outside, 'utf8'), 'keep me');
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
-    }
-  });
-});
-
-describe('rateLimits', () => {
-  it('returns 429 JSON once the per-IP limit is exceeded', async () => {
-    const express = require('express');
-    const http = require('node:http');
-    const { make } = require('./shared/rateLimits.ts');
-    const app = express();
-    app.get('/x', make(2), (req, res) => res.json({ ok: true }));
-    const server = http.createServer(app);
-    await new Promise((r) => server.listen(0, '127.0.0.1', r));
-    const url = `http://127.0.0.1:${server.address().port}/x`;
-    try {
-      assert.equal((await fetch(url)).status, 200);
-      assert.equal((await fetch(url)).status, 200);
-      const res = await fetch(url);
-      assert.equal(res.status, 429);
-      assert.match((await res.json()).error, /Too many requests/);
-    } finally {
-      await new Promise((r) => server.close(r));
     }
   });
 });

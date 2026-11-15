@@ -1,7 +1,7 @@
 // Normalization used for "probable duplicate" detection (songMatch.js).
-const { describe, it } = require('node:test');
-const assert = require('node:assert/strict');
-const m = require('./core/library/index.ts').songMatch;
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { songMatch as m } from './index.ts';
 
 describe('songMatch.fold', () => {
   it('folds accents and Turkish letters (both cases, dotted/dotless i)', () => {
@@ -12,8 +12,9 @@ describe('songMatch.fold', () => {
 });
 
 describe('songMatch.metaKey', () => {
-  const same = (a, b) => assert.equal(m.metaKey(...a), m.metaKey(...b), `${a} vs ${b}`);
-  const differ = (a, b) => assert.notEqual(m.metaKey(...a), m.metaKey(...b), `${a} vs ${b}`);
+  type Pair = [title: string, artist: string];
+  const same = (a: Pair, b: Pair) => assert.equal(m.metaKey(...a), m.metaKey(...b), `${a} vs ${b}`);
+  const differ = (a: Pair, b: Pair) => assert.notEqual(m.metaKey(...a), m.metaKey(...b), `${a} vs ${b}`);
 
   it('ignores case, accents and Turkish characters', () => {
     same(['Gülpembe', 'Barış Manço'], ['GULPEMBE', 'BARIS MANCO']);
@@ -23,7 +24,7 @@ describe('songMatch.metaKey', () => {
   });
 
   it('strips upload noise: official video/audio, lyrics, HD, remaster tags', () => {
-    const base = ['Bohemian Rhapsody', 'Queen'];
+    const base: Pair = ['Bohemian Rhapsody', 'Queen'];
     for (const t of ['Bohemian Rhapsody (Official Video)', 'Bohemian Rhapsody [Official Audio]',
       'Bohemian Rhapsody - Remastered 2011', 'Bohemian Rhapsody (Remastered 2011)', 'Bohemian Rhapsody - 2011 Remaster',
       'Bohemian Rhapsody (HD)', 'Bohemian Rhapsody | Lyrics', 'Bohemian Rhapsody (Official Music Video) [HD]']) {

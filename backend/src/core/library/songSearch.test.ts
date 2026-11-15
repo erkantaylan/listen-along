@@ -1,9 +1,9 @@
 // The global search's relevance order (songSearch.js), without a database.
-const { describe, it } = require('node:test');
-const assert = require('node:assert/strict');
-const s = require('./core/library/index.ts').songSearch;
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { songSearch as s } from './index.ts';
 
-const song = (id, title, artist) => ({ id, title, artist });
+const song = (id: string, title: string, artist: string) => ({ id, title, artist });
 
 describe('songSearch: folding', () => {
   it('folds case, Turkish letters and accents to one letter each', () => {

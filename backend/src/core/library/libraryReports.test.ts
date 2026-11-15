@@ -8,65 +8,70 @@
 //   - replacing the audio resolves every open report ('replaced', by the replacer)
 //   - admins dismiss reports (admin cookie only)
 //   - pending / denied users, revoked tokens and nobody are refused
-//   - the `auto` column (automatic reports, see auto-report.test.js) is added
+//   - the `auto` column (automatic reports, see autoReport.test.ts) is added
 //     to an existing table; in a library too small to judge the storage an
 //     automatic report is never confirmed
 //   - the file routes tell a missing file (FILE_MISSING) from a missing song
 //     and from storage that is not there (still a 404, code STORAGE_UNAVAILABLE)
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const { execSync, execFileSync } = require('node:child_process');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const { cookieFor, adminCookie, startServer, requester } = require('./testServer');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { execSync, execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import pgModule from 'pg';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { cookieFor, adminCookie, startServer, requester } from '../../testServer.js';
 
-let PostgreSqlContainer;
-try { PostgreSqlContainer = require('@testcontainers/postgresql').PostgreSqlContainer; } catch {}
-const has = (cmd) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
+// Server JSON and database rows.
+type Payload = any;
+type ReqOpts = Parameters<ReturnType<typeof requester>>[2];
+
+let PostgreSqlContainer: typeof import('@testcontainers/postgresql').PostgreSqlContainer | undefined;
+try { ({ PostgreSqlContainer } = await import('@testcontainers/postgresql')); } catch {}
+const has = (cmd: string) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
 const skip = !PostgreSqlContainer ? 'testcontainers package not installed'
   : !has('docker info') ? 'Docker not available'
   : !has('ffmpeg -version') || !has('ffprobe -version') ? 'ffmpeg/ffprobe not available' : false;
 
 describe('library song reports (mark as broken)', { skip, timeout: 240_000 }, () => {
-  let container;
-  let pg;
-  let srv;
-  let req;
-  let tmp;
-  const ids = {};
-  const cookies = {};
-  const tok = {};
-  const fx = {};
-  const songs = {};
+  let container: StartedPostgreSqlContainer | undefined;
+  let pg: pgModule.Client;
+  let srv: Awaited<ReturnType<typeof startServer>>;
+  let req: ReturnType<typeof requester>;
+  let tmp: string;
+  const ids: Record<string, string> = {};
+  const cookies: Record<string, string> = {};
+  const tok: Record<string, string> = {};
+  const fx: Record<string, string> = {};
+  const songs: Record<string, Payload> = {};
 
-  function makeAudio(name, freq) {
+  function makeAudio(name: string, freq: number) {
     const out = path.join(tmp, 'fx', name);
     execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `sine=frequency=${freq}:duration=2`, '-c:a', 'aac', out]);
     return out;
   }
-  async function post(url, { file, fields = {}, headers = {} } = {}) {
+  async function post(url: string, { file, fields = {}, headers = {} }: { file?: string; fields?: Record<string, unknown>; headers?: Record<string, string> } = {}): Promise<{ status: number; body: Payload }> {
     const fd = new FormData();
     if (file) fd.append('file', new Blob([fs.readFileSync(file)], { type: 'audio/mp4' }), path.basename(file));
     for (const [k, v] of Object.entries(fields)) fd.append(k, String(v));
     const res = await fetch(srv.base + url, { method: 'POST', headers, body: fd });
     return { status: res.status, body: await res.json().catch(() => null) };
   }
-  const bearer = (who) => ({ Authorization: `Bearer ${tok[who]}` });
-  const mark = (id, opts) => req('POST', `/api/library/${id}/report`, opts);
-  const unmark = (id, opts) => req('DELETE', `/api/library/${id}/report`, opts);
-  const openRows = async (id) => (await pg.query('SELECT * FROM library_song_reports WHERE song_id = $1 AND resolved_at IS NULL ORDER BY id', [id])).rows;
+  const bearer = (who: string) => ({ Authorization: `Bearer ${tok[who]}` });
+  const mark = (id: string, opts: ReqOpts) => req('POST', `/api/library/${id}/report`, opts);
+  const unmark = (id: string, opts: ReqOpts) => req('DELETE', `/api/library/${id}/report`, opts);
+  const openRows = async (id: string): Promise<Payload[]> => (await pg.query('SELECT * FROM library_song_reports WHERE song_id = $1 AND resolved_at IS NULL ORDER BY id', [id])).rows;
 
   before(async () => {
-    container = await new PostgreSqlContainer('postgres:16-alpine')
+    container = await new PostgreSqlContainer!('postgres:16-alpine')
       .withDatabase('listen_reports').withUsername('test').withPassword('test').start();
     const url = container.getConnectionUri();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'la-reports-'));
     fs.mkdirSync(path.join(tmp, 'fx'));
     srv = await startServer({ DATABASE_URL: url, SONGS_PATH: path.join(tmp, 'songs'), COVERS_DIR: path.join(tmp, 'covers') });
     req = requester(srv.base);
-    const { Client } = require('pg');
-    pg = new Client({ connectionString: url });
+    pg = new pgModule.Client({ connectionString: url });
     await pg.connect();
     for (const key of ['alice', 'bob', 'carol', 'revoked']) {
       const r = await pg.query(
@@ -153,13 +158,13 @@ describe('library song reports (mark as broken)', { skip, timeout: 240_000 }, ()
   it('every song carries its open reports; "mine" follows the viewer; no user ids leak', async () => {
     const asAlice = await req('GET', `/api/library/${songs.a.id}`, { cookie: cookies.alice });
     assert.equal(asAlice.body.song.report_count, 2);
-    assert.deepEqual(asAlice.body.song.reports.map((x) => [x.reported_by, x.reason, x.mine]), [['Alice', 'bad audio', true], ['Bob', null, false]]);
+    assert.deepEqual(asAlice.body.song.reports.map((x: Payload) => [x.reported_by, x.reason, x.mine]), [['Alice', 'bad audio', true], ['Bob', null, false]]);
     assert.ok(!JSON.stringify(asAlice.body).includes(ids.bob), 'no user id of someone else');
     const asCarol = await req('GET', '/api/library?limit=10', { headers: bearer('carol') });
-    const a = asCarol.body.songs.find((s) => s.id === songs.a.id);
+    const a = asCarol.body.songs.find((s: Payload) => s.id === songs.a.id);
     assert.equal(a.report_count, 2);
-    assert.ok(a.reports.every((x) => x.mine === false));
-    const c = asCarol.body.songs.find((s) => s.id === songs.c.id);
+    assert.ok(a.reports.every((x: Payload) => x.mine === false));
+    const c = asCarol.body.songs.find((s: Payload) => s.id === songs.c.id);
     assert.deepEqual(c.reports, []);
     assert.equal(c.report_count, 0);
   });
@@ -170,10 +175,10 @@ describe('library song reports (mark as broken)', { skip, timeout: 240_000 }, ()
       const r = await req('GET', '/api/library?reported=1', opts);
       assert.equal(r.status, 200);
       assert.equal(r.body.total, 2);
-      assert.deepEqual(r.body.songs.map((s) => s.id), [songs.b.id, songs.a.id], 'most recently reported first');
+      assert.deepEqual(r.body.songs.map((s: Payload) => s.id), [songs.b.id, songs.a.id], 'most recently reported first');
     }
     const q = await req('GET', '/api/library?reported=1&q=bravo', { cookie: cookies.carol });
-    assert.deepEqual(q.body.songs.map((s) => s.id), [songs.b.id]);
+    assert.deepEqual(q.body.songs.map((s: Payload) => s.id), [songs.b.id]);
     assert.equal((await req('GET', '/api/library?reported=1', { cookie: cookies.pendingWeb })).status, 403);
   });
 
@@ -182,7 +187,7 @@ describe('library song reports (mark as broken)', { skip, timeout: 240_000 }, ()
     assert.equal((await openRows(songs.b.id)).length, 1, "Carol's report stays");
     assert.equal((await unmark(songs.a.id, { headers: bearer('bob') })).status, 200);
     const rows = await openRows(songs.a.id);
-    assert.deepEqual(rows.map((x) => x.reported_by_user_id), [ids.alice]);
+    assert.deepEqual(rows.map((x: Payload) => x.reported_by_user_id), [ids.alice]);
     assert.equal((await unmark(songs.a.id, { headers: bearer('bob') })).status, 404, 'already gone');
   });
 
@@ -201,7 +206,7 @@ describe('library song reports (mark as broken)', { skip, timeout: 240_000 }, ()
       assert.ok(row.resolved_at);
     }
     const list = await req('GET', '/api/library?reported=1', { cookie: cookies.carol });
-    assert.deepEqual(list.body.songs.map((s) => s.id), [songs.a.id]);
+    assert.deepEqual(list.body.songs.map((s: Payload) => s.id), [songs.a.id]);
     // Marking it again later starts a new open report.
     assert.equal((await mark(songs.b.id, { cookie: cookies.carol, body: { reason: 'still wrong' } })).status, 201);
     assert.equal((await openRows(songs.b.id)).length, 1);
@@ -291,7 +296,7 @@ describe('library song reports (mark as broken)', { skip, timeout: 240_000 }, ()
 
   it('migration: a table from before automatic reports gets the column at boot', async () => {
     await pg.query('ALTER TABLE library_song_reports DROP COLUMN auto');
-    const again = await startServer({ DATABASE_URL: container.getConnectionUri(), SONGS_PATH: path.join(tmp, 'songs'), COVERS_DIR: path.join(tmp, 'covers') });
+    const again = await startServer({ DATABASE_URL: container!.getConnectionUri(), SONGS_PATH: path.join(tmp, 'songs'), COVERS_DIR: path.join(tmp, 'covers') });
     try {
       const col = await pg.query(`SELECT data_type, is_nullable, column_default FROM information_schema.columns WHERE table_name = 'library_song_reports' AND column_name = 'auto'`);
       assert.deepEqual(col.rows, [{ data_type: 'boolean', is_nullable: 'NO', column_default: 'false' }]);
@@ -299,7 +304,7 @@ describe('library song reports (mark as broken)', { skip, timeout: 240_000 }, ()
       assert.equal(r.status, 201);
       assert.equal(r.body.report.auto, false);
       const rows = await openRows(songs.c.id);
-      assert.ok(rows.length && rows.every((x) => x.auto === false), 'reports count as filed by a person');
+      assert.ok(rows.length && rows.every((x: Payload) => x.auto === false), 'reports count as filed by a person');
     } finally {
       await again.stop();
     }

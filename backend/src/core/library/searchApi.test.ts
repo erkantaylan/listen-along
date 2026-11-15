@@ -8,34 +8,39 @@
 //     playlist_id } names already_in_playlist and adds only with allow_duplicates;
 //     someone else's private playlist is "not found" either way
 //   - the /search page is a signed-in page like the others
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const { execSync } = require('node:child_process');
-const crypto = require('node:crypto');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const { cookieFor, startServer, requester } = require('./testServer');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { execSync } from 'node:child_process';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import pgModule from 'pg';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { cookieFor, startServer, requester } from '../../testServer.js';
 
-let PostgreSqlContainer;
-try { PostgreSqlContainer = require('@testcontainers/postgresql').PostgreSqlContainer; } catch {}
-const has = (cmd) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
+// Server JSON.
+type Payload = any;
+
+let PostgreSqlContainer: typeof import('@testcontainers/postgresql').PostgreSqlContainer | undefined;
+try { ({ PostgreSqlContainer } = await import('@testcontainers/postgresql')); } catch {}
+const has = (cmd: string) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
 const skip = !PostgreSqlContainer ? 'testcontainers package not installed'
   : !has('docker info') ? 'Docker not available' : false;
 
 describe('global search on Postgres', { skip, timeout: 180_000 }, () => {
-  let container;
-  let pg;
-  let srv;
-  let req;
-  let tmp;
-  let token;
-  const ids = {};
-  const cookies = {};
-  const songs = {};
-  const playlists = {};
+  let container: StartedPostgreSqlContainer | undefined;
+  let pg: pgModule.Client | undefined;
+  let srv: Awaited<ReturnType<typeof startServer>> | undefined;
+  let req: ReturnType<typeof requester>;
+  let tmp: string;
+  let token: string;
+  const ids: Record<string, string> = {};
+  const cookies: Record<string, string> = {};
+  const songs: Record<string, string> = {};
+  const playlists: Record<string, string> = {};
 
-  const SONGS = [
+  const SONGS: Array<[key: string, title: string, artist: string, youtubeId: string | null]> = [
     ['ahelloz', 'Ahelloz', 'Y', null],
     ['sayhello', 'Say Hello', 'Rosie Thomas', null],
     ['hello', 'Hello', 'Adele', 'hellovideo1'],
@@ -44,18 +49,17 @@ describe('global search on Postgres', { skip, timeout: 180_000 }, () => {
     ['sarki', 'Şarkı Söyle', 'Barış Manço', 'sarkivideo1'],
     ['other', 'Unrelated', 'Nobody', null],
   ];
-  const library = (who, query) => req('GET', `/api/library?${new URLSearchParams(query)}`, { cookie: cookies[who] });
-  const titles = (r) => r.body.songs.map((s) => s.title);
+  const library = (who: string, query: Record<string, string>) => req('GET', `/api/library?${new URLSearchParams(query)}`, { cookie: cookies[who] });
+  const titles = (r: { body: Payload }): string[] => r.body.songs.map((s: Payload) => s.title);
 
   before(async () => {
-    container = await new PostgreSqlContainer('postgres:16-alpine')
+    container = await new PostgreSqlContainer!('postgres:16-alpine')
       .withDatabase('listen_search').withUsername('test').withPassword('test').start();
     const url = container.getConnectionUri();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'la-search-'));
     srv = await startServer({ DATABASE_URL: url, SONGS_PATH: path.join(tmp, 'songs'), COVERS_DIR: path.join(tmp, 'covers') });
     req = requester(srv.base);
-    const { Client } = require('pg');
-    pg = new Client({ connectionString: url });
+    pg = new pgModule.Client({ connectionString: url });
     await pg.connect();
     for (const [key, status] of [['alice', 'approved'], ['bob', 'approved'], ['pending', 'pending']]) {
       const r = await pg.query(
@@ -115,7 +119,7 @@ describe('global search on Postgres', { skip, timeout: 180_000 }, () => {
       assert.equal(relevance.body.songs[0].title, 'Hello');
       const plain = await req('GET', '/api/library?q=hel%00lo', { cookie: cookies.alice });
       assert.equal(plain.status, 200, plain.text);
-      assert.ok(plain.body.songs.some((x) => x.title === 'Hello'));
+      assert.ok(plain.body.songs.some((x: Payload) => x.title === 'Hello'));
     });
 
     it('LIKE wildcards in the query are plain text', async () => {
@@ -144,8 +148,8 @@ describe('global search on Postgres', { skip, timeout: 180_000 }, () => {
   });
 
   describe('duplicates: the same song in the same playlist', () => {
-    const add = (who, id, body) => req('POST', `/api/playlists/${id}/songs`, { cookie: cookies[who], body });
-    const queue = async (id) => (await req('GET', `/api/playlists/${id}/songs`, { cookie: cookies.alice })).body.songs;
+    const add = (who: string, id: string, body: unknown) => req('POST', `/api/playlists/${id}/songs`, { cookie: cookies[who], body });
+    const queue = async (id: string): Promise<Payload[]> => (await req('GET', `/api/playlists/${id}/songs`, { cookie: cookies.alice })).body.songs;
 
     it('adding a library song: refused as already_in_playlist, added with allow_duplicates', async () => {
       const first = await add('alice', playlists.pub, { songs: [songs.hello] });

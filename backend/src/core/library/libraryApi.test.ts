@@ -1,18 +1,25 @@
 // Integration tests for the library / requests / tokens / admin HTTP API and
 // the legacy cache migration. Needs Docker (testcontainers Postgres) and
 // ffmpeg/ffprobe on PATH.
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const { execSync, execFileSync } = require('node:child_process');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const http = require('node:http');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { execSync, execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
+import express from 'express';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import type { DbModule } from '../../shared/db.ts';
 
-let PostgreSqlContainer;
-try { PostgreSqlContainer = require('@testcontainers/postgresql').PostgreSqlContainer; } catch {}
+// Server JSON and database rows.
+type Payload = any;
 
-function has(cmd) {
+let PostgreSqlContainer: typeof import('@testcontainers/postgresql').PostgreSqlContainer | undefined;
+try { ({ PostgreSqlContainer } = await import('@testcontainers/postgresql')); } catch {}
+
+function has(cmd: string) {
   try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; }
 }
 
@@ -21,7 +28,7 @@ const skipReason = !PostgreSqlContainer ? 'testcontainers package not installed'
   : !has('ffmpeg -version') || !has('ffprobe -version') ? 'ffmpeg/ffprobe not available'
   : false;
 
-// SONGS_PATH is read when library.js loads, so set it before requiring.
+// SONGS_PATH is read when library.ts loads, so set it before importing it (in before()).
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'la-library-test-'));
 const SONGS = path.join(TMP, 'songs');
 const FX = path.join(TMP, 'fixtures');
@@ -29,50 +36,54 @@ process.env.SONGS_PATH = SONGS;
 fs.mkdirSync(SONGS, { recursive: true });
 fs.mkdirSync(FX, { recursive: true });
 
-function makeAudio(name, freq, codecArgs) {
+function makeAudio(name: string, freq: number, codecArgs: string[]) {
   const out = path.join(FX, name);
   execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `sine=frequency=${freq}:duration=2`, ...codecArgs, out]);
   return out;
 }
 
 describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
-  let container;
-  let db;
-  let library;
-  let requests;
-  let server;
-  let base;
-  const hookCalls = [];
+  let container: StartedPostgreSqlContainer | undefined;
+  let db: DbModule;
+  let library: typeof import('./index.ts').library;
+  let requests: typeof import('../requests/index.ts').requests;
+  let server: http.Server | undefined;
+  let base: string;
+  const hookCalls: Payload[] = [];
   let requestsChanged = 0;
-  let token;
-  let tokenRecord;
-  const fx = {};
+  let token: string;
+  let tokenRecord: Payload;
+  const fx: Record<string, string> = {};
 
   const auth = (t = token) => ({ Authorization: `Bearer ${t}` });
 
-  async function upload(filePath, fields = {}, { name = filePath ? path.basename(filePath) : 'x', type = 'audio/mp4', headers = auth() } = {}) {
+  async function upload(
+    filePath: string | null,
+    fields: Record<string, unknown> = {},
+    { name = filePath ? path.basename(filePath) : 'x', type = 'audio/mp4', headers = auth() }: { name?: string; type?: string; headers?: Record<string, string> } = {},
+  ): Promise<{ status: number; body: Payload }> {
     const fd = new FormData();
     if (filePath) fd.append('file', new Blob([fs.readFileSync(filePath)], { type }), name);
     for (const [k, v] of Object.entries(fields)) fd.append(k, String(v));
     const res = await fetch(`${base}/api/library/upload`, { method: 'POST', headers, body: fd });
-    return { status: res.status, body: await res.json() };
+    return { status: res.status, body: await res.json() as Payload };
   }
 
   // Reads need a token (or the admin cookie / an approved web user) too.
-  async function getJson(url, headers = auth()) {
+  async function getJson(url: string, headers: Record<string, string> = auth()): Promise<{ status: number; body: Payload }> {
     const res = await fetch(base + url, { headers });
     return { status: res.status, body: await res.json().catch(() => null) };
   }
 
   before(async () => {
-    container = await new PostgreSqlContainer('postgres:16-alpine')
+    container = await new PostgreSqlContainer!('postgres:16-alpine')
       .withDatabase('listen_test').withUsername('test').withPassword('test').start();
     process.env.DATABASE_URL = container.getConnectionUri();
-    db = require('./shared/db.ts');
+    db = (await import('../../shared/db.ts')).default;
     assert.ok(await db.init());
-    library = require('./core/library/index.ts').library;
-    requests = require('./core/requests/index.ts').requests;
-    const { tokens } = require('./auth/index.ts');
+    ({ library } = await import('./index.ts'));
+    ({ requests } = await import('../requests/index.ts'));
+    const { tokens } = await import('../../auth/index.ts');
     ({ token, record: tokenRecord } = await tokens.createToken('Alice'));
 
     fx.a = makeAudio('a.m4a', 440, ['-c:a', 'aac']);
@@ -86,20 +97,19 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
     fx.text = path.join(FX, 'notes.m4a');
     fs.writeFileSync(fx.text, 'this is not audio'.repeat(100));
 
-    const express = require('express');
-    const { createLibraryRouter } = require('./core/library/index.ts');
+    const { createLibraryRouter } = await import('./index.ts');
     const app = express();
     app.use(createLibraryRouter({
       onSongAdded: (song, fulfilled) => hookCalls.push({ song, fulfilled }),
       onRequestsChanged: () => { requestsChanged++; },
     }));
     server = http.createServer(app);
-    await new Promise((r) => server.listen(0, '127.0.0.1', r));
-    base = `http://127.0.0.1:${server.address().port}`;
+    await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   });
 
   after(async () => {
-    if (server) await new Promise((r) => server.close(r));
+    if (server) await new Promise<void>((r) => server!.close(() => r()));
     if (db) await db.close();
     if (container) await container.stop();
     fs.rmSync(TMP, { recursive: true, force: true });
@@ -125,12 +135,13 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
     });
 
     it('a revoked token stops working', async () => {
-      const { tokens } = require('./auth/index.ts');
+      const { tokens } = await import('../../auth/index.ts');
+      // record: the row createToken has just inserted, so never null here.
       const { token: t2, record } = await tokens.createToken('Bob');
       assert.equal((await getJson('/api/me', auth(t2))).status, 200);
-      await tokens.revokeToken(record.id);
+      await tokens.revokeToken(record!.id);
       assert.equal((await getJson('/api/me', auth(t2))).status, 401);
-      const r = await db.query('SELECT token_hash FROM api_tokens WHERE id = $1', [record.id]);
+      const r = await db.query<Payload>('SELECT token_hash FROM api_tokens WHERE id = $1', [record!.id]);
       assert.notEqual(r.rows[0].token_hash, t2, 'plaintext is never stored');
     });
   });
@@ -170,7 +181,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       const s = r.body.song;
       assert.deepEqual(Object.keys(s).sort(), ['album', 'artist', 'created_at', 'duration_sec', 'file_version', 'id', 'lead_silence_ms', 'replaced_at', 'requested_by', 'source_url', 'title', 'trail_silence_ms', 'uploaded_by', 'uploaded_by_worker', 'youtube_id']);
       assert.equal(s.uploaded_by, 'Alice');
-      const row = (await db.query('SELECT uploaded_by_user_id, uploaded_by_token FROM library_songs WHERE id = $1', [s.id])).rows[0];
+      const row = (await db.query<Payload>('SELECT uploaded_by_user_id, uploaded_by_token FROM library_songs WHERE id = $1', [s.id])).rows[0];
       assert.equal(row.uploaded_by_user_id, null, 'legacy token: no owning account');
       assert.equal(row.uploaded_by_token, tokenRecord.id);
       assert.equal(s.youtube_id, 'AAAAAAAAAAA');
@@ -187,15 +198,15 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       const part = await fetch(`${base}/api/library/${s.id}/file`, { headers: { ...auth(), Range: 'bytes=0-99' } });
       assert.equal(part.status, 206);
       assert.equal((await part.arrayBuffer()).byteLength, 100);
-      assert.match(part.headers.get('content-range'), /^bytes 0-99\//);
+      assert.match(part.headers.get('content-range') ?? '', /^bytes 0-99\//);
 
       // A range past the end is a 416 with a JSON body, not a 500 labelled audio/mp4.
       const past = await fetch(`${base}/api/library/${s.id}/file`, { headers: { ...auth(), Range: `bytes=${bytes.length + 10}-` } });
       assert.equal(past.status, 416);
-      assert.match(past.headers.get('content-type'), /^application\/json/);
+      assert.match(past.headers.get('content-type') ?? '', /^application\/json/);
       assert.equal(past.headers.get('content-range'), `bytes */${bytes.length}`);
       assert.equal(past.headers.get('cache-control'), null, 'errors are not cached as immutable');
-      assert.equal((await past.json()).error, 'Requested range not satisfiable');
+      assert.equal((await past.json() as Payload).error, 'Requested range not satisfiable');
 
       const list = await getJson('/api/library?q=artist%20song');
       assert.equal(list.body.total, 1);
@@ -220,7 +231,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       assert.equal(r.body.song.source_url, 'https://music.youtube.com/watch?v=DDDDDDDDDDD');
       const listed = (await getJson('/api/library?youtube_id=DDDDDDDDDDD')).body.songs[0];
       assert.equal(listed.source_url, 'https://music.youtube.com/watch?v=DDDDDDDDDDD');
-      const row = (await db.query('SELECT source_url FROM library_songs WHERE id = $1', [r.body.song.id])).rows[0];
+      const row = (await db.query<Payload>('SELECT source_url FROM library_songs WHERE id = $1', [r.body.song.id])).rows[0];
       assert.equal(row.source_url, 'https://music.youtube.com/watch?v=DDDDDDDDDDD');
       // clean up so later dedupe/request tests see the same library as before
       await library.remove(r.body.song.id);
@@ -232,7 +243,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       assert.equal(r.status, 201, JSON.stringify(r.body));
       const s = r.body.song;
       assert.ok(s.duration_sec > 1.5 && s.duration_sec < 2.5, 'duration from ffprobe');
-      const row = (await db.query('SELECT file_path, mime_type, sha256 FROM library_songs WHERE id = $1', [s.id])).rows[0];
+      const row = (await db.query<Payload>('SELECT file_path, mime_type, sha256 FROM library_songs WHERE id = $1', [s.id])).rows[0];
       assert.equal(row.mime_type, 'audio/ogg');
       assert.equal(path.extname(row.file_path), '.opus');
       assert.ok(fs.readFileSync(row.file_path).equals(fs.readFileSync(opus)), 'stored byte for byte');
@@ -243,10 +254,10 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       assert.equal(full.headers.get('cache-control'), 'no-cache');
       assert.equal((await full.arrayBuffer()).byteLength, fs.statSync(opus).size);
       const versioned = await fetch(`${base}/api/library/${s.id}/file?v=${s.file_version}`, { headers: auth() });
-      assert.match(versioned.headers.get('cache-control'), /immutable/);
+      assert.match(versioned.headers.get('cache-control') ?? '', /immutable/);
       await versioned.arrayBuffer();
       const dl = await fetch(`${base}/api/library/${s.id}/file?dl=1`, { headers: auth() });
-      assert.match(dl.headers.get('content-disposition'), /filename="Artist - Song O\.opus"/);
+      assert.match(dl.headers.get('content-disposition') ?? '', /filename="Artist - Song O\.opus"/);
       await dl.arrayBuffer();
 
       // Same bytes again: the sha256 dedupe applies to Opus too.
@@ -272,18 +283,18 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       const r = await upload(m4a, { title: 'Song R', artist: 'Artist' });
       assert.equal(r.status, 201);
       const id = r.body.song.id;
-      const replace = async (file, type) => {
+      const replace = async (file: string, type: string) => {
         const fd = new FormData();
         fd.append('file', new Blob([fs.readFileSync(file)], { type }), path.basename(file));
         fd.append('title', 'Song R');
         fd.append('artist', 'Artist');
         const res = await fetch(`${base}/api/library/${id}/replace`, { method: 'POST', headers: auth(), body: fd });
-        return { status: res.status, body: await res.json() };
+        return { status: res.status, body: await res.json() as Payload };
       };
-      const oldPath = (await db.query('SELECT file_path FROM library_songs WHERE id = $1', [id])).rows[0].file_path;
+      const oldPath = (await db.query<Payload>('SELECT file_path FROM library_songs WHERE id = $1', [id])).rows[0].file_path;
       const toOpus = await replace(opus, 'audio/ogg');
       assert.equal(toOpus.status, 200, JSON.stringify(toOpus.body));
-      let row = (await db.query('SELECT file_path, mime_type FROM library_songs WHERE id = $1', [id])).rows[0];
+      let row = (await db.query<Payload>('SELECT file_path, mime_type FROM library_songs WHERE id = $1', [id])).rows[0];
       assert.equal(row.mime_type, 'audio/ogg');
       assert.equal(path.extname(row.file_path), '.opus');
       assert.equal(fs.existsSync(oldPath), false, 'old m4a deleted');
@@ -293,7 +304,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
 
       const back = await replace(m4a, 'audio/mp4');
       assert.equal(back.status, 200, JSON.stringify(back.body));
-      row = (await db.query('SELECT file_path, mime_type FROM library_songs WHERE id = $1', [id])).rows[0];
+      row = (await db.query<Payload>('SELECT file_path, mime_type FROM library_songs WHERE id = $1', [id])).rows[0];
       assert.equal(row.mime_type, 'audio/mp4');
       assert.equal(path.extname(row.file_path), '.m4a');
       res = await fetch(`${base}/api/library/${id}/file`, { headers: auth() });
@@ -304,15 +315,15 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
   });
 
   describe('token owners', () => {
-    let owner;
-    let ownerToken;
+    let owner: string;
+    let ownerToken: string;
     before(async () => {
-      const r = await db.query(
+      const r = await db.query<Payload>(
         `INSERT INTO users (provider, provider_id, name, display_name, status, created_at)
          VALUES ('github', 'owner-1', 'Real Name', 'Deejay', 'approved', 1) RETURNING id`
       );
       owner = r.rows[0].id;
-      ({ token: ownerToken } = await require('./auth/index.ts').tokens.createToken('Desktop', { userId: owner }));
+      ({ token: ownerToken } = await (await import('../../auth/index.ts')).tokens.createToken('Desktop', { userId: owner }));
     });
 
     it('/api/me names the owning account', async () => {
@@ -325,17 +336,17 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       const r = await upload(fx.e, { title: 'Owned', artist: 'Owner' }, { headers: auth(ownerToken) });
       assert.equal(r.status, 201);
       assert.equal(r.body.song.uploaded_by, 'Deejay', 'the UI keeps showing a name');
-      const row = (await db.query('SELECT uploaded_by, uploaded_by_user_id FROM library_songs WHERE id = $1', [r.body.song.id])).rows[0];
+      const row = (await db.query<Payload>('SELECT uploaded_by, uploaded_by_user_id FROM library_songs WHERE id = $1', [r.body.song.id])).rows[0];
       assert.equal(row.uploaded_by_user_id, owner);
       assert.equal(row.uploaded_by, 'Deejay');
     });
 
     it("a token stops working when its owner is no longer approved, and again when re-approved", async () => {
       for (const status of ['pending', 'denied', 'rejected']) {
-        await db.query('UPDATE users SET status = $1 WHERE id = $2', [status, owner]);
+        await db.query<Payload>('UPDATE users SET status = $1 WHERE id = $2', [status, owner]);
         assert.equal((await getJson('/api/me', auth(ownerToken))).status, 401, status);
       }
-      await db.query("UPDATE users SET status = 'approved' WHERE id = $1", [owner]);
+      await db.query<Payload>("UPDATE users SET status = 'approved' WHERE id = $1", [owner]);
       assert.equal((await getJson('/api/me', auth(ownerToken))).status, 200);
     });
   });
@@ -356,7 +367,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
   });
 
   describe('requests lifecycle', () => {
-    it('creates, dedupes per lobby, lists and validates status', async () => {
+    it('creates, dedupes per playlist, lists and validates status', async () => {
       const a = await requests.createRequest({ youtubeId: 'CCCCCCCCCCC', url: 'https://www.youtube.com/watch?v=CCCCCCCCCCC', title: 'Wanted', requestedBy: 'Bob', requestedById: 'user_bob', playlistId: 'lobby001' });
       assert.equal(a.created, true);
       const again = await requests.createRequest({ youtubeId: 'CCCCCCCCCCC', requestedBy: 'Bob', playlistId: 'lobby001' });
@@ -380,10 +391,10 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       assert.equal(r.status, 201);
       assert.equal(r.body.fulfilled_requests.length, 2);
       assert.equal(hookCalls.length, 1);
-      assert.deepEqual(hookCalls[0].fulfilled.map((x) => x.lobby_id).sort(), ['lobby001', 'lobby002']);
+      assert.deepEqual(hookCalls[0].fulfilled.map((x: Payload) => x.lobby_id).sort(), ['lobby001', 'lobby002']);
       const fulfilled = await getJson('/api/requests?status=fulfilled');
       assert.equal(fulfilled.body.requests.length, 2);
-      assert.ok(fulfilled.body.requests.every((x) => x.song_id === r.body.song.id));
+      assert.ok(fulfilled.body.requests.every((x: Payload) => x.song_id === r.body.song.id));
       assert.equal((await getJson('/api/requests')).body.requests.length, 0);
     });
 
@@ -392,7 +403,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       const r = await upload(fx.d, { title: 'Obscure Tune', artist: 'Nobody', request_id: request.id });
       assert.equal(r.status, 201);
       assert.deepEqual(r.body.fulfilled_requests, [request.id]);
-      const after = (await getJson('/api/requests?status=all')).body.requests.find((x) => x.id === request.id);
+      const after = (await getJson('/api/requests?status=all')).body.requests.find((x: Payload) => x.id === request.id);
       assert.equal(after.status, 'fulfilled');
     });
 
@@ -406,7 +417,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       assert.equal(r.status, 409);
       const all = (await getJson('/api/requests?status=all')).body.requests;
       for (const req of [byId.request, byYt.request, byYt2.request]) {
-        assert.equal(all.find((x) => x.id === req.id).status, 'fulfilled', req.requested_by);
+        assert.equal(all.find((x: Payload) => x.id === req.id).status, 'fulfilled', req.requested_by);
       }
       assert.equal(hookCalls.length, 1, 'queues waiting on the song are refreshed');
       assert.equal(hookCalls[0].song.title, 'Song A');
@@ -421,10 +432,10 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       const before = requestsChanged;
       const ok = await fetch(`${base}/api/requests/${request.id}/dismiss`, { method: 'POST', headers: auth() });
       assert.equal(ok.status, 200);
-      assert.equal((await ok.json()).request.status, 'dismissed');
+      assert.equal((await ok.json() as Payload).request.status, 'dismissed');
       assert.equal(requestsChanged, before + 1);
       const dismissed = await getJson('/api/requests?status=dismissed');
-      assert.ok(dismissed.body.requests.some((x) => x.id === request.id));
+      assert.ok(dismissed.body.requests.some((x: Payload) => x.id === request.id));
     });
   });
 
@@ -437,7 +448,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
 
     it('logs in with the password, lists every token with its owner and revokes any of them', async () => {
       process.env.ADMIN_PASSWORD = 'pw-test';
-      const post = (url, body, cookie) => fetch(base + url, {
+      const post = (url: string, body?: unknown, cookie?: string) => fetch(base + url, {
         method: 'POST', headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: JSON.stringify(body || {}),
       });
       assert.equal((await getJson('/api/admin/tokens')).status, 401);
@@ -446,30 +457,31 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       assert.equal((await post('/api/admin/login', { password: 'pw-test' })).status, 401, 'username required');
       const login = await post('/api/admin/login', { username: 'admin', password: 'pw-test' });
       assert.equal(login.status, 200);
-      const cookie = login.headers.get('set-cookie').split(';')[0];
+      const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0];
 
       // Creating tokens moved to the profile page.
       assert.equal((await post('/api/admin/tokens', { name: 'Hana' }, cookie)).status, 404);
 
-      const { tokens } = require('./auth/index.ts');
-      const u = (await db.query(
+      const { tokens } = await import('../../auth/index.ts');
+      const u = (await db.query<Payload>(
         `INSERT INTO users (provider, provider_id, name, status, created_at) VALUES ('google', 'hana', 'Hana', 'approved', 1) RETURNING id`
       )).rows[0].id;
+      // record: the row createToken has just inserted, so never null here.
       const { token: t, record } = await tokens.createToken('Laptop', { userId: u });
       assert.equal((await getJson('/api/me', auth(t))).body.name, 'Hana');
 
       const listed = await getJson('/api/admin/tokens', { Cookie: cookie });
-      const mine = listed.body.tokens.find((x) => x.id === record.id);
+      const mine = listed.body.tokens.find((x: Payload) => x.id === record!.id);
       assert.ok(mine && mine.active);
       assert.equal(mine.label, 'Laptop');
       assert.deepEqual(mine.owner, { id: u, name: 'Hana' });
-      const legacy = listed.body.tokens.find((x) => x.id === tokenRecord.id);
+      const legacy = listed.body.tokens.find((x: Payload) => x.id === tokenRecord.id);
       assert.equal(legacy.owner, null, 'legacy token listed without an owner');
       assert.equal(legacy.label, 'Alice');
-      assert.ok(listed.body.tokens.every((x) => !('token_hash' in x)));
+      assert.ok(listed.body.tokens.every((x: Payload) => !('token_hash' in x)));
 
       assert.equal((await post('/api/admin/tokens/not-a-uuid/revoke', {}, cookie)).status, 404);
-      assert.equal((await post(`/api/admin/tokens/${record.id}/revoke`, {}, cookie)).status, 200);
+      assert.equal((await post(`/api/admin/tokens/${record!.id}/revoke`, {}, cookie)).status, 200);
       assert.equal((await getJson('/api/me', auth(t))).status, 401);
       assert.equal((await getJson('/api/me')).status, 200, 'other tokens unaffected');
       delete process.env.ADMIN_PASSWORD;
@@ -478,15 +490,15 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
 
   describe('source_url schema migration', () => {
     it('re-running init on a DB without source_url adds the column and backfills from youtube_id', async () => {
-      await db.query('DROP INDEX IF EXISTS idx_library_songs_source_url');
-      await db.query('ALTER TABLE library_songs DROP COLUMN source_url');
+      await db.query<Payload>('DROP INDEX IF EXISTS idx_library_songs_source_url');
+      await db.query<Payload>('ALTER TABLE library_songs DROP COLUMN source_url');
       await db.close();
       assert.ok(await db.init());
-      const cols = await db.query(
+      const cols = await db.query<Payload>(
         "SELECT 1 FROM information_schema.columns WHERE table_name = 'library_songs' AND column_name = 'source_url'"
       );
       assert.equal(cols.rows.length, 1);
-      const rows = (await db.query('SELECT youtube_id, source_url FROM library_songs')).rows;
+      const rows = (await db.query<Payload>('SELECT youtube_id, source_url FROM library_songs')).rows;
       assert.ok(rows.length > 0);
       for (const row of rows) {
         assert.equal(row.source_url, row.youtube_id ? `https://www.youtube.com/watch?v=${row.youtube_id}` : null);
@@ -501,7 +513,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       fs.copyFileSync(fx.mp3, legacyFile);
       execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=990:duration=2', '-c:a', 'libmp3lame',
         '-metadata', 'title=Tagged Title', '-metadata', 'artist=Tagged Artist', orphanFile]);
-      await db.query(
+      await db.query<Payload>(
         `INSERT INTO songs (url, title, duration, file_path, status, created_at, updated_at)
          VALUES ('https://www.youtube.com/watch?v=LLLLLLLLLLL', 'Legacy Song', 2, $1, 'ready', 1, 1)`,
         [legacyFile]
@@ -512,14 +524,14 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       const second = await library.migrateLegacyCache();
       assert.equal(second.registered, 0);
 
-      const rows = (await db.query("SELECT * FROM library_songs WHERE uploaded_by = 'server' ORDER BY title")).rows;
+      const rows = (await db.query<Payload>("SELECT * FROM library_songs WHERE uploaded_by = 'server' ORDER BY title")).rows;
       assert.equal(rows.length, 2);
-      const legacy = rows.find((x) => x.file_path === legacyFile);
+      const legacy = rows.find((x: Payload) => x.file_path === legacyFile);
       assert.equal(legacy.title, 'Legacy Song');
       assert.equal(legacy.youtube_id, 'LLLLLLLLLLL');
       assert.equal(legacy.source_url, 'https://www.youtube.com/watch?v=LLLLLLLLLLL');
       assert.equal(legacy.mime_type, 'audio/mpeg');
-      const orphan = rows.find((x) => x.file_path === orphanFile);
+      const orphan = rows.find((x: Payload) => x.file_path === orphanFile);
       assert.equal(orphan.title, 'Tagged Title');
       assert.equal(orphan.artist, 'Tagged Artist');
       assert.equal(orphan.source_url, null);
@@ -527,7 +539,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
 
       // old queue entries keep resolving
       const resolved = await library.resolveQueueUrl('https://www.youtube.com/watch?v=LLLLLLLLLLL');
-      assert.equal(resolved.id, legacy.id);
+      assert.equal(resolved?.id, legacy.id);
       const missing = await library.findUnavailableUrls([
         'https://www.youtube.com/watch?v=LLLLLLLLLLL', `library:${orphan.id}`, 'https://www.youtube.com/watch?v=NNNNNNNNNNN',
       ]);
@@ -538,14 +550,14 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       const ogg = path.join(SONGS, 'cccccccc-3333-4333-8333-333333333333.opus');
       const webm = path.join(SONGS, 'dddddddd-4444-4444-8444-444444444444.webm');
       // Ogg keeps Vorbis comments on the stream; Matroska writes ARTIST/TITLE.
-      for (const [file, freq, title] of [[ogg, 660, 'Ogg Title'], [webm, 770, 'Webm Title']]) {
+      for (const [file, freq, title] of [[ogg, 660, 'Ogg Title'], [webm, 770, 'Webm Title']] as Array<[string, number, string]>) {
         execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `sine=frequency=${freq}:duration=2`, '-c:a', 'libopus',
           '-metadata', `title=${title}`, '-metadata', 'artist=Opus Artist', '-metadata', 'album=Opus Album', file]);
       }
       const r = await library.migrateLegacyCache();
       assert.equal(r.registered, 2);
-      const rows = (await db.query('SELECT * FROM library_songs WHERE file_path = ANY($1)', [[ogg, webm]])).rows;
-      const byPath = Object.fromEntries(rows.map((x) => [x.file_path, x]));
+      const rows = (await db.query<Payload>('SELECT * FROM library_songs WHERE file_path = ANY($1)', [[ogg, webm]])).rows;
+      const byPath = Object.fromEntries(rows.map((x: Payload) => [x.file_path, x]));
       assert.equal(byPath[ogg].title, 'Ogg Title');
       assert.equal(byPath[ogg].artist, 'Opus Artist');
       assert.equal(byPath[ogg].album, 'Opus Album');
