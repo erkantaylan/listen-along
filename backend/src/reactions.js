@@ -4,7 +4,7 @@
  * functions through their deps instead):
  *
  *   emitJob                    a download job changed: the activity log
- *                              (activityFeed.js) and the requester's jobs:update
+ *                              (features/activity) and the requester's jobs:update
  *   addJobSongsToPlaylist      a web job's songs go into its target playlist
  *   workersChanged             workers:update to every approved socket, coalesced
  *   queueRequestJob            a new song request becomes a download job
@@ -51,7 +51,7 @@ function createReactions({
 }) {
   function emitJob(row) {
     if (!row) return;
-    // Everyone's activity log (activityFeed.js), then the requester's own, richer view.
+    // Everyone's activity log (features/activity), then the requester's own, richer view.
     activityFeed.jobChanged(row);
     if (!row.requested_by_user_id) return;
     io.to(userRoom(row.requested_by_user_id)).emit('jobs:update', { job: downloadJobs.toPublic(row), workers: getWorkerHub().stats() });

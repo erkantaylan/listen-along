@@ -201,7 +201,7 @@ where lobby persistence broke entirely on deployed instances.
   when the caller passes one the viewer can see now; never `row.playlist_name`
   (that join ignores the viewer). List: `GET /api/activity/downloads` (jobRoutes.js;
   guard default: approved, no tokens; `listActivity`: newest `ACTIVITY_LIMIT` = 60
-  plus every active job; empty without a database). Live: `activityFeed.js`, fed by
+  plus every active job; empty without a database). Live: `backend/src/features/activity/`, fed by
   `emitJob` in reactions.js, so every job change reaches it (a details edit of a song
   with an active replace job emits it too): `activity:job { job }` to `APP_ROOM`,
   where a private playlist's owner gets the row with the playlist and everyone else

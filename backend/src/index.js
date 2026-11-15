@@ -41,7 +41,7 @@ const { createListenAlong, createSourceResolver } = require('./listenAlong');
 const downloadJobs = require('./downloadJobs');
 const { createWorkerHub } = require('./workerHub');
 const { createJobRouter } = require('./jobRoutes');
-const { createActivityFeed } = require('./activityFeed');
+const { createActivityFeed } = require('./features/activity/index.ts');
 const { createStationRouter } = require('./features/radio/index.ts');
 const { createArtistRouter } = require('./features/artists/index.ts');
 const { createInfoRouter, createPageRouter } = require('./appRoutes');
@@ -157,7 +157,7 @@ app.use(createInfoRouter({ db, ytdlp, frontendPath }));
 // Legacy status checks: POST /api/auth/register, GET /api/auth/status (authRoutes.js).
 app.use(auth.statusRouter);
 
-// The downloads activity log, live (activityFeed.js; fed by emitJob).
+// The downloads activity log, live (features/activity; fed by emitJob).
 const activityFeed = createActivityFeed({
   io,
   room: APP_ROOM,
@@ -182,7 +182,7 @@ const {
 // workerHub.js (WebSocket, routing), downloadJobs.js (store), jobRoutes.js
 // (HTTP API). Live job status goes to the requester's sockets (jobs:update),
 // worker counts to every approved socket (workers:update), and a reduced
-// view of every job to every approved socket (activityFeed.js).
+// view of every job to every approved socket (features/activity).
 function upgradeIp(req) {
   try {
     // The upgrade request skips Express: apply the same trust-proxy rule.

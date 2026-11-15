@@ -1,25 +1,44 @@
-// activityFeed.js against a stand-in Socket.IO server: who gets which row, and
+// activityFeed.ts against a stand-in Socket.IO server: who gets which row, and
 // how progress is held back. (The real server and sockets: worker-jobs.test.js.)
-const { describe, it } = require('node:test');
-const assert = require('node:assert/strict');
-const { createActivityFeed } = require('./activityFeed');
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { createActivityFeed } from './activityFeed.ts';
+import type { ActivityIo, ActivityJobRow, ActivityPlaylist } from './activityFeed.ts';
+import type { Io } from '../../shared/types.ts';
+
+// The real Socket.IO server is what index.js passes (typecheck only).
+export const realServerFits = (io: Io): ActivityIo => io;
 
 const tick = (ms = 5) => new Promise((r) => setTimeout(r, ms));
 const ROOM = 'app';
-const userRoom = (id) => `user:${id}`;
+const userRoom = (id: string) => `user:${id}`;
+
+interface FakeSocket { id: string; rooms: string[] }
+/** activity:job's row, as far as these tests read it. */
+interface Row {
+  title: string;
+  requested_by: string;
+  playlist_id: string | null;
+  playlist_name: string | null;
+  status: string;
+  percent: number | null;
+  worker: { name: string };
+  replace: { title: string };
+}
+type Sent = [string, string, any];
 
 /** Sockets are { id, rooms: [..] }; emits land in `sent` as [socketId, event, payload]. */
-function fakeIo(sockets) {
-  const sent = [];
-  const inRoom = (room) => sockets.filter((s) => s.id === room || s.rooms.includes(room));
-  const target = (rooms, except = []) => ({
+function fakeIo(sockets: FakeSocket[]): ActivityIo & { sent: Sent[] } {
+  const sent: Sent[] = [];
+  const inRoom = (room: string) => sockets.filter((s) => s.id === room || s.rooms.includes(room));
+  const target = (rooms: string[], except: string[] = []): ReturnType<ActivityIo['to']> => ({
     except: (room) => target(rooms, [...except, room]),
     emit: (event, payload) => {
       const out = new Set(except.flatMap((r) => inRoom(r).map((s) => s.id)));
       for (const s of new Set(rooms.flatMap(inRoom))) if (!out.has(s.id)) sent.push([s.id, event, payload]);
     },
   });
-  const rooms = { get: (room) => { const ids = inRoom(room).map((s) => s.id); return ids.length ? new Set(ids) : undefined; } };
+  const rooms = { get: (room: string) => { const ids = inRoom(room).map((s) => s.id); return ids.length ? new Set(ids) : undefined; } };
   return { sent, to: (room) => target([room]), sockets: { adapter: { rooms } } };
 }
 
@@ -29,11 +48,11 @@ const sockets = [
   { id: 's-other', rooms: [ROOM, userRoom('other')] },
   { id: 's-pending', rooms: [userRoom('pending')] },
 ];
-const playlists = {
+const playlists: Record<string, ActivityPlaylist> = {
   pub: { id: 'pub', name: 'Open', visibility: 'public', ownerId: 'owner' },
   priv: { id: 'priv', name: 'Hidden', visibility: 'private', ownerId: 'owner' },
 };
-const row = (extra = {}) => ({
+const row = (extra: Partial<ActivityJobRow> = {}): ActivityJobRow => ({
   id: 'j1', source: 'web', kind: 'search', input: 'x', title: 'Band - Song', requested_by: 'Owner', requested_by_user_id: 'owner',
   status: 'queued', created_at: new Date(0), ...extra,
 });
@@ -42,7 +61,7 @@ function setup(progressMs = 40) {
   const feed = createActivityFeed({ io, room: ROOM, userRoom, getPlaylist: async (id) => playlists[id], progressMs });
   return { io, feed };
 }
-const jobsFor = (io, socketId) => io.sent.filter((x) => x[0] === socketId && x[1] === 'activity:job').map((x) => x[2].job);
+const jobsFor = (io: { sent: Sent[] }, socketId: string): Row[] => io.sent.filter((x) => x[0] === socketId && x[1] === 'activity:job').map((x) => x[2].job);
 
 describe('activityFeed: who gets what', () => {
   it('no playlist: one row to every approved socket, none to the others', async () => {
@@ -79,7 +98,7 @@ describe('activityFeed: who gets what', () => {
   });
   it('the playlist is looked up at every emit: once it is private it is no longer named', async () => {
     const { io, feed } = setup();
-    const shifting = { id: 'shift', name: 'Shifting', visibility: 'public', ownerId: 'owner' };
+    const shifting: ActivityPlaylist = { id: 'shift', name: 'Shifting', visibility: 'public', ownerId: 'owner' };
     playlists.shift = shifting;
     feed.jobChanged(row({ playlist_id: 'shift' }));
     await tick();
@@ -94,8 +113,8 @@ describe('activityFeed: who gets what', () => {
 });
 
 describe('activityFeed: progress', () => {
-  const running = (extra = {}) => row({ status: 'assigned', worker_id: 'w1', worker_name: 'pc', playlist_id: 'priv', ...extra });
-  const progressFor = (io, socketId) => io.sent.filter((x) => x[0] === socketId && x[1] === 'activity:progress').map((x) => x[2]);
+  const running = (extra: Partial<ActivityJobRow> = {}) => row({ status: 'assigned', worker_id: 'w1', worker_name: 'pc', playlist_id: 'priv', ...extra });
+  const progressFor = (io: { sent: Sent[] }, socketId: string) => io.sent.filter((x) => x[0] === socketId && x[1] === 'activity:progress').map((x) => x[2]);
 
   it('is a small event (stage and percent, no playlist, none of the worker\'s text), at most one per window, and the latest wins', async () => {
     const { io, feed } = setup(40);
@@ -126,7 +145,7 @@ describe('activityFeed: progress', () => {
   });
   it('a replace job\'s details changed while it runs: a full row, not a progress tick', async () => {
     const { io, feed } = setup(1000);
-    const replacing = (extra = {}) => running({ source: 'replace', playlist_id: null, replace_song_id: 's1', replace_title: 'Old title', replace_artist: 'Band', ...extra });
+    const replacing = (extra: Partial<ActivityJobRow> = {}) => running({ source: 'replace', playlist_id: null, replace_song_id: 's1', replace_title: 'Old title', replace_artist: 'Band', ...extra });
     feed.jobChanged(replacing());
     feed.jobChanged(replacing({ stage: 'uploading', progress: 'Uploading 10%' }));
     feed.jobChanged(replacing({ stage: 'uploading', progress: 'Uploading 10%', replace_title: 'New title' }));

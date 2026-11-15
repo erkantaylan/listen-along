@@ -21,28 +21,82 @@
  * worker, a replace job's details) is a full row, never held back.
  */
 
-const access = require('./playlistAccess');
-const jobs = require('./downloadJobs');
+import access from '../../playlistAccess.js';
+import jobsModule from '../../downloadJobs.js';
+import type { JobWithJoins, Playlist } from '../../shared/types.ts';
 
-const PROGRESS_MS = 1500;
+export const PROGRESS_MS = 1500;
+
+/** What the feed reads of a playlist: who may see it, and what a row may name (toActivity's playlist_id / playlist_name). */
+export type ActivityPlaylist = Pick<Playlist, 'id' | 'name' | 'visibility' | 'ownerId'>;
 
 /**
- * @param io           Socket.IO server
- * @param room         the room of approved accounts' sockets
- * @param userRoom     (userId) -> the room of one account's sockets
- * @param getPlaylist  (playlistId) -> Promise<lobby|undefined>
- * @param progressMs   least time between two progress events of one job
+ * A job as downloadJobs.getJob returns it. The feed itself reads the id, the
+ * status and the playlist; the rest goes to downloadJobs' views.
  */
-function createActivityFeed({ io, room, userRoom, getPlaylist, progressMs = PROGRESS_MS }) {
+export type ActivityJobRow = Pick<JobWithJoins, 'id' | 'status'> & Partial<JobWithJoins>;
+
+/** What the feed uses of the Socket.IO server (the real one fits). */
+interface Broadcast {
+  emit(event: string, payload: unknown): unknown;
+  except(room: string): Broadcast;
+}
+export interface ActivityIo {
+  to(room: string): Broadcast;
+  sockets: { adapter: { rooms: { get(room: string): Set<string> | undefined } } };
+}
+
+/** What this feed uses of downloadJobs.js (CommonJS until core/ moves). */
+interface JobViews {
+  /** The activity log's row: what every approved account may see of a job (activity:job's `job`). */
+  toActivity(row: ActivityJobRow, playlist: ActivityPlaylist | null): object | null;
+  /** A running job's known stage and upload percent. */
+  publicProgress(row: ActivityJobRow): { stage: string | null; percent: number | null };
+}
+const jobs: JobViews = jobsModule;
+
+export interface ActivityFeedDeps {
+  /** Socket.IO server */
+  io: ActivityIo;
+  /** the room of approved accounts' sockets */
+  room: string;
+  /** (userId) -> the room of one account's sockets */
+  userRoom: (userId: string) => string;
+  /** (playlistId) -> the playlist, or undefined when it is gone */
+  getPlaylist: (playlistId: string) => Promise<ActivityPlaylist | null | undefined>;
+  /** least time between two progress events of one job */
+  progressMs?: number;
+}
+
+export interface ActivityFeed {
+  /** A job was created or changed (the row, as downloadJobs.getJob returns it). */
+  jobChanged(row: ActivityJobRow | null | undefined): void;
+}
+
+/** activity:progress */
+export interface ActivityProgress {
+  id: string;
+  stage: string | null;
+  percent: number | null;
+}
+
+interface Running {
+  shape: string;
+  at: number;
+  timer: NodeJS.Timeout | null;
+  pending: ActivityJobRow | null;
+}
+
+export function createActivityFeed({ io, room, userRoom, getPlaylist, progressMs = PROGRESS_MS }: ActivityFeedDeps): ActivityFeed {
   // Jobs waiting or running: id -> { shape, at, timer, pending }
-  const running = new Map();
+  const running = new Map<string, Running>();
   // Emits leave in the order the changes came, also past the playlist lookup.
-  let chain = Promise.resolve();
-  const later = (fn) => {
+  let chain: Promise<unknown> = Promise.resolve();
+  const later = (fn: () => unknown) => {
     chain = chain.then(fn).catch((err) => console.error('[activity] emit failed:', err.message));
   };
 
-  async function sendJob(row) {
+  async function sendJob(row: ActivityJobRow): Promise<void> {
     const l = row.playlist_id ? await getPlaylist(row.playlist_id) : null;
     if (!l || !access.isPrivate(l)) {
       io.to(room).emit('activity:job', { job: jobs.toActivity(row, l || null) });
@@ -59,19 +113,19 @@ function createActivityFeed({ io, room, userRoom, getPlaylist, progressMs = PROG
     }
   }
 
-  function sendProgress(row) {
+  function sendProgress(row: ActivityJobRow): void {
     const { stage, percent } = jobs.publicProgress(row);
-    later(() => io.to(room).emit('activity:progress', { id: row.id, stage, percent }));
+    const progress: ActivityProgress = { id: row.id, stage, percent };
+    later(() => io.to(room).emit('activity:progress', progress));
   }
 
   // The row without what a progress tick moves: two emits with the same shape
   // differ in progress only.
-  function shapeOf(row) {
+  function shapeOf(row: ActivityJobRow): string {
     return JSON.stringify({ ...jobs.toActivity(row, null), stage: null, percent: null, progress: null, updated_at: null });
   }
 
-  /** A job was created or changed (the row, as downloadJobs.getJob returns it). */
-  function jobChanged(row) {
+  function jobChanged(row: ActivityJobRow | null | undefined): void {
     if (!row || !row.id) return;
     const state = running.get(row.id);
     const shape = shapeOf(row);
@@ -106,5 +160,3 @@ function createActivityFeed({ io, room, userRoom, getPlaylist, progressMs = PROG
 
   return { jobChanged };
 }
-
-module.exports = { createActivityFeed, PROGRESS_MS };
