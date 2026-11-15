@@ -10,14 +10,38 @@
  * authRoutes.js on its router (after the guard; the routes are public in
  * userAuth.policyFor and check what they need themselves).
  *
- *   GET  /auth/mobile/start?state&nonce&code_challenge&code_challenge_method=S256
+ *   GET  /auth/mobile/start?state&nonce&code_challenge&code_challenge_method=S256[&redirect_uri]
  *        The app opens this in a Custom Tab. It made state, nonce and the PKCE
- *        verifier itself and keeps them. Central login: 302 to the IdP's
- *        authorize endpoint with redirect_uri = the app's registered scheme
- *        (MOBILE_REDIRECT_URI), the server's scopes. The IdP sends the browser
- *        back to the app with ?code&state (or ?error). Dev sign-in: a page whose
- *        link goes straight back to the app with a signed dev code.
- *   POST /auth/mobile/exchange  { code, state, code_verifier, nonce, iss? }
+ *        verifier itself and keeps them. `redirect_uri` says where the IdP is to
+ *        send the code, one of exactly two (anything else is refused):
+ *          <BASE_URL>/auth/mobile/callback    the https App Link (verified by
+ *                                             Android through assetlinks.json:
+ *                                             only this app's signing key gets it)
+ *          com.etaylan.listen:/oauth2redirect the custom scheme (any app can
+ *                                             claim it); the default when the
+ *                                             parameter is missing (app 0.4.0
+ *                                             and older); MOBILE_CUSTOM_SCHEME=off
+ *                                             refuses it
+ *        Central login: 302 to the IdP's authorize endpoint with that
+ *        redirect_uri, the server's scopes, and a nonce DERIVED from the app's
+ *        nonce and the redirect (idpNonce, below). The IdP sends the browser
+ *        back with ?code&state (or ?error). Dev sign-in: a page whose link goes
+ *        straight back to the app with a signed dev code.
+ *   GET  /auth/mobile/callback?code&state   the https redirect's target. When
+ *        Android has verified the App Link it opens the app and this is never
+ *        requested. Otherwise (not verified yet, no app, a desktop browser): a
+ *        static page whose button hands the same query to the app through an
+ *        intent: URL naming the package. It exchanges nothing, the code never
+ *        appears in the HTML (the page's script reads location.search), the
+ *        query stays out of the access log (httpApp.js), no-store, no referrer.
+ *   GET  /.well-known/assetlinks.json   the Digital Asset Links statement that
+ *        lets Android verify the App Link: package + release signing
+ *        certificate (ANDROID_APP_PACKAGE, ANDROID_APP_CERT_SHA256).
+ *   POST /auth/mobile/exchange  { code, state, code_verifier, nonce, iss?, redirect_uri? }
+ *        redirect_uri: the one the sign-in was started with (same allowlist,
+ *        same default). It goes to the IdP's token endpoint and into the
+ *        derived nonce the id_token must carry, so a code from a flow started
+ *        with one redirect cannot be exchanged as the other.
  *        200 { token: 'lam_...', token_type: 'Bearer', expires_at, mode:
  *        'central'|'dev', user: { id, name, status } }. Errors are
  *        { error, code } with code invalid_request (400), signin_failed (400:
@@ -39,6 +63,19 @@
  *   - someone else's code (intercepted redirect, another app claiming the
  *     scheme): useless without the verifier, which never leaves the app until
  *     the exchange; the IdP checks it (PKCE S256);
+ *   - another app that STARTS its own flow on the custom scheme and catches
+ *     the code for the victim's existing IdP browser session (PKCE does not
+ *     help: it holds its own verifier): the https App Link, which Android
+ *     gives only to the app signed with the key in assetlinks.json, and
+ *     MOBILE_CUSTOM_SCHEME=off once every installed app uses it;
+ *   - a code obtained outside /auth/mobile/start (an authorize URL built by
+ *     hand with the public client id, e.g. on the custom scheme while it is
+ *     still registered at the IdP) or with the other redirect: the IdP gets
+ *     idpNonce(app nonce, redirect) = HMAC(SESSION_SECRET, ...), and the
+ *     exchange expects exactly that in the id_token; nobody without the
+ *     secret can make it. (authentik checks only that the token request's
+ *     redirect_uri is registered, not that the code was issued for it, so
+ *     this binding is the server's own.)
  *   - a forged redirect into the app (login CSRF): the app compares `state`;
  *   - a replayed id_token / mixed-up flow: the server passes the app's nonce
  *     as the expected nonce, so an id_token minted for another flow fails;
@@ -59,8 +96,119 @@ const {
   MOBILE_TOKEN_PREFIX, CENTRAL_TOKEN_RE, mobileBearer, signDevMobileToken, signDevCode, verifyDevCode, s256,
 } = require('./mobileTokens');
 
-/** Registered with the IdP for the listen-along client (central-login catalog). */
+/** The custom scheme registered with the IdP for the listen-along client (central-login catalog). */
 const MOBILE_REDIRECT_URI = 'com.etaylan.listen:/oauth2redirect';
+/** The https redirect is <BASE_URL> + this: an Android App Link (assetlinks.json). */
+const MOBILE_CALLBACK_PATH = '/auth/mobile/callback';
+const ASSET_LINKS_PATH = '/.well-known/assetlinks.json';
+
+/**
+ * The Android app's package and the SHA-256 of its RELEASE signing
+ * certificate, as `apksigner verify --print-certs` prints it for the signed
+ * APK of the GitHub Release android-v0.3.0 (CN=Listen Along, O=listen-along;
+ * the key of .github/workflows/android-release.yml). Public, not a secret.
+ * ANDROID_APP_PACKAGE / ANDROID_APP_CERT_SHA256 replace them, so a rotated key
+ * needs no code change. Debug builds (`.debug`, a per-machine debug key) are
+ * not listed: they keep the custom scheme.
+ */
+const DEFAULT_APP_PACKAGE = 'com.erkantaylan.listenalong';
+const RELEASE_CERT_SHA256 = 'DD:B6:D8:FE:68:09:7B:E1:50:5D:53:37:55:EE:3C:59:D1:65:E6:E3:18:52:DB:BA:9C:C6:A6:5F:45:61:C3:F5';
+const PACKAGE_RE = /^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/;
+const FINGERPRINT_RE = /^(?:[0-9A-Fa-f]{64}|[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){31})$/;
+
+class MobileConfigError extends Error {
+  get name() { return 'MobileConfigError'; }
+}
+
+/** "ddb6...f5" or "DD:B6:...:F5" -> "DD:B6:...:F5"; null when it is not 32 bytes of hex. */
+function normalizeFingerprint(raw) {
+  const text = String(raw).trim();
+  if (!FINGERPRINT_RE.test(text)) return null;
+  return text.replace(/:/g, '').toUpperCase().match(/../g).join(':');
+}
+
+/**
+ * The app sign-in's settings, read at boot; a bad value throws
+ * MobileConfigError and the server does not start.
+ *
+ *   MOBILE_CUSTOM_SCHEME     on (default) | off: whether the custom-scheme
+ *                            redirect is still accepted (app 0.4.0 and older
+ *                            use it). Switch it off once the App Link version
+ *                            is installed everywhere (CENTRAL-LOGIN.md).
+ *   ANDROID_APP_PACKAGE      the release package (default DEFAULT_APP_PACKAGE)
+ *   ANDROID_APP_CERT_SHA256  comma-separated SHA-256 certificate fingerprints
+ *                            (hex, colons optional) for that package;
+ *                            `package=FINGERPRINT` names another package (a
+ *                            debug build, deliberately, for testing). Replaces
+ *                            the default: list the release one too.
+ *
+ * @param baseUrl  the public address (BASE_URL) or null; the https redirect is
+ *                 <baseUrl>/auth/mobile/callback, never from the Host header
+ * @returns {{ customScheme: boolean, callbackUrl: string|null, appPackage: string,
+ *             assetLinks: object[], redirects: string[] }}
+ */
+function readMobileConfig(env = process.env, { baseUrl = null } = {}) {
+  const switchRaw = String(env.MOBILE_CUSTOM_SCHEME || '').trim().toLowerCase();
+  if (!['', 'on', 'off'].includes(switchRaw)) {
+    throw new MobileConfigError(`MOBILE_CUSTOM_SCHEME must be "on" or "off" (got "${env.MOBILE_CUSTOM_SCHEME}")`);
+  }
+  const customScheme = switchRaw !== 'off';
+
+  const appPackage = String(env.ANDROID_APP_PACKAGE || '').trim() || DEFAULT_APP_PACKAGE;
+  if (!PACKAGE_RE.test(appPackage) || appPackage.length > 255) {
+    throw new MobileConfigError(`ANDROID_APP_PACKAGE is not an Android package name: "${appPackage}"`);
+  }
+
+  const byPackage = new Map();
+  for (const item of (String(env.ANDROID_APP_CERT_SHA256 || '').trim() || RELEASE_CERT_SHA256).split(',')) {
+    const entry = item.trim();
+    if (!entry) throw new MobileConfigError('ANDROID_APP_CERT_SHA256 has an empty entry');
+    const eq = entry.indexOf('=');
+    const pkg = eq === -1 ? appPackage : entry.slice(0, eq).trim();
+    const fp = normalizeFingerprint(eq === -1 ? entry : entry.slice(eq + 1));
+    if (!PACKAGE_RE.test(pkg)) throw new MobileConfigError(`ANDROID_APP_CERT_SHA256: "${pkg}" is not an Android package name`);
+    if (!fp) throw new MobileConfigError(`ANDROID_APP_CERT_SHA256: "${entry}" is not a SHA-256 fingerprint (64 hex digits, colons optional)`);
+    if (!byPackage.has(pkg)) byPackage.set(pkg, []);
+    if (!byPackage.get(pkg).includes(fp)) byPackage.get(pkg).push(fp);
+  }
+  const assetLinks = [...byPackage].map(([pkg, fps]) => ({
+    relation: ['delegate_permission/common.handle_all_urls'],
+    target: { namespace: 'android_app', package_name: pkg, sha256_cert_fingerprints: fps },
+  }));
+
+  const base = typeof baseUrl === 'string' && baseUrl ? baseUrl.replace(/\/+$/, '') : null;
+  const callbackUrl = base ? base + MOBILE_CALLBACK_PATH : null;
+  if (!customScheme && !callbackUrl) {
+    throw new MobileConfigError('MOBILE_CUSTOM_SCHEME=off needs BASE_URL: the app would have no redirect left');
+  }
+  const redirects = [callbackUrl, customScheme ? MOBILE_REDIRECT_URI : null].filter(Boolean);
+  return { customScheme, callbackUrl, appPackage, assetLinks, redirects };
+}
+
+/** BASE_URL (or FRONTEND_URL) for the dev sign-in, which readOidcConfig does not read; null when unset or not http(s). */
+function devBaseUrl(env) {
+  const raw = String(env.BASE_URL || env.FRONTEND_URL || '').trim();
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    u.search = '';
+    u.hash = '';
+    return u.href.replace(/\/+$/, '');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The nonce the IdP is given (and the id_token must carry) for an app sign-in:
+ * bound to the app's nonce AND the redirect, keyed by SESSION_SECRET. Only
+ * /auth/mobile/start makes it, so a code from any other authorize request, or
+ * from a flow started with the other redirect, fails the exchange.
+ */
+function idpNonce(secret, nonce, redirectUri) {
+  return crypto.createHmac('sha256', String(secret)).update(`listen-along-mobile-nonce-v1\n${redirectUri}\n${nonce}`).digest('base64url');
+}
 
 const VERIFIER_RE = /^[A-Za-z0-9._~-]{43,128}$/; // RFC 7636
 const CHALLENGE_RE = /^[A-Za-z0-9_-]{43}$/;      // base64url(SHA-256)
@@ -91,12 +239,12 @@ function page(res, status, title, bodyHtml) {
     `<title>${escapeHtml(title)}</title><style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:2rem auto;padding:0 16px;` +
     `background:#16181d;color:#e6e8ee}a.button,button{display:inline-block;padding:.6rem 1rem;border-radius:8px;border:0;` +
     `background:#7aa2f7;color:#16181d;text-decoration:none;font:inherit}input{font:inherit;padding:.5rem;border-radius:8px;` +
-    `border:1px solid #444;background:#1f2229;color:inherit}p.muted{color:#9aa0ab;font-size:14px}</style></head>` +
+    `border:1px solid #444;background:#1f2229;color:inherit}p.muted{color:#9aa0ab;font-size:14px}[hidden]{display:none!important}</style></head>` +
     `<body><h1>${escapeHtml(title)}</h1>${bodyHtml}</body></html>`
   );
 }
 
-const appRedirect = (params) => `${MOBILE_REDIRECT_URI}?${new URLSearchParams(params)}`;
+const appRedirect = (redirectUri, params) => `${redirectUri}?${new URLSearchParams(params)}`;
 
 /**
  * @param oidc        createOidcClient() (central login) or null (dev sign-in)
@@ -114,7 +262,65 @@ function createMobileAuthRouter({
   devLogin = false, secret, env = process.env, logger = console, now = () => Date.now(),
 }) {
   if (!oidc === !devLogin) throw new Error('createMobileAuthRouter: exactly one of oidc (central login) or devLogin');
+  if (!secret) throw new Error('createMobileAuthRouter: SESSION_SECRET is required (it keys the app sign-in nonce)');
+  const config = readMobileConfig(env, { baseUrl: cfg.enabled ? cfg.baseUrl : devBaseUrl(env) });
   const router = express.Router();
+
+  /**
+   * The redirect the app says it uses: a value of the allowlist, the custom
+   * scheme when none is given (older apps), or null = refused (unknown, or the
+   * custom scheme while it is switched off).
+   */
+  function chosenRedirect(raw) {
+    if (raw === undefined || raw === null) return config.customScheme ? MOBILE_REDIRECT_URI : null;
+    if (typeof raw !== 'string') return null;
+    return config.redirects.includes(raw) ? raw : null;
+  }
+  /** Refused because it is (or defaults to) the switched-off custom scheme: an old app. */
+  const isOldApp = (raw) => raw === undefined || raw === null || raw === MOBILE_REDIRECT_URI;
+
+  // ---- App Links: the statement and the fallback page ----------------------
+
+  const assetLinksBody = JSON.stringify(config.assetLinks, null, 2) + '\n';
+  router.get(ASSET_LINKS_PATH, (req, res) => {
+    // Android fetches it at install and on re-verification; cached briefly so
+    // a rotated key is served within minutes.
+    res.set('Cache-Control', 'public, max-age=300').type('application/json').send(assetLinksBody);
+  });
+
+  // The page Android shows instead of opening the app when the link is not
+  // verified (or there is no app). Static: the script reads code and state
+  // from location.search and only puts them into the intent: link of the
+  // button, which names the app's package (so no other app can take it, even
+  // unverified). Nothing is exchanged or sent from here.
+  const callbackTarget = config.callbackUrl ? new URL(config.callbackUrl) : null;
+  const intentPrefix = callbackTarget ? `intent://${callbackTarget.host}${callbackTarget.pathname}` : '';
+  const intentSuffix = callbackTarget
+    ? `#Intent;scheme=${callbackTarget.protocol.slice(0, -1)};package=${config.appPackage};` +
+      `S.browser_fallback_url=${encodeURIComponent(new URL('/app', callbackTarget).href)};end`
+    : '';
+  const inScript = (v) => JSON.stringify(v).replace(/</g, '\\u003c');
+  router.get(MOBILE_CALLBACK_PATH, (req, res) => {
+    res.set('Referrer-Policy', 'no-referrer');
+    res.set('X-Robots-Tag', 'noindex');
+    if (!callbackTarget) return page(res, 404, 'Not found', '<p>This server has no app sign-in link.</p>');
+    return page(res, 200, 'Continue in the app',
+      '<p>Sign-in continues in the Listen Along app. Tap the button to go back to it.</p>' +
+      '<p lang="tr">Giriş Listen Along uygulamasında devam ediyor. Uygulamaya dönmek için düğmeye dokunun.</p>' +
+      '<p><a class="button" id="open-app" href="#" hidden>Open the app · Uygulamayı aç</a></p>' +
+      '<p class="muted" id="no-signin" hidden>There is no sign-in to continue here. Start it again in the app.<br>' +
+      '<span lang="tr">Burada sürdürülecek bir giriş yok. Uygulamadan yeniden başlatın.</span></p>' +
+      '<p class="muted">This works only on the phone that started the sign-in, with the app installed.<br>' +
+      '<span lang="tr">Yalnızca girişi başlatan, uygulamanın yüklü olduğu telefonda çalışır.</span></p>' +
+      '<script>(function () {' +
+      'var q = location.search.slice(1), p = new URLSearchParams(q);' +
+      'var ok = q.length <= 4096 && /^[A-Za-z0-9._~%=&+-]+$/.test(q) && p.get("state") && (p.get("code") || p.get("error"));' +
+      'if (!ok) { document.getElementById("no-signin").hidden = false; return; }' +
+      'var a = document.getElementById("open-app");' +
+      `a.href = ${inScript(intentPrefix)} + "?" + q + ${inScript(intentSuffix)};` +
+      'a.hidden = false;' +
+      '})();</script>');
+  });
 
   // Sign-in round trips per client address, like the web's (AUTH_RATE_LIMIT,
   // default 30 a minute; a budget of its own).
@@ -152,38 +358,50 @@ function createMobileAuthRouter({
     if (!STATE_RE.test(state) || !STATE_RE.test(nonce) || !CHALLENGE_RE.test(challenge) || (q.code_challenge_method || 'S256') !== 'S256') {
       return page(res, 400, 'Sign-in link not valid', '<p>Go back to the app and tap Sign in again.</p>');
     }
+    const redirectUri = chosenRedirect(q.redirect_uri);
+    if (!redirectUri) {
+      if (isOldApp(q.redirect_uri)) {
+        return page(res, 400, 'Update the app',
+          '<p>This version of the Listen Along app signs in in a way this server no longer accepts. Install the latest version, then sign in again.</p>' +
+          '<p lang="tr">Listen Along uygulamasının bu sürümü, bu sunucunun artık kabul etmediği bir yolla giriş yapıyor. En son sürümü yükleyip yeniden giriş yapın.</p>');
+      }
+      return page(res, 400, 'Sign-in link not valid', '<p>Go back to the app and tap Sign in again.</p>');
+    }
+    const boundNonce = idpNonce(secret, nonce, redirectUri);
 
     if (devLogin) {
       const asked = typeof q.user === 'string' ? q.user.trim().slice(0, 100) : '';
-      const code = signDevCode(secret, { user: asked || null, challenge, nonce }, now());
+      const code = signDevCode(secret, { user: asked || null, challenge, nonce: boundNonce }, now());
       const hidden = { state, nonce, code_challenge: challenge, code_challenge_method: 'S256' };
+      if (typeof q.redirect_uri === 'string') hidden.redirect_uri = redirectUri;
       return page(res, 200, 'Development sign-in',
         '<p class="muted">This server runs with INSECURE_DEV_LOGIN: anyone can sign in as anyone. Development only.</p>' +
-        `<p><a class="button" id="continue" href="${escapeHtml(appRedirect({ code, state }))}">Continue as ${escapeHtml(asked ? `user ${asked}` : 'Dev User')}</a></p>` +
+        `<p><a class="button" id="continue" href="${escapeHtml(appRedirect(redirectUri, { code, state }))}">Continue as ${escapeHtml(asked ? `user ${asked}` : 'Dev User')}</a></p>` +
         '<form method="get" action="/auth/mobile/start"><p class="muted">Or as another account (users.id):</p>' +
         Object.entries(hidden).map(([k, v]) => `<input type="hidden" name="${k}" value="${escapeHtml(v)}">`).join('') +
         '<input name="user" placeholder="users.id" autocomplete="off"> <button type="submit">Use it</button></form>');
     }
 
     try {
-      const url = await oidc.authorizationUrl({ redirectUri: MOBILE_REDIRECT_URI, state, nonce, codeChallenge: challenge });
+      const url = await oidc.authorizationUrl({ redirectUri, state, nonce: boundNonce, codeChallenge: challenge });
       res.set('Cache-Control', 'no-store');
       return res.redirect(url);
     } catch (err) {
       logger.error(`[oidc] could not start an app sign-in: ${err.message}`);
       return page(res, 503, 'Sign-in unavailable',
         '<p>Sign-in cannot be reached right now. Try again in a little while.</p>' +
-        `<p><a class="button" href="${escapeHtml(appRedirect({ error: 'temporarily_unavailable', state }))}">Back to the app</a></p>`);
+        `<p><a class="button" href="${escapeHtml(appRedirect(redirectUri, { error: 'temporarily_unavailable', state }))}">Back to the app</a></p>`);
     }
   });
 
   // ---- exchange ------------------------------------------------------------
 
   /** Central login: the code -> claims + tokens, validated as at the web callback. */
-  async function exchangeCentral(b) {
+  async function exchangeCentral(b, redirectUri) {
     const query = new URLSearchParams({ code: b.code, state: b.state });
     if (b.iss) query.set('iss', b.iss);
-    return oidc.finishLogin(query.toString(), { state: b.state, nonce: b.nonce, verifier: b.code_verifier }, { redirectUri: MOBILE_REDIRECT_URI });
+    const flow = { state: b.state, nonce: idpNonce(secret, b.nonce, redirectUri), verifier: b.code_verifier };
+    return oidc.finishLogin(query.toString(), flow, { redirectUri });
   }
 
   /** The account a central sign-in lands on; same rules and log line as the web callback. */
@@ -243,6 +461,12 @@ function createMobileAuthRouter({
       && (b.iss === undefined || b.iss === null || (typeof b.iss === 'string' && b.iss.length <= 512));
     if (!ok) return fail(res, 'invalid_request');
     if (!b.iss) delete b.iss;
+    // The redirect the sign-in was started with: the same allowlist and
+    // default as start. Refused before the code is spent.
+    const redirectUri = chosenRedirect(b.redirect_uri);
+    if (!redirectUri) {
+      return fail(res, 'invalid_request', isOldApp(b.redirect_uri) ? 'This version of the app can no longer sign in here: install the latest version' : undefined);
+    }
 
     // Database configured but not there: no session can be stored, and no
     // account invented in memory. Before the code is spent.
@@ -267,7 +491,7 @@ function createMobileAuthRouter({
     let knownName = null; // the IdP's name, for a no-database account
     if (devLogin) {
       const c = verifyDevCode(secret, b.code, now());
-      if (!c || c.nonce !== b.nonce || s256(b.code_verifier) !== c.challenge) return fail(res, 'signin_failed');
+      if (!c || c.nonce !== idpNonce(secret, b.nonce, redirectUri) || s256(b.code_verifier) !== c.challenge) return fail(res, 'signin_failed');
       let u;
       try { u = await devUser(c.user); } catch (err) {
         logger.error('[auth] dev app sign-in failed:', err.message);
@@ -282,7 +506,7 @@ function createMobileAuthRouter({
     } else {
       let result;
       try {
-        result = await exchangeCentral(b);
+        result = await exchangeCentral(b, redirectUri);
       } catch (err) {
         logger.warn(`[oidc] app sign-in rejected (${err.kind || 'error'}): ${err.message}`);
         return err.kind === 'unavailable' ? unavailable() : fail(res, 'signin_failed');
@@ -359,4 +583,7 @@ function createMobileAuthRouter({
   return router;
 }
 
-module.exports = { createMobileAuthRouter, MOBILE_REDIRECT_URI };
+module.exports = {
+  createMobileAuthRouter, readMobileConfig, idpNonce, normalizeFingerprint, MobileConfigError,
+  MOBILE_REDIRECT_URI, MOBILE_CALLBACK_PATH, ASSET_LINKS_PATH, DEFAULT_APP_PACKAGE, RELEASE_CERT_SHA256,
+};

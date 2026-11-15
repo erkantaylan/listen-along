@@ -36,6 +36,7 @@ async function startFakeIssuer({ clientId = 'listen-along', slug = 'listen-along
     refreshDelayMs: 0,
     refreshError: null,     // e.g. 'invalid_client': the next refreshes fail with it
     metadataOverride: null, // (md) => md, for malformed-discovery tests
+    redirectMatch: true,    // false: the token endpoint does not compare redirect_uri with the code's (as authentik)
     disabled: new Set(),
     codes: new Map(),
     refreshTokens: new Map(), // token -> { sub, claims, active }
@@ -46,7 +47,7 @@ async function startFakeIssuer({ clientId = 'listen-along', slug = 'listen-along
     enable(sub) { this.disabled.delete(sub); },
     reset() {
       this.user = null; this.tamper = null; this.down = false; this.refreshDelayMs = 0; this.refreshError = null;
-      this.metadataOverride = null; this.disabled.clear();
+      this.metadataOverride = null; this.redirectMatch = true; this.disabled.clear();
     },
   };
 
@@ -165,7 +166,9 @@ async function startFakeIssuer({ clientId = 'listen-along', slug = 'listen-along
         const c = idp.codes.get(form.get('code'));
         idp.codes.delete(form.get('code'));
         if (!c) { idp.lastTokenError = 'unknown code'; return json(res, 400, { error: 'invalid_grant', error_description: 'unknown code' }); }
-        if (form.get('redirect_uri') !== c.redirect) return json(res, 400, { error: 'invalid_grant', error_description: 'redirect_uri' });
+        // RFC 6749 4.1.3. authentik (2026.8) does not do this: it only checks
+        // that redirect_uri is registered (idp.redirectMatch = false).
+        if (idp.redirectMatch && form.get('redirect_uri') !== c.redirect) return json(res, 400, { error: 'invalid_grant', error_description: 'redirect_uri' });
         const verifier = form.get('code_verifier') || '';
         if (b64sha256(verifier) !== c.challenge) {
           idp.lastTokenError = 'PKCE verification failed';

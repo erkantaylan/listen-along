@@ -22,7 +22,7 @@ const { SECRET, cookieFor, adminCookie, startServer, freePort } = require('./tes
 const mobileTokens = require('./mobileTokens');
 const { policyFor, refusal } = require('./userAuth');
 const tokens = require('./tokens');
-const { MOBILE_REDIRECT_URI } = require('./mobileAuth');
+const { MOBILE_REDIRECT_URI, readMobileConfig, idpNonce, normalizeFingerprint, RELEASE_CERT_SHA256 } = require('./mobileAuth');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const rand = (n = 32) => crypto.randomBytes(n).toString('base64url');
@@ -57,24 +57,29 @@ const startUrl = (base, f, extra = {}) => `${base}/auth/mobile/start?${new URLSe
   state: f.state, nonce: f.nonce, code_challenge: f.challenge, code_challenge_method: 'S256', ...extra,
 })}`;
 
-/** The browser half against the fake IdP: start -> IdP -> back to the app's scheme. */
-async function browse(base, idp, claims, { flow = newFlow(), editAuthorize } = {}) {
-  const start = await get(startUrl(base, flow));
+/**
+ * The browser half against the fake IdP: start -> IdP -> back to the app's
+ * redirect. `redirect`: the redirect_uri the app asks for (none = an old app).
+ */
+async function browse(base, idp, claims, { flow = newFlow(), editAuthorize, redirect } = {}) {
+  const start = await get(startUrl(base, flow, redirect === undefined ? {} : { redirect_uri: redirect }));
   assert.equal(start.status, 302, 'start redirects to the IdP');
   const authorize = new URL(start.headers.get('location'));
   if (editAuthorize) editAuthorize(authorize);
   idp.user = claims;
   const back = await get(authorize.href);
   assert.equal(back.status, 302);
-  const redirect = new URL(back.headers.get('location'));
-  return { flow, authorize, redirect, code: redirect.searchParams.get('code'), state: redirect.searchParams.get('state') };
+  const landed = new URL(back.headers.get('location'));
+  if (redirect !== undefined) assert.equal(landed.href.split('?')[0], redirect, 'the IdP sends the code to the redirect asked for');
+  return { flow, authorize, redirect: landed, code: landed.searchParams.get('code'), state: landed.searchParams.get('state') };
 }
 
-/** The whole app sign-in; `over` changes the exchange body. */
-async function appSignIn(base, idp, claims, { over = {}, headers = {}, editAuthorize } = {}) {
-  const b = await browse(base, idp, claims, { editAuthorize });
+/** The whole app sign-in; `over` changes the exchange body; `redirect` is sent at start and exchange. */
+async function appSignIn(base, idp, claims, { over = {}, headers = {}, editAuthorize, redirect } = {}) {
+  const b = await browse(base, idp, claims, { editAuthorize, redirect });
   assert.equal(b.state, b.flow.state, 'the app gets its own state back');
   const body = { code: b.code, state: b.state, code_verifier: b.flow.verifier, nonce: b.flow.nonce, ...over };
+  if (redirect !== undefined && !('redirect_uri' in over)) body.redirect_uri = redirect;
   const r = await post(`${base}/auth/mobile/exchange`, body, headers);
   return { ...r, token: r.body && r.body.token, body: r.body, sent: body, code: b.code };
 }
@@ -136,8 +141,11 @@ describe('app sign-in: rules', () => {
   });
 
   it('the route policy: the round trip is public; a refused app session says SESSION_ENDED', () => {
-    for (const p of ['/auth/mobile/start', '/auth/mobile/exchange', '/auth/mobile/logout']) assert.equal(policyFor(p), 'public', p);
+    for (const p of ['/auth/mobile/start', '/auth/mobile/exchange', '/auth/mobile/logout', '/auth/mobile/callback', '/.well-known/assetlinks.json']) {
+      assert.equal(policyFor(p), 'public', p);
+    }
     assert.equal(policyFor('/auth/mobile/other'), 'page', 'deny by default: no prefix rule');
+    assert.equal(policyFor('/.well-known/other.json'), 'page', 'only the one well-known file');
     assert.equal(policyFor('/api/me'), 'self');
     assert.deepEqual(refusal(null, { mobile: true }), { status: 401, body: { error: 'Your session has ended, sign in again', code: 'SESSION_ENDED' } });
     assert.equal(refusal(null).body.code, 'AUTH_REQUIRED');
@@ -147,27 +155,87 @@ describe('app sign-in: rules', () => {
   it('the redirect URI is the one registered at the IdP', () => {
     assert.equal(MOBILE_REDIRECT_URI, 'com.etaylan.listen:/oauth2redirect');
   });
+
+  it('the redirect allowlist: the https callback from BASE_URL and the custom scheme, which can be switched off', () => {
+    const on = readMobileConfig({}, { baseUrl: 'https://music.example.com/' });
+    assert.deepEqual(on.redirects, ['https://music.example.com/auth/mobile/callback', MOBILE_REDIRECT_URI]);
+    assert.equal(on.customScheme, true, 'on by default (app 0.4.0 still uses it)');
+    assert.deepEqual(readMobileConfig({ MOBILE_CUSTOM_SCHEME: 'ON' }, { baseUrl: 'https://m.example.com/sub' }).redirects,
+      ['https://m.example.com/sub/auth/mobile/callback', MOBILE_REDIRECT_URI], 'a path prefix is kept');
+    assert.deepEqual(readMobileConfig({ MOBILE_CUSTOM_SCHEME: 'off' }, { baseUrl: 'https://music.example.com' }).redirects,
+      ['https://music.example.com/auth/mobile/callback']);
+    assert.deepEqual(readMobileConfig({}, { baseUrl: null }).redirects, [MOBILE_REDIRECT_URI], 'no BASE_URL (dev): the scheme only');
+    assert.throws(() => readMobileConfig({ MOBILE_CUSTOM_SCHEME: 'off' }, { baseUrl: null }), /needs BASE_URL/);
+    for (const bad of ['no', 'false', '0', 'disabled']) {
+      assert.throws(() => readMobileConfig({ MOBILE_CUSTOM_SCHEME: bad }, { baseUrl: 'https://x.example' }), /MOBILE_CUSTOM_SCHEME/, bad);
+    }
+  });
+
+  it('assetlinks: the release certificate by default; the env replaces it and is validated', () => {
+    const def = readMobileConfig({}, { baseUrl: 'https://music.example.com' });
+    assert.deepEqual(def.assetLinks, [{
+      relation: ['delegate_permission/common.handle_all_urls'],
+      target: { namespace: 'android_app', package_name: 'com.erkantaylan.listenalong', sha256_cert_fingerprints: [RELEASE_CERT_SHA256] },
+    }]);
+    assert.match(RELEASE_CERT_SHA256, /^[0-9A-F]{2}(?::[0-9A-F]{2}){31}$/);
+    const hex = 'ab'.repeat(32);
+    const custom = readMobileConfig({
+      ANDROID_APP_PACKAGE: 'com.example.app',
+      ANDROID_APP_CERT_SHA256: `${hex}, ${RELEASE_CERT_SHA256.toLowerCase()}, com.example.app.debug=${'01:'.repeat(31)}01`,
+    }, { baseUrl: 'https://x.example' });
+    assert.deepEqual(custom.assetLinks.map((s) => [s.target.package_name, s.target.sha256_cert_fingerprints]), [
+      ['com.example.app', [normalizeFingerprint(hex), RELEASE_CERT_SHA256]],
+      ['com.example.app.debug', [`${'01:'.repeat(31)}01`]],
+    ]);
+    assert.equal(custom.appPackage, 'com.example.app');
+    for (const bad of ['ab', 'zz'.repeat(32), `${hex},`, `${hex.slice(2)}:ab`, 'not a package=' + hex, 'AB:CD' + ':EF'.repeat(29), `${hex}0`]) {
+      assert.throws(() => readMobileConfig({ ANDROID_APP_CERT_SHA256: bad }, { baseUrl: 'https://x.example' }), /ANDROID_APP_CERT_SHA256/, bad);
+    }
+    assert.throws(() => readMobileConfig({ ANDROID_APP_PACKAGE: 'nodots' }, {}), /ANDROID_APP_PACKAGE/);
+  });
+
+  it('the IdP nonce is bound to the app nonce, the redirect and the secret', () => {
+    const n = idpNonce('s', 'nonce-1', MOBILE_REDIRECT_URI);
+    assert.match(n, /^[A-Za-z0-9_-]{43}$/);
+    assert.notEqual(n, 'nonce-1');
+    assert.notEqual(n, idpNonce('s', 'nonce-1', 'https://m.example.com/auth/mobile/callback'));
+    assert.notEqual(n, idpNonce('s', 'nonce-2', MOBILE_REDIRECT_URI));
+    assert.notEqual(n, idpNonce('t', 'nonce-1', MOBILE_REDIRECT_URI));
+  });
 });
 
 // ---------------------------------------------------------------- 2. dev sign-in
 
 describe('app sign-in: dev sign-in (INSECURE_DEV_LOGIN, no database)', { timeout: 60_000 }, () => {
   let srv;
-  before(async () => { srv = await startServer({ AUTH_RATE_LIMIT: '10000' }); });
+  before(async () => { srv = await startServer((port) => ({ AUTH_RATE_LIMIT: '10000', BASE_URL: `http://127.0.0.1:${port}` })); });
   after(async () => { if (srv) await srv.stop(); });
 
   /** The dev page's "Continue" link, as the developer taps it. */
-  async function devCode(f, extra) {
+  async function devCode(f, extra, expectRedirect = MOBILE_REDIRECT_URI) {
     const res = await get(startUrl(srv.base, f, extra));
     assert.equal(res.status, 200);
     const html = await res.text();
     assert.match(html, /INSECURE_DEV_LOGIN/);
     const href = html.match(/id="continue" href="([^"]+)"/)[1].replace(/&amp;/g, '&');
     const u = new URL(href);
-    assert.equal(`${u.protocol}${u.pathname}`, MOBILE_REDIRECT_URI);
+    assert.equal(u.href.split('?')[0], expectRedirect);
     assert.equal(u.searchParams.get('state'), f.state);
     return u.searchParams.get('code');
   }
+
+  it('the https redirect works here too, and a dev code is bound to the redirect it was made for', async () => {
+    const https = `${srv.base}/auth/mobile/callback`;
+    const f = newFlow();
+    const code = await devCode(f, { redirect_uri: https }, https);
+    const body = { code, state: f.state, code_verifier: f.verifier, nonce: f.nonce };
+    assert.equal((await post(`${srv.base}/auth/mobile/exchange`, body)).body.code, 'signin_failed', 'exchanged as the custom scheme');
+    const f2 = newFlow();
+    const code2 = await devCode(f2, { redirect_uri: https }, https);
+    const ok = await post(`${srv.base}/auth/mobile/exchange`, { code: code2, state: f2.state, code_verifier: f2.verifier, nonce: f2.nonce, redirect_uri: https });
+    assert.equal(ok.status, 200, JSON.stringify(ok.body));
+    assert.equal(ok.body.mode, 'dev');
+  });
 
   it('start -> page -> exchange: a dev session that works as a Bearer', async () => {
     const f = newFlow();
@@ -655,10 +723,18 @@ describe('app sign-in: hardening', { timeout: 120_000 }, () => {
     assert.ok(!done.headers.getSetCookie().some((c) => /^la_session=[^;]/.test(c)), 'no session');
   });
 
-  it('start ignores redirect_uri, scope, prompt, client_id and response_type from the request', async () => {
+  it('start refuses a redirect_uri outside the allowlist and ignores scope, prompt, client_id and response_type', async () => {
     const f = newFlow();
+    for (const evil of ['https://evil.example/cb', `${srv.base}/auth/oidc/callback`, `${srv.base}/auth/mobile/callback/`,
+      `${srv.base.replace('http:', 'https:')}/auth/mobile/callback`, 'com.etaylan.listen:/other', 'com.evil:/oauth2redirect', '']) {
+      const bad = await get(startUrl(srv.base, f, { redirect_uri: evil }));
+      assert.equal(bad.status, 400, evil);
+      assert.match(await bad.text(), /Sign-in link not valid/);
+    }
+    const twice = `${startUrl(srv.base, f)}&redirect_uri=${encodeURIComponent(MOBILE_REDIRECT_URI)}&redirect_uri=${encodeURIComponent(MOBILE_REDIRECT_URI)}`;
+    assert.equal((await get(twice)).status, 400, 'given twice');
     const r = await get(startUrl(srv.base, f, {
-      redirect_uri: 'https://evil.example/cb', scope: 'openid admin', prompt: 'none', client_id: 'other', response_type: 'token',
+      scope: 'openid admin', prompt: 'none', client_id: 'other', response_type: 'token',
     }));
     const q = new URL(r.headers.get('location')).searchParams;
     assert.equal(q.get('redirect_uri'), MOBILE_REDIRECT_URI);
@@ -700,5 +776,179 @@ describe('app sign-in: hardening', { timeout: 120_000 }, () => {
     assert.deepEqual((await post(`${srv.base}/auth/mobile/logout`)).body, { success: true });
     assert.deepEqual((await post(`${srv.base}/auth/mobile/logout`, undefined, bearer('lam_' + rand()))).body, { success: true });
     assert.equal((await get(`${srv.base}/api/me`, bearer(s.token))).status, 200, 'neither ended the real session');
+  });
+});
+
+// ---------------------------------------------------------------- 5. the https App Link redirect
+
+describe('app sign-in: the https App Link redirect (central login)', { timeout: 120_000 }, () => {
+  let idp;
+  let srv;
+  let callback;
+  before(async () => {
+    idp = await startFakeIssuer();
+    srv = await startServer(centralEnv(idp));
+    callback = `${srv.base}/auth/mobile/callback`;
+  });
+  after(async () => {
+    if (srv) await srv.stop();
+    if (idp) await idp.close();
+  });
+
+  it('assetlinks.json: public JSON with the package and the release certificate, briefly cacheable', async () => {
+    for (const p of ['/.well-known/assetlinks.json', '/.WELL-KNOWN/assetlinks.json']) {
+      const res = await get(`${srv.base}${p}`);
+      assert.equal(res.status, 200, p);
+      assert.match(res.headers.get('content-type'), /^application\/json\b/);
+      assert.equal(res.headers.get('cache-control'), 'public, max-age=300');
+      assert.deepEqual(await res.json(), [{
+        relation: ['delegate_permission/common.handle_all_urls'],
+        target: { namespace: 'android_app', package_name: 'com.erkantaylan.listenalong', sha256_cert_fingerprints: [RELEASE_CERT_SHA256] },
+      }]);
+    }
+    assert.equal((await get(`${srv.base}/.well-known/other.json`)).status, 302, 'nothing else under /.well-known is public');
+  });
+
+  it('https flow: the IdP gets the callback and a bound nonce; the code comes back to it and is exchanged', async () => {
+    const r = await appSignIn(srv.base, idp, { sub: 'al-1', name: 'Link One' }, { redirect: callback });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.match(r.token, /^lam_/);
+    const q = idp.authorizeRequests.at(-1);
+    assert.equal(q.redirect_uri, callback, 'built from BASE_URL');
+    assert.equal(q.nonce, idpNonce(SECRET, r.sent.nonce, callback), 'the IdP never sees the app nonce itself');
+    assert.equal((await getJson(`${srv.base}/api/me`, bearer(r.token))).body.session.kind, 'app');
+  });
+
+  it('the redirect is built from BASE_URL, never from the Host header', async () => {
+    const f = newFlow();
+    const res = await get(startUrl(srv.base, f, { redirect_uri: callback }), { 'x-forwarded-host': 'evil.example' });
+    assert.equal(res.status, 302);
+    assert.equal(new URL(res.headers.get('location')).searchParams.get('redirect_uri'), callback);
+    assert.equal((await get(startUrl(srv.base, f, { redirect_uri: 'http://evil.example/auth/mobile/callback' }), { 'x-forwarded-host': 'evil.example' })).status, 400);
+  });
+
+  it('the custom scheme still works while it is on: no parameter (app 0.4.0) or named', async () => {
+    const old = await appSignIn(srv.base, idp, { sub: 'al-2' });
+    assert.equal(old.status, 200, JSON.stringify(old.body));
+    assert.equal(idp.authorizeRequests.at(-1).redirect_uri, MOBILE_REDIRECT_URI);
+    const named = await appSignIn(srv.base, idp, { sub: 'al-2' }, { redirect: MOBILE_REDIRECT_URI });
+    assert.equal(named.status, 200, JSON.stringify(named.body));
+  });
+
+  it('an unknown redirect is refused at the exchange too, before the code is spent', async () => {
+    const b = await browse(srv.base, idp, { sub: 'al-3' }, { redirect: callback });
+    const body = { code: b.code, state: b.state, code_verifier: b.flow.verifier, nonce: b.flow.nonce };
+    for (const bad of ['https://evil.example/cb', `${callback}?x=1`, 'com.etaylan.listen:/other', 42, [callback], { a: 1 }, '']) {
+      const r = await post(`${srv.base}/auth/mobile/exchange`, { ...body, redirect_uri: bad });
+      assert.deepEqual([r.status, r.body.code], [400, 'invalid_request'], JSON.stringify(bad));
+    }
+    assert.equal((await post(`${srv.base}/auth/mobile/exchange`, { ...body, redirect_uri: callback })).status, 200, 'the code was still good');
+  });
+
+  for (const idpChecks of [true, false]) {
+    it(`a code obtained with one redirect cannot be exchanged with the other (IdP ${idpChecks ? 'compares redirect_uri' : 'does not compare, as authentik'})`, async () => {
+      idp.redirectMatch = idpChecks;
+      try {
+        const viaHttps = await browse(srv.base, idp, { sub: 'al-4' }, { redirect: callback });
+        const asCustom = await post(`${srv.base}/auth/mobile/exchange`, {
+          code: viaHttps.code, state: viaHttps.state, code_verifier: viaHttps.flow.verifier, nonce: viaHttps.flow.nonce, redirect_uri: MOBILE_REDIRECT_URI,
+        });
+        assert.deepEqual([asCustom.status, asCustom.body.code], [400, 'signin_failed']);
+        const viaCustom = await browse(srv.base, idp, { sub: 'al-4' });
+        const asHttps = await post(`${srv.base}/auth/mobile/exchange`, {
+          code: viaCustom.code, state: viaCustom.state, code_verifier: viaCustom.flow.verifier, nonce: viaCustom.flow.nonce, redirect_uri: callback,
+        });
+        assert.deepEqual([asHttps.status, asHttps.body.code], [400, 'signin_failed']);
+      } finally {
+        idp.redirectMatch = true;
+      }
+    });
+  }
+
+  it('a code from an authorize request not made by /auth/mobile/start is refused (the nonce is the server\'s)', async () => {
+    idp.redirectMatch = false;
+    try {
+      // What another app can do with the public client id: its own authorize
+      // URL on the custom scheme, its own state, nonce and verifier.
+      const f = newFlow();
+      const start = await get(startUrl(srv.base, newFlow()));
+      const authorize = new URL(start.headers.get('location'));
+      for (const [k, v] of Object.entries({ state: f.state, nonce: f.nonce, code_challenge: f.challenge })) authorize.searchParams.set(k, v);
+      idp.user = { sub: 'al-5' };
+      const back = new URL((await get(authorize.href)).headers.get('location'));
+      for (const redirect of [undefined, callback]) {
+        const r = await post(`${srv.base}/auth/mobile/exchange`, {
+          code: back.searchParams.get('code'), state: f.state, code_verifier: f.verifier, nonce: f.nonce, ...(redirect ? { redirect_uri: redirect } : {}),
+        });
+        assert.deepEqual([r.status, r.body.code], [400, 'signin_failed'], String(redirect));
+      }
+    } finally {
+      idp.redirectMatch = true;
+    }
+  });
+
+  it('the fallback page: public, static, no-store, no referrer; the code is not in the page or the log', async () => {
+    const code = `code-${rand(12)}`;
+    const state = `state-${rand(12)}`;
+    const res = await get(`${callback}?code=${code}&state=${state}&iss=${encodeURIComponent(idp.issuer)}`);
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type'), /^text\/html/);
+    assert.equal(res.headers.get('cache-control'), 'no-store');
+    assert.equal(res.headers.get('referrer-policy'), 'no-referrer');
+    const html = await res.text();
+    assert.ok(!html.includes(code) && !html.includes(state), 'nothing of the query is echoed');
+    assert.match(html, /Continue in the app/);
+    assert.match(html, /Uygulamaya dönmek/, 'Turkish too');
+    const host = new URL(srv.base).host;
+    assert.ok(html.includes(`"intent://${host}/auth/mobile/callback"`), 'the button opens the same link as an intent');
+    assert.ok(html.includes(';package=com.erkantaylan.listenalong;'), 'for this app only');
+    assert.ok(html.includes(`S.browser_fallback_url=${encodeURIComponent(`${srv.base}/app`)}`), 'no app: the install page');
+    assert.ok(!/border-(left|right)|inset/.test(html), 'no accent edges');
+    // Whatever the query, the page is the same bytes.
+    assert.equal(await (await get(`${callback}?code=other&state=other`)).text(), html);
+    assert.equal(await (await get(callback)).text(), html);
+    assert.notEqual((await post(callback, { code })).status, 200, 'GET only');
+    await sleep(100);
+    const log = srv.log();
+    assert.ok(!log.includes(code) && !log.includes(state), 'the query stays out of the access log');
+    assert.match(log, /\[http\] GET \/auth\/mobile\/callback\?… 200/);
+  });
+});
+
+describe('app sign-in: MOBILE_CUSTOM_SCHEME=off', { timeout: 120_000 }, () => {
+  let idp;
+  let srv;
+  before(async () => {
+    idp = await startFakeIssuer();
+    srv = await startServer(centralEnv(idp, { MOBILE_CUSTOM_SCHEME: 'off' }));
+  });
+  after(async () => {
+    if (srv) await srv.stop();
+    if (idp) await idp.close();
+  });
+
+  it('an old app (no redirect_uri) and the named scheme are refused with "update the app"; https works', async () => {
+    const f = newFlow();
+    for (const extra of [{}, { redirect_uri: MOBILE_REDIRECT_URI }]) {
+      const res = await get(startUrl(srv.base, f, extra));
+      assert.equal(res.status, 400);
+      assert.match(await res.text(), /Update the app/);
+    }
+    assert.equal(idp.calls.authorize, 0, 'the IdP was never asked');
+    const body = { code: 'x', state: f.state, code_verifier: f.verifier, nonce: f.nonce };
+    for (const extra of [{}, { redirect_uri: MOBILE_REDIRECT_URI }, { redirect_uri: null }]) {
+      const r = await post(`${srv.base}/auth/mobile/exchange`, { ...body, ...extra });
+      assert.deepEqual([r.status, r.body.code], [400, 'invalid_request']);
+      assert.match(r.body.error, /latest version/);
+    }
+    const ok = await appSignIn(srv.base, idp, { sub: 'off-1' }, { redirect: `${srv.base}/auth/mobile/callback` });
+    assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  });
+
+  it('a bad switch, certificate or package stops the boot', async () => {
+    for (const extra of [{ MOBILE_CUSTOM_SCHEME: 'maybe' }, { ANDROID_APP_CERT_SHA256: 'abcd' }, { ANDROID_APP_PACKAGE: 'x' }]) {
+      await assert.rejects(startServer(centralEnv(idp, extra)),
+        /server exited \(1\)[\s\S]*(MOBILE_CUSTOM_SCHEME|ANDROID_APP_CERT_SHA256|ANDROID_APP_PACKAGE)/, JSON.stringify(extra));
+    }
   });
 });

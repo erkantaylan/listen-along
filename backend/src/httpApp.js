@@ -16,8 +16,9 @@ const STATIC_ASSET_RE = /\.(?:js|css|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|map)$
 
 // Sign-in round trips whose query stays out of the log: the web callback
 // carries a one-time code, the app's start its state, nonce and PKCE
-// challenge (mobileAuth.js). Matched case-insensitively, as Express routes.
-const QUERY_HIDDEN_PATHS = new Set(['/auth/oidc/callback', '/auth/mobile/start']);
+// challenge, the app's https callback (its fallback page) a code and state
+// (mobileAuth.js). Matched case-insensitively, as Express routes.
+const QUERY_HIDDEN_PATHS = new Set(['/auth/oidc/callback', '/auth/mobile/start', '/auth/mobile/callback']);
 function loggedUrl(req) {
   const p = String(req.path || '').toLowerCase().replace(/\/{2,}/g, '/');
   if (!QUERY_HIDDEN_PATHS.has(p)) return req.originalUrl;

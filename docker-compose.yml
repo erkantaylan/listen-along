@@ -29,6 +29,10 @@ services:
       # open | closed (empty = open): whether central login may create new
       # accounts until an admin saves the switch in /dashboard (then that wins).
       - REGISTRATIONS_DEFAULT=${REGISTRATIONS_DEFAULT:-}
+      # The Android app's sign-in redirect (CENTRAL-LOGIN.md, "The redirect").
+      - MOBILE_CUSTOM_SCHEME=${MOBILE_CUSTOM_SCHEME:-}
+      - ANDROID_APP_PACKAGE=${ANDROID_APP_PACKAGE:-}
+      - ANDROID_APP_CERT_SHA256=${ANDROID_APP_CERT_SHA256:-}
       - ADMIN_USER=${ADMIN_USER:-}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
     volumes:

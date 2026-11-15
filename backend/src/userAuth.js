@@ -107,10 +107,13 @@ const PUBLIC_EXACT = new Set([
   // Central login (OIDC) round trip; 404 unless it is configured.
   '/auth/oidc/login',
   '/auth/oidc/callback',
-  // The Android app's sign-in (mobileAuth.js): start, code exchange, sign-out.
+  // The Android app's sign-in (mobileAuth.js): start, code exchange, sign-out,
+  // the App Link's fallback page and the statement Android verifies it with.
   '/auth/mobile/start',
   '/auth/mobile/exchange',
   '/auth/mobile/logout',
+  '/auth/mobile/callback',
+  '/.well-known/assetlinks.json',
   // Dev sign-in (devLogin.js); 404 unless INSECURE_DEV_LOGIN is on.
   '/auth/dev/login',
 ]);
