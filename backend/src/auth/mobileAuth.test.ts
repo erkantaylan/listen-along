@@ -1,4 +1,4 @@
-// The Android app's sign-in (mobileAuth.js): the app runs the code + PKCE flow
+// The Android app's sign-in (mobileAuth.ts): the app runs the code + PKCE flow
 // in a Custom Tab, the server exchanges the code, links the account and hands
 // back an opaque `lam_` session token. Against the fake OpenID provider
 // (fakeOidcIssuer.js) and the real server (src/index.js as a child process):
@@ -9,28 +9,43 @@
 //      rate limit, a configured database that is down
 //   4. on Postgres: linking rules, pending / denied, registrations closed,
 //      bans, the app's API surface, sessions at rest
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const crypto = require('node:crypto');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const { execSync } = require('node:child_process');
-const { io: ioClient } = require('socket.io-client');
-const { startFakeIssuer } = require('./fakeOidcIssuer');
-const { SECRET, cookieFor, adminCookie, startServer, freePort } = require('./testServer');
-const mobileTokens = require('./auth/mobileTokens.ts');
-const { policyFor, refusal } = require('./auth/userAuth.ts');
-const tokens = require('./auth/tokens.ts');
-const { MOBILE_REDIRECT_URI, readMobileConfig, idpNonce, normalizeFingerprint, RELEASE_CERT_SHA256 } = require('./mobileAuth');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { execSync } from 'node:child_process';
+import pgModule from 'pg';
+import { io as ioClient } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import type { Request, Response } from 'express';
+import { startFakeIssuer } from '../fakeOidcIssuer.js';
+import { SECRET, cookieFor, adminCookie, startServer, freePort } from '../testServer.js';
+import * as mobileTokens from './mobileTokens.ts';
+import { policyFor, refusal } from './userAuth.ts';
+import * as tokens from './tokens.ts';
+import { MOBILE_REDIRECT_URI, readMobileConfig, idpNonce, normalizeFingerprint, RELEASE_CERT_SHA256 } from './mobileAuth.ts';
+import { deriveKey } from '../shared/secretBox.ts';
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// The server's, the IdP's and the database's JSON, read as the tests need it.
+type Payload = any;
+/** The fake IdP (fakeOidcIssuer.js): the tests set its fields freely. */
+type Idp = Payload;
+type Server = Awaited<ReturnType<typeof startServer>>;
+const startIssuer: (opts?: { port?: number }) => Promise<Idp> = startFakeIssuer;
+type HeaderMap = Record<string, string>;
+/** What the app makes before opening the Custom Tab (newFlow). */
+interface AppFlow { verifier: string; challenge: string; state: string; nonce: string }
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const rand = (n = 32) => crypto.randomBytes(n).toString('base64url');
-const sha256hex = (s) => crypto.createHash('sha256').update(s).digest('hex');
+const sha256hex = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
 
-const get = (url, headers = {}) => fetch(url, { redirect: 'manual', headers });
-const bearer = (t) => ({ authorization: `Bearer ${t}` });
-async function post(url, body, headers = {}) {
+const get = (url: string, headers: HeaderMap = {}) => fetch(url, { redirect: 'manual', headers });
+const bearer = (t: string) => ({ authorization: `Bearer ${t}` });
+async function post(url: string, body?: Payload, headers: HeaderMap = {}): Promise<{ status: number; body: Payload; headers: Headers }> {
   const res = await fetch(url, {
     method: 'POST', redirect: 'manual',
     headers: { 'content-type': 'application/json', ...headers },
@@ -41,7 +56,7 @@ async function post(url, body, headers = {}) {
   try { json = JSON.parse(text); } catch {}
   return { status: res.status, body: json, headers: res.headers };
 }
-async function getJson(url, headers) {
+async function getJson(url: string, headers?: HeaderMap): Promise<{ status: number; body: Payload }> {
   const res = await get(url, headers);
   let body = null;
   try { body = await res.json(); } catch {}
@@ -49,11 +64,11 @@ async function getJson(url, headers) {
 }
 
 /** What the app makes before opening the Custom Tab. */
-function newFlow() {
+function newFlow(): AppFlow {
   const verifier = rand(32);
   return { verifier, challenge: mobileTokens.s256(verifier), state: rand(16), nonce: rand(16) };
 }
-const startUrl = (base, f, extra = {}) => `${base}/auth/mobile/start?${new URLSearchParams({
+const startUrl = (base: string, f: AppFlow, extra: HeaderMap = {}) => `${base}/auth/mobile/start?${new URLSearchParams({
   state: f.state, nonce: f.nonce, code_challenge: f.challenge, code_challenge_method: 'S256', ...extra,
 })}`;
 
@@ -61,42 +76,47 @@ const startUrl = (base, f, extra = {}) => `${base}/auth/mobile/start?${new URLSe
  * The browser half against the fake IdP: start -> IdP -> back to the app's
  * redirect. `redirect`: the redirect_uri the app asks for (none = an old app).
  */
-async function browse(base, idp, claims, { flow = newFlow(), editAuthorize, redirect } = {}) {
+async function browse(base: string, idp: Idp, claims: Payload, { flow = newFlow(), editAuthorize, redirect }: {
+  flow?: AppFlow; editAuthorize?: (u: URL) => void; redirect?: string;
+} = {}) {
   const start = await get(startUrl(base, flow, redirect === undefined ? {} : { redirect_uri: redirect }));
   assert.equal(start.status, 302, 'start redirects to the IdP');
-  const authorize = new URL(start.headers.get('location'));
+  const authorize = new URL(start.headers.get('location')!);
   if (editAuthorize) editAuthorize(authorize);
   idp.user = claims;
   const back = await get(authorize.href);
   assert.equal(back.status, 302);
-  const landed = new URL(back.headers.get('location'));
+  const landed = new URL(back.headers.get('location')!);
   if (redirect !== undefined) assert.equal(landed.href.split('?')[0], redirect, 'the IdP sends the code to the redirect asked for');
   return { flow, authorize, redirect: landed, code: landed.searchParams.get('code'), state: landed.searchParams.get('state') };
 }
 
 /** The whole app sign-in; `over` changes the exchange body; `redirect` is sent at start and exchange. */
-async function appSignIn(base, idp, claims, { over = {}, headers = {}, editAuthorize, redirect } = {}) {
+async function appSignIn(base: string, idp: Idp, claims: Payload, { over = {}, headers = {}, editAuthorize, redirect }: {
+  over?: Payload; headers?: HeaderMap; editAuthorize?: (u: URL) => void; redirect?: string;
+} = {}) {
   const b = await browse(base, idp, claims, { editAuthorize, redirect });
   assert.equal(b.state, b.flow.state, 'the app gets its own state back');
-  const body = { code: b.code, state: b.state, code_verifier: b.flow.verifier, nonce: b.flow.nonce, ...over };
+  const body: Payload = { code: b.code, state: b.state, code_verifier: b.flow.verifier, nonce: b.flow.nonce, ...over };
   if (redirect !== undefined && !('redirect_uri' in over)) body.redirect_uri = redirect;
   const r = await post(`${base}/auth/mobile/exchange`, body, headers);
-  return { ...r, token: r.body && r.body.token, body: r.body, sent: body, code: b.code };
+  const token: Payload = r.body && r.body.token;
+  return { ...r, token, body: r.body, sent: body, code: b.code };
 }
 
-/** A web (browser) sign-in, as central-login.test.js does it. */
-async function webSignIn(base, idp, claims) {
+/** A web (browser) sign-in, as centralLogin.test.ts does it. */
+async function webSignIn(base: string, idp: Idp, claims: Payload): Promise<Payload> {
   const res = await get(`${base}/auth/oidc/login`);
-  const flow = res.headers.getSetCookie().find((c) => c.startsWith('la_oidc_flow=')).split(';')[0];
+  const flow = res.headers.getSetCookie().find((c) => c.startsWith('la_oidc_flow='))!.split(';')[0];
   idp.user = claims;
-  const cb = (await get(res.headers.get('location'))).headers.get('location');
+  const cb = (await get(res.headers.get('location')!)).headers.get('location')!;
   const done = await get(cb, { cookie: flow });
   const s = done.headers.getSetCookie().find((c) => c.startsWith('la_session='));
   return s ? s.split(';')[0] : null;
 }
 
-function centralEnv(idp, extra = {}) {
-  return (port) => ({
+function centralEnv(idp: Idp, extra: HeaderMap = {}) {
+  return (port: number) => ({
     OIDC_ISSUER: idp.issuer, OIDC_CLIENT_ID: 'listen-along', BASE_URL: `http://127.0.0.1:${port}`,
     AUTH_RATE_LIMIT: '10000', ...extra,
   });
@@ -118,19 +138,20 @@ describe('app sign-in: rules', () => {
   });
 
   it('a CLI-token route sees a lam_ Bearer as no CLI token', () => {
-    const req = (h) => ({ headers: { authorization: h } });
+    const req = (h: string) => ({ headers: { authorization: h } }) as Request;
     assert.equal(tokens.hasBearer(req('Bearer la_abc')), true);
     assert.equal(tokens.hasBearer(req('Bearer lam_abc')), false);
-    let status = null;
-    let body = null;
-    tokens.requireToken(req('Bearer lam_abc'), { status(s) { status = s; return this; }, json(b) { body = b; } }, () => assert.fail('passed'));
+    let status: number | null = null;
+    let body: Payload = null;
+    const res = { status(s: number) { status = s; return this; }, json(b: Payload) { body = b; } } as unknown as Response;
+    tokens.requireToken(req('Bearer lam_abc'), res, () => assert.fail('passed'));
     assert.equal(status, 403);
     assert.equal(body.code, 'TOKEN_REQUIRED');
   });
 
   it('dev tokens and dev codes: signed under their own labels, never a dev cookie', () => {
     const t = mobileTokens.signDevMobileToken(SECRET, '42');
-    assert.equal(mobileTokens.verifyDevMobileToken(SECRET, t).id, '42');
+    assert.equal(mobileTokens.verifyDevMobileToken(SECRET, t)!.id, '42');
     assert.equal(mobileTokens.verifyDevMobileToken('other', t), null);
     assert.equal(mobileTokens.verifyDevMobileToken(SECRET, 'lam_' + cookieFor('42').split('=')[1]), null, 'a dev cookie is no app token');
     assert.equal(mobileTokens.verifyDevMobileToken(SECRET, mobileTokens.signDevMobileToken(SECRET, '42', Date.now() - 31 * 864e5)), null, 'expired');
@@ -149,7 +170,7 @@ describe('app sign-in: rules', () => {
     assert.equal(policyFor('/api/me'), 'self');
     assert.deepEqual(refusal(null, { mobile: true }), { status: 401, body: { error: 'Your session has ended, sign in again', code: 'SESSION_ENDED' } });
     assert.equal(refusal(null).body.code, 'AUTH_REQUIRED');
-    assert.equal(refusal({ status: 'pending' }, { mobile: true }).body.code, 'ACCOUNT_PENDING');
+    assert.equal(refusal({ id: 'u', status: 'pending', name: null, emoji: null }, { mobile: true }).body.code, 'ACCOUNT_PENDING');
   });
 
   it('the redirect URI is the one registered at the IdP', () => {
@@ -197,7 +218,7 @@ describe('app sign-in: rules', () => {
   it('the IdP nonce depends on the app nonce, the redirect and an HKDF key from the secret', () => {
     const n = idpNonce('s', 'nonce-1', MOBILE_REDIRECT_URI);
     assert.match(n, /^[A-Za-z0-9_-]{43}$/);
-    const key = require('./shared/secretBox.ts').deriveKey('s', 'listen-along/mobile-nonce/v1');
+    const key = deriveKey('s', 'listen-along/mobile-nonce/v1');
     assert.equal(n, crypto.createHmac('sha256', key).update(`${MOBILE_REDIRECT_URI}\nnonce-1`).digest('base64url'), 'keyed by the derived key');
     assert.notEqual(n, crypto.createHmac('sha256', 's').update(`${MOBILE_REDIRECT_URI}\nnonce-1`).digest('base64url'), 'never the raw SESSION_SECRET');
     assert.equal(idpNonce('s', 'nonce-1', MOBILE_REDIRECT_URI), n, 'stable');
@@ -211,17 +232,17 @@ describe('app sign-in: rules', () => {
 // ---------------------------------------------------------------- 2. dev sign-in
 
 describe('app sign-in: dev sign-in (INSECURE_DEV_LOGIN, no database)', { timeout: 60_000 }, () => {
-  let srv;
+  let srv: Server;
   before(async () => { srv = await startServer((port) => ({ AUTH_RATE_LIMIT: '10000', BASE_URL: `http://127.0.0.1:${port}` })); });
   after(async () => { if (srv) await srv.stop(); });
 
   /** The dev page's "Continue" link, as the developer taps it. */
-  async function devCode(f, extra, expectRedirect = MOBILE_REDIRECT_URI) {
+  async function devCode(f: AppFlow, extra?: HeaderMap, expectRedirect: string = MOBILE_REDIRECT_URI) {
     const res = await get(startUrl(srv.base, f, extra));
     assert.equal(res.status, 200);
     const html = await res.text();
     assert.match(html, /INSECURE_DEV_LOGIN/);
-    const href = html.match(/id="continue" href="([^"]+)"/)[1].replace(/&amp;/g, '&');
+    const href = html.match(/id="continue" href="([^"]+)"/)![1].replace(/&amp;/g, '&');
     const u = new URL(href);
     assert.equal(u.href.split('?')[0], expectRedirect);
     assert.equal(u.searchParams.get('state'), f.state);
@@ -288,11 +309,11 @@ describe('app sign-in: dev sign-in (INSECURE_DEV_LOGIN, no database)', { timeout
 // ---------------------------------------------------------------- 3. central, no database
 
 describe('app sign-in: central login, protocol and sessions (no database)', { timeout: 120_000 }, () => {
-  let idp;
-  let srv;
-  const sockets = [];
+  let idp: Idp;
+  let srv: Server;
+  const sockets: Socket[] = [];
   before(async () => {
-    idp = await startFakeIssuer();
+    idp = await startIssuer();
     srv = await startServer(centralEnv(idp, { OIDC_RECHECK_SECONDS: '1', OIDC_MAX_UNVERIFIED_SECONDS: '30' }));
   });
   after(async () => {
@@ -320,7 +341,7 @@ describe('app sign-in: central login, protocol and sessions (no database)', { ti
     assert.equal(me.body.session.kind, 'app');
     assert.equal((await get(`${srv.base}/api/playlists`, bearer(r.token))).status, 200);
     assert.match(srv.log(), /central-login: link rule=e user=app-1 created sub=app-1… upstream=none client=app/);
-    assert.ok(!srv.log().includes(r.code), 'the code is not logged');
+    assert.ok(!srv.log().includes(r.code!), 'the code is not logged');
     assert.ok(!srv.log().includes(r.token), 'the token is not logged');
   });
 
@@ -367,7 +388,7 @@ describe('app sign-in: central login, protocol and sessions (no database)', { ti
     assert.equal((await get(startUrl(srv.base, { ...f, state: '' }))).status, 400);
     const ok = await get(startUrl(srv.base, f));
     assert.equal(ok.status, 302);
-    assert.ok(ok.headers.get('location').startsWith(idp.origin));
+    assert.ok(ok.headers.get('location')!.startsWith(idp.origin));
   });
 
   it('unknown, malformed or signed-out tokens: 401 SESSION_ENDED, everywhere the app goes', async () => {
@@ -437,7 +458,7 @@ describe('app sign-in: central login, protocol and sessions (no database)', { ti
     for (const [method, p] of [['POST', '/api/library/upload'], ['POST', '/api/library/check'], ['GET', '/api/cli/latest']]) {
       const r = await fetch(`${srv.base}${p}`, { method, headers: bearer(s.token) });
       assert.equal(r.status, 403, p);
-      assert.equal((await r.json()).code, 'TOKEN_REQUIRED', p);
+      assert.equal(((await r.json()) as Payload).code, 'TOKEN_REQUIRED', p);
     }
     assert.equal((await get(`${srv.base}/api/admin/tokens`, bearer(s.token))).status, 401, 'admin is the la_admin cookie only');
     assert.equal((await get(`${srv.base}/api/me`, bearer(s.token))).status, 200, 'still signed in');
@@ -459,11 +480,11 @@ describe('app sign-in: central login, protocol and sessions (no database)', { ti
 
 describe('app sign-in: limits and outages', { timeout: 60_000 }, () => {
   it('rate limited per client address', async () => {
-    const idp = await startFakeIssuer();
+    const idp = await startIssuer();
     const srv = await startServer(centralEnv(idp, { AUTH_RATE_LIMIT: '3' }));
     try {
       const f = newFlow();
-      const codes = [];
+      const codes: number[] = [];
       for (let i = 0; i < 4; i++) codes.push((await get(startUrl(srv.base, f))).status);
       assert.deepEqual(codes, [302, 302, 302, 429]);
       assert.equal((await post(`${srv.base}/auth/mobile/exchange`, {})).status, 429);
@@ -474,7 +495,7 @@ describe('app sign-in: limits and outages', { timeout: 60_000 }, () => {
   });
 
   it('DATABASE_URL set but the database down: sign-in fails closed (503) before the code is spent; tokens 503', async () => {
-    const idp = await startFakeIssuer();
+    const idp = await startIssuer();
     const deadPort = await freePort();
     const srv = await startServer(centralEnv(idp, { DATABASE_URL: `postgres://x:y@127.0.0.1:${deadPort}/none` }));
     try {
@@ -494,21 +515,23 @@ describe('app sign-in: limits and outages', { timeout: 60_000 }, () => {
 
 // ---------------------------------------------------------------- 4. on Postgres
 
-let PostgreSqlContainer;
-try { PostgreSqlContainer = require('@testcontainers/postgresql').PostgreSqlContainer; } catch {}
-const has = (cmd) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
+let PostgreSqlContainer: typeof import('@testcontainers/postgresql').PostgreSqlContainer | undefined;
+try { ({ PostgreSqlContainer } = await import('@testcontainers/postgresql')); } catch {}
+const has = (cmd: string) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
 const pgSkip = !PostgreSqlContainer ? 'testcontainers package not installed'
   : !has('docker info') ? 'Docker not available' : false;
 
 describe('app sign-in on Postgres: linking, bans, the app\'s API', { skip: pgSkip, timeout: 240_000 }, () => {
-  let container;
-  let pg;
-  let idp;
-  let srv;
-  let tmp;
-  const U = {};
+  let container: StartedPostgreSqlContainer | undefined;
+  let pg: pgModule.Client;
+  let idp: Idp;
+  let srv: Server;
+  let tmp: string;
+  const U: Record<string, string> = {};
 
-  const addUser = async (key, { provider = 'google', providerId = key, status = 'approved', createdAt = Date.now() } = {}) => {
+  const addUser = async (key: string, { provider = 'google', providerId = key, status = 'approved', createdAt = Date.now() }: {
+    provider?: string; providerId?: string; status?: string; createdAt?: number;
+  } = {}) => {
     const r = await pg.query(
       'INSERT INTO users (provider, provider_id, name, status, created_at) VALUES ($1, $2, $3, $4, $5) RETURNING id',
       [provider, providerId, `Legacy ${key}`, status, createdAt]
@@ -519,18 +542,18 @@ describe('app sign-in on Postgres: linking, bans, the app\'s API', { skip: pgSki
     return U[key];
   };
   const userCount = async () => (await pg.query('SELECT count(*)::int AS n FROM users')).rows[0].n;
-  const putSetting = (v) => fetch(`${srv.base}/api/admin/settings`, { method: 'PUT', headers: { cookie: adminCookie(), 'content-type': 'application/json' }, body: JSON.stringify({ registrations_open: v }) });
+  const putSetting = (v: boolean) => fetch(`${srv.base}/api/admin/settings`, { method: 'PUT', headers: { cookie: adminCookie(), 'content-type': 'application/json' }, body: JSON.stringify({ registrations_open: v }) });
 
   before(async () => {
-    container = await new PostgreSqlContainer('postgres:16-alpine').withDatabase('listen_mobile').withUsername('test').withPassword('test').start();
+    container = await new PostgreSqlContainer!('postgres:16-alpine').withDatabase('listen_mobile').withUsername('test').withPassword('test').start();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'la-mobile-test-'));
-    idp = await startFakeIssuer();
+    idp = await startIssuer();
     srv = await startServer(centralEnv(idp, {
       DATABASE_URL: container.getConnectionUri(), SONGS_PATH: path.join(tmp, 'songs'), COVERS_DIR: path.join(tmp, 'covers'),
       APP_RELEASES_API_URL: 'http://127.0.0.1:9/', REGISTRATIONS_DEFAULT: 'closed',
       OIDC_SCOPES: 'openid email profile entitlements offline_access upstream',
     }));
-    const { Client } = require('pg');
+    const { Client } = pgModule;
     pg = new Client({ connectionString: container.getConnectionUri() });
     await pg.connect();
     await addUser('legacy1', { providerId: 'g-1', createdAt: 1000 });
@@ -567,7 +590,7 @@ describe('app sign-in on Postgres: linking, bans, the app\'s API', { skip: pgSki
     const again = await appSignIn(srv.base, idp, { sub: 'm-1' });
     assert.equal(again.body.user.id, U.legacy1);
     const cookie = await webSignIn(srv.base, idp, { sub: 'm-1' });
-    assert.equal((await (await get(`${srv.base}/api/auth/me`, { cookie })).json()).user.id, U.legacy1);
+    assert.equal(((await (await get(`${srv.base}/api/auth/me`, { cookie })).json()) as Payload).user.id, U.legacy1);
   });
 
   it('link_conflict: another identity claiming a linked upstream account is refused (409)', async () => {
@@ -613,7 +636,7 @@ describe('app sign-in on Postgres: linking, bans, the app\'s API', { skip: pgSki
     assert.equal(created.status, 201, JSON.stringify(created.body));
     assert.equal(created.body.ownerId, U.legacy1, 'acts as the signed-in user');
     const list = await getJson(`${srv.base}/api/playlists`, h);
-    assert.ok(list.body.playlists.some((p) => p.id === created.body.id && p.isOwner));
+    assert.ok(list.body.playlists.some((p: Payload) => p.id === created.body.id && p.isOwner));
     const rename = await fetch(`${srv.base}/api/playlists/${created.body.id}`, { method: 'PATCH', headers: { ...h, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Renamed' }) });
     assert.equal(rename.status, 200);
 
@@ -657,18 +680,18 @@ describe('app sign-in on Postgres: linking, bans, the app\'s API', { skip: pgSki
 // ---------------------------------------------------------------- 5. hardening (no database)
 
 describe('app sign-in: hardening', { timeout: 120_000 }, () => {
-  let idp;
-  let srv;
+  let idp: Idp;
+  let srv: Server;
   before(async () => {
-    idp = await startFakeIssuer();
+    idp = await startIssuer();
     srv = await startServer(centralEnv(idp));
   });
   after(async () => {
     if (srv) await srv.stop();
     if (idp) await idp.close();
   });
-  const exchange = (body, headers) => post(`${srv.base}/auth/mobile/exchange`, body, headers);
-  const bodyOf = (b) => ({ code: b.code, state: b.state, code_verifier: b.flow.verifier, nonce: b.flow.nonce });
+  const exchange = (body: Payload, headers?: HeaderMap) => post(`${srv.base}/auth/mobile/exchange`, body, headers);
+  const bodyOf = (b: Payload) => ({ code: b.code, state: b.state, code_verifier: b.flow.verifier, nonce: b.flow.nonce });
 
   it('a retry after an IdP outage (503) can use the same code; definite outcomes stay burned', async () => {
     const b = await browse(srv.base, idp, { sub: 'h-1' });
@@ -695,7 +718,7 @@ describe('app sign-in: hardening', { timeout: 120_000 }, () => {
       assert.deepEqual([r.status, r.body && r.body.code], [400, 'invalid_request'], JSON.stringify(bad).slice(0, 60));
     }
     assert.equal((await exchange([good])).status, 400, 'an array body');
-    const raw = (text) => fetch(`${srv.base}/auth/mobile/exchange`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: text });
+    const raw = (text: string) => fetch(`${srv.base}/auth/mobile/exchange`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: text });
     assert.equal((await raw('{"code":')).status, 400, 'malformed JSON');
     assert.equal((await raw(JSON.stringify({ ...good, pad: 'x'.repeat(200 * 1024) }))).status, 413, 'oversized');
     assert.equal((await exchange(good)).status, 200, 'none of that burned the code');
@@ -714,15 +737,15 @@ describe('app sign-in: hardening', { timeout: 120_000 }, () => {
   it('a web code is no app code, and an app code no web code', async () => {
     // The web flow's code (redirect_uri = the web callback) at the app's exchange.
     const login = await get(`${srv.base}/auth/oidc/login`);
-    const flowCookie = login.headers.getSetCookie().find((c) => c.startsWith('la_oidc_flow=')).split(';')[0];
-    const webState = new URL(login.headers.get('location')).searchParams.get('state');
+    const flowCookie = login.headers.getSetCookie().find((c) => c.startsWith('la_oidc_flow='))!.split(';')[0];
+    const webState = new URL(login.headers.get('location')!).searchParams.get('state')!;
     idp.user = { sub: 'h-3' };
-    const webCb = new URL((await get(login.headers.get('location'))).headers.get('location'));
+    const webCb = new URL((await get(login.headers.get('location')!)).headers.get('location')!);
     const r = await exchange({ code: webCb.searchParams.get('code'), state: webCb.searchParams.get('state'), code_verifier: rand(32), nonce: rand(16) });
     assert.deepEqual([r.status, r.body.code], [400, 'signin_failed']);
     // The app's code at the web callback, with a live web flow and its own state.
     const app = await browse(srv.base, idp, { sub: 'h-3' });
-    const done = await get(`${srv.base}/auth/oidc/callback?code=${encodeURIComponent(app.code)}&state=${encodeURIComponent(webState)}`, { cookie: flowCookie });
+    const done = await get(`${srv.base}/auth/oidc/callback?code=${encodeURIComponent(app.code!)}&state=${encodeURIComponent(webState)}`, { cookie: flowCookie });
     assert.equal(done.headers.get('location'), '/login?error=signin_failed');
     assert.ok(!done.headers.getSetCookie().some((c) => /^la_session=[^;]/.test(c)), 'no session');
   });
@@ -740,7 +763,7 @@ describe('app sign-in: hardening', { timeout: 120_000 }, () => {
     const r = await get(startUrl(srv.base, f, {
       scope: 'openid admin', prompt: 'none', client_id: 'other', response_type: 'token',
     }));
-    const q = new URL(r.headers.get('location')).searchParams;
+    const q = new URL(r.headers.get('location')!).searchParams;
     assert.equal(q.get('redirect_uri'), MOBILE_REDIRECT_URI);
     assert.equal(q.get('scope'), 'openid email profile entitlements offline_access');
     assert.equal(q.get('client_id'), 'listen-along');
@@ -786,11 +809,11 @@ describe('app sign-in: hardening', { timeout: 120_000 }, () => {
 // ---------------------------------------------------------------- 5. the https App Link redirect
 
 describe('app sign-in: the https App Link redirect (central login)', { timeout: 120_000 }, () => {
-  let idp;
-  let srv;
-  let callback;
+  let idp: Idp;
+  let srv: Server;
+  let callback: string;
   before(async () => {
-    idp = await startFakeIssuer();
+    idp = await startIssuer();
     srv = await startServer(centralEnv(idp));
     callback = `${srv.base}/auth/mobile/callback`;
   });
@@ -803,7 +826,7 @@ describe('app sign-in: the https App Link redirect (central login)', { timeout: 
     for (const p of ['/.well-known/assetlinks.json', '/.WELL-KNOWN/assetlinks.json']) {
       const res = await get(`${srv.base}${p}`);
       assert.equal(res.status, 200, p);
-      assert.match(res.headers.get('content-type'), /^application\/json\b/);
+      assert.match(res.headers.get('content-type')!, /^application\/json\b/);
       assert.equal(res.headers.get('cache-control'), 'public, max-age=300');
       assert.deepEqual(await res.json(), [{
         relation: ['delegate_permission/common.handle_all_urls'],
@@ -827,7 +850,7 @@ describe('app sign-in: the https App Link redirect (central login)', { timeout: 
     const f = newFlow();
     const res = await get(startUrl(srv.base, f, { redirect_uri: callback }), { 'x-forwarded-host': 'evil.example' });
     assert.equal(res.status, 302);
-    assert.equal(new URL(res.headers.get('location')).searchParams.get('redirect_uri'), callback);
+    assert.equal(new URL(res.headers.get('location')!).searchParams.get('redirect_uri'), callback);
     assert.equal((await get(startUrl(srv.base, f, { redirect_uri: 'http://evil.example/auth/mobile/callback' }), { 'x-forwarded-host': 'evil.example' })).status, 400);
   });
 
@@ -897,10 +920,10 @@ describe('app sign-in: the https App Link redirect (central login)', { timeout: 
       // URL on the custom scheme, its own state, nonce and verifier.
       const f = newFlow();
       const start = await get(startUrl(srv.base, newFlow()));
-      const authorize = new URL(start.headers.get('location'));
+      const authorize = new URL(start.headers.get('location')!);
       for (const [k, v] of Object.entries({ state: f.state, nonce: f.nonce, code_challenge: f.challenge })) authorize.searchParams.set(k, v);
       idp.user = { sub: 'al-5' };
-      const back = new URL((await get(authorize.href)).headers.get('location'));
+      const back = new URL((await get(authorize.href)).headers.get('location')!);
       for (const redirect of [undefined, callback]) {
         const r = await post(`${srv.base}/auth/mobile/exchange`, {
           code: back.searchParams.get('code'), state: f.state, code_verifier: f.verifier, nonce: f.nonce, ...(redirect ? { redirect_uri: redirect } : {}),
@@ -917,7 +940,7 @@ describe('app sign-in: the https App Link redirect (central login)', { timeout: 
     const state = `state-${rand(12)}`;
     const res = await get(`${callback}?code=${code}&state=${state}&iss=${encodeURIComponent(idp.issuer)}`);
     assert.equal(res.status, 200);
-    assert.match(res.headers.get('content-type'), /^text\/html/);
+    assert.match(res.headers.get('content-type')!, /^text\/html/);
     assert.equal(res.headers.get('cache-control'), 'no-store');
     assert.equal(res.headers.get('referrer-policy'), 'no-referrer');
     const html = await res.text();
@@ -941,10 +964,10 @@ describe('app sign-in: the https App Link redirect (central login)', { timeout: 
 });
 
 describe('app sign-in: MOBILE_CUSTOM_SCHEME=off', { timeout: 120_000 }, () => {
-  let idp;
-  let srv;
+  let idp: Idp;
+  let srv: Server;
   before(async () => {
-    idp = await startFakeIssuer();
+    idp = await startIssuer();
     srv = await startServer(centralEnv(idp, { MOBILE_CUSTOM_SCHEME: 'off' }));
   });
   after(async () => {
@@ -954,7 +977,7 @@ describe('app sign-in: MOBILE_CUSTOM_SCHEME=off', { timeout: 120_000 }, () => {
 
   it('an old app (no redirect_uri) and the named scheme are refused with "update the app"; https works', async () => {
     const f = newFlow();
-    for (const extra of [{}, { redirect_uri: MOBILE_REDIRECT_URI }]) {
+    for (const extra of [{}, { redirect_uri: MOBILE_REDIRECT_URI }] as HeaderMap[]) {
       const res = await get(startUrl(srv.base, f, extra));
       assert.equal(res.status, 400);
       assert.match(await res.text(), /Update the app/);
@@ -978,17 +1001,17 @@ describe('app sign-in: MOBILE_CUSTOM_SCHEME=off', { timeout: 120_000 }, () => {
    * (its own PKCE), the victim's browser session yields a code on the scheme,
    * and the exchange names the https redirect.
    */
-  async function schemeReplay() {
+  async function schemeReplay(): Promise<Payload> {
     const cb = `${srv.base}/auth/mobile/callback`;
     const f = newFlow();
     const start = await get(startUrl(srv.base, f, { redirect_uri: cb }));
     assert.equal(start.status, 302);
-    const authorize = new URL(start.headers.get('location'));
+    const authorize = new URL(start.headers.get('location')!);
     authorize.searchParams.set('redirect_uri', MOBILE_REDIRECT_URI);
     idp.user = { sub: 'victim-1' };
     const back = await get(authorize.href);
     if (back.status !== 302) return { authorize: back.status };
-    const landed = new URL(back.headers.get('location'));
+    const landed = new URL(back.headers.get('location')!);
     assert.equal(landed.href.split('?')[0], MOBILE_REDIRECT_URI, 'the code went to the scheme');
     return post(`${srv.base}/auth/mobile/exchange`, {
       code: landed.searchParams.get('code'), state: f.state, code_verifier: f.verifier, nonce: f.nonce, redirect_uri: cb,
@@ -1034,7 +1057,7 @@ describe('app sign-in: MOBILE_CUSTOM_SCHEME=off', { timeout: 120_000 }, () => {
   });
 
   it('a bad switch, certificate or package stops the boot', async () => {
-    for (const extra of [{ MOBILE_CUSTOM_SCHEME: 'maybe' }, { ANDROID_APP_CERT_SHA256: 'abcd' }, { ANDROID_APP_PACKAGE: 'x' }]) {
+    for (const extra of [{ MOBILE_CUSTOM_SCHEME: 'maybe' }, { ANDROID_APP_CERT_SHA256: 'abcd' }, { ANDROID_APP_PACKAGE: 'x' }] as HeaderMap[]) {
       await assert.rejects(startServer(centralEnv(idp, extra)),
         /server exited \(1\)[\s\S]*(MOBILE_CUSTOM_SCHEME|ANDROID_APP_CERT_SHA256|ANDROID_APP_PACKAGE)/, JSON.stringify(extra));
     }

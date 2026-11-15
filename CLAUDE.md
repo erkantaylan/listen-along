@@ -61,7 +61,7 @@ of a fresh database and of a migrated old one.
   `adminRoutes.js` (dashboard users / statuses / settings / stats / playlist and chat moderation, all `requireAdmin`),
   `authRoutes.js` (the auth guard right after the static files; legacy `/api/auth/register|status`; the
   central-login / dev sign-in round trips, `/api/auth/me`, logout, `/login`, `/api/auth/providers`; it mounts
-  the Android app's sign-in, `mobileAuth.js`, on its `router`),
+  the Android app's sign-in, `auth/mobileAuth.ts`, on its `router`),
   `playlistRoutes.js` (`/api/playlists` + `/api/lobbies`, songs included; `requireViewer`, `findVisiblePlaylist`;
   returns `ownerNames`, whose cache the socket handlers share), `core/playlists/folders.ts` (`/api/playlist-folders`, the
   user's own sidebar folders; below).
@@ -79,7 +79,7 @@ of a fresh database and of a migrated old one.
   library.js (music library + upload validation (m4a / Ogg Opus) + legacy cache migration +
   duplicate checks + replace), songMatch.js (normalized "artist|title" key for
   probable duplicates; bump META_KEY_VERSION when changing it — boot recomputes),
-  requests.js (song requests), auth/tokens.ts (CLI tokens), mobileAuth.js (the
+  requests.js (song requests), auth/tokens.ts (CLI tokens), auth/mobileAuth.ts (the
   Android app's sign-in, below), auth/adminAuth.ts (/dashboard),
   libraryRoutes.js (library/requests/admin HTTP API), songResolver.js
   (what a user typed -> library song or song request)
@@ -329,7 +329,7 @@ of a fresh database and of a migrated old one.
 - Android app (`android/`, see its README): Kotlin + Compose + Media3, a
   separate client of the HTTP API (no socket, so no live updates). It signs in
   through the central login like the web (`auth/`: Custom Tab, PKCE, the
-  server exchanges the code; `backend/src/mobileAuth.js`, CENTRAL-LOGIN.md "The
+  server exchanges the code; `backend/src/auth/mobileAuth.ts`, CENTRAL-LOGIN.md "The
   Android app") and holds only a `lam_` session token (encrypted), sent as
   `Authorization: Bearer`. Only a 401 with `code: SESSION_ENDED` signs it out
   (`SessionEndedInterceptor`, `ApiException.sessionEnded`): a bare 401, offline
@@ -493,7 +493,7 @@ of a fresh database and of a migrated old one.
   (`mode` 'central' | 'dev'); each socket gets `socket.data.userId` (and, with central login,
   `socket.data.sessionId` + the `session:<hash>` room). Never trust a user id or
   name sent by the client.
-- **The Android app's session** (`mobileAuth.js`, `auth/mobileTokens.ts`;
+- **The Android app's session** (`auth/mobileAuth.ts`, `auth/mobileTokens.ts`;
   CENTRAL-LOGIN.md "The Android app"): the app runs code + PKCE in a Custom
   Tab via `GET /auth/mobile/start` (302 to the IdP with the app's
   `redirect_uri`, one of exactly two: `<BASE_URL>/auth/mobile/callback` or
@@ -520,7 +520,7 @@ of a fresh database and of a migrated old one.
   request dismiss; never a 401). A refused app session is 401 `SESSION_ENDED`
   (`refusal(account, { mobile })`): the app's ONLY signal to sign in again, so
   never answer 401 for an outage. `GET /api/me` with it is answered by
-  mobileAuth.js (libraryRoutes.js passes with `next('route')`). Exchange
+  auth/mobileAuth.ts (libraryRoutes.js passes with `next('route')`). Exchange
   codes: `invalid_request`, `signin_failed`, `account_disabled`,
   `registrations_closed`, `link_conflict`, `signin_unavailable`; a code is
   refused the second time before the IdP is asked (released again only after

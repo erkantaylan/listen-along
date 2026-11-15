@@ -56,7 +56,7 @@ development and the tests use a fake IdP or the dev sign-in instead (see
 
 The app signs in with the same client (`listen-along`, public, PKCE) and ends
 up with a server-side session like a browser's, carried as a Bearer token
-instead of a cookie (`backend/src/mobileAuth.js`). The server, not the app,
+instead of a cookie (`backend/src/auth/mobileAuth.ts`). The server, not the app,
 talks to the IdP's token endpoint; the app never holds an IdP token.
 
 1. The app makes `state`, `nonce` and a PKCE verifier (32 random bytes each)
@@ -85,7 +85,7 @@ talks to the IdP's token endpoint; the app never holds an IdP token.
 ### The redirect
 
 An https App Link, with the custom scheme kept only for the transition. The
-two redirects (`backend/src/mobileAuth.js`, `readMobileConfig`; the app picks
+two redirects (`backend/src/auth/mobileAuth.ts`, `readMobileConfig`; the app picks
 one in `auth/AuthFlow.redirectFor`):
 
 | `redirect_uri` | Who gets the code | Used by |
@@ -121,7 +121,7 @@ while the scheme is registered at the IdP, an app holding it can ask `/start`
 for the https redirect, copy the derived nonce into its own authorize request
 on the scheme (its own PKCE), catch the victim's code and exchange it naming
 the https redirect; the server accepts it, with `MOBILE_CUSTOM_SCHEME=off`
-too (`mobile-auth.test.js`, "THE LIMIT"). There is no server-only fix; the
+too (`auth/mobileAuth.test.ts`, "THE LIMIT"). There is no server-only fix; the
 removal at the IdP is the fix. A sign-in started before a server version that
 changes the derivation and finished after it fails once (tap Sign in again).
 
@@ -232,7 +232,7 @@ Against a fake IdP (`node src/fakeOidcIssuer.js`) the real flow works too; the
 phone must reach both the server and the fake IdP (e.g. `adb reverse` for both
 ports, `BASE_URL`/issuer on `localhost`).
 
-Tests: `backend/src/mobile-auth.test.js` (fake IdP, with and without Postgres).
+Tests: `backend/src/auth/mobileAuth.test.ts` (fake IdP, with and without Postgres).
 
 ## Environment
 

@@ -3,9 +3,9 @@
  * "The Android app"). A backend-held session: the app runs the authorization
  * code flow with PKCE in a Custom Tab, the SERVER exchanges the code and
  * validates the id_token exactly as the web callback does, links the account
- * with the same rules (oidcLink.js), and opens a session in the same store
- * (oidcSessions.js: refresh token encrypted at rest, re-checked with the IdP).
- * The app only ever holds an opaque `lam_` session token (mobileTokens.js),
+ * with the same rules (oidcLink.ts), and opens a session in the same store
+ * (oidcSessions.ts: refresh token encrypted at rest, re-checked with the IdP).
+ * The app only ever holds an opaque `lam_` session token (mobileTokens.ts),
  * sent as `Authorization: Bearer`; it never sees an IdP token. Mounted by
  * authRoutes.js on its router (after the guard; the routes are public in
  * userAuth.policyFor and check what they need themselves).
@@ -94,24 +94,33 @@
  *     before asking the IdP; only an undecided attempt (503
  *     signin_unavailable) gives the code back for a retry;
  *   - bans, re-checks, expiry: the same session store as the web, so the same
- *     machinery; userAuth.js turns the Bearer into the user.
+ *     machinery; userAuth.ts turns the Bearer into the user.
  */
 
-const crypto = require('crypto');
-const express = require('express');
-const { make: makeLimiter } = require('./shared/rateLimits.ts');
-const { linkCentralIdentity, centralName } = require('./auth/oidcLink.ts');
-const { hashId, SESSION_MAX_AGE_MS } = require('./auth/oidcSessions.ts');
-const { deriveKey } = require('./shared/secretBox.ts');
-const {
+import crypto from 'crypto';
+import express from 'express';
+import type { Response, Router } from 'express';
+import { make as makeLimiter } from '../shared/rateLimits.ts';
+import { linkCentralIdentity, centralName } from './oidcLink.ts';
+import type { LinkResult } from './oidcLink.ts';
+import { hashId, SESSION_MAX_AGE_MS } from './oidcSessions.ts';
+import type { SessionStore } from './oidcSessions.ts';
+import { deriveKey } from '../shared/secretBox.ts';
+import {
   MOBILE_TOKEN_PREFIX, CENTRAL_TOKEN_RE, mobileBearer, signDevMobileToken, signDevCode, verifyDevCode, s256,
-} = require('./auth/mobileTokens.ts');
+} from './mobileTokens.ts';
+import type { OidcClient } from './oidc.ts';
+import type { Env, OidcConfig, OidcConfigOn } from './oidcConfig.ts';
+import type { UserAuth } from './userAuth.ts';
+import type { Settings } from '../shared/settings.ts';
+import type { DbModule } from '../shared/db.ts';
+import type { Account, CentralClaims, Logger } from './types.ts';
 
 /** The custom scheme registered with the IdP for the listen-along client (central-login catalog). */
-const MOBILE_REDIRECT_URI = 'com.etaylan.listen:/oauth2redirect';
+export const MOBILE_REDIRECT_URI = 'com.etaylan.listen:/oauth2redirect';
 /** The https redirect is <BASE_URL> + this: an Android App Link (assetlinks.json). */
-const MOBILE_CALLBACK_PATH = '/auth/mobile/callback';
-const ASSET_LINKS_PATH = '/.well-known/assetlinks.json';
+export const MOBILE_CALLBACK_PATH = '/auth/mobile/callback';
+export const ASSET_LINKS_PATH = '/.well-known/assetlinks.json';
 
 /**
  * The Android app's package and the SHA-256 of its RELEASE signing
@@ -122,20 +131,20 @@ const ASSET_LINKS_PATH = '/.well-known/assetlinks.json';
  * needs no code change. Debug builds (`.debug`, a per-machine debug key) are
  * not listed: they keep the custom scheme.
  */
-const DEFAULT_APP_PACKAGE = 'com.erkantaylan.listenalong';
-const RELEASE_CERT_SHA256 = 'DD:B6:D8:FE:68:09:7B:E1:50:5D:53:37:55:EE:3C:59:D1:65:E6:E3:18:52:DB:BA:9C:C6:A6:5F:45:61:C3:F5';
+export const DEFAULT_APP_PACKAGE = 'com.erkantaylan.listenalong';
+export const RELEASE_CERT_SHA256 = 'DD:B6:D8:FE:68:09:7B:E1:50:5D:53:37:55:EE:3C:59:D1:65:E6:E3:18:52:DB:BA:9C:C6:A6:5F:45:61:C3:F5';
 const PACKAGE_RE = /^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/;
 const FINGERPRINT_RE = /^(?:[0-9A-Fa-f]{64}|[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){31})$/;
 
-class MobileConfigError extends Error {
+export class MobileConfigError extends Error {
   get name() { return 'MobileConfigError'; }
 }
 
 /** "ddb6...f5" or "DD:B6:...:F5" -> "DD:B6:...:F5"; null when it is not 32 bytes of hex. */
-function normalizeFingerprint(raw) {
+export function normalizeFingerprint(raw: unknown): string | null {
   const text = String(raw).trim();
   if (!FINGERPRINT_RE.test(text)) return null;
-  return text.replace(/:/g, '').toUpperCase().match(/../g).join(':');
+  return text.replace(/:/g, '').toUpperCase().match(/../g)!.join(':'); // 64 hex digits: 32 pairs
 }
 
 /**
@@ -157,10 +166,8 @@ function normalizeFingerprint(raw) {
  *
  * @param baseUrl  the public address (BASE_URL) or null; the https redirect is
  *                 <baseUrl>/auth/mobile/callback, never from the Host header
- * @returns {{ customScheme: boolean, callbackUrl: string|null, appPackage: string,
- *             assetLinks: object[], redirects: string[] }}
  */
-function readMobileConfig(env = process.env, { baseUrl = null } = {}) {
+export function readMobileConfig(env: Env = process.env, { baseUrl = null }: { baseUrl?: string | null } = {}): MobileConfig {
   const switchRaw = String(env.MOBILE_CUSTOM_SCHEME || '').trim().toLowerCase();
   if (!['', 'on', 'off'].includes(switchRaw)) {
     throw new MobileConfigError(`MOBILE_CUSTOM_SCHEME must be "on" or "off" (got "${env.MOBILE_CUSTOM_SCHEME}")`);
@@ -172,7 +179,7 @@ function readMobileConfig(env = process.env, { baseUrl = null } = {}) {
     throw new MobileConfigError(`ANDROID_APP_PACKAGE is not an Android package name: "${appPackage}"`);
   }
 
-  const byPackage = new Map();
+  const byPackage = new Map<string, string[]>();
   for (const item of (String(env.ANDROID_APP_CERT_SHA256 || '').trim() || RELEASE_CERT_SHA256).split(',')) {
     const entry = item.trim();
     if (!entry) throw new MobileConfigError('ANDROID_APP_CERT_SHA256 has an empty entry');
@@ -182,7 +189,7 @@ function readMobileConfig(env = process.env, { baseUrl = null } = {}) {
     if (!PACKAGE_RE.test(pkg)) throw new MobileConfigError(`ANDROID_APP_CERT_SHA256: "${pkg}" is not an Android package name`);
     if (!fp) throw new MobileConfigError(`ANDROID_APP_CERT_SHA256: "${entry}" is not a SHA-256 fingerprint (64 hex digits, colons optional)`);
     if (!byPackage.has(pkg)) byPackage.set(pkg, []);
-    if (!byPackage.get(pkg).includes(fp)) byPackage.get(pkg).push(fp);
+    if (!byPackage.get(pkg)!.includes(fp)) byPackage.get(pkg)!.push(fp); // set just above
   }
   const assetLinks = [...byPackage].map(([pkg, fps]) => ({
     relation: ['delegate_permission/common.handle_all_urls'],
@@ -194,12 +201,12 @@ function readMobileConfig(env = process.env, { baseUrl = null } = {}) {
   if (!customScheme && !callbackUrl) {
     throw new MobileConfigError('MOBILE_CUSTOM_SCHEME=off needs BASE_URL: the app would have no redirect left');
   }
-  const redirects = [callbackUrl, customScheme ? MOBILE_REDIRECT_URI : null].filter(Boolean);
+  const redirects = [callbackUrl, customScheme ? MOBILE_REDIRECT_URI : null].filter((r): r is string => Boolean(r));
   return { customScheme, callbackUrl, appPackage, assetLinks, redirects };
 }
 
 /** BASE_URL (or FRONTEND_URL) for the dev sign-in, which readOidcConfig does not read; null when unset or not http(s). */
-function devBaseUrl(env) {
+function devBaseUrl(env: Env): string | null {
   const raw = String(env.BASE_URL || env.FRONTEND_URL || '').trim();
   if (!raw) return null;
   try {
@@ -215,7 +222,7 @@ function devBaseUrl(env) {
 
 /** HKDF purpose label of the nonce key (secretBox.deriveKey), so it is no other key made from SESSION_SECRET. */
 const NONCE_KEY_PURPOSE = 'listen-along/mobile-nonce/v1';
-const nonceKeys = new Map(); // secret -> derived key (one secret per process; tests use a few)
+const nonceKeys = new Map<string, Buffer>(); // secret -> derived key (one secret per process; tests use a few)
 
 /**
  * The nonce the IdP is given (and the id_token must carry) for an app sign-in:
@@ -228,7 +235,7 @@ const nonceKeys = new Map(); // secret -> derived key (one secret per process; t
  * for one redirect and use it in an authorize request on the other; only the
  * IdP's registered redirect URIs decide which redirects can receive a code.
  */
-function idpNonce(secret, nonce, redirectUri) {
+export function idpNonce(secret: unknown, nonce: string, redirectUri: string): string {
   const s = String(secret);
   let key = nonceKeys.get(s);
   if (!key) {
@@ -246,7 +253,10 @@ const CODE_RE = /^[\x21-\x7e]{1,2048}$/;
 const USED_CODE_TTL_MS = 10 * 60 * 1000;
 const USED_CODE_MAX = 10_000;
 
-const MESSAGES = {
+/** The exchange's error codes (the app maps each to a message of its own). */
+export type ExchangeCode = 'invalid_request' | 'signin_failed' | 'signin_unavailable' | 'account_disabled' | 'registrations_closed' | 'link_conflict';
+
+const MESSAGES: Record<ExchangeCode, string> = {
   invalid_request: 'The sign-in request is not valid',
   signin_failed: 'Sign-in did not work, try again',
   signin_unavailable: 'Sign-in cannot be reached right now, try again later',
@@ -254,15 +264,15 @@ const MESSAGES = {
   registrations_closed: 'Registrations are closed',
   link_conflict: 'This sign-in could not be linked to your account, contact the administrator',
 };
-const STATUS = {
+const STATUS: Record<ExchangeCode, number> = {
   invalid_request: 400, signin_failed: 400, signin_unavailable: 503,
   account_disabled: 403, registrations_closed: 403, link_conflict: 409,
 };
 
-const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const escapeHtml = (s: unknown) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c]);
 
 /** A bare page for the Custom Tab (errors, the dev sign-in). */
-function page(res, status, title, bodyHtml) {
+function page(res: Response, status: number, title: string, bodyHtml: string) {
   res.status(status).set('Cache-Control', 'no-store').type('html').send(
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
     `<title>${escapeHtml(title)}</title><style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:2rem auto;padding:0 16px;` +
@@ -273,26 +283,17 @@ function page(res, status, title, bodyHtml) {
   );
 }
 
-const appRedirect = (redirectUri, params) => `${redirectUri}?${new URLSearchParams(params)}`;
+const appRedirect = (redirectUri: string, params: Record<string, string>) => `${redirectUri}?${new URLSearchParams(params)}`;
 
-/**
- * @param oidc        createOidcClient() (central login) or null (dev sign-in)
- * @param cfg         readOidcConfig() result
- * @param store       createSessionStore() (central login) or null
- * @param settings    createSettings() (registrations switch)
- * @param userAuth    createUserAuth() (invalidate, getAccount, requireLevel)
- * @param db          db module
- * @param dbExpected  DATABASE_URL is set: no pool = an outage, fail closed
- * @param devLogin    INSECURE_DEV_LOGIN is on (development / tests only)
- * @param secret      SESSION_SECRET (signs dev codes and dev tokens)
- */
-function createMobileAuthRouter({
+/** The app's sign-in routes; the deps are described on MobileAuthDeps. */
+export function createMobileAuthRouter({
   oidc = null, cfg = { enabled: false }, store = null, settings, userAuth, db, dbExpected = false,
   devLogin = false, secret, env = process.env, logger = console, now = () => Date.now(),
-}) {
+}: MobileAuthDeps): Router {
   if (!oidc === !devLogin) throw new Error('createMobileAuthRouter: exactly one of oidc (central login) or devLogin');
   if (!secret) throw new Error('createMobileAuthRouter: SESSION_SECRET is required (it keys the app sign-in nonce)');
   const config = readMobileConfig(env, { baseUrl: cfg.enabled ? cfg.baseUrl : devBaseUrl(env) });
+  const centralCfg = cfg as OidcConfigOn; // read only by linkCentral, which runs in central login alone
   const router = express.Router();
 
   /**
@@ -300,13 +301,13 @@ function createMobileAuthRouter({
    * scheme when none is given (older apps), or null = refused (unknown, or the
    * custom scheme while it is switched off).
    */
-  function chosenRedirect(raw) {
+  function chosenRedirect(raw: unknown): string | null {
     if (raw === undefined || raw === null) return config.customScheme ? MOBILE_REDIRECT_URI : null;
     if (typeof raw !== 'string') return null;
     return config.redirects.includes(raw) ? raw : null;
   }
   /** Refused because it is (or defaults to) the switched-off custom scheme: an old app. */
-  const isOldApp = (raw) => raw === undefined || raw === null || raw === MOBILE_REDIRECT_URI;
+  const isOldApp = (raw: unknown) => raw === undefined || raw === null || raw === MOBILE_REDIRECT_URI;
 
   // ---- App Links: the statement and the fallback page ----------------------
 
@@ -328,7 +329,7 @@ function createMobileAuthRouter({
     ? `#Intent;scheme=${callbackTarget.protocol.slice(0, -1)};package=${config.appPackage};` +
       `S.browser_fallback_url=${encodeURIComponent(new URL('/app', callbackTarget).href)};end`
     : '';
-  const inScript = (v) => JSON.stringify(v).replace(/</g, '\\u003c');
+  const inScript = (v: string) => JSON.stringify(v).replace(/</g, '\\u003c');
   router.get(MOBILE_CALLBACK_PATH, (req, res) => {
     res.set('Referrer-Policy', 'no-referrer');
     res.set('X-Robots-Tag', 'noindex');
@@ -353,28 +354,28 @@ function createMobileAuthRouter({
 
   // Sign-in round trips per client address, like the web's (AUTH_RATE_LIMIT,
   // default 30 a minute; a budget of its own).
-  const authLimit = Number.parseInt(env.AUTH_RATE_LIMIT, 10);
+  const authLimit = Number.parseInt(env.AUTH_RATE_LIMIT as string, 10); // undefined -> NaN, as before
   const limiter = makeLimiter(Number.isFinite(authLimit) && authLimit > 0 ? authLimit : 30, 60 * 1000, { message: 'Too many sign-in attempts, try again in a minute' });
 
   // Codes already submitted (SHA-256 -> when it may be forgotten). A code
   // stays burned after every definite outcome; only "could not be decided"
   // (the IdP or the database unreachable: 503 signin_unavailable) releases
   // it, so the app's retry with the same code can still work.
-  const usedCodes = new Map();
-  const codeKey = (code) => crypto.createHash('sha256').update(code).digest('hex');
-  function firstUse(code) {
+  const usedCodes = new Map<string, number>();
+  const codeKey = (code: string) => crypto.createHash('sha256').update(code).digest('hex');
+  function firstUse(code: string): boolean {
     const t = now();
     for (const [k, until] of usedCodes) { if (until > t) break; usedCodes.delete(k); }
     const key = codeKey(code);
     if (usedCodes.has(key)) return false;
-    if (usedCodes.size >= USED_CODE_MAX) usedCodes.delete(usedCodes.keys().next().value);
+    if (usedCodes.size >= USED_CODE_MAX) usedCodes.delete(usedCodes.keys().next().value!);
     usedCodes.set(key, t + USED_CODE_TTL_MS);
     return true;
   }
-  const release = (code) => usedCodes.delete(codeKey(code));
+  const release = (code: string) => usedCodes.delete(codeKey(code));
 
-  const fail = (res, code, error = MESSAGES[code]) => res.status(STATUS[code]).json({ error, code });
-  const short = (x) => `${String(x).slice(0, 8)}…`;
+  const fail = (res: Response, code: ExchangeCode, error: string = MESSAGES[code]) => res.status(STATUS[code]).json({ error, code });
+  const short = (x: unknown) => `${String(x).slice(0, 8)}…`;
   let missingUpstream = 0;
 
   // ---- start ---------------------------------------------------------------
@@ -401,7 +402,7 @@ function createMobileAuthRouter({
     if (devLogin) {
       const asked = typeof q.user === 'string' ? q.user.trim().slice(0, 100) : '';
       const code = signDevCode(secret, { user: asked || null, challenge, nonce: nonceForIdp }, now());
-      const hidden = { state, nonce, code_challenge: challenge, code_challenge_method: 'S256' };
+      const hidden: Record<string, string> = { state, nonce, code_challenge: challenge, code_challenge_method: 'S256' };
       if (typeof q.redirect_uri === 'string') hidden.redirect_uri = redirectUri;
       return page(res, 200, 'Development sign-in',
         '<p class="muted">This server runs with INSECURE_DEV_LOGIN: anyone can sign in as anyone. Development only.</p>' +
@@ -412,11 +413,11 @@ function createMobileAuthRouter({
     }
 
     try {
-      const url = await oidc.authorizationUrl({ redirectUri, state, nonce: nonceForIdp, codeChallenge: challenge });
+      const url = await oidc!.authorizationUrl({ redirectUri, state, nonce: nonceForIdp, codeChallenge: challenge }); // central login: oidc is set
       res.set('Cache-Control', 'no-store');
       return res.redirect(url);
     } catch (err) {
-      logger.error(`[oidc] could not start an app sign-in: ${err.message}`);
+      logger.error(`[oidc] could not start an app sign-in: ${(err as Error).message}`);
       return page(res, 503, 'Sign-in unavailable',
         '<p>Sign-in cannot be reached right now. Try again in a little while.</p>' +
         `<p><a class="button" href="${escapeHtml(appRedirect(redirectUri, { error: 'temporarily_unavailable', state }))}">Back to the app</a></p>`);
@@ -426,21 +427,22 @@ function createMobileAuthRouter({
   // ---- exchange ------------------------------------------------------------
 
   /** Central login: the code -> claims + tokens, validated as at the web callback. */
-  async function exchangeCentral(b, redirectUri) {
+  async function exchangeCentral(b: ExchangeBody, redirectUri: string) {
     const query = new URLSearchParams({ code: b.code, state: b.state });
     if (b.iss) query.set('iss', b.iss);
     const flow = { state: b.state, nonce: idpNonce(secret, b.nonce, redirectUri), verifier: b.code_verifier };
-    return oidc.finishLogin(query.toString(), flow, { redirectUri });
+    return oidc!.finishLogin(query.toString(), flow, { redirectUri }); // central login: oidc is set
   }
 
   /** The account a central sign-in lands on; same rules and log line as the web callback. */
-  async function linkCentral(claims) {
+  async function linkCentral(claims: CentralClaims): Promise<LinkResult | MemoryLink> {
+    const cfg = centralCfg; // central login: cfg is on
     let upstreamNote = Array.isArray(claims.upstream_identities) ? String(claims.upstream_identities.length) : 'none';
     if (cfg.upstreamExpected && !Object.prototype.hasOwnProperty.call(claims, 'upstream_identities')) {
       missingUpstream++;
       upstreamNote = `MISSING(#${missingUpstream})`;
     }
-    let linked;
+    let linked: LinkResult | MemoryLink;
     if (db.isAvailable()) {
       linked = await linkCentralIdentity({ db, claims, providerMap: cfg.providerMap, registrationsOpen: () => settings.registrationsOpen() });
     } else if (await settings.registrationsOpen()) {
@@ -459,13 +461,13 @@ function createMobileAuthRouter({
   }
 
   /** Dev sign-in: the account a dev code names (or the Dev User), as /auth/dev/login picks it. */
-  async function devUser(asked) {
+  async function devUser(asked: string | null): Promise<{ id: string; status: string | null } | null> {
     if (!db.isAvailable()) return { id: asked || 'dev', status: 'approved' };
     if (asked) {
-      const r = await db.query('SELECT id, status FROM users WHERE id::text = $1', [asked]);
+      const r = await db.query<{ id: string; status: string | null }>('SELECT id, status FROM users WHERE id::text = $1', [asked]);
       return r.rows[0] || null;
     }
-    const find = () => db.query(`SELECT id, status FROM users WHERE provider = 'dev' AND provider_id = 'dev'`);
+    const find = () => db.query<{ id: string; status: string | null }>(`SELECT id, status FROM users WHERE provider = 'dev' AND provider_id = 'dev'`);
     let r = await find();
     if (!r.rows[0]) {
       await db.query(
@@ -482,7 +484,8 @@ function createMobileAuthRouter({
     // The body is parsed by the app-wide express.json() (httpApp.js, 100 kB:
     // a bigger body is a 413, malformed JSON a 400, before this runs).
     res.set('Cache-Control', 'no-store');
-    const b = req.body && typeof req.body === 'object' ? req.body : {};
+    // Untrusted JSON: every field is checked just below before any is used.
+    const b = (req.body && typeof req.body === 'object' ? req.body : {}) as ExchangeBody;
     const ok = typeof b.code === 'string' && CODE_RE.test(b.code)
       && typeof b.state === 'string' && STATE_RE.test(b.state)
       && typeof b.nonce === 'string' && STATE_RE.test(b.nonce)
@@ -513,17 +516,17 @@ function createMobileAuthRouter({
       return fail(res, 'signin_unavailable');
     };
 
-    let userId;
-    let account;
-    let token;
-    let mode;
-    let knownName = null; // the IdP's name, for a no-database account
+    let userId: string;
+    let account: Account | null;
+    let token: string;
+    let mode: 'central' | 'dev';
+    let knownName: string | null = null; // the IdP's name, for a no-database account
     if (devLogin) {
       const c = verifyDevCode(secret, b.code, now());
       if (!c || c.nonce !== idpNonce(secret, b.nonce, redirectUri) || s256(b.code_verifier) !== c.challenge) return fail(res, 'signin_failed');
       let u;
       try { u = await devUser(c.user); } catch (err) {
-        logger.error('[auth] dev app sign-in failed:', err.message);
+        logger.error('[auth] dev app sign-in failed:', (err as Error).message);
         return unavailable();
       }
       if (!u) return fail(res, 'signin_failed', 'No user with that id');
@@ -536,7 +539,8 @@ function createMobileAuthRouter({
       let result;
       try {
         result = await exchangeCentral(b, redirectUri);
-      } catch (err) {
+      } catch (caught) {
+        const err = caught as { kind?: string; message?: string };
         logger.warn(`[oidc] app sign-in rejected (${err.kind || 'error'}): ${err.message}`);
         return err.kind === 'unavailable' ? unavailable() : fail(res, 'signin_failed');
       }
@@ -545,7 +549,7 @@ function createMobileAuthRouter({
       try {
         linked = await linkCentral(claims);
       } catch (err) {
-        logger.error(`central-login: linking failed sub=${short(claims.sub)} client=app: ${err.message}`);
+        logger.error(`central-login: linking failed sub=${short(claims.sub)} client=app: ${(err as Error).message}`);
         return unavailable();
       }
       if (linked.outcome !== 'ok') return fail(res, linked.reason in STATUS ? linked.reason : 'signin_failed');
@@ -554,19 +558,19 @@ function createMobileAuthRouter({
       try {
         const roles = Array.isArray(claims.roles) ? claims.roles.filter((r) => typeof r === 'string') : [];
         if (!result.refreshToken) logger.warn('[oidc] the IdP sent no refresh token (offline_access not granted?): this app session cannot be re-checked and ends after OIDC_MAX_UNVERIFIED_SECONDS');
-        const s = await store.create({
+        const s = await store!.create({ // central login: store is set
           userId, sub: claims.sub, refreshToken: result.refreshToken, idToken: result.idToken, roles, prefix: MOBILE_TOKEN_PREFIX,
         });
         token = s.rawId;
       } catch (err) {
-        logger.error(`[oidc] could not open an app session: ${err.message}`);
+        logger.error(`[oidc] could not open an app session: ${(err as Error).message}`);
         return unavailable();
       }
       mode = 'central';
       // The app's previous session (sent along as the Bearer) is replaced.
       const previous = mobileBearer(req.headers);
       if (previous && CENTRAL_TOKEN_RE.test(previous) && previous !== token) {
-        await store.remove(hashId(previous)).catch((err) => logger.error(`[oidc] could not end the previous app session: ${err.message}`));
+        await store!.remove(hashId(previous)).catch((err) => logger.error(`[oidc] could not end the previous app session: ${err.message}`));
       }
     }
 
@@ -589,9 +593,9 @@ function createMobileAuthRouter({
     // Dev tokens are stateless: forgetting it on the phone is the sign-out.
     if (!token || devLogin || !CENTRAL_TOKEN_RE.test(token)) return res.json({ success: true });
     try {
-      await store.remove(hashId(token));
+      await store!.remove(hashId(token)); // central login: store is set
     } catch (err) {
-      logger.error('[oidc] app sign-out could not remove the session:', err.message);
+      logger.error('[oidc] app sign-out could not remove the session:', (err as Error).message);
       return res.status(503).json({ error: 'Could not sign out, try again', code: 'signin_unavailable' });
     }
     res.json({ success: true });
@@ -603,7 +607,8 @@ function createMobileAuthRouter({
     (req, res, next) => (mobileBearer(req.headers) ? next() : next('route')),
     userAuth.requireLevel('member'),
     (req, res) => {
-      const { account } = req._listenAuth;
+      // requireLevel('member') passed: identify() found the account.
+      const { account } = req._listenAuth as { account: Account };
       const name = account.name || '';
       res.set('Cache-Control', 'no-store');
       res.json({ name, user: { id: account.id, name, status: account.status }, session: { kind: 'app' } });
@@ -612,7 +617,58 @@ function createMobileAuthRouter({
   return router;
 }
 
-module.exports = {
-  createMobileAuthRouter, readMobileConfig, idpNonce, normalizeFingerprint, MobileConfigError,
-  MOBILE_REDIRECT_URI, MOBILE_CALLBACK_PATH, ASSET_LINKS_PATH, DEFAULT_APP_PACKAGE, RELEASE_CERT_SHA256,
-};
+/** The app sign-in's settings (readMobileConfig). */
+export interface MobileConfig {
+  /** the custom-scheme redirect is still accepted */
+  customScheme: boolean;
+  /** <BASE_URL>/auth/mobile/callback, or null without BASE_URL */
+  callbackUrl: string | null;
+  appPackage: string;
+  /** the Digital Asset Links statement */
+  assetLinks: Array<{ relation: string[]; target: { namespace: string; package_name: string; sha256_cert_fingerprints: string[] } }>;
+  /** the redirect URIs the app may name, in this order */
+  redirects: string[];
+}
+
+/** POST /auth/mobile/exchange's body, once checked (code, state, nonce, code_verifier, iss). */
+interface ExchangeBody {
+  code: string;
+  state: string;
+  nonce: string;
+  code_verifier: string;
+  iss?: string | null;
+  redirect_uri?: unknown;
+}
+
+/** No database at all (development): the sub is the user id, approved. */
+interface MemoryLink {
+  outcome: 'ok';
+  rule: 'e';
+  created: true;
+  user: { id: string; status: 'approved'; name: string | null; display_name?: undefined };
+}
+
+/** What createMobileAuthRouter() needs from the composition root (authRoutes). */
+export interface MobileAuthDeps {
+  /** createOidcClient() (central login) or null (dev sign-in) */
+  oidc?: Pick<OidcClient, 'authorizationUrl' | 'finishLogin'> | null;
+  /** readOidcConfig() result */
+  cfg?: OidcConfig;
+  /** createSessionStore() (central login) or null */
+  store?: Pick<SessionStore, 'create' | 'remove'> | null;
+  /** createSettings() (registrations switch) */
+  settings: Pick<Settings, 'registrationsOpen'>;
+  /** createUserAuth() (invalidate, getAccount, requireLevel) */
+  userAuth: Pick<UserAuth, 'invalidate' | 'getAccount' | 'requireLevel'>;
+  /** db module */
+  db: Pick<DbModule, 'isAvailable' | 'query' | 'getClient'>;
+  /** DATABASE_URL is set: no pool = an outage, fail closed */
+  dbExpected?: boolean;
+  /** INSECURE_DEV_LOGIN is on (development / tests only) */
+  devLogin?: boolean;
+  /** SESSION_SECRET (signs dev codes and dev tokens) */
+  secret: string;
+  env?: Env;
+  logger?: Logger;
+  now?: () => number;
+}

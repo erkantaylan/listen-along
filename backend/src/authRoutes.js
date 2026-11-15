@@ -21,7 +21,7 @@
 const express = require('express');
 const path = require('path');
 const { policyFor, parseCookie } = require('./auth/userAuth.ts');
-const { createMobileAuthRouter } = require('./mobileAuth');
+const { createMobileAuthRouter } = require('./auth/mobileAuth.ts');
 const { FLOW_COOKIE_PATH: OIDC_FLOW_PATH, FLOW_MAX_AGE_MS: OIDC_FLOW_MAX_AGE_MS } = require('./auth/oidc.ts');
 const { linkCentralIdentity } = require('./auth/oidcLink.ts');
 const { signDevToken, DEV_COOKIE, MAX_AGE_MS: DEV_LOGIN_MAX_AGE_MS } = require('./auth/devLogin.ts');
