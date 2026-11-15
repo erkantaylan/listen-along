@@ -1,7 +1,7 @@
 /**
  * The global chat and the people panel over Socket.IO.
  *
- * Who takes part: every socket whose signed listen_auth cookie names a user
+ * Who takes part: every socket whose login (userAuth.js) names a user
  * (socket.data.userId, set in index.js from the handshake — never an id the
  * client sends) whose account is not 'denied' / 'rejected'. Pending users take
  * part fully (read, write, appear in the list). Denied and rejected accounts

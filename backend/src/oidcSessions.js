@@ -1,6 +1,6 @@
 /**
- * Server-side sessions for central login (OIDC mode only; the legacy
- * `listen_auth` cookie is untouched and unused in that mode).
+ * Server-side sessions for central login (OIDC; the only sign-in in
+ * production. The dev sign-in, devLogin.js, has none).
  *
  * The browser holds only `la_session` (`__Host-la_session` when Secure, in
  * production): 32 random bytes, opaque. The server

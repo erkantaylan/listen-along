@@ -12,16 +12,13 @@ services:
       - PORT=3000
       - DATABASE_URL=postgres://listen:listen@postgres:5432/listen
       - SONGS_PATH=/data/songs
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
-      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
       - SESSION_SECRET=${SESSION_SECRET}
       - BASE_URL=${BASE_URL:-}
-      # Central login (OIDC, see CENTRAL-LOGIN.md). Setting OIDC_ISSUER and
-      # OIDC_CLIENT_ID replaces Google / GitHub sign-in; leave both empty for the
-      # old login (unsetting them is the rollback). Needs BASE_URL and
-      # SESSION_SECRET. listen-along is a public client: no secret needed.
+      # Central login (OIDC, see CENTRAL-LOGIN.md): the only sign-in. With
+      # NODE_ENV=production the server refuses to start unless OIDC_ISSUER,
+      # OIDC_CLIENT_ID, BASE_URL (or FRONTEND_URL) and SESSION_SECRET are set. listen-along is a
+      # public client: no secret needed. (The dev sign-in, INSECURE_DEV_LOGIN,
+      # is deliberately not passed through here; production refuses it anyway.)
       - OIDC_ISSUER=${OIDC_ISSUER:-}
       - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
       - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}

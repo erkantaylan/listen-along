@@ -258,7 +258,9 @@ describe('listen along against a running server', { timeout: 60_000 }, () => {
   });
 
   it('the leader stopping playback (still online) pauses followers; they stay attached', async () => {
-    const sync = next(s.A, 'listen:sync');
+    // The pause itself: a sync still in flight from the previous test (B
+    // re-following C) may arrive first under load.
+    const sync = next(s.A, 'listen:sync', d => d.track === null);
     s.C.emit('presence:now-playing', { track: null });
     const got = await sync;
     assert.equal(got.track, null);

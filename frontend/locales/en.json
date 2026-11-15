@@ -137,7 +137,6 @@
     "noCachedSongs": "No cached songs",
     "registrationsOpen": "Allow new accounts",
     "registrationsHint": "When off, someone signing in through the central login who has no account here is turned away. Existing accounts keep working.",
-    "registrationsNotCentral": "Central login is not configured yet: this takes effect once it is. Google and GitHub sign-in are not affected.",
     "registrationsOpened": "New accounts are allowed",
     "registrationsClosed": "New accounts are turned away",
     "registrationsFailed": "Could not change the setting",
@@ -570,6 +569,7 @@
   },
   "login": {
     "signIn": "Sign in",
+    "devNote": "Development sign-in: no password, never on a real server.",
     "error": {
       "accountDisabled": "Your account has been disabled. If you think this is a mistake, contact the administrator.",
       "registrationsClosed": "Registrations are closed: there is no listen-along account for you, and new ones are not being created right now.",

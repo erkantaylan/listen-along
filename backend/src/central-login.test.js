@@ -6,12 +6,12 @@
 //      IdP does not stop the server and sign-in works once it is back
 //   3. the protocol, without a database: happy path, every validation failure
 //      (state, nonce, PKCE, audience, issuer, expiry, signature, flow cookie),
-//      the old cookie is never a session, Google / GitHub routes are gone,
+//      the old and dev cookies are never a session, Google / GitHub routes are gone,
 //      re-check with the refresh token (rotation, single-flight, invalid_grant,
 //      IdP down, the unverified cap, long-lived sockets), logout, rate limit
 //   4. on Postgres: linking rules a-e, ambiguous and unsafe matches, banning,
 //      the registrations switch, concurrent callbacks, tokens encrypted at rest
-// Legacy mode (no OIDC_* variables) is covered, unchanged, by auth-guard.test.js.
+// Which sign-in may run where (production, the dev sign-in) is in auth-guard.test.js.
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
@@ -31,6 +31,12 @@ const { createOidcSessions } = require('./oidcSessions');
 const userAuthMod = require('./userAuth');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// The removed Google / GitHub login's cookie, signed as it was (same secret).
+function legacyCookie(userId, t = Date.now()) {
+  const payload = Buffer.from(JSON.stringify({ id: userId, t })).toString('base64url');
+  return `listen_auth=${payload}.${crypto.createHmac('sha256', SECRET).update(payload).digest('base64url')}`;
+}
 
 // ---------------------------------------------------------------- helpers
 
@@ -105,7 +111,7 @@ function runUntilExit(env) {
 describe('central login: rules', () => {
   const env = { OIDC_ISSUER: 'https://id.example.com/application/o/listen-along/', OIDC_CLIENT_ID: 'listen-along', BASE_URL: 'https://music.example.com', SESSION_SECRET: 's' };
 
-  it('configuration: off, on, half-configured and unusable values', () => {
+  it('configuration: off, on, half-configured, required in production and unusable values', () => {
     assert.deepEqual(readOidcConfig({}), { enabled: false });
     assert.deepEqual(readOidcConfig({ OIDC_ISSUER: '  ', OIDC_CLIENT_ID: '' }), { enabled: false });
     const cfg = readOidcConfig(env);
@@ -144,8 +150,15 @@ describe('central login: rules', () => {
       { ...env, OIDC_RECHECK_SECONDS: '-5' },
       { ...env, NODE_ENV: 'production', OIDC_ISSUER: 'http://id.example.com/' },
       { ...env, NODE_ENV: 'production', BASE_URL: 'http://music.example.com' },
+      // Production: central login is the only sign-in, so it must be there.
+      { NODE_ENV: 'production' },
+      { NODE_ENV: 'production', SESSION_SECRET: 's', BASE_URL: 'https://music.example.com' },
+      { ...env, NODE_ENV: 'production', BASE_URL: '', FRONTEND_URL: '' },
+      { ...env, NODE_ENV: 'production', SESSION_SECRET: '' },
     ];
     for (const e of bad) assert.throws(() => readOidcConfig(e), OidcConfigError, JSON.stringify(e));
+    assert.equal(readOidcConfig({ ...env, NODE_ENV: 'production', BASE_URL: '', FRONTEND_URL: 'https://f.example.com' }).redirectUri,
+      'https://f.example.com/auth/oidc/callback', 'FRONTEND_URL stands in for BASE_URL in production too');
     assert.equal(readOidcConfig({ ...env, OIDC_ISSUER: 'http://id.localhost:39100/application/o/listen-along/' }).allowInsecure, true);
   });
 
@@ -174,22 +187,18 @@ describe('central login: rules', () => {
     ], map), [{ provider: 'google', providerId: '1234' }, { provider: 'github', providerId: '987' }]);
   });
 
-  it('userAuth in central-login mode never reads the old cookie', async () => {
+  it('userAuth with central login never reads the old or the dev cookie', async () => {
     const sessions = { resolveHeaders: async (h) => (h.cookie === 'la_session=ok' ? { userId: 'u1', idHash: 'h1' } : null) };
     const ua = userAuthMod.createUserAuth({ secret: SECRET, db: { isAvailable: () => false }, sessions });
-    const legacy = cookieFor('u2');
-    assert.equal(ua.centralMode, true);
-    assert.equal(ua.userIdFromHeaders({ cookie: legacy }), null);
-    assert.equal(await ua.resolve({ cookie: legacy }), null);
+    assert.equal(ua.mode, 'central');
+    for (const other of [legacyCookie('u2'), cookieFor('u2')]) {
+      assert.equal(await ua.resolve({ cookie: other }), null);
+      assert.deepEqual(await ua.identify({ headers: { cookie: other } }), { userId: null, account: null, sessionId: null });
+    }
     assert.deepEqual(await ua.resolve({ cookie: 'la_session=ok' }), { userId: 'u1', sessionId: 'h1' });
-    assert.equal(ua.legacyUserIdFromHeaders, undefined, 'nothing exposes the old cookie in this mode');
-    const req = { headers: { cookie: legacy } };
-    assert.deepEqual(await ua.identify(req), { userId: null, account: null, sessionId: null });
-    // Legacy mode is unchanged.
-    const legacyUa = userAuthMod.createUserAuth({ secret: SECRET, db: { isAvailable: () => false } });
-    assert.equal(legacyUa.centralMode, false);
-    assert.equal(legacyUa.userIdFromHeaders({ cookie: legacy }), 'u2');
-    assert.deepEqual(await legacyUa.resolve({ cookie: legacy }), { userId: 'u2', sessionId: null });
+    for (const gone of ['createToken', 'verifyToken', 'userIdFromHeaders', 'legacyUserIdFromHeaders']) {
+      assert.equal(ua[gone], undefined, `nothing exposes ${gone}`);
+    }
   });
 
   it('sessions read only their own cookie name (__Host- in production)', async () => {
@@ -226,16 +235,16 @@ describe('central login: rules', () => {
   });
 });
 
-describe('central login off: the legacy app is unchanged', { timeout: 60_000 }, () => {
-  it('no OIDC routes, the same providers answer, logout as before', async () => {
-    const srv = await startServer({ GOOGLE_CLIENT_ID: 'test-google-client' });
+describe('central login off (dev sign-in): no central routes', { timeout: 60_000 }, () => {
+  it('no OIDC routes, the providers say dev, logout without a redirect', async () => {
+    const srv = await startServer();
     try {
       for (const p of ['/auth/oidc/login', '/auth/oidc/callback?code=x&state=y']) assert.equal((await get(srv.base + p)).status, 404, p);
-      assert.deepEqual(await (await get(`${srv.base}/api/auth/providers`)).json(), { google: true, github: false });
-      assert.match((await get(`${srv.base}/auth/google`)).headers.get('location'), /^https:\/\/accounts\.google\.com\//);
+      assert.deepEqual(await (await get(`${srv.base}/api/auth/providers`)).json(), { central: false, dev: true });
+      assert.equal((await get(`${srv.base}/auth/google`)).status, 404);
       const out = await fetch(`${srv.base}/api/auth/logout`, { method: 'POST', headers: { cookie: cookieFor('x') } });
       assert.deepEqual(await out.json(), { success: true });
-      assert.equal((await get(`${srv.base}/api/playlists`, cookieFor('00000000-0000-4000-8000-0000000000ab'))).status, 200, 'listen_auth is the login');
+      assert.equal((await get(`${srv.base}/api/playlists`, cookieFor('00000000-0000-4000-8000-0000000000ab'))).status, 200, 'la_dev_login is the login');
       assert.deepEqual(await (await get(`${srv.base}/api/admin/settings`, adminCookie())).json(), { registrations_open: true, source: 'default', central_login: false });
       assert.doesNotMatch(srv.log(), /\[oidc\]/);
     } finally { await srv.stop(); }
@@ -446,14 +455,17 @@ describe('central login: protocol, sessions and re-check (no database)', { timeo
     failed(await finish(cb, [b.flow]), 'access_denied');
   });
 
-  it('the old listen_auth cookie is never a session in this mode', async () => {
-    const old = cookieFor('00000000-0000-4000-8000-0000000000aa');
-    assert.equal((await get(`${srv.base}/api/playlists`, old)).status, 401);
-    assert.equal((await get(`${srv.base}/api/profile`, old)).status, 401);
-    assert.equal((await get(`${srv.base}/`, old)).headers.get('location'), '/login');
-    assert.equal((await get(`${srv.base}/login`, old)).status, 200, 'no redirect: not signed in');
-    assert.deepEqual(await (await get(`${srv.base}/api/auth/me`, old)).json(), { authenticated: false });
-    await assert.rejects(sock(old).ready, /Authentication required/);
+  it('the old listen_auth cookie and the dev cookie are never a session', async () => {
+    for (const other of [cookieFor('00000000-0000-4000-8000-0000000000aa'), legacyCookie('00000000-0000-4000-8000-0000000000aa')]) {
+      assert.equal((await get(`${srv.base}/api/playlists`, other)).status, 401);
+      assert.equal((await get(`${srv.base}/api/profile`, other)).status, 401);
+      assert.equal((await get(`${srv.base}/`, other)).headers.get('location'), '/login');
+      assert.equal((await get(`${srv.base}/login`, other)).status, 200, 'no redirect: not signed in');
+      assert.deepEqual(await (await get(`${srv.base}/api/auth/me`, other)).json(), { authenticated: false });
+      await assert.rejects(sock(other).ready, /Authentication required/);
+    }
+    assert.equal((await get(`${srv.base}/auth/dev/login?user=x`)).status, 404, 'no dev sign-in route');
+    const old = legacyCookie('00000000-0000-4000-8000-0000000000aa');
     // ...and the callback drops it.
     const s = await signIn(srv.base, idp, { sub: 'drop-old' }, { cookie: old });
     assert.ok(setCookie(s.res, 'listen_auth').attrs.some((a) => /Expires=Thu, 01 Jan 1970/.test(a)));
@@ -464,7 +476,7 @@ describe('central login: protocol, sessions and re-check (no database)', { timeo
       '/auth/google/link', '/auth/google/link/callback', '/auth/github/link', '/auth/github/link/callback']) {
       assert.equal((await get(srv.base + p)).status, 404, p);
     }
-    assert.deepEqual(await (await get(`${srv.base}/api/auth/providers`)).json(), { google: false, github: false, central: true });
+    assert.deepEqual(await (await get(`${srv.base}/api/auth/providers`)).json(), { central: true, dev: false });
     const s = await signIn(srv.base, idp, { sub: 'unlink-1' });
     assert.equal((await fetch(`${srv.base}/api/profile/providers/github`, { method: 'DELETE', headers: { cookie: s.session } })).status, 404);
   });
@@ -805,7 +817,7 @@ describe('central login on Postgres: linking, banning, registrations', { skip: p
   });
 
   it('an old login cookie at the callback has no say in linking; it is cleared', async () => {
-    const old = cookieFor(U.cookie5);
+    const old = legacyCookie(U.cookie5);
     assert.equal((await get(`${srv.base}/api/playlists`, old)).status, 401, 'not a session');
     const before = await userCount();
     const s = await signIn(srv.base, idp, { sub: 'central-5' }, { cookie: old });
@@ -956,7 +968,7 @@ describe('central login on Postgres: linking, banning, registrations', { skip: p
     assert.equal((await get(`${srv.base}/api/playlists`, cookieFor(U.ambNew))).status, 401);
   });
 
-  it('restart via legacy mode: the switch is settable there and wins over the env default; no central identity becomes a legacy provider', async () => {
+  it('restart with the dev sign-in: the switch is settable there and wins over the env default; no central identity becomes a legacy provider', async () => {
     await srv.stop();
     const legacy = await startServer({
       DATABASE_URL: pgUrl, SONGS_PATH: path.join(tmp, 'songs'), COVERS_DIR: path.join(tmp, 'covers'), APP_RELEASES_API_URL: 'http://127.0.0.1:9/',
@@ -964,6 +976,7 @@ describe('central login on Postgres: linking, banning, registrations', { skip: p
     try {
       const r = await fetch(`${legacy.base}/api/admin/settings`, { method: 'PUT', headers: { cookie: adminCookie(), 'content-type': 'application/json' }, body: JSON.stringify({ registrations_open: false }) });
       assert.equal(r.status, 200, 'settable while central login is off');
+      assert.match(legacy.log(), /INSECURE_DEV_LOGIN is on/);
       // That boot ran the user_providers backfill over every user.
       assert.equal((await pg.query(`SELECT count(*)::int AS n FROM user_providers WHERE provider = 'oidc'`)).rows[0].n, 0);
       assert.ok((await pg.query(`SELECT count(*)::int AS n FROM users WHERE provider = 'oidc'`)).rows[0].n > 0);

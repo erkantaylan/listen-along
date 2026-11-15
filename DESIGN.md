@@ -166,8 +166,8 @@ tertiary.
 | Tier | Markup | Looks like | Use for |
 | --- | --- | --- | --- |
 | **Primary** | `.btn-solid.theme-primary` | accent fill, dark semibold text; lightens on hover | The main action of a view or dialog: New playlist (landing), Create playlist (its dialog), Save (display name), Download, Replace, Mark as broken (in its dialog), Done (playlist edit mode), the chat send button, the player's **Play/Pause** pill (a size up, 2.75rem, 1.5rem icon). |
-| **Secondary, tonal** | `.btn` | grey fill `--app-btn-tonal` + strong border | Neutral actions next to a primary or on their own: Cancel, Edit, Create token, Disconnect, Refresh, Play (dashboard), Retry/Cancel on jobs, preset reasons. |
-| **Secondary, outline** | `.btn-outline.theme-secondary` | border only, transparent | Navigation-ish or less important neutral actions: Library & Downloads, login providers (Google / GitHub; the central login's single Sign in is primary), Dismiss all, library pager, round library play buttons. |
+| **Secondary, tonal** | `.btn` | grey fill `--app-btn-tonal` + strong border | Neutral actions next to a primary or on their own: Cancel, Edit, Create token, Refresh, Play (dashboard), Retry/Cancel on jobs, preset reasons. |
+| **Secondary, outline** | `.btn-outline.theme-secondary` | border only, transparent | Navigation-ish or less important neutral actions: Library & Downloads, Dismiss all, library pager, round library play buttons. |
 | **Tertiary / ghost** | `.btn-text.theme-secondary` (+ `.btn-icon`) | no fill, no border; `--app-text-secondary` icon; grey fill + bright icon on hover | Icon buttons: player controls (repeat, shuffle, prev, next, mute, chat), navbar back / pin / share / lock, ⋮ song menus, drag handles, collapse chevrons, small text links like "Dismiss". Toggled on = `.active`: accent tint + accent icon + accent border. |
 | **Danger** | `.btn-outline.theme-danger` (text) / `.btn-text.theme-danger.btn-icon` (icon) / `.btn-solid.theme-danger` (rare: a confirm step) | red text and border / red icon; red tint on hover | Anything that deletes or revokes: Delete playlist (trash), Clear queue, remove from queue (minus), Revoke token, Sign out, Delete (dashboard), delete chat message, Reject. |
 | **Success** | `.btn-subtle.theme-success` | green tint, green text | Approve (dashboard). Don't use green for ordinary confirm buttons — that's primary. |
@@ -334,19 +334,19 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   divider 16px, Home and End go to the smallest and largest, Enter resets.
 
 - **Login / pending**: navbar + one centred card (`.app-center`, `.login-card` 26rem).
-  Google / GitHub mode: one outline secondary button per configured provider. **Central login**
-  (`/api/auth/providers` says `central`): a single primary **Sign in** (`#central-login-btn`,
-  `.btn-solid.theme-primary.btn-lg.w-100`, `login.signIn`), the view's one main action, and no
-  provider buttons. Above the buttons, `#login-error` (`.alert`, full outline, never an edge)
+  A single primary **Sign in** (`#central-login-btn`, `.btn-solid.theme-primary.btn-lg.w-100`,
+  `login.signIn`), the view's one main action, and nothing else to choose: it goes to the central
+  login, or on a development server (`/api/auth/providers` says `dev`) to the dev sign-in, with a
+  muted `fs-sm` line under it, `#login-dev-note` (`login.devNote`). There are no provider buttons
+  (Google / GitHub sign-in is gone). Above the button, `#login-error` (`.alert`, full outline, never an edge)
   explains why a sign-in came back (`/login?error=<code>`, a fixed sentence per code, en + tr in
   `login.error.*`): `theme-danger` for "Your account has been disabled", "Sign-in did not
   work" and "could not be linked ... contact the administrator", `theme-warning` for "Registrations are closed" and "cannot be reached right now".
-  The profile page has no "Connected accounts" card in this mode.
+  The profile page has no "Connected accounts" card.
 - **Dashboard → Users, Allow new accounts**: a `.card.card-body` above the counts holding one
   `.form-field` with a Bootstrap `.switch` (`role="switch"`), its label (`fw-medium`) and a
   muted `fs-sm` hint; a second muted line says when the value is the server's
-  `REGISTRATIONS_DEFAULT` (not saved yet), and another while central login is off that it takes
-  effect once it is on. Toggling saves at once and toasts; a failed save puts the switch back.
+  `REGISTRATIONS_DEFAULT` (not saved yet). Toggling saves at once and toasts; a failed save puts the switch back.
 - **Landing** ("Home", `/`, the view after login; `lobby.js`). From 768px it has no top bar (the sidebar carries
   the brand and the profile); below 768px a navbar (☰, brand, profile; the brand folds to its icon below 400px)
   under the row of places (see "Playlists sidebar").

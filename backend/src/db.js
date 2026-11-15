@@ -526,7 +526,7 @@ async function createTables() {
   // Migrate existing users' provider data into user_providers junction table.
   // Only real legacy providers: accounts made by central login carry
   // provider 'oidc' (provider_id = the central sub), which must never look like
-  // a Google / GitHub login, also after a rollback to legacy mode.
+  // a Google / GitHub account (central login's rule b reads both tables).
   await pool.query(`
     INSERT INTO user_providers (user_id, provider, provider_id, email, name, avatar_url, linked_at)
     SELECT id, provider, provider_id, email, name, avatar_url, COALESCE(created_at, $1)

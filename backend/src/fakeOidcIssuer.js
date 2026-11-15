@@ -11,6 +11,11 @@
 //
 // Control is in-process: the app under test runs as a child process and talks
 // to this over HTTP.
+//
+// Also a local development IdP (no authentik needed), from backend/:
+//   node src/fakeOidcIssuer.js [--port 9400] [--sub dev-1] [--email dev@example.com] [--name "Dev User"]
+// Every sign-in is that one user, at once (no page). It prints the variables
+// for the app; plain http, so the app must not run with NODE_ENV=production.
 const http = require('node:http');
 const crypto = require('node:crypto');
 
@@ -208,3 +213,29 @@ async function startFakeIssuer({ clientId = 'listen-along', slug = 'listen-along
 }
 
 module.exports = { startFakeIssuer };
+
+if (require.main === module) {
+  const args = process.argv.slice(2);
+  const opt = (name, fallback) => {
+    const i = args.indexOf(`--${name}`);
+    return i >= 0 && args[i + 1] !== undefined ? args[i + 1] : fallback;
+  };
+  const port = Number(opt('port', '9400'));
+  startFakeIssuer({ port }).then((idp) => {
+    idp.user = {
+      sub: opt('sub', 'dev-1'),
+      email: opt('email', 'dev@example.com'),
+      email_verified: true,
+      name: opt('name', 'Dev User'),
+    };
+    console.log(`fake OpenID provider: ${idp.issuer} (every sign-in is ${idp.user.name}, sub ${idp.user.sub})`);
+    console.log('Run listen-along with:');
+    console.log(`  NODE_ENV=development OIDC_ISSUER=${idp.issuer} OIDC_CLIENT_ID=${idp.clientId} BASE_URL=http://localhost:3000 SESSION_SECRET=dev npm run dev`);
+    const stop = () => idp.close().then(() => process.exit(0));
+    process.on('SIGINT', stop);
+    process.on('SIGTERM', stop);
+  }).catch((err) => {
+    console.error(`fake OpenID provider: ${err.message}`);
+    process.exit(1);
+  });
+}

@@ -5,22 +5,20 @@
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
-const crypto = require('node:crypto');
 const net = require('node:net');
 const path = require('node:path');
 const http = require('node:http');
 const { io: ioClient } = require('socket.io-client');
+const { DEV_COOKIE, signDevToken } = require('./devLogin');
 const access = require('./playlistAccess');
 
 const SECRET = 'playlist-permissions-test-secret';
 const ALICE = '00000000-0000-4000-8000-00000000a11c';
 const BOB = '00000000-0000-4000-8000-000000000b0b';
 
-// Same format as createAuthToken in index.js (HMAC-signed listen_auth cookie).
+// The dev sign-in cookie (devLogin.js); the server below runs with INSECURE_DEV_LOGIN=1.
 function authCookie(userId) {
-  const payload = Buffer.from(JSON.stringify({ id: userId, t: Date.now() })).toString('base64url');
-  const sig = crypto.createHmac('sha256', SECRET).update(payload).digest('base64url');
-  return `listen_auth=${payload}.${sig}`;
+  return `${DEV_COOKIE}=${signDevToken(SECRET, userId)}`;
 }
 
 describe('playlistAccess rules', () => {
@@ -107,7 +105,7 @@ describe('playlist permissions against a running server', { timeout: 60_000 }, (
   before(async () => {
     const port = await freePort();
     base = `http://127.0.0.1:${port}`;
-    const env = { ...process.env, PORT: String(port), SESSION_SECRET: SECRET, NODE_ENV: 'test', FRONTEND_PATH: path.join(__dirname, '..', '..', 'frontend') };
+    const env = { ...process.env, PORT: String(port), SESSION_SECRET: SECRET, NODE_ENV: 'test', INSECURE_DEV_LOGIN: '1', FRONTEND_PATH: path.join(__dirname, '..', '..', 'frontend') };
     delete env.DATABASE_URL;
     delete env.ADMIN_PASSWORD;
     server = spawn(process.execPath, [path.join(__dirname, 'index.js')], { env, stdio: ['ignore', 'pipe', 'pipe'] });

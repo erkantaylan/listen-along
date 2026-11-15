@@ -3,19 +3,17 @@
  * a request (or a socket handshake's headers) into a user id: resolve(),
  * userIdFor(), identify().
  *
- * Two modes, fixed at boot:
+ * One way in, fixed at boot (index.js):
  *
- * - Legacy (no central login configured): identity is the HMAC-signed
- *   `listen_auth` cookie set after an OAuth login (Google / GitHub, see
- *   index.js): `<base64url {id, t}>.<sig>`. `id` is users.id, `t` the login
- *   time. The cookie lives 30 days and so does the token: an older token is
- *   refused even if a client kept the cookie.
- * - Central login (`sessions` given, OIDC_ISSUER + OIDC_CLIENT_ID set):
- *   identity is the opaque `la_session` cookie, looked up server-side and
- *   re-checked with the IdP (oidcSessions.js). The old `listen_auth` cookie is
- *   NOT a login in this mode: userIdFromHeaders() always answers null and
- *   nothing reads it (the OIDC callback only clears it; it plays no part in
- *   linking accounts).
+ * - Central login (`sessions` given; OIDC_ISSUER + OIDC_CLIENT_ID; the only
+ *   one in production): identity is the opaque `la_session` cookie, looked up
+ *   server-side and re-checked with the IdP (oidcSessions.js).
+ * - Dev login (`devLogin: true`; INSECURE_DEV_LOGIN=1, refused at boot unless
+ *   NODE_ENV is development or test; devLogin.js): identity is the
+ *   HMAC-signed `la_dev_login` cookie holding users.id.
+ *
+ * The old Google / GitHub `listen_auth` cookie is no login in either mode:
+ * nothing here reads it.
  *
  * Account status (users.status) decides how far a logged-in user gets:
  *
@@ -25,7 +23,7 @@
  *   denied, rejected  nothing but /api/auth/me and logging out. Sockets are
  *                     refused at the handshake.
  *
- * Without a database there is no users table: a valid cookie counts as an
+ * Without a database there is no users table: a signed-in user counts as an
  * approved account (same as social.js).
  *
  * Levels used by requireLevel() / policyFor():
@@ -34,11 +32,8 @@
  *   'approved' ... whose status is 'approved'
  */
 
-const crypto = require('crypto');
+const { DEV_COOKIE, verifyDevToken } = require('./devLogin');
 
-const COOKIE_NAME = 'listen_auth';
-const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
-const CLOCK_SKEW_MS = 5 * 60 * 1000;
 const BLOCKED_STATUSES = new Set(['denied', 'rejected']);
 
 function parseCookie(header, name) {
@@ -94,16 +89,8 @@ const PUBLIC_EXACT = new Set([
   // Central login (OIDC) round trip; 404 unless it is configured.
   '/auth/oidc/login',
   '/auth/oidc/callback',
-  // OAuth round trips. The /link routes check the login themselves.
-  // 404 while central login is configured.
-  '/auth/google',
-  '/auth/google/callback',
-  '/auth/github',
-  '/auth/github/callback',
-  '/auth/google/link',
-  '/auth/google/link/callback',
-  '/auth/github/link',
-  '/auth/github/link/callback',
+  // Dev sign-in (devLogin.js); 404 unless INSECURE_DEV_LOGIN is on.
+  '/auth/dev/login',
 ]);
 
 const PUBLIC_PREFIXES = [
@@ -147,55 +134,26 @@ function policyFor(p) {
 }
 
 /**
- * @param secret  HMAC key (SESSION_SECRET)
- * @param db      db module (isAvailable/query)
- * @param cacheMs how long an account lookup is reused (status changes call
- *                invalidate(), so this only bounds staleness elsewhere)
- * @param sessions central-login mode: createOidcSessions() (resolveHeaders);
- *                omitted = legacy mode
+ * @param secret   SESSION_SECRET (signs the dev-login cookie)
+ * @param db       db module (isAvailable/query)
+ * @param cacheMs  how long an account lookup is reused (status changes call
+ *                 invalidate(), so this only bounds staleness elsewhere)
+ * @param sessions central login: createOidcSessions() (resolveHeaders)
+ * @param devLogin dev login (INSECURE_DEV_LOGIN): the `la_dev_login` cookie
+ * Exactly one of sessions / devLogin.
  */
-function createUserAuth({ secret, db, cacheMs = 5000, sessions = null }) {
+function createUserAuth({ secret, db, cacheMs = 5000, sessions = null, devLogin = false }) {
   if (!secret) throw new Error('createUserAuth: secret is required');
-  const centralMode = !!sessions;
+  if (!!sessions === !!devLogin) throw new Error('createUserAuth: exactly one of sessions (central login) or devLogin');
+  const mode = sessions ? 'central' : 'dev';
 
-  const sign = (payload) => crypto.createHmac('sha256', secret).update(payload).digest('base64url');
-
-  function createToken(userId, t = Date.now()) {
-    const payload = Buffer.from(JSON.stringify({ id: userId, t })).toString('base64url');
-    return `${payload}.${sign(payload)}`;
-  }
-
-  /** @returns {{id, t}|null} */
-  function verifyToken(token, now = Date.now()) {
-    if (!token || typeof token !== 'string' || token.length > 2048) return null;
-    const idx = token.indexOf('.');
-    if (idx <= 0) return null;
-    const payload = token.slice(0, idx);
-    const sig = token.slice(idx + 1);
-    const expected = sign(payload);
-    if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
-    let data;
-    try { data = JSON.parse(Buffer.from(payload, 'base64url').toString()); } catch { return null; }
-    if (!data || (typeof data.id !== 'string' && typeof data.id !== 'number') || data.id === '') return null;
-    if (typeof data.t !== 'number' || !Number.isFinite(data.t)) return null;
-    if (data.t > now + CLOCK_SKEW_MS || now - data.t > MAX_AGE_MS) return null;
-    return data;
-  }
-
-  /** users.id from a valid legacy `listen_auth` cookie. Always null in central-login mode. */
-  function userIdFromHeaders(headers) {
-    if (centralMode) return null;
-    return legacyUserIdFromHeaders(headers);
-  }
-
-  // The legacy cookie's users.id (legacy mode only: resolve() and
-  // userIdFromHeaders() never call this in central-login mode).
-  function legacyUserIdFromHeaders(headers) {
-    const raw = parseCookie(headers && headers.cookie, COOKIE_NAME);
+  // users.id from a valid `la_dev_login` cookie (dev login only).
+  function devUserIdFromHeaders(headers) {
+    const raw = parseCookie(headers && headers.cookie, DEV_COOKIE);
     if (!raw) return null;
     let token = raw;
     try { token = decodeURIComponent(raw); } catch {}
-    const data = verifyToken(token);
+    const data = verifyDevToken(secret, token);
     return data ? String(data.id) : null;
   }
 
@@ -237,13 +195,13 @@ function createUserAuth({ secret, db, cacheMs = 5000, sessions = null }) {
   /**
    * Who the headers (a request's, or a socket handshake's) belong to:
    * { userId, sessionId } or null. sessionId is the central-login session's
-   * id hash (null in legacy mode). Says nothing about the account's status.
+   * id hash (null with dev login). Says nothing about the account's status.
    * Central-login mode may re-check the session with the IdP here (at most
    * every few minutes; see oidcSessions.js). Throws on a storage error.
    */
   async function resolve(headers) {
-    if (!centralMode) {
-      const userId = legacyUserIdFromHeaders(headers);
+    if (mode === 'dev') {
+      const userId = devUserIdFromHeaders(headers);
       return userId ? { userId, sessionId: null } : null;
     }
     const s = await sessions.resolveHeaders(headers);
@@ -287,10 +245,7 @@ function createUserAuth({ secret, db, cacheMs = 5000, sessions = null }) {
   }
 
   return {
-    centralMode,
-    createToken,
-    verifyToken,
-    userIdFromHeaders,
+    mode,
     resolve,
     userIdFor,
     getAccount,
@@ -301,8 +256,6 @@ function createUserAuth({ secret, db, cacheMs = 5000, sessions = null }) {
 }
 
 module.exports = {
-  COOKIE_NAME,
-  MAX_AGE_MS,
   createUserAuth,
   parseCookie,
   isBlocked,

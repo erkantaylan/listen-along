@@ -1,11 +1,13 @@
 /**
  * Central login (OIDC) settings, read from the environment. Pure: no network.
  *
- * Central login is ON when both OIDC_ISSUER and OIDC_CLIENT_ID are set, and
- * then it REPLACES Google / GitHub sign-in. With neither set the app works
- * exactly as before (the rollback switch). One without the other, or a value
- * that cannot work, is a configuration error: readOidcConfig() throws and the
- * server refuses to start (index.js), so a half-configured deploy is loud.
+ * Central login is ON when both OIDC_ISSUER and OIDC_CLIENT_ID are set. It is
+ * the only sign-in in production: with NODE_ENV=production it is REQUIRED
+ * (OIDC_ISSUER, OIDC_CLIENT_ID, BASE_URL or FRONTEND_URL, SESSION_SECRET), and its absence
+ * stops the boot. Outside production, neither set = off (then the dev sign-in,
+ * devLogin.js, must be on instead; index.js checks). One without the other, or
+ * a value that cannot work, is a configuration error: readOidcConfig() throws
+ * and the server refuses to start (index.js), so a broken deploy is loud.
  *
  *   OIDC_ISSUER        https://id.example.com/application/o/listen-along/
  *   OIDC_CLIENT_ID     listen-along
@@ -20,10 +22,11 @@
  *   OIDC_MAX_UNVERIFIED_SECONDS how long a session may go without a successful
  *                               re-check while the IdP is unreachable
  *                               (default 86400 = 24 h)
- *   BASE_URL (else FRONTEND_URL) the public address; the redirect URI is
- *                      <BASE_URL>/auth/oidc/callback, never the Host header
- *   SESSION_SECRET     required in central-login mode (encrypts the stored
- *                      refresh tokens and the sign-in flow cookie)
+ *   BASE_URL           the public address; the redirect URI is
+ *                      <BASE_URL>/auth/oidc/callback, never the Host header.
+ *                      FRONTEND_URL is the fallback; one of them is required
+ *   SESSION_SECRET     required (encrypts the stored refresh tokens and the
+ *                      sign-in flow cookie)
  */
 
 const DEFAULT_SCOPES = 'openid email profile entitlements offline_access';
@@ -68,16 +71,22 @@ function parseUrl(name, value) {
  * @returns {{enabled: false} | {enabled: true, issuer: URL, clientId, clientSecret, scopes,
  *   baseUrl, redirectUri, postLogoutRedirectUri, providerMap, recheckMs, maxUnverifiedMs,
  *   allowInsecure}}
- * @throws OidcConfigError when half-configured or a value cannot work
+ * @throws OidcConfigError when half-configured, missing in production, or a
+ *   value cannot work
  */
 function readOidcConfig(env = process.env) {
   const issuerRaw = trimmed(env.OIDC_ISSUER);
   const clientId = trimmed(env.OIDC_CLIENT_ID);
-  if (!issuerRaw && !clientId) return { enabled: false };
+  const production = env.NODE_ENV === 'production';
+  if (!issuerRaw && !clientId) {
+    if (production) {
+      throw new OidcConfigError('central login is required in production: set OIDC_ISSUER, OIDC_CLIENT_ID, BASE_URL (or FRONTEND_URL) and SESSION_SECRET (see CENTRAL-LOGIN.md)');
+    }
+    return { enabled: false };
+  }
   if (!issuerRaw || !clientId) {
     throw new OidcConfigError(`central login is half-configured: set both OIDC_ISSUER and OIDC_CLIENT_ID, or neither (missing ${issuerRaw ? 'OIDC_CLIENT_ID' : 'OIDC_ISSUER'})`);
   }
-  const production = env.NODE_ENV === 'production';
   const issuer = parseUrl('OIDC_ISSUER', issuerRaw);
   if (issuer.search || issuer.hash) throw new OidcConfigError('OIDC_ISSUER must not have a query or fragment');
   if (production && issuer.protocol !== 'https:') throw new OidcConfigError('OIDC_ISSUER must be https in production');
@@ -87,7 +96,7 @@ function readOidcConfig(env = process.env) {
   }
 
   const baseRaw = trimmed(env.BASE_URL) || trimmed(env.FRONTEND_URL);
-  if (!baseRaw) throw new OidcConfigError('BASE_URL (or FRONTEND_URL) must be set to the public address when central login is on');
+  if (!baseRaw) throw new OidcConfigError('BASE_URL (or FRONTEND_URL) must be set to the public address when central login is on (the redirect URI is <BASE_URL>/auth/oidc/callback)');
   const base = parseUrl(env.BASE_URL ? 'BASE_URL' : 'FRONTEND_URL', baseRaw);
   if (base.search || base.hash) throw new OidcConfigError('BASE_URL must not have a query or fragment');
   if (production && base.protocol !== 'https:') throw new OidcConfigError('BASE_URL must be https in production (the IdP compares the redirect URI exactly)');
@@ -97,7 +106,7 @@ function readOidcConfig(env = process.env) {
   if (!scopes.includes('openid')) throw new OidcConfigError('OIDC_SCOPES must include "openid"');
   for (const s of scopes) if (!/^[\x21\x23-\x5b\x5d-\x7e]+$/.test(s)) throw new OidcConfigError(`OIDC_SCOPES: invalid scope "${s}"`);
 
-  // Secure cookies in production (as the old login cookie decides). Then they
+  // Secure cookies in production. Then they
   // carry the __Host- prefix: Secure, Path=/, no Domain, so no other host or
   // path can set or shadow them.
   const secureCookies = production;

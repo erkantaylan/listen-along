@@ -6,16 +6,19 @@ const crypto = require('node:crypto');
 const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
+const { DEV_COOKIE, signDevToken } = require('./devLogin');
 
 const SECRET = 'test-session-secret';
 const ADMIN_PASSWORD = 'test-admin-pw';
 const FRONTEND = path.join(__dirname, '..', '..', 'frontend');
 
-/** A signed listen_auth cookie for users.id `userId` (same format as userAuth.createToken). */
+/**
+ * A dev sign-in cookie (`la_dev_login`, devLogin.js) for users.id `userId`.
+ * startServer() turns the dev sign-in on unless the test configures central
+ * login, so this is the login of every server a test starts without OIDC_*.
+ */
 function cookieFor(userId, t = Date.now(), secret = SECRET) {
-  const payload = Buffer.from(JSON.stringify({ id: userId, t })).toString('base64url');
-  const sig = crypto.createHmac('sha256', secret).update(payload).digest('base64url');
-  return `listen_auth=${payload}.${sig}`;
+  return `${DEV_COOKIE}=${signDevToken(secret, userId, t)}`;
 }
 
 /** A valid la_admin cookie for ADMIN_PASSWORD. */
@@ -36,7 +39,7 @@ function freePort() {
 }
 
 /**
- * Central-login mode's counterpart of cookieFor: a server-side session for
+ * The central login's counterpart of cookieFor: a server-side session for
  * users.id `userId`, inserted straight into `user_sessions` (no IdP round
  * trip; no refresh token, so it is never re-checked and lasts until
  * OIDC_MAX_UNVERIFIED_SECONDS, 24 h by default). `pg` is a connected pg Client
@@ -66,6 +69,8 @@ async function centralSessionCookie(pg, userId, { sub = `dev-${userId}`, now = D
 /**
  * Start src/index.js; resolves once it listens. DATABASE_URL only if given.
  * `extraEnv` may be a function of the port (for BASE_URL in central-login tests).
+ * The dev sign-in (INSECURE_DEV_LOGIN, cookieFor) is on unless `extraEnv` sets
+ * OIDC_ISSUER or OIDC_CLIENT_ID: the server allows one or the other.
  */
 async function startServer(extraEnvOrFn = {}) {
   const port = await freePort();
@@ -73,7 +78,8 @@ async function startServer(extraEnvOrFn = {}) {
   const env = {
     ...process.env, PORT: String(port), SESSION_SECRET: SECRET, NODE_ENV: 'test', ADMIN_PASSWORD,
     PRESENCE_GRACE_MS: '0', FRONTEND_PATH: FRONTEND,
-    COVERS_DIR: path.join(os.tmpdir(), 'la-test-covers'), ...extraEnv,
+    COVERS_DIR: path.join(os.tmpdir(), 'la-test-covers'),
+    INSECURE_DEV_LOGIN: extraEnv.OIDC_ISSUER || extraEnv.OIDC_CLIENT_ID ? '' : '1', ...extraEnv,
   };
   if (!extraEnv.DATABASE_URL) delete env.DATABASE_URL;
   const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], { env, stdio: ['ignore', 'pipe', 'pipe'] });

@@ -34,7 +34,8 @@ const playlistPins = require('./playlistPins');
 const spotify = require('./spotify');
 const { createAppRelease } = require('./appRelease');
 const { createCliRelease, createCliRouter } = require('./cliRelease');
-const { createUserAuth, policyFor, parseCookie, isBlocked, COOKIE_NAME: AUTH_COOKIE, MAX_AGE_MS: AUTH_MAX_AGE_MS } = require('./userAuth');
+const { createUserAuth, policyFor, parseCookie, isBlocked } = require('./userAuth');
+const { readDevLogin, signDevToken, DEV_COOKIE, MAX_AGE_MS: DEV_LOGIN_MAX_AGE_MS } = require('./devLogin');
 const chat = require('./chat');
 const { createPresence } = require('./presence');
 const { createSocial } = require('./social');
@@ -90,19 +91,22 @@ function rateLimit(req, res, next) {
 }
 
 
-// OAuth configuration
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
-const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
-const BASE_URL = process.env.BASE_URL || FRONTEND_URL;
 
-// Central login (OIDC, see oidcConfig.js): when OIDC_ISSUER + OIDC_CLIENT_ID
-// are set it REPLACES Google / GitHub sign-in; unset, nothing below changes.
-// A half or broken configuration stops the server here, on purpose.
+// Sign-in, fixed at boot. Central login (OIDC, see oidcConfig.js) is the only
+// one in production and is required there. Local development and the tests may
+// use the dev sign-in instead (INSECURE_DEV_LOGIN=1, devLogin.js), which is
+// refused unless NODE_ENV is development or test. A missing, half or broken
+// configuration, or no sign-in at all, stops the server here, on purpose.
 let OIDC;
+let DEV_LOGIN;
 let REGISTRATIONS_DEFAULT_OPEN;
+try {
+  DEV_LOGIN = readDevLogin(process.env);
+} catch (err) {
+  console.error(`[auth] ${err.message}`);
+  process.exit(1);
+}
 try {
   OIDC = readOidcConfig(process.env);
   // Registrations before an admin has saved the switch (settings.js).
@@ -111,6 +115,12 @@ try {
   console.error(`[oidc] ${err.message}`);
   process.exit(1);
 }
+if (!OIDC.enabled && !DEV_LOGIN) {
+  console.error('[auth] no sign-in configured: set OIDC_ISSUER, OIDC_CLIENT_ID, BASE_URL (or FRONTEND_URL) and SESSION_SECRET (central login, CENTRAL-LOGIN.md), or for local development only INSECURE_DEV_LOGIN=1 with NODE_ENV=development');
+  process.exit(1);
+}
+if (DEV_LOGIN) console.warn('[auth] INSECURE_DEV_LOGIN is on: anyone can sign in as anyone at /auth/dev/login. Development and tests only.');
+
 // DATABASE_URL set but no pool = an outage: central login then fails closed
 // (no in-memory users or sessions; those are for the no-database dev mode).
 const DB_EXPECTED = !!(process.env.DATABASE_URL && process.env.DATABASE_URL.trim());
@@ -127,39 +137,14 @@ const oidcSessions = OIDC.enabled ? createOidcSessions({
   onEnded: (idHash) => io.in(sessionRoom(idHash)).disconnectSockets(true),
 }) : null;
 
-// Who is calling: the signed listen_auth cookie (legacy) or the la_session
-// server-side session (central login) + the account's status
+// Who is calling: the la_session server-side session (central login) or the
+// signed la_dev_login cookie (dev sign-in) + the account's status
 // (approved / pending / denied). See userAuth.js for the levels.
-const userAuth = createUserAuth({ secret: SESSION_SECRET, db, sessions: oidcSessions });
+const userAuth = createUserAuth({ secret: SESSION_SECRET, db, sessions: oidcSessions, devLogin: DEV_LOGIN });
 
-// OAuth CSRF state for account linking. Signed under its own label: the
-// payload has the same shape as a login token, and the state travels in URLs
-// (provider redirect, our request log), so it must never verify as a
-// listen_auth cookie.
-const OAUTH_STATE_LABEL = 'listen-along-oauth-link-state-v1.';
-const signOAuthState = (payload) => crypto.createHmac('sha256', SESSION_SECRET).update(OAUTH_STATE_LABEL + payload).digest('base64url');
-
-function createOAuthState(userId) {
-  const payload = Buffer.from(JSON.stringify({ id: userId, t: Date.now(), p: 'link' })).toString('base64url');
-  return `${payload}.${signOAuthState(payload)}`;
-}
-
-function verifyOAuthState(state) {
-  if (!state || typeof state !== 'string' || !state.includes('.')) return null;
-  const [payload, sig] = state.split('.');
-  const expected = signOAuthState(payload);
-  if (!sig || sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
-    return null;
-  }
-  try {
-    const data = JSON.parse(Buffer.from(payload, 'base64url').toString());
-    // Expire after 10 minutes
-    if (data.p !== 'link' || !data.id || !data.t || Date.now() - data.t > 10 * 60 * 1000) return null;
-    return data.id;
-  } catch {
-    return null;
-  }
-}
+// The old Google / GitHub login cookie. It is no login any more; sign-in and
+// logout only delete it from browsers that still carry one.
+const LEGACY_LOGIN_COOKIE = 'listen_auth';
 
 const app = express();
 const server = http.createServer(app);
@@ -242,8 +227,12 @@ function loginRedirectUrl(req) {
   return isSafeNextPath(next) && next !== '/' ? `/login?next=${encodeURIComponent(next)}` : '/login';
 }
 
+// Google / GitHub sign-in and account linking were removed (central login
+// replaced them): their old addresses answer 404, not a login redirect.
+app.use(['/auth/google', '/auth/github'], (req, res) => res.status(404).json({ error: 'Not found' }));
+
 // Auth guard: deny by default. policyFor() (userAuth.js) classifies the path:
-//   public    no check (health, login/OAuth, static pages, shared YouTube page)
+//   public    no check (health, login round trips, static pages, shared YouTube page)
 //   self      the route has its own middleware (CLI Bearer token, admin
 //             cookie, or token-or-admin-or-approved-user)
 //   member    API a pending user may use too (own profile)
@@ -656,7 +645,7 @@ function evictNonOwners(lobbyId, ownerId) {
 // answering 401. A Bearer token (CLI) was verified by the auth guard
 // (req.apiUser): it acts as the token's owner, or — for a legacy ownerless
 // token — as an ownerless member (playlistAccess viewer rules). Otherwise the
-// signed-in web user (listen_auth cookie, or the central-login session; the
+// signed-in web user (the central-login session, or the dev sign-in; the
 // guard already required an approved account).
 async function requireViewer(req, res) {
   if (req.apiUser) {
@@ -1071,167 +1060,15 @@ app.get('/api/covers/:id', (req, res) => {
 });
 
 
-// ==========================================
-// OAuth Authentication
-// ==========================================
-
-// Helper: upsert user from OAuth profile
-async function upsertOAuthUser(provider, profile) {
-  if (!db.isAvailable()) return null;
-  const now = Date.now();
-
-  // Check if this provider account is already linked via user_providers
-  const linkedProvider = await db.query(
-    'SELECT user_id FROM user_providers WHERE provider = $1 AND provider_id = $2',
-    [provider, profile.id]
-  );
-  if (linkedProvider.rows.length > 0) {
-    // User exists via junction table — update their info and return
-    const userId = linkedProvider.rows[0].user_id;
-    await db.query(
-      'UPDATE user_providers SET email = $1, name = $2, avatar_url = $3, linked_at = $4 WHERE provider = $5 AND provider_id = $6',
-      [profile.email, profile.name, profile.avatar, now, provider, profile.id]
-    );
-    await db.query(
-      'UPDATE users SET avatar_url = COALESCE(avatar_url, $1), updated_at = $2 WHERE id = $3',
-      [profile.avatar, now, userId]
-    );
-    const user = await db.query('SELECT * FROM users WHERE id = $1', [userId]);
-    return user.rows[0] || null;
-  }
-
-  // Check legacy users table for existing user
-  const existing = await db.query(
-    'SELECT * FROM users WHERE provider = $1 AND provider_id = $2',
-    [provider, profile.id]
-  );
-  if (existing.rows.length > 0) {
-    // Update name/avatar/email on each login
-    await db.query(
-      'UPDATE users SET name = $1, avatar_url = $2, email = $3, updated_at = $4 WHERE id = $5',
-      [profile.name, profile.avatar, profile.email, now, existing.rows[0].id]
-    );
-    // Ensure provider is in junction table
-    await db.query(
-      `INSERT INTO user_providers (user_id, provider, provider_id, email, name, avatar_url, linked_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (provider, provider_id) DO NOTHING`,
-      [existing.rows[0].id, provider, profile.id, profile.email, profile.name, profile.avatar, now]
-    );
-    // Re-fetch to return updated data
-    const updated = await db.query('SELECT * FROM users WHERE id = $1', [existing.rows[0].id]);
-    return updated.rows[0] || null;
-  }
-
-  // Check if another user exists with the same email — link accounts. Only
-  // for an address the provider says is verified: otherwise anyone could sign
-  // up at the provider with someone else's address and take over their
-  // account here.
-  if (profile.email && profile.emailVerified === true) {
-    const emailMatch = await db.query(
-      'SELECT * FROM users WHERE email = $1 AND provider != $2 LIMIT 1',
-      [profile.email, provider]
-    );
-    if (emailMatch.rows.length > 0) {
-      const existingUser = emailMatch.rows[0];
-      // Link this provider to the existing user
-      await db.query(
-        `INSERT INTO user_providers (user_id, provider, provider_id, email, name, avatar_url, linked_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (provider, provider_id) DO NOTHING`,
-        [existingUser.id, provider, profile.id, profile.email, profile.name, profile.avatar, now]
-      );
-      await db.query(
-        'UPDATE users SET updated_at = $1 WHERE id = $2',
-        [now, existingUser.id]
-      );
-      // Re-fetch to return updated data
-      const refreshed = await db.query('SELECT * FROM users WHERE id = $1', [existingUser.id]);
-      return refreshed.rows[0] || null;
-    }
-  }
-
-  // Create new user
-  const status = 'approved';
-  const result = await db.query(
-    `INSERT INTO users (provider, provider_id, email, name, avatar_url, status, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $7) RETURNING *`,
-    [provider, profile.id, profile.email, profile.name, profile.avatar, status, now]
-  );
-  const newUser = result.rows[0];
-
-  // Also add to user_providers junction table
-  await db.query(
-    `INSERT INTO user_providers (user_id, provider, provider_id, email, name, avatar_url, linked_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     ON CONFLICT (provider, provider_id) DO NOTHING`,
-    [newUser.id, provider, profile.id, profile.email, profile.name, profile.avatar, now]
-  );
-
-  return newUser;
-}
-
-// Post-login destination: the SPA sends the page the user asked for as
-// /auth/<provider>?next=<path>; it rides through the OAuth round trip in a
-// short-lived cookie. Only same-origin relative paths are accepted.
-const NEXT_COOKIE = 'listen_next';
+// Post-login destination (?next): only same-origin relative paths.
 function isSafeNextPath(next) {
   return typeof next === 'string' && /^\/(?![\/\\])[^\\\s\x00-\x1f]*$/.test(next);
-}
-function rememberNextPath(req, res) {
-  if (isSafeNextPath(req.query.next) && req.query.next !== '/') {
-    res.cookie(NEXT_COOKIE, req.query.next, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 10 * 60 * 1000, path: '/' });
-  } else {
-    res.clearCookie(NEXT_COOKIE, { path: '/' });
-  }
-}
-function takeNextPath(req, res) {
-  const raw = parseCookie(req.headers.cookie, NEXT_COOKIE);
-  if (!raw) return '/';
-  res.clearCookie(NEXT_COOKIE, { path: '/' });
-  let next;
-  try { next = decodeURIComponent(raw); } catch { return '/'; }
-  return isSafeNextPath(next) ? next : '/';
-}
-
-// The GitHub account's email and whether GitHub has verified it: the public
-// profile email if it is in the verified list, else the primary address.
-async function githubEmail(accessToken, publicEmail) {
-  let emails = [];
-  try {
-    const emailsRes = await fetch('https://api.github.com/user/emails', {
-      headers: { Authorization: `Bearer ${accessToken}`, 'User-Agent': 'listen-along' }
-    });
-    const list = await emailsRes.json();
-    if (Array.isArray(list)) emails = list;
-  } catch {}
-  const find = (pred) => emails.find(e => e && typeof e.email === 'string' && pred(e));
-  if (publicEmail) {
-    const listed = find(e => e.email.toLowerCase() === String(publicEmail).toLowerCase());
-    return { email: publicEmail, verified: !!(listed && listed.verified === true) };
-  }
-  const primary = find(e => e.primary);
-  return { email: primary ? primary.email : null, verified: !!(primary && primary.verified === true) };
-}
-
-// Set auth cookie and redirect (back to the page that asked for the login)
-function setAuthCookieAndRedirect(req, res, user) {
-  const token = userAuth.createToken(String(user.id));
-  res.cookie(AUTH_COOKIE, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: AUTH_MAX_AGE_MS, // 30 days; the token itself expires with it
-    path: '/'
-  });
-  res.redirect(takeNextPath(req, res));
 }
 
 // ==========================================
 // Central login (OIDC): oidc.js, oidcSessions.js, oidcLink.js
 // ==========================================
-// Only while OIDC_ISSUER + OIDC_CLIENT_ID are set. Then the Google / GitHub
-// login and link routes below are gone (404): no mixed mode.
+// Only while OIDC_ISSUER + OIDC_CLIENT_ID are set (always in production).
 
 const secureCookies = process.env.NODE_ENV === 'production';
 // Where a failed or refused sign-in lands: the login page, with a code its
@@ -1242,8 +1079,6 @@ const loginError = (code) => `/login?error=${code}`;
 const centralCookie = (extra = {}) => ({ httpOnly: true, secure: secureCookies, sameSite: 'lax', path: '/', ...extra });
 
 if (OIDC.enabled) {
-  app.use(['/auth/google', '/auth/github'], (req, res) => res.status(404).json({ error: 'Not found' }));
-
   // Sign-in round trips per client address (the project's limiter, rateLimits.js).
   const authLimit = Number.parseInt(process.env.AUTH_RATE_LIMIT, 10);
   const oidcLimiter = makeLimiter(Number.isFinite(authLimit) && authLimit > 0 ? authLimit : 30, 60 * 1000, { message: 'Too many sign-in attempts, try again in a minute' });
@@ -1272,9 +1107,9 @@ if (OIDC.enabled) {
     const flow = oidcClient.openFlow(parseCookie(req.headers.cookie, OIDC.flowCookie));
     // The flow cookie is single-use, whatever happens next.
     res.clearCookie(OIDC.flowCookie, centralCookie({ path: OIDC_FLOW_PATH }));
-    // An old login cookie is no login in this mode and plays no part in
+    // An old Google / GitHub login cookie is no login and plays no part in
     // linking: it is just cleared.
-    if (parseCookie(req.headers.cookie, AUTH_COOKIE)) res.clearCookie(AUTH_COOKIE, { path: '/' });
+    if (parseCookie(req.headers.cookie, LEGACY_LOGIN_COOKIE)) res.clearCookie(LEGACY_LOGIN_COOKIE, { path: '/' });
 
     const qs = req.originalUrl.indexOf('?');
     let result;
@@ -1344,7 +1179,6 @@ if (OIDC.enabled) {
       });
       userAuth.invalidate(String(linked.user.id));
       res.cookie(OIDC.sessionCookie, s.rawId, centralCookie({ maxAge: s.maxAgeMs }));
-      res.clearCookie(NEXT_COOKIE, { path: '/' });
       res.redirect(isSafeNextPath(flow.next) ? flow.next : '/');
     } catch (err) {
       console.error(`[oidc] could not open a session: ${err.message}`);
@@ -1353,120 +1187,53 @@ if (OIDC.enabled) {
   });
 }
 
-// Google OAuth
-app.get('/auth/google', (req, res) => {
-  if (!GOOGLE_CLIENT_ID) {
-    return res.status(503).json({ error: 'Google OAuth not configured' });
-  }
-  rememberNextPath(req, res);
-  const params = new URLSearchParams({
-    client_id: GOOGLE_CLIENT_ID,
-    redirect_uri: `${BASE_URL}/auth/google/callback`,
-    response_type: 'code',
-    scope: 'openid email profile',
-    access_type: 'offline',
-    prompt: 'select_account'
-  });
-  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
-});
-
-app.get('/auth/google/callback', async (req, res) => {
-  const { code } = req.query;
-  if (!code) return res.redirect('/?error=no_code');
-  try {
-    // Exchange code for tokens
-    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        code,
-        client_id: GOOGLE_CLIENT_ID,
-        client_secret: GOOGLE_CLIENT_SECRET,
-        redirect_uri: `${BASE_URL}/auth/google/callback`,
-        grant_type: 'authorization_code'
-      })
-    });
-    const tokens = await tokenRes.json();
-    if (!tokens.access_token) return res.redirect('/?error=token_failed');
-    // Get user info
-    const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-      headers: { Authorization: `Bearer ${tokens.access_token}` }
-    });
-    const profile = await userRes.json();
-    const user = await upsertOAuthUser('google', {
-      id: profile.id,
-      email: profile.email,
-      emailVerified: profile.verified_email === true,
-      name: profile.name,
-      avatar: profile.picture
-    });
-    if (!user) return res.redirect('/?error=db_unavailable');
-    setAuthCookieAndRedirect(req, res, user);
-  } catch (err) {
-    console.error('Google OAuth error:', err.message);
-    res.redirect('/?error=oauth_failed');
-  }
-});
-
-// GitHub OAuth
-app.get('/auth/github', (req, res) => {
-  if (!GITHUB_CLIENT_ID) {
-    return res.status(503).json({ error: 'GitHub OAuth not configured' });
-  }
-  rememberNextPath(req, res);
-  const params = new URLSearchParams({
-    client_id: GITHUB_CLIENT_ID,
-    redirect_uri: `${BASE_URL}/auth/github/callback`,
-    scope: 'read:user user:email'
-  });
-  res.redirect(`https://github.com/login/oauth/authorize?${params}`);
-});
-
-app.get('/auth/github/callback', async (req, res) => {
-  const { code } = req.query;
-  if (!code) return res.redirect('/?error=no_code');
-  try {
-    // Exchange code for token
-    const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json'
-      },
-      body: JSON.stringify({
-        client_id: GITHUB_CLIENT_ID,
-        client_secret: GITHUB_CLIENT_SECRET,
-        code,
-        redirect_uri: `${BASE_URL}/auth/github/callback`
-      })
-    });
-    const tokens = await tokenRes.json();
-    if (!tokens.access_token) return res.redirect('/?error=token_failed');
-    // Get user info
-    const userRes = await fetch('https://api.github.com/user', {
-      headers: {
-        Authorization: `Bearer ${tokens.access_token}`,
-        'User-Agent': 'listen-along'
+// ==========================================
+// Dev sign-in (devLogin.js): INSECURE_DEV_LOGIN=1, development and tests only
+// ==========================================
+// The process refuses to start with it in production (readDevLogin above), so
+// this route never exists there. /auth/dev/login?user=<users.id>&next=<path>
+// signs that user in; without ?user, a "Dev User" account (provider 'dev',
+// created once) or, without a database, the id 'dev'.
+if (DEV_LOGIN) {
+  app.get('/auth/dev/login', async (req, res) => {
+    const next = isSafeNextPath(req.query.next) ? req.query.next : '/';
+    const asked = typeof req.query.user === 'string' ? req.query.user.trim().slice(0, 100) : '';
+    let userId;
+    try {
+      if (!db.isAvailable()) {
+        if (DB_EXPECTED) return res.status(503).type('text/plain').send('DATABASE_URL is set but the database is unavailable');
+        userId = asked || 'dev';
+      } else if (asked) {
+        const r = await db.query('SELECT id FROM users WHERE id::text = $1', [asked]);
+        if (!r.rows[0]) return res.status(404).type('text/plain').send('No user with that id');
+        userId = r.rows[0].id;
+      } else {
+        const find = () => db.query(`SELECT id FROM users WHERE provider = 'dev' AND provider_id = 'dev'`);
+        let r = await find();
+        if (!r.rows[0]) {
+          await db.query(
+            `INSERT INTO users (provider, provider_id, name, status, created_at, updated_at)
+             VALUES ('dev', 'dev', 'Dev User', 'approved', $1, $1) ON CONFLICT DO NOTHING`,
+            [Date.now()]
+          );
+          r = await find();
+        }
+        userId = r.rows[0].id;
       }
+    } catch (err) {
+      console.error('[auth] dev sign-in failed:', err.message);
+      return res.status(500).type('text/plain').send('Dev sign-in failed');
+    }
+    userAuth.invalidate(String(userId));
+    res.cookie(DEV_COOKIE, signDevToken(SESSION_SECRET, String(userId)), {
+      httpOnly: true, secure: false, sameSite: 'lax', path: '/', maxAge: DEV_LOGIN_MAX_AGE_MS,
     });
-    const profile = await userRes.json();
-    const { email, verified } = await githubEmail(tokens.access_token, profile.email);
-    const user = await upsertOAuthUser('github', {
-      id: String(profile.id),
-      email,
-      emailVerified: verified,
-      name: profile.name || profile.login,
-      avatar: profile.avatar_url
-    });
-    if (!user) return res.redirect('/?error=db_unavailable');
-    setAuthCookieAndRedirect(req, res, user);
-  } catch (err) {
-    console.error('GitHub OAuth error:', err.message);
-    res.redirect('/?error=oauth_failed');
-  }
-});
+    res.set('Cache-Control', 'no-store');
+    res.redirect(next);
+  });
+}
 
-// Auth status endpoint
+// Auth status endpoint// Auth status endpoint
 app.get('/api/auth/me', async (req, res) => {
   let userId;
   try { userId = await getAuthUserId(req); } catch (err) {
@@ -1504,11 +1271,13 @@ app.get('/api/auth/me', async (req, res) => {
 // Logout endpoint. Central login: the server-side session goes first (its
 // sockets too), then the answer names the IdP's end-session URL (with
 // id_token_hint and the registered post-logout redirect "/") for the browser
-// to visit; without one the page just reloads.
+// to visit; without one the page just reloads. Dev sign-in: the cookie goes.
 app.post('/api/auth/logout', async (req, res) => {
-  res.clearCookie(AUTH_COOKIE, { path: '/' });
-  res.clearCookie(NEXT_COOKIE, { path: '/' });
-  if (!OIDC.enabled) return res.json({ success: true });
+  res.clearCookie(LEGACY_LOGIN_COOKIE, { path: '/' });
+  if (DEV_LOGIN) {
+    res.clearCookie(DEV_COOKIE, { path: '/' });
+    return res.json({ success: true });
+  }
   res.clearCookie(OIDC.sessionCookie, centralCookie());
   let idToken = null;
   try {
@@ -1577,8 +1346,8 @@ async function accountStatusChanged(userId, status) {
   }
 }
 
-// The caller's users.id: the signed listen_auth cookie (legacy) or the
-// central-login session; null when nobody is signed in. Only proves who it
+// The caller's users.id: the central-login session or the dev sign-in
+// cookie; null when nobody is signed in. Only proves who it
 // is; the guard / userAuth.getAccount check the status.
 function getAuthUserId(req) {
   return userAuth.userIdFor(req);
@@ -1759,7 +1528,7 @@ async function handleLibrarySongAdded(librarySong, fulfilled = []) {
 // Profile API
 // ==========================================
 
-// Get current user's profile with linked providers
+// Get current user's profile
 app.get('/api/profile', async (req, res) => {
   const userId = await getAuthUserId(req);
   if (!userId || !db.isAvailable()) {
@@ -1774,26 +1543,12 @@ app.get('/api/profile', async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
     const user = userResult.rows[0];
-
-    // Get linked providers
-    const providersResult = await db.query(
-      'SELECT provider, provider_id, email, name, avatar_url, linked_at FROM user_providers WHERE user_id = $1 ORDER BY linked_at ASC',
-      [userId]
-    );
-
     res.json({
       id: user.id,
       displayName: user.display_name || user.username || user.name || 'User',
       emoji: user.emoji,
       email: user.email,
-      avatarUrl: user.avatar_url,
-      providers: providersResult.rows.map(p => ({
-        provider: p.provider,
-        email: p.email,
-        name: p.name,
-        avatarUrl: p.avatar_url,
-        linkedAt: p.linked_at
-      }))
+      avatarUrl: user.avatar_url
     });
   } catch (err) {
     console.error('Profile fetch error:', err.message);
@@ -1827,192 +1582,6 @@ app.put('/api/profile', express.json(), async (req, res) => {
     res.status(500).json({ error: 'Failed to update profile' });
   }
 });
-
-// Unlink a provider from account
-app.delete('/api/profile/providers/:provider', async (req, res) => {
-  // Linked Google / GitHub accounts are what central login matches on; with
-  // central login on there is no linking UI and nothing to disconnect.
-  if (OIDC.enabled) return res.status(404).json({ error: 'Not found' });
-  const userId = await getAuthUserId(req);
-  if (!userId || !db.isAvailable()) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
-  const provider = req.params.provider;
-  try {
-    // Ensure user has at least one other provider (can't unlink the last one)
-    const countResult = await db.query(
-      'SELECT COUNT(*) as count FROM user_providers WHERE user_id = $1',
-      [userId]
-    );
-    if (parseInt(countResult.rows[0].count) <= 1) {
-      return res.status(400).json({ error: 'Cannot unlink the only connected account' });
-    }
-
-    await db.query(
-      'DELETE FROM user_providers WHERE user_id = $1 AND provider = $2',
-      [userId, provider]
-    );
-
-    // If the unlinked provider was the primary on users table, update to another linked provider
-    const user = await db.query('SELECT provider FROM users WHERE id = $1', [userId]);
-    if (user.rows[0] && user.rows[0].provider === provider) {
-      const remaining = await db.query(
-        'SELECT provider, provider_id, email, name, avatar_url FROM user_providers WHERE user_id = $1 LIMIT 1',
-        [userId]
-      );
-      if (remaining.rows.length > 0) {
-        const p = remaining.rows[0];
-        await db.query(
-          'UPDATE users SET provider = $1, provider_id = $2, email = COALESCE($3, email), updated_at = $4 WHERE id = $5',
-          [p.provider, p.provider_id, p.email, Date.now(), userId]
-        );
-      }
-    }
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Provider unlink error:', err.message);
-    res.status(500).json({ error: 'Failed to unlink provider' });
-  }
-});
-
-// OAuth linking routes — when user is already logged in and wants to connect another provider
-app.get('/auth/google/link', async (req, res) => {
-  if (!GOOGLE_CLIENT_ID) {
-    return res.status(503).json({ error: 'Google OAuth not configured' });
-  }
-  const userId = await getAuthUserId(req);
-  if (!userId) return res.redirect('/');
-  const params = new URLSearchParams({
-    client_id: GOOGLE_CLIENT_ID,
-    redirect_uri: `${BASE_URL}/auth/google/link/callback`,
-    response_type: 'code',
-    scope: 'openid email profile',
-    access_type: 'offline',
-    prompt: 'select_account',
-    state: createOAuthState(userId)
-  });
-  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
-});
-
-app.get('/auth/google/link/callback', async (req, res) => {
-  const { code, state } = req.query;
-  if (!code || !state) return res.redirect('/?error=link_failed');
-  const userId = verifyOAuthState(state);
-  if (!userId) return res.redirect('/?error=link_failed');
-  // Verify the user making the request is the one who started the link
-  const authUserId = await getAuthUserId(req);
-  if (!authUserId || authUserId !== userId) return res.redirect('/?error=link_failed');
-  try {
-    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        code,
-        client_id: GOOGLE_CLIENT_ID,
-        client_secret: GOOGLE_CLIENT_SECRET,
-        redirect_uri: `${BASE_URL}/auth/google/link/callback`,
-        grant_type: 'authorization_code'
-      })
-    });
-    const tokens = await tokenRes.json();
-    if (!tokens.access_token) return res.redirect('/?error=link_token_failed');
-    const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-      headers: { Authorization: `Bearer ${tokens.access_token}` }
-    });
-    const profile = await userRes.json();
-    await linkProviderToUser(userId, 'google', {
-      id: profile.id, email: profile.email, name: profile.name, avatar: profile.picture
-    });
-    res.redirect('/profile');
-  } catch (err) {
-    console.error('Google link error:', err.message);
-    res.redirect('/?error=link_failed');
-  }
-});
-
-app.get('/auth/github/link', async (req, res) => {
-  if (!GITHUB_CLIENT_ID) {
-    return res.status(503).json({ error: 'GitHub OAuth not configured' });
-  }
-  const userId = await getAuthUserId(req);
-  if (!userId) return res.redirect('/');
-  const params = new URLSearchParams({
-    client_id: GITHUB_CLIENT_ID,
-    redirect_uri: `${BASE_URL}/auth/github/link/callback`,
-    scope: 'read:user user:email',
-    state: createOAuthState(userId)
-  });
-  res.redirect(`https://github.com/login/oauth/authorize?${params}`);
-});
-
-app.get('/auth/github/link/callback', async (req, res) => {
-  const { code, state } = req.query;
-  if (!code || !state) return res.redirect('/?error=link_failed');
-  const userId = verifyOAuthState(state);
-  if (!userId) return res.redirect('/?error=link_failed');
-  const authUserId = await getAuthUserId(req);
-  if (!authUserId || authUserId !== userId) return res.redirect('/?error=link_failed');
-  try {
-    const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({
-        client_id: GITHUB_CLIENT_ID,
-        client_secret: GITHUB_CLIENT_SECRET,
-        code,
-        redirect_uri: `${BASE_URL}/auth/github/link/callback`
-      })
-    });
-    const tokens = await tokenRes.json();
-    if (!tokens.access_token) return res.redirect('/?error=link_token_failed');
-    const userRes = await fetch('https://api.github.com/user', {
-      headers: { Authorization: `Bearer ${tokens.access_token}`, 'User-Agent': 'listen-along' }
-    });
-    const profile = await userRes.json();
-    let email = profile.email;
-    if (!email) {
-      const emailsRes = await fetch('https://api.github.com/user/emails', {
-        headers: { Authorization: `Bearer ${tokens.access_token}`, 'User-Agent': 'listen-along' }
-      });
-      const emails = await emailsRes.json();
-      const primary = Array.isArray(emails) && emails.find(e => e.primary);
-      email = primary ? primary.email : null;
-    }
-    await linkProviderToUser(userId, 'github', {
-      id: String(profile.id), email, name: profile.name || profile.login, avatar: profile.avatar_url
-    });
-    res.redirect('/profile');
-  } catch (err) {
-    console.error('GitHub link error:', err.message);
-    res.redirect('/?error=link_failed');
-  }
-});
-
-// Link a provider to an existing user account
-async function linkProviderToUser(userId, provider, profile) {
-  if (!db.isAvailable()) return;
-  const now = Date.now();
-  // Check if this provider account is already linked to another user
-  const existing = await db.query(
-    'SELECT user_id FROM user_providers WHERE provider = $1 AND provider_id = $2',
-    [provider, profile.id]
-  );
-  if (existing.rows.length > 0) {
-    if (existing.rows[0].user_id === userId) return; // Already linked to this user
-    // Remove from the other user — the current user is claiming this provider
-    await db.query(
-      'DELETE FROM user_providers WHERE provider = $1 AND provider_id = $2',
-      [provider, profile.id]
-    );
-  }
-  await db.query(
-    `INSERT INTO user_providers (user_id, provider, provider_id, email, name, avatar_url, linked_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     ON CONFLICT (provider, provider_id) DO UPDATE SET user_id = $1, email = $4, name = $5, avatar_url = $6, linked_at = $7`,
-    [userId, provider, profile.id, profile.email, profile.name, profile.avatar, now]
-  );
-}
 
 // Dashboard stats endpoint
 app.get('/api/dashboard/stats', adminAuth.requireAdmin, async (req, res) => {
@@ -2218,8 +1787,8 @@ app.get('/dashboard', apiLimiter, (req, res) => {
 });
 
 // Login page (the SPA's login view). Someone already logged in goes on to
-// ?next (a same-origin path) or home. After the OAuth round trip the server
-// redirects to the remembered ?next itself (see rememberNextPath).
+// ?next (a same-origin path) or home. The sign-in round trips carry ?next
+// themselves (the central login in its flow cookie).
 app.get('/login', async (req, res) => {
   let account = null;
   try { ({ account } = await userAuth.identify(req)); } catch {}
@@ -2230,14 +1799,11 @@ app.get('/login', async (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
-// Auth providers info (which providers are configured)
+// Which sign-in the login page offers (its one "Sign in" button): the central
+// login, or the dev sign-in (development and tests only). Older pages read
+// `google` / `github` too; missing is false to them.
 app.get('/api/auth/providers', (req, res) => {
-  // Central login replaces both providers: one "Sign in" button.
-  if (OIDC.enabled) return res.json({ google: false, github: false, central: true });
-  res.json({
-    google: !!GOOGLE_CLIENT_ID,
-    github: !!GITHUB_CLIENT_ID
-  });
+  res.json({ central: OIDC.enabled, dev: DEV_LOGIN });
 });
 
 // Serve index for root
@@ -2285,8 +1851,8 @@ function socketOriginAllowed(headers) {
 // Socket.IO handshake: only a logged-in account that is not denied / rejected may
 // connect. Pending accounts connect for the global chat and people panel;
 // every playlist/queue event checks for an approved account itself.
-// Who the handshake is comes from userAuth.resolve(): the listen_auth cookie
-// (legacy) or the central-login session (la_session), the same as for HTTP.
+// Who the handshake is comes from userAuth.resolve(): the central-login
+// session (la_session) or the dev sign-in cookie, the same as for HTTP.
 // A central-login socket also joins its session's room, so ending that
 // session (logout, a failed re-check, a ban) cuts it.
 io.use((socket, next) => {
@@ -2340,8 +1906,8 @@ io.on('connection', (socket) => {
   let viewingLobby = null;
 
   // Who this socket is: the users.id from the handshake's login cookie
-  // (listen_auth, or the central-login session; set by io.use above; never a
-  // client-supplied id).
+  // (the central-login session, or the dev sign-in; set by io.use above; never
+  // a client-supplied id).
   const userId = socket.data.userId;
 
   // Global chat + people panel (presence, now playing): see social.js.

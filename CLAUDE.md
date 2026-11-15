@@ -352,12 +352,20 @@ where lobby persistence broke entirely on deployed instances.
 
 ## User Identity
 
-- Two sign-in modes, fixed at boot. **Legacy** (no `OIDC_*` set): users are OAuth
-  accounts (Google / GitHub, `users` + `user_providers`); login sets an
-  HMAC-signed `listen_auth` cookie holding `users.id` (30 days, `SESSION_SECRET`).
-  **Central login** (`OIDC_ISSUER` + `OIDC_CLIENT_ID` set; CENTRAL-LOGIN.md):
-  REPLACES Google / GitHub (their login + link routes 404, one "Sign in" button,
-  `/api/auth/providers` says `central`); the owner's authentik over OIDC
+- **Central login is the only sign-in** (CENTRAL-LOGIN.md). The old Google /
+  GitHub login, its account linking and the stateless `listen_auth` cookie were
+  removed; their routes answer 404 (an explicit handler before the guard) and an
+  old `listen_auth` cookie is never read, only cleared at sign-in / logout. The
+  `users` / `user_providers` rows and columns they wrote stay exactly as they
+  are: linking rules b and c read them (never drop or rewrite them). Sign-in is
+  fixed at boot, exactly one of: **central login** (`OIDC_ISSUER` +
+  `OIDC_CLIENT_ID`; required with `NODE_ENV=production`, together with
+  `BASE_URL` (or its fallback `FRONTEND_URL`) and `SESSION_SECRET`, else the
+  boot stops; with `NODE_ENV` unset it is still central login) or the **dev sign-in**
+  (`INSECURE_DEV_LOGIN=1`, `devLogin.js`, below; refused at boot unless
+  `NODE_ENV` is `development` or `test`, and next to `OIDC_*`). Neither = the
+  boot stops. `/api/auth/providers` answers `{ central, dev }`; the login page
+  has one "Sign in" button. Central login: the owner's authentik over OIDC
   (`oidc.js`: code + PKCE S256 + state + nonce, openid-client v6 with
   `enableNonRepudiationChecks`, redirect URI from `BASE_URL`, never the Host
   header; `aud` exactly the client, no foreign `azp`); a server-side session
@@ -368,11 +376,10 @@ where lobby persistence broke entirely on deployed instances.
   with the refresh token every `OIDC_RECHECK_SECONDS` (3 s timeout; only
   `invalid_grant` or an invalid / foreign id_token ends session + sockets; other
   OAuth errors = kept + `CONFIGURATION PROBLEM` log; IdP silent = kept with
-  backoff, ends after `OIDC_MAX_UNVERIFIED_SECONDS`, 24 h). In that mode the old
-  `listen_auth` cookie is NEVER a session (`userIdFromHeaders` answers null) and
-  plays NO part in linking: the callback only clears it (do not add an
-  old-cookie link rule back: it hands accounts to whoever signs in on that
-  browser). Linking (`oidcLink.js`, `users.oidc_sub` unique): a. sub, b.
+  backoff, ends after `OIDC_MAX_UNVERIFIED_SECONDS`, 24 h). The old
+  `listen_auth` cookie is NEVER a session and plays NO part in linking: the
+  callback only clears it (do not add an old-cookie link rule back: it hands
+  accounts to whoever signs in on that browser). Linking (`oidcLink.js`, `users.oidc_sub` unique): a. sub, b.
   `upstream_identities` vs user_providers / users.provider (earliest of several,
   logged; any match already linked to another sub = refused `link_conflict`,
   never a new account), c. `email_verified === true` and exactly one unlinked
@@ -386,10 +393,12 @@ where lobby persistence broke entirely on deployed instances.
   and sessions fail closed (memory only without any database). Accounts created
   by central login have provider `oidc`; the db.js user_providers backfill must
   skip them.
-  Half / broken config stops the boot; an unreachable IdP does not.
+  Half / broken / missing config stops the boot; an unreachable IdP does not.
+  Rollback is redeploying the previous commit (no env switch back to Google /
+  GitHub).
 - `backend/src/userAuth.js` is the one place that turns a request or a socket
   handshake into a user: `resolve(headers)` / `userIdFor(req)` / `identify(req)`
-  (both modes); each socket gets `socket.data.userId` (and, with central login,
+  (`mode` 'central' | 'dev'); each socket gets `socket.data.userId` (and, with central login,
   `socket.data.sessionId` + the `session:<hash>` room). Never trust a user id or
   name sent by the client.
 - `users.status` decides access: `approved` = everything; `pending` = chat /
@@ -416,15 +425,22 @@ where lobby persistence broke entirely on deployed instances.
 - Client IP (rate limits): `clientIp.js` trusts only private / loopback proxy
   hops (Traefik) and believes `CF-Connecting-IP` only from Cloudflare's ranges;
   use `req.clientIp`, not `req.ip`. Overrides: `TRUST_PROXY`, `CLOUDFLARE_IPS`.
-- Local dev / tests: there is no password login. Start the server with a known
-  `SESSION_SECRET` and Postgres, insert a `users` row, and sign a cookie with
-  the same secret, e.g. `node -e "console.log(require('./src/userAuth')
-  .createUserAuth({secret:'dev',db:null}).createToken('<users.id>'))"` → set it
-  as `listen_auth` (see `testServer.js` `cookieFor`). Without a database any
-  validly signed cookie counts as an approved account. That is legacy mode only;
-  with central login use `testServer.js` `centralSessionCookie(DATABASE_URL,
-  '<users.id>')` (inserts a `user_sessions` row, prints `la_session=...`), and
-  `central-login.test.js` drives the real flow against `fakeOidcIssuer.js`.
+- Local dev / tests: there is no password login. Either:
+  **dev sign-in**: `NODE_ENV=development INSECURE_DEV_LOGIN=1 SESSION_SECRET=dev
+  npm run dev` (from `backend/`), then the login page's button, or
+  `/auth/dev/login?user=<users.id>&next=/` (no `?user`: a "Dev User" account
+  with provider `dev`, made once; no database: the id `dev`). It sets the
+  HMAC-signed `la_dev_login` cookie (own label, 30 days); for curl, sign one
+  with `node -e "console.log('la_dev_login=' + require('./src/devLogin')
+  .signDevToken('dev', '<users.id>'))"`. Without a database any validly signed
+  cookie counts as an approved account. Tests: `testServer.js` `cookieFor` is
+  that cookie and `startServer()` turns `INSECURE_DEV_LOGIN` on unless the test
+  sets `OIDC_*` (never add it to a compose file; production refuses it, tested
+  in `auth-guard.test.js`). Or **a fake IdP**: `node src/fakeOidcIssuer.js`
+  (prints the `OIDC_*` / `BASE_URL` to start the app with; plain http, so not
+  with `NODE_ENV=production`); `central-login.test.js` drives the real flow
+  against it, and `testServer.js` `centralSessionCookie(DATABASE_URL,
+  '<users.id>')` inserts a `user_sessions` row (prints `la_session=...`).
 
 ## Testing
 

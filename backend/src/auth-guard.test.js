@@ -1,10 +1,14 @@
 // Server-side authentication / authorization, end to end:
-//   1. userAuth.js unit rules (tokens, levels, the route policy table)
-//   2. the real server without a database: the guard (401 JSON for APIs,
-//      /login?next= for pages), public routes, the ?next flow, the admin
-//      cookie, the cover redirect allowlist, OAuth state vs login cookie, and
-//      the Socket.IO handshake (anonymous / foreign origin refused)
-//   3. the real server on Postgres (testcontainers): approved vs pending vs
+//   1. userAuth.js / devLogin.js unit rules (dev sign-in cookie, levels, the
+//      route policy table)
+//   2. boot: which sign-in may run where (production needs the central login
+//      and refuses the dev sign-in; no sign-in at all refuses to start)
+//   3. the real server without a database (dev sign-in): the guard (401 JSON
+//      for APIs, /login?next= for pages), public routes, the ?next flow, the
+//      admin cookie, the cover redirect allowlist, the removed Google / GitHub
+//      routes and old cookie, and the Socket.IO handshake (anonymous / foreign
+//      origin refused)
+//   4. the real server on Postgres (testcontainers): approved vs pending vs
 //      denied / rejected accounts over HTTP and Socket.IO, CLI Bearer tokens
 //      (/api/me, /api/library, upload) untouched, spoofed names ignored.
 const { describe, it, before, after } = require('node:test');
@@ -17,13 +21,21 @@ const os = require('node:os');
 const path = require('node:path');
 const { io: ioClient } = require('socket.io-client');
 const userAuthMod = require('./userAuth');
+const devLogin = require('./devLogin');
 
 const SECRET = 'auth-guard-test-secret';
 const ADMIN_PASSWORD = 'auth-guard-admin-pw';
 const FRONTEND = path.join(__dirname, '..', '..', 'frontend');
 const ALICE = '00000000-0000-4000-8000-00000000a11c';
 
+// The dev sign-in cookie (devLogin.js); every server here runs with INSECURE_DEV_LOGIN=1.
 function cookieFor(userId, t = Date.now(), secret = SECRET) {
+  return `${devLogin.DEV_COOKIE}=${devLogin.signDevToken(secret, userId, t)}`;
+}
+
+// The removed Google / GitHub login's cookie, exactly as it was signed (same
+// secret): it must never be a login again.
+function legacyCookie(userId, t = Date.now(), secret = SECRET) {
   const payload = Buffer.from(JSON.stringify({ id: userId, t })).toString('base64url');
   const sig = crypto.createHmac('sha256', secret).update(payload).digest('base64url');
   return `listen_auth=${payload}.${sig}`;
@@ -49,7 +61,7 @@ async function startServer(extraEnv = {}) {
   const port = await freePort();
   const env = {
     ...process.env, PORT: String(port), SESSION_SECRET: SECRET, NODE_ENV: 'test', ADMIN_PASSWORD,
-    PRESENCE_GRACE_MS: '0', FRONTEND_PATH: FRONTEND, GOOGLE_CLIENT_ID: 'test-google-client',
+    PRESENCE_GRACE_MS: '0', FRONTEND_PATH: FRONTEND, INSECURE_DEV_LOGIN: '1',
     COVERS_DIR: path.join(os.tmpdir(), 'la-auth-test-covers'), ...extraEnv,
   };
   if (!extraEnv.DATABASE_URL) delete env.DATABASE_URL;
@@ -62,6 +74,20 @@ async function startServer(extraEnv = {}) {
     proc.on('exit', (code) => reject(new Error(`server exited (${code})\n${log}`)));
   });
   return { proc, base: `http://127.0.0.1:${port}` };
+}
+
+/** Spawn the server with exactly `env` (+ PORT); resolves { code, log } once it exits or listens. */
+function boot(env) {
+  return new Promise((resolve) => {
+    const full = { PATH: process.env.PATH, PORT: '0', FRONTEND_PATH: FRONTEND, PRESENCE_GRACE_MS: '0', ...env };
+    const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], { env: full, stdio: ['ignore', 'pipe', 'pipe'] });
+    let log = '';
+    let listening = false;
+    proc.stdout.on('data', (d) => { log += d; if (/Server running on port/.test(log)) { listening = true; proc.kill('SIGKILL'); } });
+    proc.stderr.on('data', (d) => { log += d; });
+    proc.on('exit', (code) => resolve({ code, listening, log }));
+    setTimeout(() => proc.kill('SIGKILL'), 20_000);
+  });
 }
 
 function client(base) {
@@ -108,24 +134,57 @@ const ask = (s, event, arg) => new Promise((resolve) => s.emit(event, arg, resol
 // ---------------------------------------------------------------------------
 
 describe('userAuth rules', () => {
-  const ua = userAuthMod.createUserAuth({ secret: SECRET, db: { isAvailable: () => false } });
+  const noDb = { isAvailable: () => false };
 
-  it('round-trips a token and refuses tampered, foreign-key, future and expired ones', () => {
+  it('dev sign-in token: round-trips; tampered, foreign-key, future and expired ones are refused', () => {
+    const { signDevToken: sign, verifyDevToken: verify, MAX_AGE_MS } = devLogin;
     const now = Date.now();
-    assert.equal(ua.verifyToken(ua.createToken(ALICE, now)).id, ALICE);
-    const good = ua.createToken(ALICE, now);
-    const [payload, sig] = good.split('.');
+    assert.equal(verify(SECRET, sign(SECRET, ALICE, now)).id, ALICE);
+    const [payload, sig] = sign(SECRET, ALICE, now).split('.');
     const forged = Buffer.from(JSON.stringify({ id: 'someone-else', t: now })).toString('base64url');
-    assert.equal(ua.verifyToken(`${forged}.${sig}`), null);
-    assert.equal(ua.verifyToken(`${payload}.${sig.slice(0, -2)}xx`), null);
-    assert.equal(ua.verifyToken(cookieFor(ALICE, now, 'other-secret').split('=')[1]), null);
-    assert.equal(ua.verifyToken(ua.createToken(ALICE, now + 60 * 60 * 1000)), null, 'issued in the future');
-    assert.equal(ua.verifyToken(ua.createToken(ALICE, now - userAuthMod.MAX_AGE_MS - 1000)), null, 'older than 30 days');
-    assert.equal(ua.verifyToken(ua.createToken(ALICE, now - userAuthMod.MAX_AGE_MS + 60_000)).id, ALICE);
-    assert.equal(ua.verifyToken('garbage'), null);
-    assert.equal(ua.verifyToken(''), null);
-    assert.equal(ua.userIdFromHeaders({ cookie: `a=b; ${cookieFor(ALICE)}; c=d` }), ALICE);
-    assert.equal(ua.userIdFromHeaders({}), null);
+    assert.equal(verify(SECRET, `${forged}.${sig}`), null);
+    assert.equal(verify(SECRET, `${payload}.${sig.slice(0, -2)}xx`), null);
+    assert.equal(verify(SECRET, sign('other-secret', ALICE, now)), null);
+    assert.equal(verify(SECRET, legacyCookie(ALICE, now).split('=')[1]), null, 'an old listen_auth token, same secret, is not one');
+    assert.equal(verify(SECRET, sign(SECRET, ALICE, now + 60 * 60 * 1000)), null, 'issued in the future');
+    assert.equal(verify(SECRET, sign(SECRET, ALICE, now - MAX_AGE_MS - 1000)), null, 'older than 30 days');
+    assert.equal(verify(SECRET, sign(SECRET, ALICE, now - MAX_AGE_MS + 60_000)).id, ALICE);
+    assert.equal(verify(SECRET, 'garbage'), null);
+    assert.equal(verify(SECRET, ''), null);
+    assert.equal(verify('', sign(SECRET, ALICE, now)), null);
+  });
+
+  it('dev sign-in: only la_dev_login is read; central login ignores it; one way in at a time', async () => {
+    const dev = userAuthMod.createUserAuth({ secret: SECRET, db: noDb, devLogin: true });
+    assert.equal(dev.mode, 'dev');
+    assert.deepEqual(await dev.resolve({ cookie: `a=b; ${cookieFor(ALICE)}; c=d` }), { userId: ALICE, sessionId: null });
+    assert.equal(await dev.resolve({}), null);
+    assert.equal(await dev.resolve({ cookie: legacyCookie(ALICE) }), null, 'the old listen_auth cookie is no login');
+    const sessions = { resolveHeaders: async (h) => (h.cookie === 'la_session=ok' ? { userId: 'u1', idHash: 'h1' } : null) };
+    const central = userAuthMod.createUserAuth({ secret: SECRET, db: noDb, sessions });
+    assert.equal(central.mode, 'central');
+    assert.equal(await central.resolve({ cookie: cookieFor(ALICE) }), null, 'a dev cookie is no login with central login');
+    assert.equal(await central.resolve({ cookie: legacyCookie(ALICE) }), null);
+    assert.deepEqual(await central.resolve({ cookie: 'la_session=ok' }), { userId: 'u1', sessionId: 'h1' });
+    assert.throws(() => userAuthMod.createUserAuth({ secret: SECRET, db: noDb }), /exactly one/);
+    assert.throws(() => userAuthMod.createUserAuth({ secret: SECRET, db: noDb, sessions, devLogin: true }), /exactly one/);
+  });
+
+  it('INSECURE_DEV_LOGIN: only with NODE_ENV development / test, never production, never next to central login', () => {
+    const { readDevLogin, DevLoginError } = devLogin;
+    assert.equal(readDevLogin({}), false);
+    assert.equal(readDevLogin({ INSECURE_DEV_LOGIN: '0', NODE_ENV: 'production' }), false);
+    assert.equal(readDevLogin({ INSECURE_DEV_LOGIN: '1', NODE_ENV: 'test' }), true);
+    assert.equal(readDevLogin({ INSECURE_DEV_LOGIN: ' 1 ', NODE_ENV: 'development' }), true);
+    for (const env of [
+      { INSECURE_DEV_LOGIN: '1', NODE_ENV: 'production' },
+      { INSECURE_DEV_LOGIN: '1' },
+      { INSECURE_DEV_LOGIN: '1', NODE_ENV: 'staging' },
+      { INSECURE_DEV_LOGIN: 'yes', NODE_ENV: 'test' },
+      { INSECURE_DEV_LOGIN: '1', NODE_ENV: 'test', OIDC_ISSUER: 'http://127.0.0.1:9/' },
+      { INSECURE_DEV_LOGIN: '1', NODE_ENV: 'test', OIDC_CLIENT_ID: 'listen-along' },
+    ]) assert.throws(() => readDevLogin(env), DevLoginError, JSON.stringify(env));
+    assert.throws(() => readDevLogin({ INSECURE_DEV_LOGIN: '1', NODE_ENV: 'production' }), /refused in production/);
   });
 
   it('levels: approved > pending > denied / rejected', () => {
@@ -149,17 +208,18 @@ describe('userAuth rules', () => {
     const { policyFor } = userAuthMod;
     const expect = {
       public: ['/health', '/login', '/api/version', '/api/changelog', '/changelog', '/api/auth/me', '/api/auth/providers',
-        '/api/auth/logout', '/api/auth/register', '/auth/google', '/auth/github/callback', '/auth/google/link',
+        '/api/auth/logout', '/api/auth/register', '/auth/oidc/login', '/auth/oidc/callback', '/auth/dev/login',
         '/admin', '/api/admin/status',
         '/api/admin/login', '/lobby/abc'],
       self: ['/api/me', '/api/library', '/api/library/upload', '/api/library/x/file', '/api/requests',
         '/api/requests/x/dismiss', '/api/admin/tokens', '/api/dashboard/stats', '/api/auth/users',
         '/api/auth/users/x/status', '/api/chat/messages/1', '/dashboard', '/api/cli/latest', '/api/cli/bundle'],
-      member: ['/api/profile', '/api/profile/providers/github'],
+      member: ['/api/profile', '/api/profile/activity'],
       approved: ['/api/playlists', '/api/lobbies/x', '/api/stream', '/api/covers/x', '/api/qr/x', '/api/anything-new',
         '/api/auth/something-new', '/api', '//api/playlists', '/API/playlists', '/Api/Stream',
         '/api/jobs', '/api/jobs/picks', '/api/activity/downloads', '/api/activity'],
-      page: ['/', '/library', '/playlist/abc', '/profile', '/social', '/whatever', '/api-docs', '/healthz', '/login2'],
+      page: ['/', '/library', '/playlist/abc', '/profile', '/social', '/whatever', '/api-docs', '/healthz', '/login2',
+        '/auth/google', '/auth/github/callback', '/auth/whatever'],
     };
     for (const [policy, paths] of Object.entries(expect)) {
       for (const p of paths) assert.equal(policyFor(p), policy, p);
@@ -169,7 +229,101 @@ describe('userAuth rules', () => {
 
 // ---------------------------------------------------------------------------
 
-describe('auth guard against a running server (no database)', { timeout: 60_000 }, () => {
+describe('sign-in at boot: production needs the central login and refuses the dev sign-in', { timeout: 60_000 }, () => {
+  const prod = {
+    NODE_ENV: 'production', SESSION_SECRET: SECRET,
+    // An https IdP that does not answer: the server still starts (sign-in retries discovery).
+    OIDC_ISSUER: 'https://127.0.0.1:9/application/o/listen-along/', OIDC_CLIENT_ID: 'listen-along',
+    BASE_URL: 'https://music.example.com',
+  };
+
+  it('production with the central login configured starts', async () => {
+    const r = await boot(prod);
+    assert.ok(r.listening, r.log);
+    // FRONTEND_URL alone still stands in for BASE_URL, as it always did.
+    const viaFrontend = await boot({ ...prod, BASE_URL: '', FRONTEND_URL: 'https://music.example.com' });
+    assert.ok(viaFrontend.listening, viaFrontend.log);
+  });
+
+  it('NODE_ENV unset with the OIDC variables: central login, never the dev sign-in', async () => {
+    const { NODE_ENV, ...unset } = prod;
+    const r = await boot({ ...unset, BASE_URL: 'http://127.0.0.1:1' });
+    assert.ok(r.listening, r.log);
+    assert.doesNotMatch(r.log, /INSECURE_DEV_LOGIN is on/);
+    assert.match(r.log, /\[oidc\]/);
+    const withFlag = await boot({ ...unset, INSECURE_DEV_LOGIN: '1' });
+    assert.equal(withFlag.code, 1);
+    assert.match(withFlag.log, /needs NODE_ENV=development or NODE_ENV=test/);
+  });
+
+  it('production refuses INSECURE_DEV_LOGIN, with or without central login', async () => {
+    for (const env of [{ ...prod, INSECURE_DEV_LOGIN: '1' }, { NODE_ENV: 'production', SESSION_SECRET: SECRET, INSECURE_DEV_LOGIN: '1' }]) {
+      const r = await boot(env);
+      assert.equal(r.listening, false, r.log);
+      assert.equal(r.code, 1);
+      assert.match(r.log, /INSECURE_DEV_LOGIN is refused in production/);
+    }
+  });
+
+  it('production without OIDC_ISSUER / OIDC_CLIENT_ID / BASE_URL or FRONTEND_URL / SESSION_SECRET refuses to start', async () => {
+    const cases = [
+      [{ NODE_ENV: 'production', SESSION_SECRET: SECRET }, /central login is required in production/],
+      [{ ...prod, OIDC_ISSUER: '' }, /half-configured/],
+      [{ ...prod, OIDC_CLIENT_ID: '' }, /half-configured/],
+      [{ ...prod, BASE_URL: '' }, /BASE_URL \(or FRONTEND_URL\) must be set/],
+      [{ ...prod, SESSION_SECRET: '' }, /SESSION_SECRET must be set/],
+    ];
+    for (const [env, why] of cases) {
+      const r = await boot(env);
+      assert.equal(r.listening, false, r.log);
+      assert.equal(r.code, 1);
+      assert.match(r.log, why);
+    }
+  });
+
+  it('no sign-in at all refuses to start outside production too; the dev sign-in needs NODE_ENV development / test', async () => {
+    let r = await boot({ NODE_ENV: 'development', SESSION_SECRET: SECRET });
+    assert.equal(r.code, 1);
+    assert.match(r.log, /no sign-in configured/);
+    r = await boot({ SESSION_SECRET: SECRET, INSECURE_DEV_LOGIN: '1' });
+    assert.equal(r.code, 1);
+    assert.match(r.log, /needs NODE_ENV=development or NODE_ENV=test/);
+    r = await boot({ NODE_ENV: 'development', SESSION_SECRET: SECRET, INSECURE_DEV_LOGIN: '1' });
+    assert.ok(r.listening, r.log);
+    assert.match(r.log, /INSECURE_DEV_LOGIN is on/);
+  });
+
+  it('a production server never accepts the dev sign-in cookie, and has no dev sign-in route', async () => {
+    const port = await freePort();
+    const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
+      env: { PATH: process.env.PATH, PORT: String(port), FRONTEND_PATH: FRONTEND, ...prod }, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    try {
+      await new Promise((resolve, reject) => {
+        let log = '';
+        proc.stderr.on('data', (d) => { log += d; });
+        proc.stdout.on('data', (d) => { log += d; if (/Server running on port/.test(log)) resolve(); });
+        proc.on('exit', (code) => reject(new Error(`server exited (${code})\n${log}`)));
+      });
+      const c = client(`http://127.0.0.1:${port}`);
+      // Signed with the server's own SESSION_SECRET: still no login.
+      for (const cookie of [cookieFor(ALICE), legacyCookie(ALICE)]) {
+        assert.equal((await c.req('GET', '/api/playlists', { cookie })).status, 401);
+        assert.equal((await c.req('GET', '/', { cookie })).headers.get('location'), '/login');
+        await assert.rejects(c.connect(cookie), /Authentication required/);
+      }
+      const dev = await c.req('GET', '/auth/dev/login?user=x');
+      assert.equal(dev.status, 404);
+      assert.equal(dev.headers.get('set-cookie'), null);
+      assert.deepEqual((await c.req('GET', '/api/auth/providers')).body, { central: true, dev: false });
+      c.close();
+    } finally { proc.kill('SIGKILL'); }
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe('auth guard against a running server (no database, dev sign-in)', { timeout: 60_000 }, () => {
   let srv;
   let c;
   const alice = cookieFor(ALICE);
@@ -188,7 +342,7 @@ describe('auth guard against a running server (no database)', { timeout: 60_000 
       ['GET', '/api/playlists'], ['POST', '/api/playlists'], ['GET', '/api/lobbies'], ['GET', '/api/playlists/abc'],
       ['PATCH', '/api/playlists/abc'], ['DELETE', '/api/playlists/abc'], ['GET', '/api/stream?q=x'],
       ['GET', '/api/covers/abc'], ['GET', '/api/qr/abc'], ['GET', '/api/profile'], ['PUT', '/api/profile'],
-      ['DELETE', '/api/profile/providers/github'], ['GET', '/api/library'], ['GET', '/api/library/abc'],
+      ['GET', '/api/library'], ['GET', '/api/library/abc'],
       ['GET', '/api/library/abc/file'], ['GET', '/api/requests'], ['GET', '/api/nonexistent'],
       ['GET', '/api/activity/downloads'],
     ];
@@ -198,8 +352,9 @@ describe('auth guard against a running server (no database)', { timeout: 60_000 
       assert.equal(r.status, 401, `${method} ${url}`);
       assert.equal(r.body && r.body.error, 'Authentication required', `${method} ${url}`);
     }
-    // A forged, expired or wrong-key cookie is the same as none.
-    for (const bad of [cookieFor(ALICE, Date.now() - 31 * 24 * 3600 * 1000), cookieFor(ALICE, Date.now(), 'nope'), 'listen_auth=x.y']) {
+    // A forged, expired or wrong-key cookie is the same as none; so is the old
+    // Google / GitHub login cookie, even signed with this server's secret.
+    for (const bad of [cookieFor(ALICE, Date.now() - 31 * 24 * 3600 * 1000), cookieFor(ALICE, Date.now(), 'nope'), 'la_dev_login=x.y', legacyCookie(ALICE)]) {
       assert.equal((await c.req('GET', '/api/playlists', { cookie: bad })).status, 401);
     }
   });
@@ -254,22 +409,30 @@ describe('auth guard against a running server (no database)', { timeout: 60_000 
     }
   });
 
-  it('the OAuth ?next cookie only takes same-origin paths', async () => {
-    let r = await c.req('GET', '/auth/google?next=%2Fplaylist%2Fabc');
+  it('dev sign-in: sets the cookie and goes on to a same-origin ?next only; logout clears it', async () => {
+    let r = await c.req('GET', '/auth/dev/login?next=%2Fplaylist%2Fabc');
     assert.equal(r.status, 302);
-    assert.match(r.headers.get('location'), /^https:\/\/accounts\.google\.com\//);
-    assert.match(r.headers.get('set-cookie'), /listen_next=%2Fplaylist%2Fabc;.*HttpOnly/i);
-    r = await c.req('GET', '/auth/google?next=%2F%2Fevil.example');
-    assert.doesNotMatch(r.headers.get('set-cookie') || '', /listen_next=%2F%2Fevil/);
+    assert.equal(r.headers.get('location'), '/playlist/abc');
+    const set = r.headers.get('set-cookie');
+    assert.match(set, /^la_dev_login=[^;]+;.*HttpOnly/i);
+    const cookie = set.split(';')[0];
+    assert.equal((await c.req('GET', '/api/playlists', { cookie })).status, 200, 'without a database: the id "dev", approved');
+    r = await c.req('GET', `/auth/dev/login?user=${ALICE}&next=${encodeURIComponent('//evil.example')}`);
+    assert.equal(r.headers.get('location'), '/');
+    assert.deepEqual((await c.req('GET', '/api/auth/providers')).body, { central: false, dev: true });
+    const out = await c.req('POST', '/api/auth/logout', { cookie });
+    assert.deepEqual(out.body, { success: true });
+    assert.match(out.headers.get('set-cookie'), /la_dev_login=;/);
   });
 
-  it('an account-link OAuth state is not a login cookie', async () => {
-    const r = await c.req('GET', '/auth/google/link', { cookie: alice });
-    assert.equal(r.status, 302);
-    const state = new URL(r.headers.get('location')).searchParams.get('state');
-    assert.ok(state);
-    assert.equal((await c.req('GET', '/api/playlists', { cookie: `listen_auth=${state}` })).status, 401);
-    assert.equal((await c.req('GET', '/api/playlists', { cookie: alice })).status, 200);
+  it('Google / GitHub sign-in, linking and the central login routes are not there', async () => {
+    for (const p of ['/auth/google', '/auth/google/callback', '/auth/github', '/auth/github/callback',
+      '/auth/google/link', '/auth/google/link/callback', '/auth/github/link', '/auth/github/link/callback']) {
+      assert.equal((await c.req('GET', p)).status, 404, p);
+      assert.equal((await c.req('GET', p, { cookie: alice })).status, 404, `${p} signed in`);
+    }
+    for (const p of ['/auth/oidc/login', '/auth/oidc/callback?code=x&state=y']) assert.equal((await c.req('GET', p)).status, 404, p);
+    assert.equal((await c.req('DELETE', '/api/profile/providers/github', { cookie: alice })).status, 404);
   });
 
   it('admin routes need the admin cookie, not a user login', async () => {
@@ -299,7 +462,8 @@ describe('auth guard against a running server (no database)', { timeout: 60_000 
 
   it('sockets: anonymous, forged and foreign-origin handshakes are refused', async () => {
     await assert.rejects(c.connect(null), /Authentication required/);
-    await assert.rejects(c.connect('listen_auth=x.y'), /Authentication required/);
+    await assert.rejects(c.connect('la_dev_login=x.y'), /Authentication required/);
+    await assert.rejects(c.connect(legacyCookie(ALICE)), /Authentication required/);
     await assert.rejects(c.connect(cookieFor(ALICE, Date.now(), 'nope')), /Authentication required/);
     await assert.rejects(c.connect(alice, { origin: 'https://evil.example' }), /Origin not allowed/);
     const s = await c.connect(alice, { origin: srv.base });
@@ -422,6 +586,25 @@ describe('account status and CLI tokens on Postgres', { skip: pgSkip, timeout: 1
     assert.equal((await c.req('GET', '/', { cookie: ghost })).status, 302);
     assert.equal((await c.req('GET', '/login', { cookie: ghost })).status, 200, 'no redirect loop');
     await assert.rejects(c.connect(ghost), /Authentication required/);
+  });
+
+  it('dev sign-in on Postgres: ?user signs that account in; unknown ids refused; no ?user = one "Dev User"', async () => {
+    let r = await c.req('GET', `/auth/dev/login?user=${ids.pending}`);
+    assert.equal(r.status, 302);
+    const pendingCookie = r.headers.get('set-cookie').split(';')[0];
+    assert.equal((await c.req('GET', '/api/auth/me', { cookie: pendingCookie })).body.user.status, 'pending');
+    r = await c.req('GET', '/auth/dev/login?user=00000000-0000-4000-8000-0000000000ff');
+    assert.equal(r.status, 404);
+    assert.equal(r.headers.get('set-cookie'), null);
+    const before = (await pg.query('SELECT count(*)::int AS n FROM users')).rows[0].n;
+    const first = (await c.req('GET', '/auth/dev/login')).headers.get('set-cookie').split(';')[0];
+    const second = (await c.req('GET', '/auth/dev/login')).headers.get('set-cookie').split(';')[0];
+    assert.equal((await pg.query('SELECT count(*)::int AS n FROM users')).rows[0].n, before + 1, 'made once');
+    const a = (await c.req('GET', '/api/auth/me', { cookie: first })).body.user;
+    assert.equal(a.name, 'Dev User');
+    assert.equal(a.status, 'approved');
+    assert.equal((await c.req('GET', '/api/auth/me', { cookie: second })).body.user.id, a.id);
+    await pg.query(`DELETE FROM users WHERE provider = 'dev'`);
   });
 
   it('legacy register/status only report the caller and create nothing', async () => {

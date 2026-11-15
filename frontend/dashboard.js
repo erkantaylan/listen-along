@@ -225,7 +225,6 @@ async function loadRegistrationsSwitch() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     input.checked = data.registrations_open !== false;
-    $('registrations-not-central').hidden = !!data.central_login;
     showRegistrationsSource(data.source);
     card.hidden = false;
   } catch (err) {

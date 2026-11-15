@@ -1,20 +1,18 @@
 # Central login (OIDC)
 
-listen-along can sign people in through the owner's central login (authentik,
-OpenID Connect) instead of Google and GitHub. It is off until two environment
-variables are set, and then it **replaces** Google and GitHub completely: no
-mixed mode. Unset the variables and redeploy, and the app is back to Google /
-GitHub exactly as before (the rollback).
+listen-along signs people in through the owner's central login (authentik,
+OpenID Connect). It is the **only** sign-in: the old Google / GitHub login and
+account linking were removed once the central login was live. In production
+(`NODE_ENV=production`) the server refuses to start without it. Local
+development and the tests use a fake IdP or the dev sign-in instead (see
+[Local development and tests](#local-development-and-tests)).
 
-The Google / GitHub setup for the old mode is in [OAUTH-SETUP.md](OAUTH-SETUP.md).
-
-## What changes when it is on
+## How it works
 
 - The login page shows one **Sign in** button. `/auth/google`, `/auth/github`,
-  their callbacks and the `/link` routes answer 404, and
-  `GET /api/auth/providers` answers `{ google: false, github: false, central: true }`.
-  The profile page's "Connected accounts" card is gone, and
-  `DELETE /api/profile/providers/:provider` answers 404.
+  their callbacks and the old `/link` routes answer 404, and
+  `GET /api/auth/providers` answers `{ central: true, dev: false }`.
+  `DELETE /api/profile/providers/:provider` is gone (404).
 - Sign-in is the authorization code flow with PKCE (S256), `state` and `nonce`
   (openid-client v6). The id_token's issuer, audience (exactly `listen-along`;
   an extra audience or another `azp` is refused), signature (against the IdP's
@@ -41,9 +39,9 @@ The Google / GitHub setup for the old mode is in [OAUTH-SETUP.md](OAUTH-SETUP.md
 - Sign out ends the local session, then sends the browser to the IdP's
   end-session page (`id_token_hint`, back to `/`), which ends the central
   session too.
-- The old `listen_auth` cookies stop being logins. Everyone signs in once
-  through the central login. An old cookie sent along with that sign-in plays
-  no part in finding the account; it is simply deleted.
+- The old Google / GitHub `listen_auth` cookies are no logins. An old cookie
+  sent along with a sign-in (or a logout) plays no part in finding the account;
+  it is simply deleted.
 - With `DATABASE_URL` set but the database unreachable, sign-in answers "cannot
   be reached right now" and no session is created (in-memory accounts and
   sessions exist only when no database is configured at all, for development).
@@ -56,7 +54,7 @@ The Google / GitHub setup for the old mode is in [OAUTH-SETUP.md](OAUTH-SETUP.md
 
 | Variable | Value |
 |---|---|
-| `OIDC_ISSUER` | `https://<id host>/application/o/listen-along/` (turns it on, with the next one) |
+| `OIDC_ISSUER` | `https://<id host>/application/o/listen-along/` (required in production, with the next one) |
 | `OIDC_CLIENT_ID` | `listen-along` |
 | `OIDC_CLIENT_SECRET` | empty: listen-along is a public client (PKCE). Only if the IdP is ever switched to a confidential client |
 | `OIDC_SCOPES` | default `openid email profile entitlements offline_access`. Add `upstream` once the IdP has the mapping below |
@@ -64,13 +62,15 @@ The Google / GitHub setup for the old mode is in [OAUTH-SETUP.md](OAUTH-SETUP.md
 | `OIDC_RECHECK_SECONDS` | default `300` |
 | `OIDC_MAX_UNVERIFIED_SECONDS` | default `86400` (24 h) |
 | `REGISTRATIONS_DEFAULT` | `open` (default) or `closed`: whether a central identity that matches no account gets a new one, **until an admin saves the switch in `/dashboard`**; from then on the saved value wins and this is ignored. Anything else stops the boot |
-| `BASE_URL` | the public address, e.g. `https://music.example.com`. The redirect URI is `<BASE_URL>/auth/oidc/callback` and the post-logout redirect `<BASE_URL>/`; never taken from the request. Falls back to `FRONTEND_URL` |
-| `SESSION_SECRET` | required in this mode. Changing it signs everyone out |
+| `BASE_URL` | the public address, e.g. `https://music.example.com`. The redirect URI is `<BASE_URL>/auth/oidc/callback` and the post-logout redirect `<BASE_URL>/`; never taken from the request. Falls back to `FRONTEND_URL`; one of the two is required |
+| `SESSION_SECRET` | required. Changing it signs everyone out |
 | `AUTH_RATE_LIMIT` | optional, sign-in round trips per client address per minute (default 30) |
 
 Both compose files carry these with empty defaults. The server refuses to
-start when only one of `OIDC_ISSUER` / `OIDC_CLIENT_ID` is set, when
-`SESSION_SECRET` or `BASE_URL` is missing, when an `http://` issuer or
+start with `NODE_ENV=production` when `OIDC_ISSUER`, `OIDC_CLIENT_ID`,
+`SESSION_SECRET` or both `BASE_URL` and `FRONTEND_URL` are missing, or `INSECURE_DEV_LOGIN` is set; and
+anywhere when only one of `OIDC_ISSUER` / `OIDC_CLIENT_ID` is set, when no
+sign-in at all is configured, when an `http://` issuer or
 `BASE_URL` is used in production, when `REGISTRATIONS_DEFAULT` is neither
 `open` nor `closed`, or when the IdP answers discovery with metadata that
 cannot work (another issuer, not JSON, no token endpoint, no S256). An IdP that
@@ -150,17 +150,31 @@ sends none).
   { registrations_open }`, admin cookie only). Off: a central identity that matches no account
   (rules a-c) is turned away; existing accounts, linked or not yet linked, are unaffected. Until it
   is saved once, its value is `REGISTRATIONS_DEFAULT` and the dashboard says so; saving stores it in
-  `app_settings`, and the stored value wins from then on (env ignored). It can be changed while
-  central login is still off, and applies from the first central sign-in. No restart needed.
-  Without a database it is kept in memory. It does nothing while central login is off.
+  `app_settings`, and the stored value wins from then on (env ignored). No restart needed.
+  Without a database it is kept in memory. It does nothing under the dev sign-in.
 
 ## Local development and tests
 
-- Tests: `backend/src/central-login.test.js` runs the real server against a fake OpenID provider
-  (`backend/src/fakeOidcIssuer.js`: discovery, JWKS, authorize, token with PKCE and refresh
-  rotation, end-session, signed with jose).
-- A session without the IdP (the central-login counterpart of `cookieFor`): with the server on
-  Postgres and `OIDC_*` set, insert a row with
+There is no password login. Two ways to sign in without the owner's IdP:
+
+- **A fake IdP** (the real protocol, end to end): from `backend/`,
+  `node src/fakeOidcIssuer.js` starts a local OpenID provider (port 9400; `--sub`, `--email`,
+  `--name`, `--port` to change the one user it signs in) and prints the variables to start the app
+  with (`NODE_ENV=development OIDC_ISSUER=http://127.0.0.1:9400/application/o/listen-along/
+  OIDC_CLIENT_ID=listen-along BASE_URL=http://localhost:3000 SESSION_SECRET=dev`). Plain http
+  issuers are accepted only outside production. `central-login.test.js` runs the real server
+  against the same fake provider (discovery, JWKS, authorize, token with PKCE and refresh rotation,
+  end-session, signed with jose).
+- **The dev sign-in** (`INSECURE_DEV_LOGIN=1`, `backend/src/devLogin.js`): no IdP at all. The
+  server refuses to start with it unless `NODE_ENV` is exactly `development` or `test`, and when
+  `OIDC_ISSUER` / `OIDC_CLIENT_ID` are set too; neither compose file passes it through. The login
+  page's button then goes to `/auth/dev/login?user=<users.id>&next=<path>` (without `?user`: a
+  "Dev User" account, made once; without a database: the id `dev`), which sets a signed
+  `la_dev_login` cookie (HMAC with `SESSION_SECRET` under its own label, 30 days). The tests sign
+  it directly: `testServer.js` `cookieFor`, and `startServer()` turns the dev sign-in on unless the
+  test configures central login.
+- A central session without the IdP (the central-login counterpart of `cookieFor`): with the server
+  on Postgres and `OIDC_*` set, insert a row with
   `node -e "require('./src/testServer').centralSessionCookie(process.env.DATABASE_URL, '<users.id>').then(console.log)"`
   (from `backend/`) and send the printed `la_session=...` as the cookie (local http only; in
   production the name is `__Host-la_session`). It has no refresh token, so it is not re-checked and
@@ -204,7 +218,8 @@ sends none).
 9. Watch the log for `merge by hand`, `link_conflict` and unexpected `created` lines as friends
    sign in.
 
-**Rollback**: unset `OIDC_ISSUER` and `OIDC_CLIENT_ID` and redeploy. Google / GitHub sign-in is back,
-everyone signs in again with it, and the central-login data (`users.oidc_sub`, `user_sessions`)
-stays unused. Accounts created by central login (provider `oidc`) are never turned into Google /
-GitHub logins.
+**Rollback**: there is no environment switch back to Google / GitHub any more: that code is gone,
+and production refuses to start without `OIDC_*`. To undo a bad release, redeploy the previous
+commit. The data needed by rules b and c (`users.provider` / `provider_id` / `email` and
+`user_providers`) is kept untouched, so people who have not signed in through the central login
+yet are still found on their first sign-in.

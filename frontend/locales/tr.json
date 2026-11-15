@@ -137,7 +137,6 @@
     "noCachedSongs": "Önbellekte şarkı yok",
     "registrationsOpen": "Yeni hesaplara izin ver",
     "registrationsHint": "Kapalıyken, merkezi girişle giriş yapan ama burada hesabı olmayan kişiler geri çevrilir. Mevcut hesaplar çalışmaya devam eder.",
-    "registrationsNotCentral": "Merkezi giriş henüz yapılandırılmadı: bu ayar o zaman geçerli olur. Google ve GitHub ile giriş etkilenmez.",
     "registrationsOpened": "Yeni hesaplara izin veriliyor",
     "registrationsClosed": "Yeni hesaplar geri çevriliyor",
     "registrationsFailed": "Ayar değiştirilemedi",
@@ -570,6 +569,7 @@
   },
   "login": {
     "signIn": "Giriş yap",
+    "devNote": "Geliştirme girişi: parola yok, gerçek bir sunucuda asla kullanılmaz.",
     "error": {
       "accountDisabled": "Hesabınız devre dışı bırakıldı. Bir yanlışlık olduğunu düşünüyorsanız yöneticiye başvurun.",
       "registrationsClosed": "Kayıtlar kapalı: size ait bir listen-along hesabı yok ve şu anda yeni hesap açılmıyor.",

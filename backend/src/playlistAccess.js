@@ -13,7 +13,7 @@
  * public: editable by every logged-in user, never switchable to private, and
  * renamable / deletable only by an admin (admin cookie).
  *
- * `userId` is the users.id from the signed listen_auth cookie (null when not
+ * `userId` is the signed-in users.id (userAuth.js; null when not
  * logged in). A user who is not logged in can see nothing.
  */
 
