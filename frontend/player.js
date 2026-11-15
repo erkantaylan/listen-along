@@ -43,7 +43,7 @@
 import { state, elements } from './state.js';
 import { playAudioWithUnlock } from './audio.js';
 import { showToast, t as tr } from './ui.js';
-import { findTrackIndex, nextIndex, previousIndex, RESTART_THRESHOLD } from './player-queue.js';
+import { findTrackIndex, nextIndex, previousIndex, contextRepeat, RESTART_THRESHOLD } from './player-queue.js';
 
 const handlers = new Map();
 let context = null;
@@ -202,7 +202,7 @@ export const player = {
     let i = nextIndex({
       length: queue.length,
       current: this.index,
-      repeat: radio && state.repeatMode === 'all' ? 'off' : state.repeatMode,
+      repeat: contextRepeat(state.repeatMode, context),
       shuffle: state.isShuffleEnabled && !radio,
       auto,
       blocked: skip && ((at) => skip(queue[at])),
@@ -222,7 +222,7 @@ export const player = {
   previous() {
     takeover();
     if (track && this.currentTime > RESTART_THRESHOLD) { this.seek(0); this.play(); return; }
-    const i = previousIndex({ length: queue.length, current: this.index, repeat: state.repeatMode, blocked: skip && ((at) => skip(queue[at])) });
+    const i = previousIndex({ length: queue.length, current: this.index, repeat: contextRepeat(state.repeatMode, context), blocked: skip && ((at) => skip(queue[at])) });
     if (i < 0) { if (track) { this.seek(0); this.play(); } return; }
     this.playIndex(i, { manual: false });
   },

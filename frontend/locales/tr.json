@@ -282,9 +282,12 @@
     "failed": "“{name}” listesine eklenemedi: {error}"
   },
   "songMenu": {
-    "openOn": "{host} ile aç",
+    "source": "Kaynak",
+    "openNewTab": "Yeni sekmede aç",
     "copyLink": "Bağlantıyı kopyala",
-    "replaceWith": "Şununla değiştir…"
+    "copyYoutubeLink": "YouTube bağlantısını kopyala",
+    "replaceWith": "Şununla değiştir…",
+    "removeFromPlaylist": "Çalma listesinden kaldır"
   },
   "radio": {
     "title": "Radyo",

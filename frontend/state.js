@@ -1,4 +1,5 @@
 // Shared state, constants, and storage helpers for Listen-Along
+import { initialRepeatMode } from './player-queue.js';
 
 export const STORAGE_KEYS = {
   USER_ID: 'listen-userId',
@@ -63,8 +64,9 @@ export function getOrCreateEmoji() {
   return emoji;
 }
 
+// No stored choice: Replay list ('all'); a stored 'off' stays off.
 export function getStoredRepeatMode() {
-  return storageGet(STORAGE_KEYS.REPEAT_MODE) || 'off';
+  return initialRepeatMode(storageGet(STORAGE_KEYS.REPEAT_MODE));
 }
 
 export function getStoredShuffleEnabled() {

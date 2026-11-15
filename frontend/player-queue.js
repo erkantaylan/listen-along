@@ -4,6 +4,21 @@
 // Previous restarts the current track instead when it has played this long.
 export const RESTART_THRESHOLD = 3;
 
+// Repeat: 'off' | 'all' (Replay list) | 'one'. Someone who never chose one gets
+// 'all'; a stored choice, 'off' included, is kept (state.js, localStorage).
+export const REPEAT_MODES = ['off', 'all', 'one'];
+export const DEFAULT_REPEAT = 'all';
+export function initialRepeatMode(stored) {
+  return REPEAT_MODES.includes(stored) ? stored : DEFAULT_REPEAT;
+}
+
+// The repeat a context plays with. Radio is shuffled already and runs into its
+// own next round (player.setRefill): replaying the list would repeat the same
+// order, and Previous at the first song must not jump to the end of the round.
+export function contextRepeat(repeat, context) {
+  return context && context.type === 'radio' && repeat === 'all' ? 'off' : repeat;
+}
+
 // Index of a track in a queue: by queue-entry id, then by url (a queue
 // update may hand us fresh objects for the same songs).
 export function findTrackIndex(queue, track) {

@@ -111,3 +111,31 @@ describe('player-queue: lobby membership', () => {
       [{ type: 'join', lobbyId: 'a' }, { type: 'view', lobbyId: 'b' }]);
   });
 });
+
+describe('player-queue: repeat default', () => {
+  it('no stored value: Replay list (all)', () => {
+    assert.equal(m.DEFAULT_REPEAT, 'all');
+    assert.equal(m.initialRepeatMode(null), 'all');
+    assert.equal(m.initialRepeatMode(undefined), 'all');
+    assert.equal(m.initialRepeatMode(''), 'all');
+  });
+  it('a stored choice is kept, an explicit off included', () => {
+    assert.equal(m.initialRepeatMode('off'), 'off');
+    assert.equal(m.initialRepeatMode('one'), 'one');
+    assert.equal(m.initialRepeatMode('all'), 'all');
+  });
+  it('the default wraps a playlist from the last song to the first', () => {
+    const repeat = m.initialRepeatMode(null);
+    assert.equal(m.nextIndex({ length: 3, current: 2, repeat, auto: true }), 0);
+  });
+  it('Radio never replays its list (it has its own next round); other contexts keep the mode', () => {
+    const radio = { type: 'radio', stationId: 'all' };
+    assert.equal(m.contextRepeat('all', radio), 'off');
+    assert.equal(m.contextRepeat('one', radio), 'one');
+    assert.equal(m.contextRepeat('all', { type: 'lobby', lobbyId: 'a' }), 'all');
+    assert.equal(m.contextRepeat('all', { type: 'artist', key: 'x' }), 'all');
+    assert.equal(m.contextRepeat('all', null), 'all');
+    // Previous at Radio's first song restarts it instead of jumping to the end.
+    assert.equal(m.previousIndex({ length: 5, current: 0, repeat: m.contextRepeat('all', radio) }), -1);
+  });
+});

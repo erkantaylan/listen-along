@@ -121,6 +121,8 @@ function setupEventListeners() {
   elements.nextBtn.addEventListener('click', playNext);
   elements.repeatBtn.addEventListener('click', cycleRepeatMode);
   elements.shuffleBtn.addEventListener('click', toggleShuffle);
+  // The stored repeat / shuffle (or the default, Replay list) from the start.
+  updatePlaybackModeUI();
   elements.progressBar.addEventListener('input', seekTo);
 
   // Queue

@@ -13,6 +13,7 @@ import { showToast, t, copyToClipboard } from './ui.js';
 import { bindContextMenu, openContextMenu, closeContextMenu, isContextMenuOpen } from './context-menu.js';
 import { addToPlaylistItem } from './add-to-playlist.js';
 import { openReplaceDialog } from './replace-dialog.js';
+import { songSourceLink, sourceSubmenu } from './song-menu-rules.js';
 
 const MAX_REASON = 200;
 const PRESET_REASONS = ['Wrong song', 'Bad audio', 'Cut off', 'Too quiet / too loud'];
@@ -305,6 +306,8 @@ const ICONS = {
   broken: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>',
   unmark: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/></svg>',
   replace: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.99 11 3 15l3.99 4v-3H14v-2H6.99v-3zM21 9l-3.99-4v3H10v2h7.01v3L21 9z"/></svg>',
+  source: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 14H4V6h16v12zM9.5 8.5v7l6-3.5-6-3.5z"/></svg>',
+  remove: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 11v2h10v-2H7zm5-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>',
   edit: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>',
 };
 
@@ -322,34 +325,38 @@ async function loadSongDetails(songId) {
   return details;
 }
 
-/** Where a song came from: { url, host }, only ever a real http(s) link, or null. */
-export function songSourceLink({ youtubeId, sourceUrl, url }) {
-  if (youtubeId && /^[A-Za-z0-9_-]{11}$/.test(youtubeId)) return { url: `https://www.youtube.com/watch?v=${youtubeId}`, host: 'YouTube' };
-  for (const candidate of [sourceUrl, url]) {
-    try {
-      const parsed = new URL(candidate);
-      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') continue;
-      const host = parsed.hostname.replace(/^(www|m|music)\./, '');
-      return { url: parsed.href, host: host === 'youtube.com' || host === 'youtu.be' ? 'YouTube' : host };
-    } catch {}
-  }
-  return null;
+// Source ▸ Open in new tab / Copy YouTube link. No source link: no item at all.
+function sourceItems(link) {
+  const plan = sourceSubmenu(link);
+  if (!plan) return [];
+  const label = t('songMenu.source', 'Source');
+  return [{
+    label,
+    icon: ICONS.source,
+    submenu: {
+      label,
+      backLabel: t('addTo.back', 'Back'),
+      items: () => [
+        { label: t('songMenu.openNewTab', 'Open in new tab'), icon: ICONS.open, onSelect: () => window.open(plan.openUrl, '_blank', 'noopener,noreferrer') },
+        { label: t(plan.copyKey, plan.copyFallback), icon: ICONS.link, onSelect: () => copyToClipboard(plan.copyUrl) },
+      ],
+    },
+  }];
 }
 
-function sourceItems(link) {
-  if (!link) return [];
+// Last, apart from the rest: only on rows of a playlist the viewer may edit
+// (the row's describe() passes onRemove; song-menu-rules.js decides).
+function removeItems(song) {
+  if (typeof song.onRemove !== 'function') return [];
   return [
-    {
-      label: t('songMenu.openOn', `Open on ${link.host}`, { host: link.host }),
-      icon: ICONS.open,
-      onSelect: () => window.open(link.url, '_blank', 'noopener,noreferrer'),
-    },
-    { label: t('songMenu.copyLink', 'Copy link'), icon: ICONS.link, onSelect: () => copyToClipboard(link.url) },
+    { divider: true },
+    { label: t('songMenu.removeFromPlaylist', 'Remove from playlist'), icon: ICONS.remove, theme: 'danger', onSelect: song.onRemove },
   ];
 }
 
 /**
- * Menu items for one song. song: { songId?, url?, title, artist, youtubeId?, sourceUrl? }.
+ * Menu items for one song. song: { songId?, url?, title, artist, youtubeId?,
+ * sourceUrl?, onRemove? } (onRemove: a playlist row the viewer may edit).
  * Resolves the library song first (a playlist entry may be a YouTube url).
  */
 export async function songMenuItems(song, { returnFocus = null } = {}) {
@@ -360,6 +367,7 @@ export async function songMenuItems(song, { returnFocus = null } = {}) {
     items.push(...sourceItems(songSourceLink(song)));
     items.push({ divider: true });
     items.push({ label: 'Mark as broken', icon: ICONS.broken, description: 'It can be reported once it is uploaded', disabled: true });
+    items.push(...removeItems(song));
     return items;
   }
   // The row may not know them: a queue entry is only a url, the player a track.
@@ -383,6 +391,7 @@ export async function songMenuItems(song, { returnFocus = null } = {}) {
     });
   }
   items.push({ label: t('songMenu.replaceWith', 'Replace with…'), icon: ICONS.replace, onSelect: () => openReplaceDialog({ songId, returnFocus }) });
+  items.push(...removeItems(song));
   return items;
 }
 

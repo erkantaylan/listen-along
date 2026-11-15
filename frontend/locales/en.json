@@ -282,9 +282,12 @@
     "failed": "Could not add to “{name}”: {error}"
   },
   "songMenu": {
-    "openOn": "Open on {host}",
+    "source": "Source",
+    "openNewTab": "Open in new tab",
     "copyLink": "Copy link",
-    "replaceWith": "Replace with…"
+    "copyYoutubeLink": "Copy YouTube link",
+    "replaceWith": "Replace with…",
+    "removeFromPlaylist": "Remove from playlist"
   },
   "radio": {
     "title": "Radio",

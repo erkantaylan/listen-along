@@ -839,6 +839,9 @@
   .plnav-home { min-width: 0; margin-inline-end: auto; color: inherit; text-decoration: none; border-radius: var(--bs-radius-5); }
   .plnav-home:hover { color: inherit; text-decoration: none; }
   .plnav-home img { flex-shrink: 0; width: 2rem; height: 2rem; }
+  /* The GitHub mark fills its whole box: a little smaller, to match the profile icon beside it. */
+  .plnav-github { flex-shrink: 0; }
+  .plnav-github svg { width: 1.125rem; height: 1.125rem; }
   .plnav-brand-name { min-width: 0; overflow: hidden; font-weight: var(--bs-font-weight-bold); text-overflow: ellipsis; white-space: nowrap; }
   .plnav-avatar, .plnav-toggle, .plnav-toggle-expand { display: none; }
   /* The places: Home, Radio, Artists, Music library. The current one has
@@ -1146,6 +1149,9 @@
     flex-direction: column;
   }
   .app-ctx-sub.app-ctx-sheet { width: auto; max-height: 75dvh; }
+  /* A plain submenu (no search, e.g. a song's Source): as wide as its items. */
+  .app-ctx-sub-plain { width: max-content; min-width: 12rem; }
+  .app-ctx-sub-plain .app-ctx-sub-list { min-height: 0; }
   .app-ctx-sub-head { display: flex; gap: 0.5rem; align-items: center; padding: 0 0.25rem 0.25rem; }
   .app-ctx-sub-search { padding: 0.25rem 0.25rem 0.5rem; }
   .app-ctx-sub-list {

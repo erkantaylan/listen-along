@@ -23,6 +23,8 @@
 // footer?, emptyText?, onOpen? } }: a second box beside the menu (a bottom sheet
 // with a back button below 576px, replacing the menu). searchLabel adds a search
 // box; items(query) is called again as it changes. Its items use the same shape.
+// Without a search box it is a plain role="menu" sized to its items (e.g. a
+// song's Source ▸). Placement: submenuPosition (context-menu-rules.js).
 // refreshSubmenu() re-renders the open one (live data).
 //
 // bindContextMenu wires a list: right-click (contextmenu) on a row, a ~500ms
@@ -30,6 +32,8 @@
 // row, and a visible "⋮" trigger button inside the row. The browser's own
 // menu is suppressed on rows only (and kept on links and when Shift is held).
 // getItems(row) may return a Promise; returning nothing opens no menu.
+
+import { submenuPosition } from './context-menu-rules.js';
 
 const LONG_PRESS_MS = 500;
 const MOVE_TOLERANCE = 10;
@@ -136,15 +140,16 @@ const BACK_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="tru
 
 function placeSubmenu() {
   if (!subEl || sub.asSheet) return;
-  const m = 8;
-  const vw = document.documentElement.clientWidth;
-  const vh = window.innerHeight;
-  const parent = menuEl.getBoundingClientRect();
   const r = subEl.getBoundingClientRect();
-  let left = parent.right - 2;
-  if (left + r.width > vw - m) left = parent.left - r.width + 2;
-  subEl.style.left = `${Math.round(Math.max(m, Math.min(left, vw - m - r.width)))}px`;
-  subEl.style.top = `${Math.round(Math.max(m, Math.min(sub.btn.getBoundingClientRect().top - 8, vh - m - r.height)))}px`;
+  const at = submenuPosition({
+    parent: menuEl.getBoundingClientRect(),
+    size: { width: r.width, height: r.height },
+    itemTop: sub.btn.getBoundingClientRect().top,
+    viewport: { width: document.documentElement.clientWidth, height: window.innerHeight },
+  });
+  subEl.style.left = `${at.left}px`;
+  subEl.style.top = `${at.top}px`;
+  subEl.dataset.side = at.side;
 }
 
 // The on-screen keyboard covers a fixed bottom sheet: sit on top of it.
@@ -218,14 +223,18 @@ function openSubmenu(btn, { focus = false } = {}) {
   closeSubmenu();
   const def = parentItem.submenu;
   const asSheet = window.matchMedia(SHEET_MQ).matches;
+  // A plain list of actions is a menu itself; a search box or a sheet's back
+  // button make it a dialog holding the menu.
+  const plain = !def.searchLabel && !(def.footer && def.footer.length);
+  const asMenu = plain && !asSheet;
   const el = document.createElement('div');
-  el.className = `menu app-ctx-menu app-ctx-sub show${asSheet ? ' app-ctx-sheet' : ''}`;
-  el.setAttribute('role', 'dialog');
+  el.className = `menu app-ctx-menu app-ctx-sub show${plain ? ' app-ctx-sub-plain' : ''}${asSheet ? ' app-ctx-sheet' : ''}`;
+  el.setAttribute('role', asMenu ? 'menu' : 'dialog');
   el.setAttribute('aria-label', def.label);
   el.tabIndex = -1;
   el.innerHTML = `${asSheet ? `<div class="app-ctx-sub-head"><button type="button" class="btn-text theme-secondary btn-icon btn-sm app-ctx-sub-back" aria-label="${escapeHtml(def.backLabel || 'Back')}" title="${escapeHtml(def.backLabel || 'Back')}">${BACK_ICON}</button><h2 class="h6 mb-0 text-truncate">${escapeHtml(def.label)}</h2></div>` : ''}
     ${def.searchLabel ? `<div class="app-ctx-sub-search"><input type="search" class="form-control form-control-sm" aria-label="${escapeHtml(def.searchLabel)}" placeholder="${escapeHtml(def.searchLabel)}" autocomplete="off" enterkeyhint="go"></div>` : ''}
-    <div class="app-ctx-sub-list" role="menu" aria-label="${escapeHtml(def.label)}"></div>
+    <div class="app-ctx-sub-list"${asMenu ? '' : ` role="menu" aria-label="${escapeHtml(def.label)}"`}></div>
     ${def.footer && def.footer.length ? '<div class="app-ctx-sub-footer"></div>' : ''}`;
   el.addEventListener('keydown', onSubKeydown);
   el.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -350,7 +359,7 @@ function itemsHtml(items, start = 0) {
       ? `<span class="menu-item-content"><span>${escapeHtml(item.label)}</span><span class="menu-item-description">${escapeHtml(item.description)}</span></span>`
       : `<span class="menu-item-content">${escapeHtml(item.label)}</span>`;
     const opens = item.submenu && !item.disabled;
-    const popup = opens ? ' aria-haspopup="true" aria-expanded="false" data-ctx-sub' : '';
+    const popup = opens ? ' aria-haspopup="menu" aria-expanded="false" data-ctx-sub' : '';
     return `<button type="button" class="menu-item${theme}" role="${radio ? `menuitemradio" aria-checked="${item.checked ? 'true' : 'false'}` : 'menuitem'}" tabindex="-1" data-ctx-index="${i}"${popup}${disabled}>${icon}${body}${opens ? CHEVRON : ''}</button>`;
   }).join('');
 }

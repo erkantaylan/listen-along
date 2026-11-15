@@ -64,3 +64,25 @@ describe('frontend: tabs', () => {
     assert.doesNotMatch(css, /\.app-seg[^{]*::?(before|after)/);
   });
 });
+
+describe('frontend: GitHub link in the sidebar', () => {
+  const head = (() => {
+    const start = html.indexOf('class="d-flex align-items-center gap-1 plnav-head"');
+    assert.ok(start >= 0, 'sidebar head');
+    return html.slice(start, html.indexOf('</div>', start));
+  })();
+  it('is a real new-tab link in the top panel head, next to profile and the toggle', () => {
+    const link = head.match(/<a id="plnav-github"[^>]*>/);
+    assert.ok(link, 'link in the head');
+    assert.match(link[0], /href="https:\/\/github\.com\/erkantaylan\/listen-along"/);
+    assert.match(link[0], /target="_blank"/);
+    assert.match(link[0], /rel="noopener"/);
+    assert.match(link[0], /class="btn-text theme-secondary btn-icon[^"]*"/);
+    assert.match(link[0], /data-i18n-aria-label="appMeta\.source"/);
+    assert.ok(head.indexOf('plnav-github') < head.indexOf('plnav-profile') && head.indexOf('plnav-profile') < head.indexOf('plnav-toggle'));
+  });
+  it('keeps the About card link and has a name in both locales', () => {
+    assert.match(viewHtml('profile-view'), /href="https:\/\/github\.com\/erkantaylan\/listen-along"/);
+    assert.ok(locale('en').appMeta.source && locale('tr').appMeta.source);
+  });
+});

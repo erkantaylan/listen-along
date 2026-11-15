@@ -13,6 +13,7 @@ import { createVirtualList } from './virtual-list.js';
 import { isEditMode, setEditMode, onEditModeChange, isDragging, bindDragReorder } from './queue-edit.js';
 import { pickSongs } from './pick-dialog.js';
 import { queuePayload } from './pick-rules.js';
+import { canRemoveFromPlaylist } from './song-menu-rules.js';
 
 // A song marked broken anywhere: the queue's badges follow.
 onReportsChange(() => { if (state.lobbyId) updateQueue(); });
@@ -71,7 +72,7 @@ export async function addSong() {
   if (elements.songInput.value.trim() === input) elements.songInput.value = '';
 }
 
-// Remove a song (edit mode). Shown gone at once; the toast offers Undo, which
+// Remove a song (edit mode, or the song menu). Shown gone at once; the toast offers Undo, which
 // asks the server to put it back where it was (queue:restore, within a minute).
 export function removeSong(index) {
   const song = state.queue[index];
@@ -86,6 +87,13 @@ export function removeSong(index) {
     duration: 6000,
     action: { label: t('queue.undo', 'Undo'), onClick: () => socket.emit('queue:restore', { lobbyId, songId: song.id }) },
   });
+}
+
+// From the song menu: the list may have changed while it was open.
+function removeSongById(songId, lobbyId) {
+  if (!state.canEdit || state.lobbyId !== lobbyId) return;
+  const index = state.queue.findIndex((s) => s.id === songId);
+  if (index >= 0) removeSong(index);
 }
 
 function rowAfter(index) {
@@ -301,9 +309,13 @@ export function exitEditMode() {
 export function setupQueueInteractions() {
   const list = elements.queueList;
   // Right-click / long-press / ⋮ on a queue row: the song menu (song-reports.js).
+  // "Remove from playlist" (editors only) takes the edit mode's path, Undo included.
   bindSongMenu(list, '.queue-item[data-index]', (row) => {
     const song = state.queue[parseInt(row.dataset.index, 10)];
-    return song ? { url: song.url, title: song.title } : null;
+    if (!song) return null;
+    const page = { lobbyId: state.lobbyId, queueLobbyId: state.queueLobbyId, canEdit: state.canEdit };
+    const removable = canRemoveFromPlaylist({ context: 'playlist', entryId: song.id }, page);
+    return { url: song.url, title: song.title, onRemove: removable ? () => removeSongById(song.id, page.lobbyId) : undefined };
   });
   onEditModeChange(applyEditMode);
   player.on('state', refreshPlayingCell);

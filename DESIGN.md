@@ -450,7 +450,9 @@ profile and the desktop `/social`; not on login, pending or `/dashboard`.
 
 Two rounded panels, a gap apart (see "App shell"):
 
-- **Upper panel, the places.** Head: brand (link to Home), profile, the collapse toggle (× in the drawer instead).
+- **Upper panel, the places.** Head: brand (link to Home), GitHub (`#plnav-github`, the project's source: a real `<a>`,
+  new tab, `rel="noopener"`, name `appMeta.source`; an icon button like its neighbours, so it is on every page, the
+  profile's About card keeps its own), profile, the collapse toggle (× in the drawer instead).
   Then the app's main navigation (`.plnav-nav`): **Home** (`#plnav-nav-home`, `/`), **Radio** (`#plnav-radio`, see
   "Radio"), **Artists** (`#plnav-nav-artists`, `/artists`) and **Library & Downloads** (`#plnav-nav-library`, key `landing.library`;
   opens the library overlay like the landing button, over the playlist on screen if any; app.js). Icon + semibold
@@ -465,7 +467,7 @@ Two rounded panels, a gap apart (see "App shell"):
   bar. `body` gets the same `padding-left`, and the library overlay's `left` follows it, as the chat column does on
   the right.
 - **Rail** (`body.plnav-rail`, 72px, see "Columns and breakpoints" for when): the same two panels, re-styled. Brand
-  icon, profile, the toggle (`#plnav-toggle`, chevron, "Expand / Collapse playlists", `aria-expanded`), the places as
+  icon, GitHub, profile, the toggle (`#plnav-toggle`, chevron, "Expand / Collapse playlists", `aria-expanded`), the places as
   3rem icon buttons (the label stays their accessible name, visually hidden; `title` is the tooltip), then New
   playlist and one 2.5rem cover of initials per playlist, the same order with a divider between groups instead of
   headings. Tooltip = `title`, and `aria-label` has name, Private, owner and song count. Current = a solid accent
@@ -697,10 +699,14 @@ Bootstrap 6 `.menu` / `.menu-item` / `.menu-header` / `.menu-divider` markup, no
   sheet below 576px; `updateContextMenu(items)` re-renders the open box (live data) keeping
   focus; `returnFocus` may be a function (rows that re-render).
 - **Submenu**: an item `{ label, icon, submenu: { label, backLabel?, searchLabel?, items(query), footer?, emptyText?, onOpen? } }`
-  gets a chevron and opens a second box (`.app-ctx-sub`, 18rem) beside the menu, on the side that fits; below 576px
-  it replaces the menu as a bottom sheet with a back button, and sits above the on-screen keyboard. Mouse: on hover (150ms), and
-  hovering a sibling closes it (250ms). Click, Enter or → open it. In it, ↑/↓ cycle through the search box and items, Tab
-  switches between the box and the first item, Enter in the box takes the first match; Escape clears the search, then goes back, as ← does.
+  gets a chevron (`aria-haspopup="menu"`, `aria-expanded`) and opens a second box (`.app-ctx-sub`, 18rem) beside the menu: to the
+  right, flipped left when it would cross the viewport edge, clamped vertically (`submenuPosition`, pure and tested in
+  `context-menu-rules.js`). Without a search box or footer it is **plain** (`.app-ctx-sub-plain`, as wide as its items, itself
+  `role="menu"`; with a search box it is a `role="dialog"` holding the `role="menu"` list). Below 576px it replaces the menu as a
+  bottom sheet with a back button (tap the parent: no hover needed), and sits above the on-screen keyboard. Mouse: on hover (150ms), and
+  hovering a sibling closes it (250ms). Click, Enter or → open it and focus its first item (or the search box). In it, ↑/↓ cycle through the search box and items, Tab
+  switches between the box and the first item, Enter in the box takes the first match; Escape clears the search, then closes just the
+  submenu (focus back on its parent item), as ← does; a second Escape closes the menu.
   Touch does not focus the search box, so the keyboard does not cover the list. `refreshSubmenu()` re-renders it.
 - `bindContextMenu(root, { rowSelector, triggerSelector, getItems, label })` wires a list
   (delegated, rows may re-render): right-click, a 500ms long-press on touch/pen (cancelled by
@@ -716,9 +722,16 @@ Bootstrap 6 `.menu` / `.menu-item` / `.menu-header` / `.menu-divider` markup, no
   playlist queue rows and the player bar's current song (right-click / long-press on the song,
   plus `#player-menu-btn`, hidden in the slim phone bar where long-press is the way in). Add new
   song actions to `songMenuItems` — keep labels short ("Mark as broken", "Unmark broken").
-- Song menu order: **Add to playlist**, **Open on YouTube** (or `Open on <host>`) and **Copy link** (only with a
-  `youtube_id` or an http(s) source; new tab, `noopener`), divider, broken-song items, **Replace with…**. Song rows and the player bar
-  carry no source link of their own. A song not in the library: Add and Mark as broken are disabled, the source items remain.
+- Song menu order: **Add to playlist ▸**, **Source ▸** (**Open in new tab**, `noopener`; **Copy YouTube link**, or "Copy link"
+  for a non-YouTube http(s) source), divider, broken-song items, **Replace with…**, then on playlist rows only a divider and
+  **Remove from playlist** (danger). Source exists only with a `youtube_id` or an http(s) source: no link, no item (never an
+  empty submenu). Song rows and the player bar carry no source link of their own. A song not in the library: Add and Mark as
+  broken are disabled, Source and Remove remain. The decisions are pure and tested in `song-menu-rules.js` (`songSourceLink`,
+  `sourceSubmenu`, `canRemoveFromPlaylist`).
+- **Remove from playlist**: only on rows of the playlist on screen, and only when the viewer may edit it (`state.canEdit`;
+  not the library, Radio, artist pages or the player bar). It is Edit mode's remove (`removeSong` in `queue.js`: gone at once,
+  `queue:remove`, the 6s **Undo** toast sending `queue:restore`, which puts it back at the same position); no confirm. The
+  server checks the right to edit again.
 - **Add to playlist** (`add-to-playlist.js`, a submenu): search with `matchesQuery` (Turkish-aware), groups Pinned /
   Your playlists / Public playlists from `playlist-store.js`, only `canEdit` playlists, and a fixed **New playlist** at the bottom (the usual
   dialog, "Create and add"; it stays on the page). Rows say "by … · Private". "Already added" (disabled) is known only for
@@ -810,6 +823,10 @@ art, times, buttons).
   - `.player-zone-center`: shuffle, prev, play (`.btn-solid.theme-primary` pill), next, repeat, so Play sits in
     the middle; under them the seek `.form-range` with the current time and duration on either side (fixed
     width, so the track stays centred).
+    Repeat cycles off → all ("Replay list") → one and is kept in this browser (`listen-repeatMode`). With no stored
+    choice it is **all** (`DEFAULT_REPEAT`, `initialRepeatMode` in `player-queue.js`); a stored `off` stays off. Radio
+    never replays its list (`contextRepeat`: it runs into its next round), and a listen-along follower never loops on
+    its own (the leader's songs drive it). The button shows the mode from page load (`.active` + its label).
   - `.player-zone-right`, right-aligned: mute + volume, then chat at the very far right (`#social-toggle`,
     unread badge on its corner; toggles the chat panel from 1010px, opens `/social` below that; the only opener
     below 1010px, the rail is the labelled one above that). The slider is 4.75rem at 768px, growing with the
