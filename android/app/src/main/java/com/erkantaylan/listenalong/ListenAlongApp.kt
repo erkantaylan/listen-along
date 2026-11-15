@@ -61,7 +61,9 @@ class AppGraph(context: Context) {
 
     /**
      * Sign-in through the central login (auth/AuthController). Development
-     * servers' sessions (INSECURE_DEV_LOGIN) are accepted by debug builds only.
+     * servers' sessions (INSECURE_DEV_LOGIN) are accepted by debug builds only;
+     * release builds come back on the https App Link from the production
+     * server (AuthFlow.redirectFor).
      */
     val auth = AuthController(
         sessions = settings,
@@ -69,6 +71,7 @@ class AppGraph(context: Context) {
         apiFor = { base -> SignInClient(base) },
         allowDevSignIn = BuildConfig.DEBUG,
         scope = appScope,
+        appLinks = BuildConfig.AUTH_APP_LINKS,
     )
 
     /**

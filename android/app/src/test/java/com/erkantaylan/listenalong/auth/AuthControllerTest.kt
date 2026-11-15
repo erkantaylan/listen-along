@@ -40,8 +40,10 @@ class AuthControllerTest {
         val logouts = mutableListOf<String>()
         var answer: () -> SessionGrant = { SessionGrant(token = "lam_new", user = SessionUser("u1", "Erkan", "approved")) }
         var logoutFails = false
-        override suspend fun exchange(code: String, state: String, verifier: String, nonce: String, iss: String?, previousToken: String?): SessionGrant {
+        val redirects = mutableListOf<String>()
+        override suspend fun exchange(code: String, state: String, verifier: String, nonce: String, iss: String?, previousToken: String?, redirectUri: String): SessionGrant {
             exchanges += listOf(code, state, verifier, nonce, iss, previousToken)
+            redirects += redirectUri
             return answer()
         }
         override suspend fun logout(token: String) {
@@ -51,10 +53,11 @@ class AuthControllerTest {
     }
 
     private class Rig(scope: TestScope, server: HttpUrl, token: String? = null, allowDev: Boolean = false,
-                      val store: MemoryTextStore = MemoryTextStore(), var clock: Long = 1_800_000_000_000L) {
+                      val store: MemoryTextStore = MemoryTextStore(), var clock: Long = 1_800_000_000_000L,
+                      appLinks: Boolean = false) {
         val sessions = FakeSessions(ServerConfig(server, token))
         val api = FakeApi()
-        val auth = AuthController(sessions, store, { api }, allowDev, scope, now = { clock })
+        val auth = AuthController(sessions, store, { api }, allowDev, scope, now = { clock }, appLinks = appLinks)
         val events = mutableListOf<AuthEvent>()
 
         /** begin(), then what the IdP would send back for that sign-in. */
@@ -85,6 +88,45 @@ class AuthControllerTest {
         assertEquals("lam_new", r.sessions.config.token)
         assertEquals("Erkan", r.sessions.config.userName)
         assertEquals(SignInUi.Idle(), r.auth.ui.value)
+    }
+
+    @Test
+    fun `release build on the production server - the App Link, handled exactly like the scheme`() = runTest {
+        val r = Rig(this, "https://music.etaylan.com/".toHttpUrl(), appLinks = true)
+        val url = r.auth.begin()
+        val appLink = "https://music.etaylan.com/auth/mobile/callback"
+        assertEquals(appLink, url.queryParameter("redirect_uri"))
+        val pending = AuthFlow.decode(r.store.read())!!
+        assertEquals(appLink, pending.redirect)
+
+        // A forged one (not our state) leaves the real sign-in waiting.
+        assertTrue(r.auth.handleRedirect("$appLink?code=c0&state=forged"))
+        assertTrue(r.api.exchanges.isEmpty())
+        assertTrue("left waiting for the real one", AuthFlow.decode(r.store.read()) != null)
+
+        val redirect = "$appLink?code=c1&state=${pending.state}"
+        assertTrue(r.auth.handleRedirect(redirect))
+        assertNull("single-use", AuthFlow.decode(r.store.read()))
+        advanceUntilIdle()
+        assertEquals("c1", r.api.exchanges.single()[0])
+        assertEquals("the exchange names the same redirect", listOf(appLink), r.api.redirects)
+        assertEquals("lam_new", r.sessions.config.token)
+        assertTrue(r.auth.handleRedirect(redirect))
+        advanceUntilIdle()
+        assertEquals("a replay exchanges nothing", 1, r.api.exchanges.size)
+    }
+
+    @Test
+    fun `the custom scheme everywhere else - debug builds, other servers - and the exchange says so`() = runTest {
+        for ((server, appLinks) in listOf("https://music.etaylan.com/" to false, "https://music.example.com/" to true)) {
+            val r = Rig(this, server.toHttpUrl(), appLinks = appLinks)
+            val url = r.auth.begin()
+            assertEquals(AuthFlow.REDIRECT_URI, url.queryParameter("redirect_uri"))
+            val state = url.queryParameter("state")!!
+            r.auth.handleRedirect("com.etaylan.listen:/oauth2redirect?code=c2&state=$state")
+            advanceUntilIdle()
+            assertEquals(listOf(AuthFlow.REDIRECT_URI), r.api.redirects)
+        }
     }
 
     @Test

@@ -147,7 +147,7 @@ class MainActivity : ComponentActivity() {
         graph.settings.overrideForSession(url, intent.getStringExtra(EXTRA_DEBUG_SESSION))
     }
 
-    /** `com.etaylan.listen:/oauth2redirect?...` from auth/AuthRedirectActivity. */
+    /** The sign-in redirect (custom scheme or App Link) from auth/AuthRedirectActivity. */
     private fun handleSignInRedirect(intent: Intent?) {
         val data = intent?.dataString ?: return
         if (graph.auth.handleRedirect(data)) {

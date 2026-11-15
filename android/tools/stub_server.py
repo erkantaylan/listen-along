@@ -13,12 +13,19 @@ Serves every .m4a / .opus / .ogg / .mp3 under --music as a library song
                                              withdraw your own report (seeded
                                              with one report by "Ayşe")
   GET /api/library/<id>/file                 the bytes, with Range support
-  GET  /auth/mobile/start?state&nonce&code_challenge
+  GET  /auth/mobile/start?state&nonce&code_challenge[&redirect_uri]
                                              the sign-in "page": a link back
                                              to the app (as the server's dev
-                                             sign-in, no IdP)
-  POST /auth/mobile/exchange                 code + verifier + nonce -> a
-                                             `lam_` session token (mode dev)
+                                             sign-in, no IdP). redirect_uri:
+                                             the custom scheme (also when
+                                             missing: an older app) or
+                                             http://localhost:<port>/auth/mobile/callback;
+                                             anything else is refused
+                                             (--no-custom-scheme refuses the
+                                             scheme, as MOBILE_CUSTOM_SCHEME=off)
+  POST /auth/mobile/exchange                 code + verifier + nonce (+ the
+                                             same redirect_uri) -> a `lam_`
+                                             session token (mode dev)
   POST /auth/mobile/logout                   ends that session
   POST /stub/end-sessions                    ends every session (the app's
                                              next request gets 401
@@ -135,7 +142,9 @@ def make_samples(target):
 
 ME = "stub-user"
 
-# The app's registered redirect (backend/src/mobileAuth.js MOBILE_REDIRECT_URI).
+# The app's custom-scheme redirect (backend/src/mobileAuth.js MOBILE_REDIRECT_URI).
+# The server's other allowed redirect is <BASE_URL>/auth/mobile/callback (an
+# App Link); here http://localhost:<port>/auth/mobile/callback (Handler.redirects).
 REDIRECT_URI = "com.etaylan.listen:/oauth2redirect"
 SESSION_ENDED = {"error": "Your session has ended, sign in again", "code": "SESSION_ENDED"}
 STATE_RE = re.compile(r"^[A-Za-z0-9._~-]{16,256}$")
@@ -183,6 +192,16 @@ class Handler(BaseHTTPRequestHandler):
     songs = []
     sessions = set()   # the `lam_` / --token values that are signed in
     used_codes = set()
+    redirects = [REDIRECT_URI]  # the allowlist (main() adds the https-style callback)
+    custom_scheme = True        # False: --no-custom-scheme
+
+    def chosen_redirect(self, raw):
+        """As mobileAuth.js chosenRedirect: the allowlist, the scheme when missing, else None."""
+        if raw is None:
+            return REDIRECT_URI if self.custom_scheme else None
+        if not isinstance(raw, str) or raw not in self.redirects:
+            return None
+        return raw if (raw != REDIRECT_URI or self.custom_scheme) else None
     throttle_kbps = 0
     playlists = {}
     reports = {}  # song id -> [report]
@@ -223,8 +242,15 @@ class Handler(BaseHTTPRequestHandler):
         challenge = qs.get("code_challenge", [""])[0]
         if not STATE_RE.match(state) or not STATE_RE.match(nonce) or len(challenge) != 43:
             return self.send_html(400, "Sign-in link not valid", "<p>Go back to the app and try again.</p>")
-        code = "dev." + b64url(json.dumps({"c": challenge, "n": nonce, "t": time.time()}).encode())
-        link = f"{REDIRECT_URI}?{urlencode({'code': code, 'state': state})}"
+        asked = qs.get("redirect_uri")
+        if asked is not None and len(asked) != 1:
+            return self.send_html(400, "Sign-in link not valid", "<p>Go back to the app and try again.</p>")
+        redirect = self.chosen_redirect(None if asked is None else asked[0])
+        if redirect is None:
+            return self.send_html(400, "Sign-in link not valid", "<p>The app asked for a redirect this server does not allow.</p>")
+        # The code names its redirect, as the real server binds it through the nonce.
+        code = "dev." + b64url(json.dumps({"c": challenge, "n": nonce, "r": redirect, "t": time.time()}).encode())
+        link = f"{redirect}?{urlencode({'code': code, 'state': state})}"
         self.send_html(200, "Stub sign-in", "<p>tools/stub_server.py: no IdP, anyone is " + html.escape(ME) + ".</p>"
                        f"<p><a id=continue href='{html.escape(link)}'>Continue as {html.escape(ME)}</a></p>")
 
@@ -234,12 +260,16 @@ class Handler(BaseHTTPRequestHandler):
         if not all(isinstance(x, str) for x in (code, verifier, nonce, state)) \
                 or not VERIFIER_RE.match(verifier) or not STATE_RE.match(nonce) or not STATE_RE.match(state):
             return self.send_json(400, {"error": "The sign-in request is not valid", "code": "invalid_request"})
+        redirect = self.chosen_redirect(b.get("redirect_uri"))
+        if redirect is None:
+            return self.send_json(400, {"error": "The sign-in request is not valid", "code": "invalid_request"})
         try:
             data = json.loads(base64.urlsafe_b64decode(code[4:] + "=" * (-len(code[4:]) % 4)))
         except Exception:
             data = None
         if (not code.startswith("dev.") or not isinstance(data, dict) or code in self.used_codes
-                or data.get("n") != nonce or data.get("c") != s256(verifier) or time.time() - data.get("t", 0) > 600):
+                or data.get("n") != nonce or data.get("c") != s256(verifier) or data.get("r", REDIRECT_URI) != redirect
+                or time.time() - data.get("t", 0) > 600):
             return self.send_json(400, {"error": "Sign-in did not work, try again", "code": "signin_failed"})
         Handler.used_codes.add(code)
         token = "lam_" + secrets.token_urlsafe(32)
@@ -538,6 +568,8 @@ def main():
     parser.add_argument("--throttle", type=int, default=0, metavar="KBPS",
                         help="slow file transfers down, to watch progress and test cancelling")
     parser.add_argument("--samples", action="store_true", help="create sample songs in --music first")
+    parser.add_argument("--no-custom-scheme", action="store_true",
+                        help="refuse the custom-scheme redirect (as the server's MOBILE_CUSTOM_SCHEME=off)")
     args = parser.parse_args()
 
     music = os.path.abspath(args.music)
@@ -551,6 +583,8 @@ def main():
     Handler.reports = seed_reports(Handler.songs)
     Handler.sessions = {args.token} if args.token else set()
     Handler.throttle_kbps = args.throttle
+    Handler.redirects = [f"http://localhost:{args.port}/auth/mobile/callback", REDIRECT_URI]
+    Handler.custom_scheme = not args.no_custom_scheme
     print(f"stub: {len(Handler.songs)} songs from {music} on http://{args.bind}:{args.port}", flush=True)
     ThreadingHTTPServer((args.bind, args.port), Handler).serve_forever()
 

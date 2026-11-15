@@ -29,7 +29,8 @@ interface SessionHolder {
 
 /** The server calls of a sign-in (api/SignInClient; a fake in tests). */
 interface SignInApi {
-    suspend fun exchange(code: String, state: String, verifier: String, nonce: String, iss: String?, previousToken: String?): SessionGrant
+    /** [redirectUri]: the redirect the sign-in was started with (the server binds the code to it). */
+    suspend fun exchange(code: String, state: String, verifier: String, nonce: String, iss: String?, previousToken: String?, redirectUri: String): SessionGrant
     suspend fun logout(token: String)
 }
 
@@ -64,7 +65,9 @@ sealed interface AuthEvent {
  * killed while the browser was open; it is single-use. A redirect whose state
  * is not ours is refused and leaves a real sign-in in progress alone. A
  * development server's session (`mode: dev`) is refused unless
- * [allowDevSignIn] (debug builds).
+ * [allowDevSignIn] (debug builds). The redirect (App Link or custom scheme)
+ * is picked once per sign-in by [AuthFlow.redirectFor]; [appLinks] is whether
+ * this build declares the App Link (release builds).
  */
 class AuthController(
     private val sessions: SessionHolder,
@@ -74,6 +77,7 @@ class AuthController(
     private val scope: CoroutineScope,
     private val now: () -> Long = System::currentTimeMillis,
     private val random: SecureRandom = SecureRandom(),
+    private val appLinks: Boolean = false,
 ) {
     private val _ui = MutableStateFlow<SignInUi>(SignInUi.Idle())
     val ui: StateFlow<SignInUi> = _ui.asStateFlow()
@@ -84,7 +88,7 @@ class AuthController(
     /** Starts a sign-in against the server in force; returns the page for the Custom Tab. */
     fun begin(): HttpUrl {
         val server = sessions.current.baseUrl
-        val pending = AuthFlow.newPending(server, now(), random)
+        val pending = AuthFlow.newPending(server, now(), random, AuthFlow.redirectFor(server, appLinks))
         pendingStore.write(AuthFlow.encode(pending))
         _ui.value = SignInUi.InBrowser
         return AuthFlow.startUrl(server, pending)
@@ -133,7 +137,7 @@ class AuthController(
         scope.launch {
             try {
                 val p = r.pending
-                val grant = apiFor(server).exchange(r.code, p.state, p.verifier, p.nonce, r.iss, current.token)
+                val grant = apiFor(server).exchange(r.code, p.state, p.verifier, p.nonce, r.iss, current.token, p.redirect)
                 if (grant.mode == "dev" && !allowDevSignIn) {
                     runCatching { apiFor(server).logout(grant.token) }
                     fail("dev_refused")

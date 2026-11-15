@@ -39,7 +39,8 @@ class SignInClientTest {
     fun `exchange posts the code, verifier and nonce and reads the session`() = runTest {
         server.enqueue(json("""{"token":"lam_x","token_type":"Bearer","expires_at":1800000000000,"mode":"central",
             "user":{"id":"u1","name":"Erkan","status":"approved"},"extra":true}"""))
-        val grant = client().exchange("c", "s".repeat(16), "v".repeat(43), "n".repeat(16), "https://id/", previousToken = "lam_old")
+        val grant = client().exchange("c", "s".repeat(16), "v".repeat(43), "n".repeat(16), "https://id/", previousToken = "lam_old",
+            redirectUri = "https://music.etaylan.com/auth/mobile/callback")
         assertEquals("lam_x", grant.token)
         assertEquals("central", grant.mode)
         assertEquals("Erkan", grant.user?.name)
@@ -53,12 +54,13 @@ class SignInClientTest {
         assertEquals("n".repeat(16), body["nonce"]!!.jsonPrimitive.content)
         assertEquals("s".repeat(16), body["state"]!!.jsonPrimitive.content)
         assertEquals("https://id/", body["iss"]!!.jsonPrimitive.content)
+        assertEquals("the redirect the sign-in was started with", "https://music.etaylan.com/auth/mobile/callback", body["redirect_uri"]!!.jsonPrimitive.content)
     }
 
     @Test
     fun `no previous session, no iss - neither is sent`() = runTest {
         server.enqueue(json("""{"token":"lam_x","mode":"dev"}"""))
-        assertEquals("dev", client().exchange("c", "s", "v", "n", null, null).mode)
+        assertEquals("dev", client().exchange("c", "s", "v", "n", null, null, "com.etaylan.listen:/oauth2redirect").mode)
         val request = server.takeRequest()
         assertNull(request.headers["Authorization"])
         assertFalse(apiJson.parseToJsonElement(request.body!!.utf8()).jsonObject.containsKey("iss"))
@@ -67,7 +69,7 @@ class SignInClientTest {
     private suspend fun refusedWith(response: MockResponse): String {
         server.enqueue(response)
         try {
-            client().exchange("c", "s", "v", "n", null, null)
+            client().exchange("c", "s", "v", "n", null, null, "com.etaylan.listen:/oauth2redirect")
             fail("expected a refusal")
         } catch (e: SignInException) {
             return e.code
@@ -90,7 +92,7 @@ class SignInClientTest {
     fun `a proxy's 502 page is an outage, not a refusal`() = runTest {
         server.enqueue(MockResponse.Builder().code(502).body("<html>Bad gateway</html>").build())
         try {
-            client().exchange("c", "s", "v", "n", null, null)
+            client().exchange("c", "s", "v", "n", null, null, "com.etaylan.listen:/oauth2redirect")
             fail("expected IOException")
         } catch (e: SignInException) {
             fail("not a refusal")

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Release builds only, merged into src/main/AndroidManifest.xml. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- Sign-in through an https App Link: the central login sends the
+             browser to https://music.etaylan.com/auth/mobile/callback?code&state
+             (host from build.gradle.kts). autoVerify: Android checks the
+             server's /.well-known/assetlinks.json for this package and the
+             release key's fingerprint, and then opens this app for the link
+             without asking; no other app can take it, as one can the custom
+             scheme. Not verified (yet), Android shows the URL in the browser,
+             whose page has a button back to this app (an intent: link naming
+             this package). auth/AuthFlow.redirectFor decides when this is
+             used; the custom-scheme filter in the main manifest stays for
+             other servers. -->
+        <activity android:name=".auth.AuthRedirectActivity">
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="${authAppLinkHost}"
+                    android:path="/auth/mobile/callback" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

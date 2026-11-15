@@ -28,6 +28,15 @@ val keyAliasName: String = providers.environmentVariable("ANDROID_KEY_ALIAS").or
 // (BuildConfig.AUTH_REDIRECT_SCHEME, auth/AuthFlow) both take it from here.
 val authRedirectScheme = "com.etaylan.listen"
 
+// Release builds sign in through an https App Link instead when the server is
+// the production one: https://<authAppLinkHost>/auth/mobile/callback, verified
+// by Android against https://<authAppLinkHost>/.well-known/assetlinks.json
+// (the release key's fingerprint; backend/src/mobileAuth.js). The intent
+// filter is in src/release/AndroidManifest.xml (release only: a debug build is
+// signed with the debug key and never verified for this host, so it keeps the
+// custom scheme). auth/AuthFlow.redirectFor picks one per sign-in.
+val authAppLinkHost = "music.etaylan.com"
+
 android {
     namespace = "com.erkantaylan.listenalong"
     compileSdk = 37
@@ -40,6 +49,8 @@ android {
         versionName = releaseVersion?.let { (x, y, z) -> "$x.$y.$z" } ?: "0.2.0-dev"
         manifestPlaceholders["authRedirectScheme"] = authRedirectScheme
         buildConfigField("String", "AUTH_REDIRECT_SCHEME", "\"$authRedirectScheme\"")
+        manifestPlaceholders["authAppLinkHost"] = authAppLinkHost
+        buildConfigField("String", "AUTH_APP_LINK_HOST", "\"$authAppLinkHost\"")
         // The only test device is arm64; emulators on this machine are x86_64.
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
@@ -59,8 +70,10 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             isMinifyEnabled = false
+            buildConfigField("boolean", "AUTH_APP_LINKS", "false")
         }
         release {
+            buildConfigField("boolean", "AUTH_APP_LINKS", "true")
             isMinifyEnabled = true
             isShrinkResources = true
             signingConfigs.findByName("release")?.let { signingConfig = it }

@@ -6,7 +6,9 @@ import android.os.Bundle
 import com.erkantaylan.listenalong.MainActivity
 
 /**
- * Receives `com.etaylan.listen:/oauth2redirect?...` from the browser and
+ * Receives `com.etaylan.listen:/oauth2redirect?...` or, in release builds,
+ * the App Link `https://music.etaylan.com/auth/mobile/callback?...` (from the
+ * browser, or from the server's fallback page's intent: button) and
  * hands it to [MainActivity] (CLEAR_TOP closes the Custom Tab above it;
  * NEW_TASK finds the app's task even when the browser ran the tab in its
  * own). Checks nothing itself: [AuthController.handleRedirect] does.

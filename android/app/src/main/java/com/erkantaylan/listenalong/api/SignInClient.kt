@@ -55,6 +55,7 @@ class SignInClient(
         nonce: String,
         iss: String?,
         previousToken: String?,
+        redirectUri: String,
     ): SessionGrant = withContext(Dispatchers.IO) {
         val body = buildJsonObject {
             put("code", code)
@@ -62,6 +63,7 @@ class SignInClient(
             put("code_verifier", verifier)
             put("nonce", nonce)
             if (iss != null) put("iss", iss)
+            put("redirect_uri", redirectUri)
         }
         val request = Request.Builder()
             .url(baseUrl.newBuilder().addPathSegments("auth/mobile/exchange").build())

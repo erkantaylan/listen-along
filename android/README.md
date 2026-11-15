@@ -72,14 +72,38 @@ app"). It never asks for a token and never holds the central login's tokens.
 
 - **Sign in** makes a PKCE verifier, `state` and `nonce` (`auth/AuthFlow`;
   kept encrypted until the browser comes back, so it survives the app being
-  killed meanwhile) and opens `<server>/auth/mobile/start` in a Custom Tab.
-  The server sends it on to the central login; the login sends the browser to
-  `com.etaylan.listen:/oauth2redirect?code&state`, which Android hands to
-  `auth/AuthRedirectActivity` (that scheme is the redirect registered for
-  listen-along at the central login; `build.gradle.kts` puts it in the
-  manifest and `BuildConfig`, and it is not the applicationId). A `state`
-  that is not the app's own is refused.
-- The app sends the code, the verifier and the nonce to
+  killed meanwhile) and opens `<server>/auth/mobile/start?…&redirect_uri=…`
+  in a Custom Tab. The server sends it on to the central login, which sends
+  the browser back to that redirect with `code` and `state`; Android hands it
+  to `auth/AuthRedirectActivity`. Both redirects are handled alike; one with a
+  `state` that is not the app's own is refused. (A server from before App
+  Links ignores `redirect_uri` and answers on the scheme; that still works.)
+- **Which redirect** (`AuthFlow.redirectFor`, the one place, unit tested):
+  - **Release builds, server `https://music.etaylan.com`**: the https **App
+    Link** `https://music.etaylan.com/auth/mobile/callback`. Declared with
+    `autoVerify` in `src/release/AndroidManifest.xml`; Android verifies it
+    against the server's `/.well-known/assetlinks.json` (the release key's
+    SHA-256) and then gives the link to this app only, without a chooser.
+    A custom scheme can be claimed by any installed app; this cannot.
+  - **Everything else**: the custom scheme `com.etaylan.listen:/oauth2redirect`
+    (registered at the central login; `build.gradle.kts` puts it in the
+    manifest and `BuildConfig`; not the applicationId). Any other server
+    (self-hosted, development) cannot be declared in the manifest, and debug
+    builds (`.debug`, the debug key) are never verified for the production
+    host. The server may switch the scheme off (`MOBILE_CUSTOM_SCHEME=off`);
+    such a server then needs the App Link.
+  - **Not verified (yet)**: Android shows the https URL in the browser
+    instead. The server's page there has an **Open the app** button: an
+    `intent:` link to the same URL naming this package, which works whether
+    or not the domain is verified and which no other app can take. So a
+    release build always asks for the App Link on the production server; it
+    does not look at `DomainVerificationManager` first and fall back to the
+    custom scheme, because that fallback would hand the code to whoever holds
+    the scheme (the very risk the App Link removes) and would stop working
+    once the server switches the scheme off. The cost is one extra tap on a
+    phone where verification failed. Check it with
+    `adb shell pm get-app-links com.erkantaylan.listenalong` (`verified`).
+- The app sends the code, the verifier, the nonce and the redirect to
   `/auth/mobile/exchange`; the server exchanges the code, checks the
   id_token, finds the account by the same rules as the web, and answers with
   the app's own session token (`lam_…`). It is stored encrypted
@@ -289,6 +313,10 @@ APK, checks its certificate and version, and publishes a GitHub Release with
   everyone would have to uninstall first and lose the app's data. Keep a backup
   somewhere else. Certificate SHA-256 (public):
   `ddb6d8fe68097be1505d533755ee3c59d165e6e31852dbba9cc6a65f4561c3f5`.
+  The server publishes it in `/.well-known/assetlinks.json` for the sign-in
+  App Link (`backend/src/mobileAuth.js` `RELEASE_CERT_SHA256`): a new key
+  means setting `ANDROID_APP_CERT_SHA256` on the server (new and old while
+  old installs remain), or the App Link stops verifying.
 - **Build one locally**: `set -a; . ~/keys/listen-along-release.env; set +a;
   ./gradlew :app:assembleRelease`. Without those variables the same command leaves
   an unsigned `app-release-unsigned.apk`.
@@ -299,8 +327,9 @@ APK, checks its certificate and version, and publishes a GitHub Release with
 - The release is `com.erkantaylan.listenalong`, the debug build
   `com.erkantaylan.listenalong.debug`, with different keys. They install side by side
   and share no session, settings or download index. Both register the sign-in
-  scheme, so with both installed Android asks which one gets the sign-in: pick
-  the one you started from. Moving to the release means signing in again; with music access, *Find songs already in the folder*
+  scheme, so with both installed Android asks which one gets a custom-scheme
+  sign-in: pick the one you started from (a release build on music.etaylan.com
+  uses the App Link, which only the release takes). Moving to the release means signing in again; with music access, *Find songs already in the folder*
   picks up the files.
 
 ## Dev loop
@@ -317,7 +346,10 @@ ANDROID_SERIAL=emulator-5554 ./dev.sh --stub   # pick the device explicitly
 server, which needs PostgreSQL. It serves every `.m4a`/`.opus`/`.ogg`/`.mp3`
 in a folder through the same API — search, paging, sort, `Range`, `/api/me` —
 the app's sign-in (`/auth/mobile/start` shows a "Continue as stub-user" link,
-`/auth/mobile/exchange` checks the verifier and nonce and hands out a `lam_`
+`/auth/mobile/exchange` checks the verifier, the nonce and the redirect (the
+server's allowlist: the custom scheme, also when none is named, or
+`http://localhost:<port>/auth/mobile/callback`; `--no-custom-scheme` refuses
+the scheme like `MOBILE_CUSTOM_SCHEME=off`) and hands out a `lam_`
 session, `/auth/mobile/logout`; an unknown session answers 401
 `SESSION_ENDED`, and `POST /stub/end-sessions` ends them all, to try the
 signed-out path), plus
