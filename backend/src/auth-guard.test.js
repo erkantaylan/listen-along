@@ -16,12 +16,12 @@ const assert = require('node:assert/strict');
 const { spawn, execSync, execFileSync } = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
-const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
 const { io: ioClient } = require('socket.io-client');
 const userAuthMod = require('./userAuth');
 const devLogin = require('./devLogin');
+const { listening } = require('./testServer');
 
 const SECRET = 'auth-guard-test-secret';
 const ADMIN_PASSWORD = 'auth-guard-admin-pw';
@@ -49,30 +49,16 @@ function adminCookie() {
   return v;
 }
 
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.listen(0, () => { const { port } = srv.address(); srv.close(() => resolve(port)); });
-    srv.on('error', reject);
-  });
-}
-
 async function startServer(extraEnv = {}) {
-  const port = await freePort();
+  // Port 0: the server binds a free port itself and says which (testServer.listening).
   const env = {
-    ...process.env, PORT: String(port), SESSION_SECRET: SECRET, NODE_ENV: 'test', ADMIN_PASSWORD,
+    ...process.env, PORT: '0', SESSION_SECRET: SECRET, NODE_ENV: 'test', ADMIN_PASSWORD,
     PRESENCE_GRACE_MS: '0', FRONTEND_PATH: FRONTEND, INSECURE_DEV_LOGIN: '1',
     COVERS_DIR: path.join(os.tmpdir(), 'la-auth-test-covers'), ...extraEnv,
   };
   if (!extraEnv.DATABASE_URL) delete env.DATABASE_URL;
   const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
-  let log = '';
-  proc.stderr.on('data', (d) => { log += d; });
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`server did not start\n${log}`)), 30_000);
-    proc.stdout.on('data', (d) => { if (/Server running on port/.test(String(d))) { clearTimeout(timer); resolve(); } });
-    proc.on('exit', (code) => reject(new Error(`server exited (${code})\n${log}`)));
-  });
+  const port = await listening(proc);
   return { proc, base: `http://127.0.0.1:${port}` };
 }
 
@@ -294,17 +280,11 @@ describe('sign-in at boot: production needs the central login and refuses the de
   });
 
   it('a production server never accepts the dev sign-in cookie, and has no dev sign-in route', async () => {
-    const port = await freePort();
     const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
-      env: { PATH: process.env.PATH, PORT: String(port), FRONTEND_PATH: FRONTEND, ...prod }, stdio: ['ignore', 'pipe', 'pipe'],
+      env: { PATH: process.env.PATH, PORT: '0', FRONTEND_PATH: FRONTEND, ...prod }, stdio: ['ignore', 'pipe', 'pipe'],
     });
     try {
-      await new Promise((resolve, reject) => {
-        let log = '';
-        proc.stderr.on('data', (d) => { log += d; });
-        proc.stdout.on('data', (d) => { log += d; if (/Server running on port/.test(log)) resolve(); });
-        proc.on('exit', (code) => reject(new Error(`server exited (${code})\n${log}`)));
-      });
+      const port = await listening(proc);
       const c = client(`http://127.0.0.1:${port}`);
       // Signed with the server's own SESSION_SECRET: still no login.
       for (const cookie of [cookieFor(ALICE), legacyCookie(ALICE)]) {

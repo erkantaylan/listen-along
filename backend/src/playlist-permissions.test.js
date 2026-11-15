@@ -5,11 +5,11 @@
 const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
-const net = require('node:net');
 const path = require('node:path');
 const http = require('node:http');
 const { io: ioClient } = require('socket.io-client');
 const { DEV_COOKIE, signDevToken } = require('./devLogin');
+const { listening } = require('./testServer');
 const access = require('./playlistAccess');
 
 const SECRET = 'playlist-permissions-test-secret';
@@ -89,31 +89,18 @@ describe('playlistAccess rules', () => {
   });
 });
 
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.listen(0, () => { const { port } = srv.address(); srv.close(() => resolve(port)); });
-    srv.on('error', reject);
-  });
-}
-
 describe('playlist permissions against a running server', { timeout: 60_000 }, () => {
   let server;
   let base;
   const sockets = [];
 
   before(async () => {
-    const port = await freePort();
-    base = `http://127.0.0.1:${port}`;
-    const env = { ...process.env, PORT: String(port), SESSION_SECRET: SECRET, NODE_ENV: 'test', INSECURE_DEV_LOGIN: '1', FRONTEND_PATH: path.join(__dirname, '..', '..', 'frontend') };
+    // Port 0: the server binds a free port itself and says which (testServer.listening).
+    const env = { ...process.env, PORT: '0', SESSION_SECRET: SECRET, NODE_ENV: 'test', INSECURE_DEV_LOGIN: '1', FRONTEND_PATH: path.join(__dirname, '..', '..', 'frontend') };
     delete env.DATABASE_URL;
     delete env.ADMIN_PASSWORD;
     server = spawn(process.execPath, [path.join(__dirname, 'index.js')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
-    await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('server did not start')), 20_000);
-      server.stdout.on('data', (d) => { if (/Server running on port/.test(String(d))) { clearTimeout(timer); resolve(); } });
-      server.on('exit', (code) => reject(new Error(`server exited (${code})`)));
-    });
+    base = `http://127.0.0.1:${await listening(server, 20_000)}`;
   });
 
   after(() => {

@@ -393,8 +393,10 @@ async function start() {
   }
 
   server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log(`Health check: http://localhost:${PORT}/health`);
+    // The bound port: PORT=0 (tests) lets the system pick one, and this line says which.
+    const { port } = server.address();
+    console.log(`Server running on port ${port}`);
+    console.log(`Health check: http://localhost:${port}/health`);
     ytdlp.availableCached().catch(() => {}); // warm the /health cache
     if (dbAvailable) {
       console.log(`Music library: ${library.SONGS_PATH}`);

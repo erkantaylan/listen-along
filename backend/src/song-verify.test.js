@@ -14,12 +14,19 @@ const path = require('node:path');
 
 const has = (cmd) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
 const BAD_INPUT = 'Error opening input: Invalid data found when processing input';
+// Fixed noise (SHA-256 in counter mode), so every run checks the same bytes: a
+// fixture that changes per run makes a test that changes per run.
+const noise = (size, seed) => {
+  const out = Buffer.alloc(size);
+  for (let i = 0, at = 0; at < size; i++) at += crypto.createHash('sha256').update(`${seed}:${i}`).digest().copy(out, at);
+  return out;
+};
 
 describe('songVerify: the decode check', { skip: !has('ffmpeg -version') && 'ffmpeg not available' }, () => {
   let verifyBroken;
   let dir;
   let n = 0;
-  const garbage = () => { const p = path.join(dir, `bad${++n}.m4a`); fs.writeFileSync(p, crypto.randomBytes(20000)); return p; };
+  const garbage = () => { const p = path.join(dir, `bad${++n}.m4a`); fs.writeFileSync(p, noise(20000, `garbage-${n}`)); return p; };
   const fake = (body) => { const p = path.join(dir, `fake${++n}.sh`); fs.writeFileSync(p, `#!/bin/sh\n${body}\n`, { mode: 0o755 }); return p; };
   const check = (file_path) => verifyBroken({ id: 'x', file_path });
 
@@ -46,7 +53,7 @@ describe('songVerify: the decode check', { skip: !has('ffmpeg -version') && 'ffm
     fs.writeFileSync(empty, '');
     assert.equal((await check(empty)).broken, 'undecodable');
     const damaged = Buffer.from(fs.readFileSync(good));
-    crypto.randomFillSync(damaged, Math.floor(damaged.length / 3), Math.floor(damaged.length / 3));
+    noise(Math.floor(damaged.length / 3), 'middle').copy(damaged, Math.floor(damaged.length / 3));
     const mid = path.join(dir, 'mid.m4a');
     fs.writeFileSync(mid, damaged);
     assert.equal((await check(mid)).broken, 'undecodable');
@@ -70,6 +77,8 @@ describe('songVerify: the decode check', { skip: !has('ffmpeg -version') && 'ffm
       `Error opening input file ${p}.\nError opening input files: No such file or directory`,
       'Error opening input: Input/output error',
       'Error opening input: Permission denied',
+      'Error opening input: Operation not permitted',
+      '[in#0/mov @ 0x1] Error during demuxing: Operation not permitted',
       'Error opening input: Too many open files',
       // Even next to words that blame the input.
       `${BAD_INPUT}\nCannot allocate memory`,
@@ -82,6 +91,35 @@ describe('songVerify: the decode check', { skip: !has('ffmpeg -version') && 'ffm
     }
     delete process.env.VERIFY_FFMPEG;
     assert.equal((await check(p)).broken, 'undecodable', 'the real check still runs afterwards');
+  });
+
+  it("a decoder's own failure code blames the file, and so does a file without an audio stream", async () => {
+    // ffmpeg 7 / 8 on a damaged AAC frame: the decoder returns a bare -1, which
+    // ffmpeg prints as errno 1. About one damaged m4a in nine ends this way.
+    const decoderMinusOne = [
+      '[aac @ 0x1] decode_pce: Input buffer exhausted before END element found',
+      '[aist#0:0/aac @ 0x2] [dec:aac @ 0x3] Error submitting packet to decoder: Operation not permitted',
+      '[aist#0:0/aac @ 0x2] [dec:aac @ 0x3] Error processing packet in decoder: Operation not permitted',
+      '[aist#0:0/aac @ 0x2] [dec:aac @ 0x3] Task finished with error code: -1 (Operation not permitted)',
+      '[aist#0:0/aac @ 0x2] [dec:aac @ 0x3] Terminating thread with return code -1 (Operation not permitted)',
+    ].join('\n');
+    // Bytes that probe as something without audio (lyrics, a video): ffmpeg 7 names
+    // the map, ffmpeg 8 does not.
+    const noAudio = (map) => [
+      `Stream map '${map}' matches no streams.`,
+      "To ignore this, add a trailing '?' to the map.",
+      "Failed to set value '0:a:0' for option 'map': Invalid argument",
+      'Error opening output files: Invalid argument',
+    ].join('\n');
+    for (const [stderr, code] of [[decoderMinusOne, 255], [noAudio('0:a:0'), 234], [noAudio(''), 234]]) {
+      const p = garbage();
+      process.env.VERIFY_FFMPEG = fake(`cat <<'MSG' >&2\n${stderr}\nMSG\nexit ${code}`);
+      assert.equal((await check(p)).broken, 'undecodable', stderr);
+    }
+    // Next to the decoder's words, the surroundings failing too: not established.
+    const p = garbage();
+    process.env.VERIFY_FFMPEG = fake(`cat <<'MSG' >&2\n${decoderMinusOne}\n[in#0/mov @ 0x4] Error during demuxing: Input/output error\nMSG\nexit 255`);
+    assert.equal((await check(p)).broken, null);
   });
 
   it('no ffmpeg, a killed one and a timeout are not a broken file', async () => {

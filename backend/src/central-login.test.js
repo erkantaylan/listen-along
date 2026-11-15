@@ -196,6 +196,45 @@ describe('central login: rules', () => {
     assert.ok(s.idHashFromHeaders({ cookie: `__Host-la_session=${raw}` }));
   });
 
+  it('a request that read the session while its re-check ran does not refresh again with the rotated-away token', async () => {
+    // The row as the database holds it; get() hands out a snapshot. The second
+    // request's read is slow: it returns the row as it was BEFORE the first
+    // request's refresh, but only after that refresh has finished.
+    let row = { idHash: 'h1', sub: 'sub-1', refreshToken: 'rt-1', lastCheckedAt: 0, expiresAt: 1e12 };
+    let releaseSlowRead;
+    const slowRead = new Promise((resolve) => { releaseSlowRead = resolve; });
+    let reads = 0;
+    const store = {
+      get: async () => {
+        const snapshot = { ...row };
+        if (++reads === 2) await slowRead;
+        return snapshot;
+      },
+      markChecked: async (idHash, { refreshToken, at }) => { row = { ...row, refreshToken, lastCheckedAt: at }; return true; },
+      remove: async () => { row = null; },
+    };
+    const used = [];
+    const client = {
+      refresh: async (token) => {
+        used.push(token);
+        if (token !== row.refreshToken) throw Object.assign(new Error('invalid_grant'), { kind: 'refused' });
+        return { refreshToken: `rt-${used.length + 1}`, idToken: null, claims: {} };
+      },
+    };
+    let t = 10_000;
+    const s = createOidcSessions({ store, client, cfg: { recheckMs: 1000, maxUnverifiedMs: 60_000 }, now: () => t, logger: { log() {}, warn() {}, error() {} } });
+    const first = s.check('h1');
+    const second = s.check('h1');
+    assert.ok(await first, 'the first request re-checks');
+    releaseSlowRead();
+    assert.ok(await second, 'the slow one is still signed in');
+    assert.deepEqual(used, ['rt-1'], 'one refresh, never the old token again');
+    assert.ok(row, 'the session was not ended');
+    t += 1500;
+    assert.ok(await s.check('h1'), 'due again later: re-checked with the newest token');
+    assert.deepEqual(used, ['rt-1', 'rt-2']);
+  });
+
   it('the route policy knows the central login round trip', () => {
     for (const p of ['/auth/oidc/login', '/auth/oidc/callback']) assert.equal(userAuthMod.policyFor(p), 'public', p);
     assert.equal(userAuthMod.policyFor('/api/admin/settings'), 'self');

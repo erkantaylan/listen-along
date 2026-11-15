@@ -27,8 +27,8 @@ database unless `backend/.env` sets `DATABASE_URL`.
 
 One command starts a complete local setup, orchestrated by an
 [Aspire](https://aspire.dev) AppHost written in TypeScript (`aspire/apphost.mts`).
-It is for development only: the Docker image, both compose files and CI do
-not use it.
+It is for development only: the Docker image and both compose files do not
+use it.
 
 ### Prerequisites
 

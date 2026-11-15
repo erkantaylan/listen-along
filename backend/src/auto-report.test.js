@@ -30,6 +30,12 @@ const skip = !PostgreSqlContainer ? 'testcontainers package not installed'
   : !has('ffmpeg -version') || !has('ffprobe -version') ? 'ffmpeg/ffprobe not available' : false;
 
 const NOT_CONFIRMED = { reported: false, code: 'NOT_CONFIRMED' };
+// Fixed noise (SHA-256 in counter mode): the same damaged files on every run.
+const noise = (size, seed) => {
+  const out = Buffer.alloc(size);
+  for (let i = 0, at = 0; at < size; i++) at += crypto.createHash('sha256').update(`${seed}:${i}`).digest().copy(out, at);
+  return out;
+};
 
 describe('automatic song reports: the server verifies', { skip, timeout: 240_000 }, () => {
   let container;
@@ -124,9 +130,9 @@ describe('automatic song reports: the server verifies', { skip, timeout: 240_000
   it('a file that does not decode is confirmed: garbage bytes, and a damaged middle', async () => {
     const keep = [fs.readFileSync(paths[1]), fs.readFileSync(paths[2])];
     try {
-      fs.writeFileSync(paths[1], crypto.randomBytes(40000));
+      fs.writeFileSync(paths[1], noise(40000, 'garbage'));
       const damaged = Buffer.from(keep[1]);
-      crypto.randomFillSync(damaged, Math.floor(damaged.length / 3), Math.floor(damaged.length / 3));
+      noise(Math.floor(damaged.length / 3), 'middle').copy(damaged, Math.floor(damaged.length / 3));
       fs.writeFileSync(paths[2], damaged);
       for (const i of [1, 2]) {
         const r = await auto(i, 'alice');

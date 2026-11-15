@@ -19,8 +19,10 @@
  *
  * Re-check: when a session is used and its last successful check is older than
  * OIDC_RECHECK_SECONDS (5 min), the refresh token is used once (single-flight
- * per session: concurrent requests wait for the same refresh; rotation keeps
- * the newest token; 3 s timeout):
+ * per session: concurrent requests wait for the same refresh, and a request
+ * whose read of the row started before a refresh finished does not start
+ * another with the token that refresh rotated away; rotation keeps the newest
+ * token; 3 s timeout):
  *   - invalid_grant (account disabled centrally, token revoked or expired), or
  *     an answer whose id_token does not validate or names another sub -> the
  *     session ends, its sockets are cut
@@ -183,6 +185,11 @@ function createSessionStore({ db, secret, dbExpected = false }) {
  */
 function createOidcSessions({ store, client, cfg, cookieName = SESSION_COOKIE, onEnded = () => {}, logger = console, now = () => Date.now() }) {
   const inflight = new Map(); // idHash -> Promise<session|null>
+  // idHash -> when this process last re-checked it successfully. A request that
+  // read the row while that re-check ran holds the old lastCheckedAt and the
+  // old refresh token; using that token again would be a reuse, and the IdP
+  // ends the session for it (invalid_grant).
+  const checkedAt = new Map();
   const retryAt = new Map();  // idHash -> ms: an unanswered refresh is retried after this
   let quietUntil = 0;         // no refresh for anyone before this (the IdP just failed)
   const quietMs = Math.min(IDP_QUIET_MS, cfg.recheckMs);
@@ -226,6 +233,8 @@ function createOidcSessions({ store, client, cfg, cookieName = SESSION_COOKIE, o
     const roles = r.claims && Array.isArray(r.claims.roles) ? r.claims.roles.filter((x) => typeof x === 'string') : null;
     const ok = await store.markChecked(s.idHash, { refreshToken: r.refreshToken, idToken: r.idToken, roles, at: t });
     if (!ok) return null; // deleted meanwhile (logout, ban)
+    if (checkedAt.size > 10000) checkedAt.clear();
+    checkedAt.set(s.idHash, t);
     return { ...s, refreshToken: r.refreshToken, idToken: r.idToken || s.idToken, roles: roles || s.roles, lastCheckedAt: t };
   }
 
@@ -240,7 +249,9 @@ function createOidcSessions({ store, client, cfg, cookieName = SESSION_COOKIE, o
     const t = now();
     if (s.expiresAt <= t) { await end(idHash, 'expired'); return null; }
     if (s.tokensBroken) { await end(idHash, 'stored tokens cannot be decrypted (SESSION_SECRET changed?)'); return null; }
-    if (!recheckIfDue || t - s.lastCheckedAt < cfg.recheckMs) return s;
+    const lastChecked = Math.max(s.lastCheckedAt, checkedAt.get(idHash) || 0);
+    if (!recheckIfDue || t - lastChecked < cfg.recheckMs) return s;
+    checkedAt.delete(idHash);
     if ((retryAt.get(idHash) || 0) > t || quietUntil > t) {
       if (t - s.lastCheckedAt > cfg.maxUnverifiedMs) { await end(idHash, 'unverified too long'); return null; }
       return s;

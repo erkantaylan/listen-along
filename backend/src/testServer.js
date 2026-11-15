@@ -30,11 +30,42 @@ function adminCookie(password = ADMIN_PASSWORD) {
   return v;
 }
 
+/**
+ * A port that was free a moment ago. Only for something that must know a
+ * port before anything listens on it (a dead address, a BASE_URL): another
+ * process can take it in between. A server a test starts binds port 0
+ * itself and says which port it got (listening()).
+ */
 function freePort() {
   return new Promise((resolve, reject) => {
     const srv = net.createServer();
     srv.listen(0, () => { const { port } = srv.address(); srv.close(() => resolve(port)); });
     srv.on('error', reject);
+  });
+}
+
+/**
+ * Resolves with the port once a spawned src/index.js says it listens
+ * ("Server running on port N", the port it actually bound); rejects with its
+ * output when it exits first, cannot bind (EADDRINUSE: index.js logs an
+ * uncaught exception and stays up, not listening) or takes longer than
+ * `timeoutMs`.
+ * @param {import('node:child_process').ChildProcess} proc
+ * @returns {Promise<number>}
+ */
+function listening(proc, timeoutMs = 30_000) {
+  let log = '';
+  return new Promise((resolve, reject) => {
+    const fail = (message) => { clearTimeout(timer); reject(Object.assign(new Error(`${message}\n${log}`), { log })); };
+    const timer = setTimeout(() => fail('server did not start'), timeoutMs);
+    const onData = (d) => {
+      log += d;
+      const m = /Server running on port (\d+)/.exec(log);
+      if (m) { clearTimeout(timer); resolve(Number(m[1])); } else if (/EADDRINUSE/.test(log)) fail('server could not bind its port');
+    };
+    proc.stdout.on('data', onData);
+    proc.stderr.on('data', onData);
+    proc.on('exit', (code) => { clearTimeout(timer); reject(Object.assign(new Error(`server exited (${code})\n${log}`), { exitCode: code, log })); });
   });
 }
 
@@ -75,10 +106,23 @@ async function centralSessionCookie(pg, userId, { sub = `dev-${userId}`, now = D
  * @returns {Promise<{ proc: import('node:child_process').ChildProcess, base: string, port: number, stop: () => Promise<void>, log: () => string }>}
  */
 async function startServer(extraEnvOrFn = {}) {
-  const port = await freePort();
-  const extraEnv = typeof extraEnvOrFn === 'function' ? extraEnvOrFn(port) : extraEnvOrFn;
+  // The server binds port 0 and reports its port, unless the env needs the port
+  // first (a function of it): then a free one is picked, and picked again in
+  // the rare case another process took it before the server bound it.
+  const portFirst = typeof extraEnvOrFn === 'function';
+  for (let attempt = 1; ; attempt++) {
+    const chosen = portFirst ? await freePort() : 0;
+    try {
+      return await spawnServer(chosen, portFirst ? extraEnvOrFn(chosen) : extraEnvOrFn);
+    } catch (err) {
+      if (!(portFirst && attempt < 5 && /EADDRINUSE/.test(err.log || ''))) throw err;
+    }
+  }
+}
+
+async function spawnServer(chosenPort, extraEnv) {
   const env = {
-    ...process.env, PORT: String(port), SESSION_SECRET: SECRET, NODE_ENV: 'test', ADMIN_PASSWORD,
+    ...process.env, PORT: String(chosenPort), SESSION_SECRET: SECRET, NODE_ENV: 'test', ADMIN_PASSWORD,
     PRESENCE_GRACE_MS: '0', FRONTEND_PATH: FRONTEND,
     COVERS_DIR: path.join(os.tmpdir(), 'la-test-covers'),
     INSECURE_DEV_LOGIN: extraEnv.OIDC_ISSUER || extraEnv.OIDC_CLIENT_ID ? '' : '1', ...extraEnv,
@@ -88,11 +132,13 @@ async function startServer(extraEnvOrFn = {}) {
   let log = '';
   proc.stderr.on('data', (d) => { log += d; });
   proc.stdout.on('data', (d) => { log += d; });
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`server did not start\n${log}`)), 30_000);
-    proc.stdout.on('data', (d) => { if (/Server running on port/.test(String(d))) { clearTimeout(timer); resolve(); } });
-    proc.on('exit', (code) => { clearTimeout(timer); reject(Object.assign(new Error(`server exited (${code})\n${log}`), { exitCode: code, log })); });
-  });
+  let port;
+  try {
+    port = await listening(proc);
+  } catch (err) {
+    proc.kill('SIGKILL');
+    throw err;
+  }
   const stop = () => new Promise((resolve) => {
     if (proc.exitCode !== null) return resolve();
     proc.once('exit', () => resolve());
@@ -120,4 +166,4 @@ function requester(base) {
   };
 }
 
-module.exports = { SECRET, ADMIN_PASSWORD, cookieFor, centralSessionCookie, adminCookie, freePort, startServer, requester };
+module.exports = { SECRET, ADMIN_PASSWORD, cookieFor, centralSessionCookie, adminCookie, freePort, listening, startServer, requester };

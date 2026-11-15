@@ -144,8 +144,11 @@ of a fresh database and of a migrated old one.
   the newest, since a fresh mount holds only new uploads; needs >= 5 sampled
   and >= 90% present), or **undecodable** = `nice ffmpeg -v error -xerror -i
   <file> -map 0:a:0 -f null -` fails with stderr that blames the input
-  (`BAD_INPUT`) and names nothing environmental (`ENVIRONMENT`: memory, I/O,
-  permissions, no such file…), on two runs, the file readable and unchanged
+  (`BAD_INPUT`, also "matches no streams": no audio stream at all) and names
+  nothing environmental (`ENVIRONMENT`: memory, I/O, permissions, no such
+  file…; but "Operation not permitted" on the DECODER's own lines is a
+  decoder's bare -1 for a damaged frame, e.g. AAC's decode_pce, not the
+  system), on two runs, the file readable and unchanged
   (size, mtime) after each (one at a time, 4 waiting at most, 60s; only
   certain verdicts are kept, 10 min per file version). Unreadable, killed,
   timed out, no ffmpeg, busy = not established. A file ffmpeg decodes is not
@@ -528,7 +531,8 @@ of a fresh database and of a migrated old one.
   cookie counts as an approved account. Tests: `testServer.js` `cookieFor` is
   that cookie and `startServer()` turns `INSECURE_DEV_LOGIN` on unless the test
   sets `OIDC_*` (never add it to a compose file; production refuses it, tested
-  in `auth-guard.test.js`). Or **a fake IdP**: `node src/fakeOidcIssuer.js`
+  in `auth-guard.test.js`); the server binds `PORT=0` and `listening()` reads the port from its
+  "Server running on port N" line (never pick a free port first and bind it later: that races). Or **a fake IdP**: `node src/fakeOidcIssuer.js`
   (prints the `OIDC_*` / `BASE_URL` to start the app with; plain http, so not
   with `NODE_ENV=production`); `central-login.test.js` drives the real flow
   against it, and `testServer.js` `centralSessionCookie(DATABASE_URL,

@@ -104,7 +104,21 @@ const MAX_WAITING = 4;
 const VERDICT_TTL_MS = 10 * 60 * 1000;
 const STDERR_MAX = 8192;
 const ENVIRONMENT = /cannot allocate memory|out of memory|input\/output error|no such file|permission denied|operation not permitted|too many open files|stale file handle|resource temporarily unavailable|no space left|device or resource busy|killed|command not found|cannot execute/i;
-const BAD_INPUT = /invalid data found when processing input|moov atom not found|error submitting packet to decoder|error while decoding|decoding error|decode error|error opening input/i;
+// "matches no streams": the file holds no audio stream at all (it was an audio
+// file when it was uploaded: ffprobe checked it).
+const BAD_INPUT = /invalid data found when processing input|moov atom not found|error submitting packet to decoder|error while decoding|decoding error|decode error|error opening input|stream map '[^'\n]*' matches no streams/i;
+// ffmpeg prints a bare -1 as errno 1, "Operation not permitted", and some
+// decoders return exactly -1 for a damaged bitstream (AAC's decode_pce: about
+// one damaged m4a in nine). On a line where ffmpeg reports what the DECODER
+// returned, those words are about the data: a decoder opens no file. The same
+// words anywhere else (opening or reading the file) still count as the
+// surroundings.
+const DECODER_REPORT = /\[dec:[^\]]*\]|error (?:submitting packet to|processing packet in) decoder|error while decoding stream/i;
+function blamesSurroundings(stderr) {
+  const lines = stderr.split('\n').map((line) => (DECODER_REPORT.test(line) ? line.replace(/operation not permitted/gi, '') : line));
+  return ENVIRONMENT.test(lines.join('\n'));
+}
+const blamesInput = (stderr) => !blamesSurroundings(stderr) && BAD_INPUT.test(stderr);
 const verdicts = new Map(); // `${path}|${size}|${mtimeMs}` -> { at, ok }
 let chain = Promise.resolve();
 let waiting = 0;
@@ -129,7 +143,7 @@ function runDecode(filePath) {
       if (code === 0 && !signal) return finish('ok');
       // 125-127: nice could not run ffmpeg. A signal: killed (the OOM killer too).
       if (signal || code === null || (code >= 125 && code <= 127)) return finish('doubt');
-      finish(!ENVIRONMENT.test(stderr) && BAD_INPUT.test(stderr) ? 'bad' : 'doubt');
+      finish(blamesInput(stderr) ? 'bad' : 'doubt');
     });
   });
 }
@@ -212,4 +226,4 @@ async function verifyBroken(song) {
   return no(ok ? 'the file decodes' : 'the decode check gave no certain answer (busy, timed out, no ffmpeg, the file changed or is unreadable, or an error that is not about the file)');
 }
 
-module.exports = { verifyBroken, checkFile, storageHealth, storageHealthCached, MIN_SAMPLE, HEALTHY_RATIO };
+module.exports = { verifyBroken, checkFile, blamesInput, storageHealth, storageHealthCached, MIN_SAMPLE, HEALTHY_RATIO };
