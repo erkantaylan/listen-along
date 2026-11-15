@@ -1019,7 +1019,7 @@ describe('app sign-in: MOBILE_CUSTOM_SCHEME=off', { timeout: 120_000 }, () => {
   }
 
   it('THE LIMIT: with an IdP that does not compare redirects (authentik), the switch alone does not stop a scheme-holding app', async () => {
-    // Accepted on purpose and documented (mobileAuth.js "What stops what",
+    // Accepted on purpose and documented (mobileAuth.ts "What stops what",
     // CENTRAL-LOGIN.md "The redirect"): the id_token says nothing about the
     // redirect, so the server cannot tell which one delivered the code, and
     // the derived nonce is public (it is in /start's Location header). What

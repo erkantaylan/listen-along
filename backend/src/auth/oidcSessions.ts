@@ -10,7 +10,7 @@
  * roles claim (kept for later; it gates nothing today), and the times.
  * Postgres `user_sessions`; a Map without a database.
  *
- * The Android app's sessions (mobileAuth.js) are rows in the same table: the
+ * The Android app's sessions (mobileAuth.ts) are rows in the same table: the
  * app holds `lam_` + 32 random bytes and sends it as a Bearer token
  * (resolveBearer); the hash covers the prefix. Same lifetime, re-check and
  * ban handling as a browser's.
@@ -133,7 +133,7 @@ export function createSessionStore({ db, secret, dbExpected = false }: {
     };
   }
 
-  // `prefix`: 'lam_' for the Android app's Bearer sessions (mobileTokens.js);
+  // `prefix`: 'lam_' for the Android app's Bearer sessions (mobileTokens.ts);
   // the stored hash covers the prefix, so a cookie id is never a Bearer.
   async function create({ userId, sub, refreshToken, idToken, roles, prefix = '', now = Date.now() }: Parameters<SessionStore['create']>[0]): Promise<CreatedSession> {
     const rawId = prefix + newRawId();

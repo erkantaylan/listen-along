@@ -1,8 +1,8 @@
 /**
  * Sign-in over HTTP: the deny-by-default auth guard and the routes around
  * signing in and out. Which sign-in exists is fixed at boot (index.js reads
- * it): central login (OIDC; oidc.js, oidcSessions.js, oidcLink.js) or the
- * dev sign-in (INSECURE_DEV_LOGIN, devLogin.js). See CENTRAL-LOGIN.md.
+ * it): central login (OIDC; oidc.ts, oidcSessions.ts, oidcLink.ts) or the
+ * dev sign-in (INSECURE_DEV_LOGIN, devLogin.ts). See CENTRAL-LOGIN.md.
  *
  * createAuthRoutes() returns three routers, mounted by index.js at different
  * places because mount order is semantics in Express:
@@ -18,57 +18,101 @@
  *                  GET /api/auth/providers.
  */
 
-const express = require('express');
-const path = require('path');
-const { policyFor, parseCookie } = require('./auth/userAuth.ts');
-const { createMobileAuthRouter } = require('./auth/mobileAuth.ts');
-const { FLOW_COOKIE_PATH: OIDC_FLOW_PATH, FLOW_MAX_AGE_MS: OIDC_FLOW_MAX_AGE_MS } = require('./auth/oidc.ts');
-const { linkCentralIdentity } = require('./auth/oidcLink.ts');
-const { signDevToken, DEV_COOKIE, MAX_AGE_MS: DEV_LOGIN_MAX_AGE_MS } = require('./auth/devLogin.ts');
+import express from 'express';
+import type { CookieOptions, Request, RequestHandler, Response, Router } from 'express';
+import path from 'path';
+import { policyFor, parseCookie } from './userAuth.ts';
+import type { UserAuth } from './userAuth.ts';
+import { createMobileAuthRouter } from './mobileAuth.ts';
+import { FLOW_COOKIE_PATH as OIDC_FLOW_PATH, FLOW_MAX_AGE_MS as OIDC_FLOW_MAX_AGE_MS } from './oidc.ts';
+import type { OidcClient } from './oidc.ts';
+import { linkCentralIdentity } from './oidcLink.ts';
+import type { LinkResult } from './oidcLink.ts';
+import { signDevToken, DEV_COOKIE, MAX_AGE_MS as DEV_LOGIN_MAX_AGE_MS } from './devLogin.ts';
+import type { SessionStore, OidcSessions } from './oidcSessions.ts';
+import type { Env, OidcConfig, OidcConfigOn } from './oidcConfig.ts';
+import type { LimiterOptions } from '../shared/rateLimits.ts';
+import type { Settings } from '../shared/settings.ts';
+import type { DbModule } from '../shared/db.ts';
+import type { UserRow } from '../shared/types.ts';
+import type { Policy } from './types.ts';
 
 // The old Google / GitHub login cookie. It is no login any more; sign-in and
 // logout only delete it from browsers that still carry one.
-const LEGACY_LOGIN_COOKIE = 'listen_auth';
+export const LEGACY_LOGIN_COOKIE = 'listen_auth';
 
 // The playlist API (/api/playlists, /api/lobbies) also takes a CLI Bearer
 // token instead of the cookie (see the guard below).
 const PLAYLIST_API_RE = /^\/api\/(?:playlists|lobbies)(?:\/|$)/;
 
-// Post-login destination (?next): only same-origin relative paths.
-function isSafeNextPath(next) {
+// Post-login destination (?next): only same-origin relative paths. (true: a
+// string and safe; false says nothing about the type, and no caller reads it then.)
+export function isSafeNextPath(next: unknown): next is string {
   return typeof next === 'string' && /^\/(?![\/\\])[^\\\s\x00-\x1f]*$/.test(next);
 }
 
 // Where to send someone who is not logged in: /login, remembering the page.
-function loginRedirectUrl(req) {
+function loginRedirectUrl(req: Request): string {
   const next = req.originalUrl;
   return isSafeNextPath(next) && next !== '/' ? `/login?next=${encodeURIComponent(next)}` : '/login';
 }
 
-/**
- * @param {object} deps
- * @param {{ enabled: boolean, flowCookie: string, sessionCookie: string, upstreamExpected: boolean, providerMap: object }} deps.oidc - oidcConfig.readOidcConfig()
- * @param {boolean} deps.devLogin - devLogin.readDevLogin(): the dev sign-in is on
- * @param {string} deps.sessionSecret - signs the dev sign-in cookie
- * @param {boolean} deps.dbExpected - DATABASE_URL is set (no pool = sign-in fails closed)
- * @param {NodeJS.ProcessEnv} deps.env - NODE_ENV (Secure cookies), AUTH_RATE_LIMIT
- * @param {string} deps.frontendPath - index.html for /login
- * @param {{ isAvailable: () => boolean, query: Function }} deps.db
- * @param {{ registrationsOpen: () => Promise<boolean> }} deps.settings
- * @param {import('./auth/userAuth.ts').UserAuth} deps.userAuth
- * @param {object|null} deps.oidcClient - oidc.createOidcClient(), central login only
- * @param {object|null} deps.sessionStore - oidcSessions.createSessionStore(), central login only
- * @param {object|null} deps.oidcSessions - oidcSessions.createOidcSessions(), central login only
- * @param {{ hasBearer: Function, requireToken: import('express').RequestHandler }} deps.tokens
- * @param {import('express').RequestHandler} deps.apiLimiter
- * @param {(limit: number, windowMs?: number, opts?: object) => import('express').RequestHandler} deps.makeLimiter - rateLimits.make
- * @param {import('socket.io').Server} deps.io
- * @param {(idHash: string) => string} deps.sessionRoom - the Socket.IO room of one central-login session
- */
-function createAuthRoutes({
+/** The Socket.IO server as sign-in uses it: cut a session's sockets. */
+export interface AuthIo {
+  in(room: string): { disconnectSockets(close?: boolean): void };
+}
+
+/** What createAuthRoutes() needs from the composition root (index.js). */
+export interface AuthRoutesDeps {
+  /** oidcConfig.readOidcConfig() */
+  oidc: OidcConfig;
+  /** devLogin.readDevLogin(): the dev sign-in is on */
+  devLogin: boolean;
+  /** signs the dev sign-in cookie (and keys the app sign-in's nonce) */
+  sessionSecret: string;
+  /** DATABASE_URL is set (no pool = sign-in fails closed) */
+  dbExpected: boolean;
+  /** NODE_ENV (Secure cookies), AUTH_RATE_LIMIT, the app sign-in's settings */
+  env: Env;
+  /** index.html for /login */
+  frontendPath: string;
+  db: Pick<DbModule, 'isAvailable' | 'query' | 'getClient'>;
+  settings: Pick<Settings, 'registrationsOpen'>;
+  userAuth: UserAuth;
+  /** oidc.createOidcClient(), central login only */
+  oidcClient: OidcClient | null;
+  /** oidcSessions.createSessionStore(), central login only */
+  sessionStore: SessionStore | null;
+  /** oidcSessions.createOidcSessions(), central login only */
+  oidcSessions: OidcSessions | null;
+  tokens: { hasBearer(req: Request): boolean; requireToken: RequestHandler };
+  apiLimiter: RequestHandler;
+  /** rateLimits.make */
+  makeLimiter: (limit: number, windowMs?: number, opts?: LimiterOptions) => RequestHandler;
+  io: AuthIo;
+  /** the Socket.IO room of one central-login session */
+  sessionRoom: (idHash: string) => string;
+}
+
+/** What createAuthRoutes() returns: three routers, mounted at different places. */
+export interface AuthRoutes {
+  guard: Router;
+  statusRouter: Router;
+  router: Router;
+}
+
+/** No database at all: the central sub is the user id, approved. */
+interface MemoryLink {
+  outcome: 'ok';
+  rule: 'e';
+  created: true;
+  user: { id: string; status: 'approved' };
+}
+
+export function createAuthRoutes({
   oidc: OIDC, devLogin: DEV_LOGIN, sessionSecret: SESSION_SECRET, dbExpected: DB_EXPECTED, env, frontendPath,
   db, settings, userAuth, oidcClient, sessionStore, oidcSessions, tokens, apiLimiter, makeLimiter, io, sessionRoom,
-}) {
+}: AuthRoutesDeps): AuthRoutes {
   // ==========================================
   // The guard
   // ==========================================
@@ -78,7 +122,7 @@ function createAuthRoutes({
   // replaced them): their old addresses answer 404, not a login redirect.
   guard.use(['/auth/google', '/auth/github'], (req, res) => res.status(404).json({ error: 'Not found' }));
 
-  // Auth guard: deny by default. policyFor() (userAuth.js) classifies the path:
+  // Auth guard: deny by default. policyFor() (userAuth.ts) classifies the path:
   //   public    no check (health, login round trips, static pages, shared YouTube page)
   //   self      the route has its own middleware (CLI Bearer token, admin
   //             cookie, or token-or-admin-or-approved-user)
@@ -90,13 +134,13 @@ function createAuthRoutes({
   // The playlist API (/api/playlists, /api/lobbies) also takes a CLI Bearer
   // token instead of the cookie: the token must be valid (its owner approved),
   // and the routes then act as the token's owner (requireViewer).
-  const playlistApi = (req) => PLAYLIST_API_RE.test(String(req.path).toLowerCase().replace(/\/{2,}/g, '/'));
+  const playlistApi = (req: Request) => PLAYLIST_API_RE.test(String(req.path).toLowerCase().replace(/\/{2,}/g, '/'));
   // The playlist API's general limit (apiLimiter): once per request, cookie or
   // CLI token, counted before either is checked (token guessing is limited too).
   guard.use((req, res, next) => (playlistApi(req) ? apiLimiter(req, res, next) : next()));
   guard.use((req, res, next) => {
     if (tokens.hasBearer(req) && playlistApi(req)) return tokens.requireToken(req, res, next);
-    const policy = policyFor(req.path);
+    const policy: Policy = policyFor(req.path);
     if (policy === 'public' || policy === 'self') return next();
     if (policy === 'page') {
       return userAuth.identify(req).then(({ account }) => {
@@ -110,6 +154,8 @@ function createAuthRoutes({
         res.status(503).send('Could not check your login, try again');
       });
     }
+    // Every other policy is an account level ('member' | 'approved'): a new
+    // Policy that is not a Level does not compile here.
     return userAuth.requireLevel(policy)(req, res, next);
   });
 
@@ -122,12 +168,12 @@ function createAuthRoutes({
   // caller is now always the logged-in account (or nobody): both answer that
   // account's status and ignore any userId/username in the request,
   // so nobody can create users or read another user's status.
-  async function sendOwnStatus(req, res) {
+  async function sendOwnStatus(req: Request, res: Response) {
     try {
       const { userId, account } = await userAuth.identify(req);
       res.json({ status: account ? account.status : 'unregistered', userId });
     } catch (err) {
-      console.error('Auth status error:', err.message);
+      console.error('Auth status error:', (err as Error).message);
       res.status(500).json({ error: 'Failed to check status' });
     }
   }
@@ -137,21 +183,21 @@ function createAuthRoutes({
   const router = express.Router();
 
   // ==========================================
-  // Central login (OIDC): oidc.js, oidcSessions.js, oidcLink.js
+  // Central login (OIDC): oidc.ts, oidcSessions.ts, oidcLink.ts
   // ==========================================
   // Only while OIDC_ISSUER + OIDC_CLIENT_ID are set (always in production).
 
   const secureCookies = env.NODE_ENV === 'production';
   // Where a failed or refused sign-in lands: the login page, with a code its
   // script turns into a sentence (never anything from the IdP or the request).
-  const loginError = (code) => `/login?error=${code}`;
+  const loginError = (code: string) => `/login?error=${code}`;
   // Central-login cookies: __Host-la_session / __Host-la_oidc_flow when Secure
-  // (production), la_session / la_oidc_flow on plain http (oidcConfig.js).
-  const centralCookie = (extra = {}) => ({ httpOnly: true, secure: secureCookies, sameSite: 'lax', path: '/', ...extra });
+  // (production), la_session / la_oidc_flow on plain http (oidcConfig.ts).
+  const centralCookie = (extra: CookieOptions = {}): CookieOptions => ({ httpOnly: true, secure: secureCookies, sameSite: 'lax', path: '/', ...extra });
 
   if (OIDC.enabled) {
     // Sign-in round trips per client address (the project's limiter, rateLimits.js).
-    const authLimit = Number.parseInt(env.AUTH_RATE_LIMIT, 10);
+    const authLimit = Number.parseInt(env.AUTH_RATE_LIMIT as string, 10); // undefined -> NaN, as before
     const oidcLimiter = makeLimiter(Number.isFinite(authLimit) && authLimit > 0 ? authLimit : 30, 60 * 1000, { message: 'Too many sign-in attempts, try again in a minute' });
 
     // A claim the IdP should send (scope `upstream`) but does not: the IdP's
@@ -163,19 +209,19 @@ function createAuthRoutes({
     router.get('/auth/oidc/login', oidcLimiter, async (req, res) => {
       const next = isSafeNextPath(req.query.next) ? req.query.next : '/';
       try {
-        const { url, flowCookie } = await oidcClient.startLogin({ next });
+        const { url, flowCookie } = await oidcClient!.startLogin({ next }); // central login: set
         res.cookie(OIDC.flowCookie, flowCookie, centralCookie({ maxAge: OIDC_FLOW_MAX_AGE_MS, path: OIDC_FLOW_PATH }));
         res.set('Cache-Control', 'no-store');
         res.redirect(url);
       } catch (err) {
-        console.error(`[oidc] could not start a sign-in: ${err.message}`);
+        console.error(`[oidc] could not start a sign-in: ${(err as Error).message}`);
         res.redirect(loginError('signin_unavailable'));
       }
     });
 
     router.get('/auth/oidc/callback', oidcLimiter, async (req, res) => {
       res.set('Cache-Control', 'no-store');
-      const flow = oidcClient.openFlow(parseCookie(req.headers.cookie, OIDC.flowCookie));
+      const flow = oidcClient!.openFlow(parseCookie(req.headers.cookie, OIDC.flowCookie));
       // The flow cookie is single-use, whatever happens next.
       res.clearCookie(OIDC.flowCookie, centralCookie({ path: OIDC_FLOW_PATH }));
       // An old Google / GitHub login cookie is no login and plays no part in
@@ -185,13 +231,14 @@ function createAuthRoutes({
       const qs = req.originalUrl.indexOf('?');
       let result;
       try {
-        result = await oidcClient.finishLogin(qs >= 0 ? req.originalUrl.slice(qs + 1) : '', flow);
-      } catch (err) {
+        result = await oidcClient!.finishLogin(qs >= 0 ? req.originalUrl.slice(qs + 1) : '', flow);
+      } catch (caught) {
+        const err = caught as { kind?: string; message?: string };
         console.warn(`[oidc] sign-in rejected (${err.kind || 'error'}): ${err.message}`);
         return res.redirect(loginError(err.kind === 'unavailable' ? 'signin_unavailable' : 'signin_failed'));
       }
       const { claims } = result;
-      const short = (x) => `${String(x).slice(0, 8)}…`;
+      const short = (x: unknown) => `${String(x).slice(0, 8)}…`;
 
       // Database configured but not there: refuse, rather than inventing an
       // in-memory account (that is only for the no-database dev mode).
@@ -209,7 +256,7 @@ function createAuthRoutes({
         }
       }
 
-      let linked;
+      let linked: LinkResult | MemoryLink;
       try {
         if (db.isAvailable()) {
           linked = await linkCentralIdentity({
@@ -224,7 +271,7 @@ function createAuthRoutes({
           linked = { outcome: 'refused', rule: 'e', reason: 'registrations_closed' };
         }
       } catch (err) {
-        console.error(`central-login: linking failed sub=${short(claims.sub)}: ${err.message}`);
+        console.error(`central-login: linking failed sub=${short(claims.sub)}: ${(err as Error).message}`);
         return res.redirect(loginError('signin_failed'));
       }
       // One greppable line per sign-in: which rule, which user.
@@ -238,28 +285,28 @@ function createAuthRoutes({
       try {
         // A session this browser already had (another account, or the same one)
         // is replaced, not left behind on the server.
-        const previous = oidcSessions.idHashFromHeaders(req.headers);
+        const previous = oidcSessions!.idHashFromHeaders(req.headers);
         if (previous) {
-          await sessionStore.remove(previous);
+          await sessionStore!.remove(previous);
           io.in(sessionRoom(previous)).disconnectSockets(true);
         }
         const roles = Array.isArray(claims.roles) ? claims.roles.filter((r) => typeof r === 'string') : [];
         if (!result.refreshToken) console.warn('[oidc] the IdP sent no refresh token (offline_access not granted?): this session cannot be re-checked and ends after OIDC_MAX_UNVERIFIED_SECONDS');
-        const s = await sessionStore.create({
+        const s = await sessionStore!.create({
           userId: linked.user.id, sub: claims.sub, refreshToken: result.refreshToken, idToken: result.idToken, roles,
         });
         userAuth.invalidate(String(linked.user.id));
         res.cookie(OIDC.sessionCookie, s.rawId, centralCookie({ maxAge: s.maxAgeMs }));
-        res.redirect(isSafeNextPath(flow.next) ? flow.next : '/');
+        res.redirect(isSafeNextPath(flow!.next) ? flow!.next : '/'); // finishLogin refuses a missing flow
       } catch (err) {
-        console.error(`[oidc] could not open a session: ${err.message}`);
+        console.error(`[oidc] could not open a session: ${(err as Error).message}`);
         res.redirect(loginError('signin_failed'));
       }
     });
   }
 
   // ==========================================
-  // Dev sign-in (devLogin.js): INSECURE_DEV_LOGIN=1, development and tests only
+  // Dev sign-in (devLogin.ts): INSECURE_DEV_LOGIN=1, development and tests only
   // ==========================================
   // The process refuses to start with it in production (readDevLogin in
   // index.js), so this route never exists there. /auth/dev/login?user=<users.id>&next=<path>
@@ -269,17 +316,17 @@ function createAuthRoutes({
     router.get('/auth/dev/login', async (req, res) => {
       const next = isSafeNextPath(req.query.next) ? req.query.next : '/';
       const asked = typeof req.query.user === 'string' ? req.query.user.trim().slice(0, 100) : '';
-      let userId;
+      let userId: string;
       try {
         if (!db.isAvailable()) {
           if (DB_EXPECTED) return res.status(503).type('text/plain').send('DATABASE_URL is set but the database is unavailable');
           userId = asked || 'dev';
         } else if (asked) {
-          const r = await db.query('SELECT id FROM users WHERE id::text = $1', [asked]);
+          const r = await db.query<Pick<UserRow, 'id'>>('SELECT id FROM users WHERE id::text = $1', [asked]);
           if (!r.rows[0]) return res.status(404).type('text/plain').send('No user with that id');
           userId = r.rows[0].id;
         } else {
-          const find = () => db.query(`SELECT id FROM users WHERE provider = 'dev' AND provider_id = 'dev'`);
+          const find = () => db.query<Pick<UserRow, 'id'>>(`SELECT id FROM users WHERE provider = 'dev' AND provider_id = 'dev'`);
           let r = await find();
           if (!r.rows[0]) {
             await db.query(
@@ -292,7 +339,7 @@ function createAuthRoutes({
           userId = r.rows[0].id;
         }
       } catch (err) {
-        console.error('[auth] dev sign-in failed:', err.message);
+        console.error('[auth] dev sign-in failed:', (err as Error).message);
         return res.status(500).type('text/plain').send('Dev sign-in failed');
       }
       userAuth.invalidate(String(userId));
@@ -306,16 +353,16 @@ function createAuthRoutes({
 
   // Auth status endpoint// Auth status endpoint
   router.get('/api/auth/me', async (req, res) => {
-    let userId;
+    let userId: string | null;
     try { userId = await userAuth.userIdFor(req); } catch (err) {
-      console.error('Auth check error:', err.message);
+      console.error('Auth check error:', (err as Error).message);
       return res.json({ authenticated: false });
     }
     if (!userId || !db.isAvailable()) {
       return res.json({ authenticated: false });
     }
     try {
-      const result = await db.query('SELECT id, provider, email, name, display_name, emoji, avatar_url, status FROM users WHERE id::text = $1', [userId]);
+      const result = await db.query<Pick<UserRow, 'id' | 'provider' | 'email' | 'name' | 'display_name' | 'emoji' | 'avatar_url' | 'status'>>('SELECT id, provider, email, name, display_name, emoji, avatar_url, status FROM users WHERE id::text = $1', [userId]);
       if (result.rows.length === 0) {
         return res.json({ authenticated: false });
       }
@@ -334,7 +381,7 @@ function createAuthRoutes({
         }
       });
     } catch (err) {
-      console.error('Auth check error:', err.message);
+      console.error('Auth check error:', (err as Error).message);
       res.json({ authenticated: false });
     }
   });
@@ -349,21 +396,22 @@ function createAuthRoutes({
       res.clearCookie(DEV_COOKIE, { path: '/' });
       return res.json({ success: true });
     }
-    res.clearCookie(OIDC.sessionCookie, centralCookie());
-    let idToken = null;
+    // Not the dev sign-in: central login, so OIDC is on and its client, store and sessions are set.
+    res.clearCookie((OIDC as OidcConfigOn).sessionCookie, centralCookie());
+    let idToken: string | null = null;
     try {
-      const idHash = oidcSessions.idHashFromHeaders(req.headers);
+      const idHash = oidcSessions!.idHashFromHeaders(req.headers);
       if (idHash) {
-        const s = await oidcSessions.check(idHash, { recheckIfDue: false });
+        const s = await oidcSessions!.check(idHash, { recheckIfDue: false });
         if (s) idToken = s.idToken;
-        await sessionStore.remove(idHash);
+        await sessionStore!.remove(idHash);
         io.in(sessionRoom(idHash)).disconnectSockets(true);
       }
     } catch (err) {
-      console.error('[oidc] logout could not remove the session:', err.message);
+      console.error('[oidc] logout could not remove the session:', (err as Error).message);
       return res.status(503).json({ error: 'Could not sign out, try again' });
     }
-    const redirect = idToken ? await oidcClient.endSessionUrl(idToken) : null;
+    const redirect = idToken ? await oidcClient!.endSessionUrl(idToken) : null;
     res.json({ success: true, redirect: redirect || '/' });
   });
 
@@ -387,7 +435,7 @@ function createAuthRoutes({
     res.json({ central: OIDC.enabled, dev: DEV_LOGIN });
   });
 
-  // The Android app's sign-in (mobileAuth.js): /auth/mobile/start | exchange |
+  // The Android app's sign-in (mobileAuth.ts): /auth/mobile/start | exchange |
   // logout (public in policyFor) and GET /api/me for an app session (the CLI
   // token's /api/me in libraryRoutes.js passes it on with next('route')).
   router.use(createMobileAuthRouter({
@@ -397,5 +445,3 @@ function createAuthRoutes({
 
   return { guard, statusRouter, router };
 }
-
-module.exports = { createAuthRoutes, isSafeNextPath, LEGACY_LOGIN_COOKIE };

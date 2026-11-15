@@ -1,6 +1,6 @@
 // The app-wide settings (settings.ts): the REGISTRATIONS_DEFAULT parsing that
 // stops the boot on junk, the in-memory mode, and failing closed when the
-// database is expected but missing. On Postgres: central-login.test.js.
+// database is expected but missing. On Postgres: auth/centralLogin.test.ts.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSettings, parseRegistrationsDefault, SettingsConfigError } from './settings.ts';

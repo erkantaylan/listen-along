@@ -111,7 +111,7 @@ export const migrations: readonly Migration[] = [
   // other users columns: their order decides where each column lands.
   `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen BIGINT`,
 
-  // Central login (OIDC; oidcLink.js, oidcSessions.js, shared/settings.ts).
+  // Central login (OIDC; oidcLink.ts, oidcSessions.ts, shared/settings.ts).
   // Added after release, so explicit migrations. Unused until OIDC_ISSUER is set.
   // users.oidc_sub: the central identity's `sub` once linked; unique, so one
   // sub is never linked to two users (NULLs do not clash).

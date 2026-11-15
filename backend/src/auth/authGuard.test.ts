@@ -1,5 +1,5 @@
 // Server-side authentication / authorization, end to end:
-//   1. userAuth.js / devLogin.js unit rules (dev sign-in cookie, levels, the
+//   1. userAuth.ts / devLogin.ts unit rules (dev sign-in cookie, levels, the
 //      route policy table)
 //   2. boot: which sign-in may run where (production needs the central login
 //      and refuses the dev sign-in; no sign-in at all refuses to start)
@@ -11,31 +11,52 @@
 //   4. the real server on Postgres (testcontainers): approved vs pending vs
 //      denied / rejected accounts over HTTP and Socket.IO, CLI Bearer tokens
 //      (/api/me, /api/library, upload) untouched, spoofed names ignored.
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const { spawn, execSync, execFileSync } = require('node:child_process');
-const crypto = require('node:crypto');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const { io: ioClient } = require('socket.io-client');
-const userAuthMod = require('./auth/userAuth.ts');
-const devLogin = require('./auth/devLogin.ts');
-const { listening } = require('./testServer');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { spawn, execSync, execFileSync } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import pgModule from 'pg';
+import { io as ioClient } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import type { Request } from 'express';
+import * as userAuthMod from './userAuth.ts';
+import * as devLogin from './devLogin.ts';
+import * as adminAuth from './adminAuth.ts';
+import { listening } from '../testServer.js';
+import type { AuthIo } from './authRoutes.ts';
+import type { SessionLookup, UserAuthDb } from './userAuth.ts';
+import type { Account } from './types.ts';
+import type { OidcSessions } from './oidcSessions.ts';
+import type { Io } from '../shared/types.ts';
+
+// The server's and the database's JSON, read as the tests need it.
+type Payload = any;
+type Server = Awaited<ReturnType<typeof startServer>>;
+type Client = ReturnType<typeof client>;
+
+// What index.js passes (index.js is not typechecked): the real Socket.IO server
+// fits what sign-in uses of it, and the central login's sessions fit userAuth.
+export const realServerFits = (io: Io): AuthIo => io;
+export const realSessionsFit = (sessions: OidcSessions): SessionLookup => sessions;
 
 const SECRET = 'auth-guard-test-secret';
 const ADMIN_PASSWORD = 'auth-guard-admin-pw';
-const FRONTEND = path.join(__dirname, '..', '..', 'frontend');
+const FRONTEND = path.join(import.meta.dirname, '..', '..', '..', 'frontend');
 const ALICE = '00000000-0000-4000-8000-00000000a11c';
 
-// The dev sign-in cookie (devLogin.js); every server here runs with INSECURE_DEV_LOGIN=1.
-function cookieFor(userId, t = Date.now(), secret = SECRET) {
+// The dev sign-in cookie (devLogin.ts); every server here runs with INSECURE_DEV_LOGIN=1.
+function cookieFor(userId: string, t = Date.now(), secret = SECRET) {
   return `${devLogin.DEV_COOKIE}=${devLogin.signDevToken(secret, userId, t)}`;
 }
 
 // The removed Google / GitHub login's cookie, exactly as it was signed (same
 // secret): it must never be a login again.
-function legacyCookie(userId, t = Date.now(), secret = SECRET) {
+function legacyCookie(userId: string, t = Date.now(), secret = SECRET) {
   const payload = Buffer.from(JSON.stringify({ id: userId, t })).toString('base64url');
   const sig = crypto.createHmac('sha256', secret).update(payload).digest('base64url');
   return `listen_auth=${payload}.${sig}`;
@@ -44,29 +65,29 @@ function legacyCookie(userId, t = Date.now(), secret = SECRET) {
 function adminCookie() {
   const prev = process.env.ADMIN_PASSWORD;
   process.env.ADMIN_PASSWORD = ADMIN_PASSWORD;
-  const v = `la_admin=${encodeURIComponent(require('./auth/adminAuth.ts').createSessionValue())}`;
+  const v = `la_admin=${encodeURIComponent(adminAuth.createSessionValue())}`;
   if (prev === undefined) delete process.env.ADMIN_PASSWORD; else process.env.ADMIN_PASSWORD = prev;
   return v;
 }
 
-async function startServer(extraEnv = {}) {
+async function startServer(extraEnv: Record<string, string> = {}) {
   // Port 0: the server binds a free port itself and says which (testServer.listening).
-  const env = {
+  const env: NodeJS.ProcessEnv = {
     ...process.env, PORT: '0', SESSION_SECRET: SECRET, NODE_ENV: 'test', ADMIN_PASSWORD,
     PRESENCE_GRACE_MS: '0', FRONTEND_PATH: FRONTEND, INSECURE_DEV_LOGIN: '1',
     COVERS_DIR: path.join(os.tmpdir(), 'la-auth-test-covers'), ...extraEnv,
   };
   if (!extraEnv.DATABASE_URL) delete env.DATABASE_URL;
-  const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const proc = spawn(process.execPath, [path.join(import.meta.dirname, '..', 'index.js')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   const port = await listening(proc);
   return { proc, base: `http://127.0.0.1:${port}` };
 }
 
 /** Spawn the server with exactly `env` (+ PORT); resolves { code, log } once it exits or listens. */
-function boot(env) {
+function boot(env: Record<string, string>): Promise<{ code: number | null; listening: boolean; log: string }> {
   return new Promise((resolve) => {
     const full = { PATH: process.env.PATH, PORT: '0', FRONTEND_PATH: FRONTEND, PRESENCE_GRACE_MS: '0', ...env };
-    const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], { env: full, stdio: ['ignore', 'pipe', 'pipe'] });
+    const proc = spawn(process.execPath, [path.join(import.meta.dirname, '..', 'index.js')], { env: full, stdio: ['ignore', 'pipe', 'pipe'] });
     let log = '';
     let listening = false;
     proc.stdout.on('data', (d) => { log += d; if (/Server running on port/.test(log)) { listening = true; proc.kill('SIGKILL'); } });
@@ -76,10 +97,10 @@ function boot(env) {
   });
 }
 
-function client(base) {
-  const sockets = [];
-  async function req(method, url, { cookie, headers = {}, body } = {}) {
-    const h = { ...headers };
+function client(base: string) {
+  const sockets: Socket[] = [];
+  async function req(method: string, url: string, { cookie, headers = {}, body }: { cookie?: string; headers?: Record<string, string>; body?: Payload } = {}): Promise<{ status: number; body: Payload; text: string; headers: Headers }> {
+    const h: Record<string, string> = { ...headers };
     if (cookie) h.cookie = cookie;
     if (body !== undefined) h['content-type'] = 'application/json';
     const res = await fetch(base + url, { method, headers: h, body: body !== undefined ? JSON.stringify(body) : undefined, redirect: 'manual' });
@@ -88,8 +109,8 @@ function client(base) {
     try { json = JSON.parse(text); } catch {}
     return { status: res.status, body: json, text, headers: res.headers };
   }
-  function connect(cookie, extraHeaders = {}) {
-    const headers = { ...extraHeaders };
+  function connect(cookie?: string | null, extraHeaders: Record<string, string> = {}): Promise<Socket> {
+    const headers: Record<string, string> = { ...extraHeaders };
     if (cookie) headers.cookie = cookie;
     const s = ioClient(base, { transports: ['websocket'], forceNew: true, reconnection: false, extraHeaders: headers });
     sockets.push(s);
@@ -102,30 +123,30 @@ function client(base) {
   return { req, connect, close };
 }
 
-function waitFor(socket, events, ms = 1500) {
+function waitFor(socket: Socket, events: string[], ms = 1500): Promise<Payload[]> {
   return new Promise((resolve) => {
-    const handlers = {};
-    const done = (result) => {
+    const handlers: Record<string, (data: Payload) => void> = {};
+    const done = (result: Payload[]) => {
       clearTimeout(timer);
       for (const e of events) socket.off(e, handlers[e]);
       resolve(result);
     };
-    for (const e of events) { handlers[e] = (data) => done([e, data]); socket.on(e, handlers[e]); }
+    for (const e of events) { handlers[e] = (data: Payload) => done([e, data]); socket.on(e, handlers[e]); }
     const timer = setTimeout(() => done(['timeout']), ms);
   });
 }
 
-const ask = (s, event, arg) => new Promise((resolve) => s.emit(event, arg, resolve));
+const ask = (s: Socket, event: string, arg?: Payload): Promise<Payload> => new Promise((resolve) => s.emit(event, arg, resolve));
 
 // ---------------------------------------------------------------------------
 
 describe('userAuth rules', () => {
-  const noDb = { isAvailable: () => false };
+  const noDb = { isAvailable: () => false } as UserAuthDb;
 
   it('dev sign-in token: round-trips; tampered, foreign-key, future and expired ones are refused', () => {
     const { signDevToken: sign, verifyDevToken: verify, MAX_AGE_MS } = devLogin;
     const now = Date.now();
-    assert.equal(verify(SECRET, sign(SECRET, ALICE, now)).id, ALICE);
+    assert.equal(verify(SECRET, sign(SECRET, ALICE, now))!.id, ALICE);
     const [payload, sig] = sign(SECRET, ALICE, now).split('.');
     const forged = Buffer.from(JSON.stringify({ id: 'someone-else', t: now })).toString('base64url');
     assert.equal(verify(SECRET, `${forged}.${sig}`), null);
@@ -134,7 +155,7 @@ describe('userAuth rules', () => {
     assert.equal(verify(SECRET, legacyCookie(ALICE, now).split('=')[1]), null, 'an old listen_auth token, same secret, is not one');
     assert.equal(verify(SECRET, sign(SECRET, ALICE, now + 60 * 60 * 1000)), null, 'issued in the future');
     assert.equal(verify(SECRET, sign(SECRET, ALICE, now - MAX_AGE_MS - 1000)), null, 'older than 30 days');
-    assert.equal(verify(SECRET, sign(SECRET, ALICE, now - MAX_AGE_MS + 60_000)).id, ALICE);
+    assert.equal(verify(SECRET, sign(SECRET, ALICE, now - MAX_AGE_MS + 60_000))!.id, ALICE);
     assert.equal(verify(SECRET, 'garbage'), null);
     assert.equal(verify(SECRET, ''), null);
     assert.equal(verify('', sign(SECRET, ALICE, now)), null);
@@ -146,7 +167,7 @@ describe('userAuth rules', () => {
     assert.deepEqual(await dev.resolve({ cookie: `a=b; ${cookieFor(ALICE)}; c=d` }), { userId: ALICE, sessionId: null });
     assert.equal(await dev.resolve({}), null);
     assert.equal(await dev.resolve({ cookie: legacyCookie(ALICE) }), null, 'the old listen_auth cookie is no login');
-    const sessions = { resolveHeaders: async (h) => (h.cookie === 'la_session=ok' ? { userId: 'u1', idHash: 'h1' } : null) };
+    const sessions = { resolveHeaders: async (h: { cookie?: string }) => (h.cookie === 'la_session=ok' ? { userId: 'u1', idHash: 'h1' } : null) } as unknown as SessionLookup;
     const central = userAuthMod.createUserAuth({ secret: SECRET, db: noDb, sessions });
     assert.equal(central.mode, 'central');
     assert.equal(await central.resolve({ cookie: cookieFor(ALICE) }), null, 'a dev cookie is no login with central login');
@@ -175,7 +196,7 @@ describe('userAuth rules', () => {
 
   it('levels: approved > pending > denied / rejected', () => {
     const { meetsLevel, refusal } = userAuthMod;
-    const acct = (status) => ({ id: 'x', status });
+    const acct = (status: string) => ({ id: 'x', status, name: null, emoji: null }) as Account;
     assert.equal(meetsLevel(acct('approved'), 'approved'), true);
     assert.equal(meetsLevel(acct('pending'), 'approved'), false);
     assert.equal(meetsLevel(acct('pending'), 'member'), true);
@@ -252,7 +273,7 @@ describe('sign-in at boot: production needs the central login and refuses the de
   });
 
   it('production without OIDC_ISSUER / OIDC_CLIENT_ID / BASE_URL or FRONTEND_URL / SESSION_SECRET refuses to start', async () => {
-    const cases = [
+    const cases: Array<[Record<string, string>, RegExp]> = [
       [{ NODE_ENV: 'production', SESSION_SECRET: SECRET }, /central login is required in production/],
       [{ ...prod, OIDC_ISSUER: '' }, /half-configured/],
       [{ ...prod, OIDC_CLIENT_ID: '' }, /half-configured/],
@@ -280,7 +301,7 @@ describe('sign-in at boot: production needs the central login and refuses the de
   });
 
   it('a production server never accepts the dev sign-in cookie, and has no dev sign-in route', async () => {
-    const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
+    const proc = spawn(process.execPath, [path.join(import.meta.dirname, '..', 'index.js')], {
       env: { PATH: process.env.PATH, PORT: '0', FRONTEND_PATH: FRONTEND, ...prod }, stdio: ['ignore', 'pipe', 'pipe'],
     });
     try {
@@ -304,8 +325,8 @@ describe('sign-in at boot: production needs the central login and refuses the de
 // ---------------------------------------------------------------------------
 
 describe('auth guard against a running server (no database, dev sign-in)', { timeout: 60_000 }, () => {
-  let srv;
-  let c;
+  let srv: Server;
+  let c: Client;
   const alice = cookieFor(ALICE);
 
   before(async () => {
@@ -360,7 +381,7 @@ describe('auth guard against a running server (no database, dev sign-in)', { tim
     // Logged in: the SPA.
     r = await c.req('GET', '/library', { cookie: alice });
     assert.equal(r.status, 200);
-    assert.match(r.headers.get('content-type'), /text\/html/);
+    assert.match(r.headers.get('content-type')!, /text\/html/);
     r = await c.req('GET', '/', { cookie: alice });
     assert.equal(r.status, 200);
   });
@@ -393,7 +414,7 @@ describe('auth guard against a running server (no database, dev sign-in)', { tim
     let r = await c.req('GET', '/auth/dev/login?next=%2Fplaylist%2Fabc');
     assert.equal(r.status, 302);
     assert.equal(r.headers.get('location'), '/playlist/abc');
-    const set = r.headers.get('set-cookie');
+    const set = r.headers.get('set-cookie')!;
     assert.match(set, /^la_dev_login=[^;]+;.*HttpOnly/i);
     const cookie = set.split(';')[0];
     assert.equal((await c.req('GET', '/api/playlists', { cookie })).status, 200, 'without a database: the id "dev", approved');
@@ -402,7 +423,7 @@ describe('auth guard against a running server (no database, dev sign-in)', { tim
     assert.deepEqual((await c.req('GET', '/api/auth/providers')).body, { central: false, dev: true });
     const out = await c.req('POST', '/api/auth/logout', { cookie });
     assert.deepEqual(out.body, { success: true });
-    assert.match(out.headers.get('set-cookie'), /la_dev_login=;/);
+    assert.match(out.headers.get('set-cookie')!, /la_dev_login=;/);
   });
 
   it('Google / GitHub sign-in, linking and the central login routes are not there', async () => {
@@ -443,7 +464,7 @@ describe('auth guard against a running server (no database, dev sign-in)', { tim
     const twice = await c.req('GET', `/api/covers/nope?fallback=${encodeURIComponent('https://i.ytimg.com/a.jpg')}&fallback=x`, { cookie: alice });
     assert.equal(twice.status, 400, 'a repeated parameter is not a URL');
     // The target is a fixed https origin + the given path and query.
-    const { coverRedirectTarget } = require('./mediaRoutes');
+    const { coverRedirectTarget } = (await import('../mediaRoutes.js')).default;
     assert.equal(coverRedirectTarget('http://i.scdn.co/image/ab67?x=1#f'), 'https://i.scdn.co/image/ab67?x=1');
     assert.equal(coverRedirectTarget('https://i.ytimg.com\\@evil.example/x'), 'https://i.ytimg.com/@evil.example/x');
     assert.equal(coverRedirectTarget('https://i.ytimg.com:8443/x'), null, 'no other port');
@@ -463,24 +484,24 @@ describe('auth guard against a running server (no database, dev sign-in)', { tim
 
 // ---------------------------------------------------------------------------
 
-let PostgreSqlContainer;
-try { PostgreSqlContainer = require('@testcontainers/postgresql').PostgreSqlContainer; } catch {}
-const has = (cmd) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
+let PostgreSqlContainer: typeof import('@testcontainers/postgresql').PostgreSqlContainer | undefined;
+try { ({ PostgreSqlContainer } = await import('@testcontainers/postgresql')); } catch {}
+const has = (cmd: string) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
 const pgSkip = !PostgreSqlContainer ? 'testcontainers package not installed'
   : !has('docker info') ? 'Docker not available' : false;
 
 describe('account status and CLI tokens on Postgres', { skip: pgSkip, timeout: 180_000 }, () => {
-  let container;
-  let pg;
-  let srv;
-  let c;
-  let token;
-  let tmp;
-  const ids = {};
-  const cookies = {};
+  let container: StartedPostgreSqlContainer | undefined;
+  let pg: pgModule.Client;
+  let srv: Server;
+  let c: Client;
+  let token: string;
+  let tmp: string;
+  const ids: Record<string, string> = {};
+  const cookies: Record<string, string> = {};
 
   before(async () => {
-    container = await new PostgreSqlContainer('postgres:16-alpine')
+    container = await new PostgreSqlContainer!('postgres:16-alpine')
       .withDatabase('listen_auth').withUsername('test').withPassword('test').start();
     const url = container.getConnectionUri();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'la-auth-test-'));
@@ -490,7 +511,7 @@ describe('account status and CLI tokens on Postgres', { skip: pgSkip, timeout: 1
     });
     c = client(srv.base);
 
-    const { Client } = require('pg');
+    const { Client } = pgModule;
     pg = new Client({ connectionString: url });
     await pg.connect();
     for (const status of ['approved', 'pending', 'denied', 'rejected']) {
@@ -581,14 +602,14 @@ describe('account status and CLI tokens on Postgres', { skip: pgSkip, timeout: 1
   it('dev sign-in on Postgres: ?user signs that account in; unknown ids refused; no ?user = one "Dev User"', async () => {
     let r = await c.req('GET', `/auth/dev/login?user=${ids.pending}`);
     assert.equal(r.status, 302);
-    const pendingCookie = r.headers.get('set-cookie').split(';')[0];
+    const pendingCookie = r.headers.get('set-cookie')!.split(';')[0];
     assert.equal((await c.req('GET', '/api/auth/me', { cookie: pendingCookie })).body.user.status, 'pending');
     r = await c.req('GET', '/auth/dev/login?user=00000000-0000-4000-8000-0000000000ff');
     assert.equal(r.status, 404);
     assert.equal(r.headers.get('set-cookie'), null);
     const before = (await pg.query('SELECT count(*)::int AS n FROM users')).rows[0].n;
-    const first = (await c.req('GET', '/auth/dev/login')).headers.get('set-cookie').split(';')[0];
-    const second = (await c.req('GET', '/auth/dev/login')).headers.get('set-cookie').split(';')[0];
+    const first = (await c.req('GET', '/auth/dev/login')).headers.get('set-cookie')!.split(';')[0];
+    const second = (await c.req('GET', '/auth/dev/login')).headers.get('set-cookie')!.split(';')[0];
     assert.equal((await pg.query('SELECT count(*)::int AS n FROM users')).rows[0].n, before + 1, 'made once');
     const a = (await c.req('GET', '/api/auth/me', { cookie: first })).body.user;
     assert.equal(a.name, 'Dev User');
@@ -627,7 +648,7 @@ describe('account status and CLI tokens on Postgres', { skip: pgSkip, timeout: 1
     assert.equal(up.status, 401);
     up = await fetch(`${srv.base}/api/library/upload`, { method: 'POST', body: fd(), headers: bearer() });
     assert.equal(up.status, 400);
-    assert.match((await up.json()).error, /\.m4a/);
+    assert.match(((await up.json()) as Payload).error, /\.m4a/);
   });
 
   it('a real upload with a token, then queue:add ignores a spoofed addedBy', { skip: !has('ffmpeg -version') || !has('ffprobe -version') ? 'ffmpeg not available' : false }, async () => {
@@ -639,7 +660,7 @@ describe('account status and CLI tokens on Postgres', { skip: pgSkip, timeout: 1
     f.append('artist', 'Guard');
     const up = await fetch(`${srv.base}/api/library/upload`, { method: 'POST', body: f, headers: bearer() });
     assert.equal(up.status, 201);
-    const { song } = await up.json();
+    const { song }: Payload = await up.json();
 
     const s = await c.connect(cookies.approved);
     s.emit('lobby:create', { name: 'Spoof test', username: 'Mallory' });

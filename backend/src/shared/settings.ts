@@ -5,7 +5,7 @@
  *
  *   registrations_open  boolean. When false, a central-login identity that
  *                       matches no existing account is not given a new one
- *                       (oidcLink.js). Existing accounts are unaffected. Only
+ *                       (auth/oidcLink.ts). Existing accounts are unaffected. Only
  *                       central login reads it.
  *
  * Until an admin has saved a setting, its value comes from the environment:

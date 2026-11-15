@@ -59,7 +59,7 @@ of a fresh database and of a migrated old one.
   (`rate-limits.test.js`),
   `mediaRoutes.js` (`/api/stream`, `/api/covers/:id`), `profileRoutes.js` (`GET|PUT /api/profile`),
   `adminRoutes.js` (dashboard users / statuses / settings / stats / playlist and chat moderation, all `requireAdmin`),
-  `authRoutes.js` (the auth guard right after the static files; legacy `/api/auth/register|status`; the
+  `auth/authRoutes.ts` (the auth guard right after the static files; legacy `/api/auth/register|status`; the
   central-login / dev sign-in round trips, `/api/auth/me`, logout, `/login`, `/api/auth/providers`; it mounts
   the Android app's sign-in, `auth/mobileAuth.ts`, on its `router`),
   `playlistRoutes.js` (`/api/playlists` + `/api/lobbies`, songs included; `requireViewer`, `findVisiblePlaylist`;
@@ -369,7 +369,7 @@ of a fresh database and of a migrated old one.
   and `/playlist/<id>/library`; old `/lobby/...` URLs 301 to them (and the SPA
   rewrites them, `legacyRedirect` in `frontend/src/router.ts`). HTTP API:
   `/api/playlists` (`/api/lobbies` is an alias). It also takes a CLI Bearer
-  token (auth guard in authRoutes.js → `requireViewer`): the token acts as its
+  token (auth guard in auth/authRoutes.ts → `requireViewer`): the token acts as its
   owner; a legacy ownerless token sees/edits public playlists only, creates
   only ownerless (public) ones and manages nothing (`viewerCan*` in
   playlistAccess.js). Song endpoints (`/:id/songs`, used by `la playlist` and
@@ -492,7 +492,12 @@ of a fresh database and of a migrated old one.
   handshake into a user: `resolve(headers)` / `userIdFor(req)` / `identify(req)`
   (`mode` 'central' | 'dev'); each socket gets `socket.data.userId` (and, with central login,
   `socket.data.sessionId` + the `session:<hash>` room). Never trust a user id or
-  name sent by the client.
+  name sent by the client. The sign-in area is `backend/src/auth/` (ES-module TypeScript; `index.ts` is what
+  index.js and the other areas use). Its types (`auth/types.ts`): `Who` (a cookie or app session's user),
+  `Identity` (an account or nobody), `Level`, `Policy` (every path gets one; the guard hands `member` / `approved`
+  to `requireLevel`, so a new policy that is not a level does not compile), `CentralClaims` (the id_token after
+  `finishLogin`'s checks), the `user_sessions` / `api_tokens` rows, `ApiUser` (`req.apiUser`). Admin (`la_admin`)
+  and CLI tokens are never an `Identity`.
 - **The Android app's session** (`auth/mobileAuth.ts`, `auth/mobileTokens.ts`;
   CENTRAL-LOGIN.md "The Android app"): the app runs code + PKCE in a Custom
   Tab via `GET /auth/mobile/start` (302 to the IdP with the app's
@@ -530,7 +535,7 @@ of a fresh database and of a migrated old one.
   'dev'`, which release builds of the app refuse.
 - `users.status` decides access: `approved` = everything; `pending` = chat /
   people panel and own profile only; `denied` / `rejected` = nothing (sockets
-  refused). The auth guard (`authRoutes.js`) is deny-by-default (`policyFor()` in
+  refused). The auth guard (`auth/authRoutes.ts`) is deny-by-default (`policyFor()` in
   `auth/userAuth.ts`). Only an admin changes a status — no `schema.ts` may ever rewrite
   statuses on boot (a restart once promoted every pending user). Blocking an
   account (`accountStatusChanged`) disconnects its sockets and, with central
@@ -563,7 +568,7 @@ of a fresh database and of a migrated old one.
   cookie counts as an approved account. Tests: `testServer.js` `cookieFor` is
   that cookie and `startServer()` turns `INSECURE_DEV_LOGIN` on unless the test
   sets `OIDC_*` (never add it to a compose file; production refuses it, tested
-  in `auth-guard.test.js`); the server binds `PORT=0` and `listening()` reads the port from its
+  in `auth/authGuard.test.ts`); the server binds `PORT=0` and `listening()` reads the port from its
   "Server running on port N" line (never pick a free port first and bind it later: that races). Or **a fake IdP**: `node src/fakeOidcIssuer.js`
   (prints the `OIDC_*` / `BASE_URL` to start the app with; plain http, so not
   with `NODE_ENV=production`); `auth/centralLogin.test.ts` drives the real flow
@@ -632,13 +637,19 @@ TypeScript one area at a time; until an area is converted its files stay
   - A converted area is a folder of ES-module `.ts` (`backend/src/features/<name>/`), moved with `git mv` so
     history follows, its tests next to it as `*.test.ts` (plain `node --test` finds them). The folder holding
     converted areas has a `package.json` that is only `{"type": "module"}` (`backend/src/features/`, `shared/`,
-    `auth/`, `core/`; `auth/` holds only its `schema.ts` so far, `core/` its areas' `schema.ts` files and
-    `core/playlists/folders.ts`). Everything under them is ES modules,
+    `auth/`, `core/`; `core/` holds its areas' `schema.ts` files and `core/playlists/folders.ts` so far).
+    Everything under them is ES modules,
     so a file moves there only once converted (never a CommonJS `.js`). Without it Node guesses the format of each `.ts`
     and prints `MODULE_TYPELESS_PACKAGE_JSON` at boot and in tests; with it there is no warning and no flag. It
     goes away when `backend/package.json` becomes `"type": "module"`.
-  - Still-CommonJS files `require('./features/<name>/index.ts')` (extension spelled out, always the folder's
-    `index.ts`, never its internals; `shared/` has no index: `require('./shared/db.ts')`, one file each).
+  - Still-CommonJS files `require('./features/<name>/index.ts')` / `require('./auth/index.ts')` (extension spelled
+    out, always the folder's `index.ts`, never its internals; `shared/` has no index: `require('./shared/db.ts')`, one
+    file each). While an area moves file by file (as `auth/` did, leaf first), its own files not moved yet may
+    require the moved ones by their path inside the folder (`./auth/devLogin.ts`); once the last one is in, nothing
+    outside requires an internal. A module whose functions are called as `x.f()` and that no test patches is
+    exported as a namespace (`export * as tokens from './tokens.ts'`, so `const { tokens } = require(...)` and
+    `tokens.requireToken` keep working; a namespace is read-only, so a module tests patch needs the `db.ts` pattern
+    below).
     Node's `require(esm)` and every `import` share one module instance (checked: module state is not
     duplicated), so a store or singleton may be reached from both. No top-level `await` in
     anything that is `require`d (`ERR_REQUIRE_ASYNC_MODULE`); test files may use it.
@@ -653,6 +664,23 @@ TypeScript one area at a time; until an area is converted its files stay
     `delete require.cache[…]` does not give a fresh copy of an ES module (the same instance comes back): reset
     its state through its own functions (`db.close()`, then `db.init()`).
   - `import.meta.dirname` for `__dirname`; `createRequire(import.meta.url)` only where a test needs `require.cache`.
+  - ESM-only packages (`openid-client`, `jose`) are imported statically in `.ts` (`import * as client from
+    'openid-client'`); `require(esm)` loads them synchronously (no top-level `await` in them, checked). The
+    `import()` workaround stays only in files still in CommonJS (`fakeOidcIssuer.js`).
+  - Typing without changing behaviour: a factory's inner `function` declarations are hoisted, so a check in the
+    factory (`if (!cfg.enabled) throw`) does not narrow inside them; type the parameter as the narrowed shape
+    (`createOidcClient(cfg: OidcConfigOn)`, the throw stays for untyped callers). What one sign-in mode alone has
+    (`oidcClient`, `sessionStore` are null with the dev sign-in) stays `| null` and is used with `!` where the mode
+    guarantees it, each with a comment; do not add a runtime check to please the compiler. Untrusted input (JSON,
+    claims, `req.body`) is `unknown` / `Record<string, unknown>` until the existing checks have run, then cast once
+    to the checked shape (`CentralClaims`). A type predicate narrows the false branch too: use `x is T` only where no
+    caller reads the value when it is false (`isSafeNextPath`), else return `boolean` (`isMobileToken`). The
+    `(err as Error).message` of a catch is the one accepted cast for logging. Count escapes when converting.
+  - Converting a big test file: type its helpers (request helpers answer `{ status, body: Payload }`), give a fake
+    server whose fields tests set the type `Payload` once (`const startIssuer: (opts?) => Promise<Idp> =
+    startFakeIssuer`), cast partial fakes once (`store as unknown as SessionStore`), spawn `src/index.js` as
+    `path.join(import.meta.dirname, '..', 'index.js')`, and import `pg` as `pgModule` when a test names its client
+    `pg`. A test that loaded a module lazily keeps doing so (`await import('../mediaRoutes.js')`).
   - Each area's `index.ts` exports its `create…({ deps })` factory with a typed deps interface (what the area needs
     from the composition root) and the types of what it sends to clients. Rows and objects used by more than one
     area (users, library songs, playlists, jobs, the Socket.IO server) are in `backend/src/shared/types.ts`
@@ -672,7 +700,8 @@ TypeScript one area at a time; until an area is converted its files stay
     be edited yet still requires an old path, a folder with the old name holds a one-line `index.js`
     re-export, so the move stays a rename in git history; delete it as soon as that test can be edited (none
     is left). A unit test of a moved module that sits inside a bigger test file moves out next to the module
-    (the secret box and settings tests left `central-login.test.js`, now `auth/centralLogin.test.ts`).
+    (the secret box and settings tests left `central-login.test.js`, now `auth/centralLogin.test.ts`; the token and
+    admin-cookie tests left `library-unit.test.js` for `auth/tokens.test.ts` and `auth/adminAuth.test.ts`).
   - Schema: an area's tables and migrations go in its folder's `schema.ts` (`{ tables, migrations }`, typed by
     `AreaSchema` / `Migration` from `shared/db.ts` with `import type`, so there is no import cycle at run time),
     listed once in `SCHEMA` in `shared/db.ts`; rules in "Database Migrations" above. An area that has not moved

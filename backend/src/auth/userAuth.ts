@@ -7,12 +7,12 @@
  *
  * - Central login (`sessions` given; OIDC_ISSUER + OIDC_CLIENT_ID; the only
  *   one in production): identity is the opaque `la_session` cookie, looked up
- *   server-side and re-checked with the IdP (oidcSessions.js).
+ *   server-side and re-checked with the IdP (oidcSessions.ts).
  * - Dev login (`devLogin: true`; INSECURE_DEV_LOGIN=1, refused at boot unless
  *   NODE_ENV is development or test; devLogin.ts): identity is the
  *   HMAC-signed `la_dev_login` cookie holding users.id.
  *
- * The Android app (mobileAuth.js) is a user session too, carried as
+ * The Android app (mobileAuth.ts) is a user session too, carried as
  * `Authorization: Bearer lam_...` instead of a cookie (mobileTokens.ts): in
  * central mode a row of the same session store (same re-check, same ban
  * handling), in dev mode a signed token. For HTTP requests only (who()):
@@ -138,14 +138,14 @@ const PUBLIC_EXACT: ReadonlySet<string> = new Set([
   // Central login (OIDC) round trip; 404 unless it is configured.
   '/auth/oidc/login',
   '/auth/oidc/callback',
-  // The Android app's sign-in (mobileAuth.js): start, code exchange, sign-out,
+  // The Android app's sign-in (mobileAuth.ts): start, code exchange, sign-out,
   // the App Link's fallback page and the statement Android verifies it with.
   '/auth/mobile/start',
   '/auth/mobile/exchange',
   '/auth/mobile/logout',
   '/auth/mobile/callback',
   '/.well-known/assetlinks.json',
-  // Dev sign-in (devLogin.js); 404 unless INSECURE_DEV_LOGIN is on.
+  // Dev sign-in (devLogin.ts); 404 unless INSECURE_DEV_LOGIN is on.
   '/auth/dev/login',
 ]);
 
@@ -259,7 +259,7 @@ export function createUserAuth({ secret, db, cacheMs = 5000, sessions = null, de
    * { userId, sessionId } or null. sessionId is the central-login session's
    * id hash (null with dev login). Says nothing about the account's status.
    * Central-login mode may re-check the session with the IdP here (at most
-   * every few minutes; see oidcSessions.js). Throws on a storage error.
+   * every few minutes; see oidcSessions.ts). Throws on a storage error.
    */
   async function resolve(headers: IncomingHttpHeaders): Promise<Who | null> {
     if (mode === 'dev') {

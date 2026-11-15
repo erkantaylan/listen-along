@@ -7,7 +7,7 @@
  * (oidcSessions.ts: refresh token encrypted at rest, re-checked with the IdP).
  * The app only ever holds an opaque `lam_` session token (mobileTokens.ts),
  * sent as `Authorization: Bearer`; it never sees an IdP token. Mounted by
- * authRoutes.js on its router (after the guard; the routes are public in
+ * authRoutes.ts on its router (after the guard; the routes are public in
  * userAuth.policyFor and check what they need themselves).
  *
  *   GET  /auth/mobile/start?state&nonce&code_challenge&code_challenge_method=S256[&redirect_uri]
@@ -81,7 +81,7 @@
  *     /start for the https redirect, copies the derived nonce out of the
  *     Location header into its own authorize URL on the scheme (its own
  *     PKCE), and exchanges the caught code naming the https redirect: the
- *     server accepts it (tested: mobile-auth.test.js "the limit").
+ *     server accepts it (tested: mobileAuth.test.ts "the limit").
  *   - what idpNonce does buy: start and exchange must name the same redirect
  *     (a mixed-up client fails), and the nonce must have come out of /start
  *     (an authorize URL with a nonce of the caller's own fails). A

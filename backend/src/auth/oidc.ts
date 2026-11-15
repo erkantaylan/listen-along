@@ -246,7 +246,7 @@ export function createOidcClient(cfg: OidcConfigOn, { secret, timeoutSeconds = 1
   /**
    * The authorization URL for a sign-in whose secrets the CALLER holds (the
    * Android app: it made state, nonce and the PKCE verifier and keeps them;
-   * mobileAuth.js). Same scopes, S256 only.
+   * mobileAuth.ts). Same scopes, S256 only.
    */
   async function authorizationUrl({ redirectUri, state, nonce, codeChallenge }: {
     redirectUri: string; state: string; nonce: string; codeChallenge: string;
@@ -269,7 +269,7 @@ export function createOidcClient(cfg: OidcConfigOn, { secret, timeoutSeconds = 1
    * @param flow    openFlow() result (or the Android app's { state, nonce, verifier })
    * @param redirectUri  the redirect URI the sign-in was started with: the
    *                web callback by default, the app's custom scheme for the
-   *                Android app (mobileAuth.js)
+   *                Android app (mobileAuth.ts)
    * @throws OidcError('invalid'|'unavailable')
    */
   async function finishLogin(query: string, flow: FlowSecrets | null, { redirectUri = cfg.redirectUri }: { redirectUri?: string } = {}): Promise<SignInResult> {

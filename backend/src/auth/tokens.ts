@@ -197,7 +197,7 @@ export function requireToken(req: Request, res: Response, next: NextFunction) {
  * credentials from the old dashboard login).
  */
 // "Bearer" here means a CLI token: the Android app's `lam_` session token is a
-// user session (userAuth.js), so routes that take "a token or a signed-in
+// user session (userAuth.ts), so routes that take "a token or a signed-in
 // user" treat it as the signed-in user.
 export function hasBearer(req: AuthHeaderRequest): boolean {
   return /^Bearer\s/i.test(req.headers.authorization || '') && !isMobileToken(bearerFrom(req));

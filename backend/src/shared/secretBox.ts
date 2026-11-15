@@ -1,7 +1,7 @@
 /**
  * Authenticated encryption for small secrets the server keeps for itself:
- * the central login's refresh token and id_token at rest (oidcSessions.js) and
- * the short-lived sign-in flow cookie (oidc.js).
+ * the central login's refresh token and id_token at rest (auth/oidcSessions.ts) and
+ * the short-lived sign-in flow cookie (auth/oidc.ts).
  *
  * AES-256-GCM with a random 96-bit IV. Each use gets its own key, derived from
  * SESSION_SECRET with HKDF-SHA256 and a purpose label, so a box made for one
