@@ -3,20 +3,36 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- A beamed pair of eighth notes, inside the adaptive-icon safe zone. -->
-    <path
-        android:fillColor="#9DB8D6"
-        android:pathData="M44,38 L72,32 L72,38 L44,44 Z" />
-    <path
-        android:fillColor="#9DB8D6"
-        android:pathData="M44,38 L47,38 L47,66 L44,66 Z" />
-    <path
-        android:fillColor="#9DB8D6"
-        android:pathData="M69,32 L72,32 L72,60 L69,60 Z" />
-    <path
-        android:fillColor="#C3D4E7"
-        android:pathData="M38,66 a7,5.5 0 1,0 14,0 a7,5.5 0 1,0 -14,0 Z" />
-    <path
-        android:fillColor="#C3D4E7"
-        android:pathData="M63,60 a7,5.5 0 1,0 14,0 a7,5.5 0 1,0 -14,0 Z" />
+    <!-- The listen-along mark (a Y-shaped audio splitter), from listen-along-mark.svg.
+         Paths are in the SVG's 100x100 units; the group scales them by 0.63 and centres
+         the mark's bounding box (11.5..88.5 x 9.5..92) on the canvas, so every point is
+         within 33dp of the centre: inside the 66dp safe zone. -->
+    <group
+        android:scaleX="0.63"
+        android:scaleY="0.63"
+        android:translateX="22.5"
+        android:translateY="22.0275">
+        <!-- Blue arm: the SVG's 9-wide stroke M22,20 L50,48 as an outline, cut where it comes
+             within 7.5 of the orange centreline (the SVG mask: orange half-width 4.5 + 3 gap).
+             The cut edge is that offset curve, fitted as one cubic (within 0.012 units). -->
+        <path
+            android:fillColor="#4F8BE6"
+            android:pathData="M18.818,23.182 L25.182,16.818 L48.575,40.211 C46.257,43.9 45.171,47.23 44.653,49.017 Z" />
+        <path
+            android:fillColor="#4F8BE6"
+            android:pathData="M11.5,20 A10.5,10.5 0 1,0 32.5,20 A10.5,10.5 0 1,0 11.5,20 Z" />
+        <!-- Orange stem and right arm: the SVG's stroke as is. -->
+        <path
+            android:strokeColor="#D97757"
+            android:strokeWidth="9"
+            android:strokeLineCap="round"
+            android:pathData="M50,70 C50,53 52,46 60,38 L78,20" />
+        <path
+            android:fillColor="#D97757"
+            android:pathData="M67.5,20 A10.5,10.5 0 1,0 88.5,20 A10.5,10.5 0 1,0 67.5,20 Z" />
+        <!-- The plug: rect x42 y62 16x30 rx8. -->
+        <path
+            android:fillColor="#D97757"
+            android:pathData="M42,70 A8,8 0 0,1 58,70 L58,84 A8,8 0 0,1 42,84 Z" />
+    </group>
 </vector>

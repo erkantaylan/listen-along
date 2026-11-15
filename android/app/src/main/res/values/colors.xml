@@ -3,5 +3,5 @@
     <!-- DESIGN.md palette: page background, solid accent, surface. -->
     <color name="bg">#232528</color>
     <color name="accent">#557799</color>
-    <color name="launcher_bg">#2C2F33</color>
+    <color name="launcher_bg">#1D1F22</color>
 </resources>

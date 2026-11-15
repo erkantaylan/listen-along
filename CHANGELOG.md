@@ -111,6 +111,8 @@
 - fix(web): on touch, the tap that closes a song menu no longer also plays the row under it
 - fix(web): larger touch targets on phones: song menu, broken-song icon, navbar buttons and the seek bar
 
+- change(web, android): **a new logo**, a Y-shaped audio splitter (an orange plug and arm, a blue arm), replaces the old icons (headphones on the web, two music notes on Android): the browser tab (now also an SVG favicon, the PNG stays as fallback), the installed web app and home-screen icons, the brand mark on the login page, sidebar and navbars, and the Android launcher icon (on a `#1d1f22` background)
+
 - chore(build): TypeScript tooling for the move to TypeScript: tsconfigs, a root `package.json` (`npm run typecheck`, `build`, `test`, `dev`) and a typecheck job in CI. Nothing is converted yet and nothing changes for users. The server now needs Node 22.18 or newer (the Docker image already has it)
 - chore(build): the frontend build is wired in: TypeScript in `frontend/src` compiles to `frontend/dist` (in its own Docker build stage, so the image carries no TypeScript), which the server serves at the same addresses as the existing files, compiled files first. `/package.json` and `/tsconfig.json` are no longer served. `make dev` builds the frontend and watches it. Nothing changes for users
 - refactor(server): the server's main file no longer holds the routes and socket handlers: each area (sign-in, playlists, queue, profile, dashboard, pages, sockets) has its own module, and the main file only puts them together. Same addresses, events and answers; nothing changes for users or for the CLI and Android app
