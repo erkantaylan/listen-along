@@ -1,5 +1,7 @@
 package com.erkantaylan.listenalong.core.domain
 
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+
 /**
  * When to offer a newer Android release (never forced): pure rules, tested in
  * UpdateRulesTest. Versions are compared as numbers, never as strings:
@@ -53,4 +55,39 @@ object UpdateRules {
 
     /** Builds that never look for updates unless asked (a debug build, a local "-dev" build). */
     fun isDevBuild(versionName: String, debug: Boolean): Boolean = debug || parse(versionName)?.suffix != null
+
+    /** The repository whose GitHub releases the server's `/api/app/latest` points at (backend app-release). */
+    const val RELEASES_PATH = "/erkantaylan/listen-along/releases"
+
+    private val SAFE_SEGMENT = Regex("""^[A-Za-z0-9._-]+$""")
+
+    /**
+     * Whether the update notice may open [url]: only this repository's
+     * releases on github.com, as the server answers them (the APK's
+     * `browser_download_url` .../releases/download/<tag>/<file>, the
+     * release's page .../releases/tag/<tag>, the list .../releases).
+     * GitHub's redirect from a download link to its asset host happens in
+     * the browser; the app is never handed that host. Exactly `https://`,
+     * host github.com, no user, port, query or fragment, plain path
+     * segments only.
+     */
+    fun isReleaseUrl(url: String?): Boolean {
+        if (url == null || !url.startsWith("https://github.com/") || url.any { it.isWhitespace() || it.isISOControl() || it == '\\' }) return false
+        val parsed = url.toHttpUrlOrNull() ?: return false
+        if (!parsed.isHttps || parsed.host != "github.com" || parsed.port != 443) return false
+        if (parsed.username.isNotEmpty() || parsed.password.isNotEmpty()) return false
+        if (parsed.encodedQuery != null || parsed.encodedFragment != null) return false
+        val segments = parsed.encodedPathSegments.let { if (it.lastOrNull() == "") it.dropLast(1) else it }
+        val base = RELEASES_PATH.trim('/').split('/')
+        if (segments.size < base.size || segments.take(base.size) != base) return false
+        val rest = segments.drop(base.size)
+        if (rest.any { !SAFE_SEGMENT.matches(it) || it == "." || it == ".." }) return false
+        return when (rest.firstOrNull()) {
+            null -> true
+            "tag" -> rest.size == 2
+            "download" -> rest.size == 3
+            "latest" -> rest.size == 1 || (rest.size == 3 && rest[1] == "download")
+            else -> false
+        }
+    }
 }

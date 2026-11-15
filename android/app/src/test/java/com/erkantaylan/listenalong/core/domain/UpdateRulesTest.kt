@@ -49,4 +49,51 @@ class UpdateRulesTest {
         assertTrue(UpdateRules.shouldShow("0.6.0", "0.4.0", Dismissal("0.5.0", now - day), now))        // an older version was dismissed
         assertFalse(UpdateRules.shouldShow("0.4.0", "0.4.0", null, now))
     }
+
+    @Test
+    fun `the update link opens only this repository's GitHub releases`() {
+        val base = "https://github.com/erkantaylan/listen-along/releases"
+        listOf(
+            base, "$base/",
+            "$base/tag/android-v0.5.0",
+            "$base/download/android-v0.5.0/listen-along-0.5.0.apk",
+            "$base/latest",
+            "$base/latest/download/listen-along.apk",
+        ).forEach { assertTrue(it, UpdateRules.isReleaseUrl(it)) }
+    }
+
+    @Test
+    fun `other hosts, repositories, paths and tricks are refused`() {
+        val base = "https://github.com/erkantaylan/listen-along/releases"
+        listOf(
+            "https://github.com/someone/listen-along/releases/download/v1/x.apk",   // another repository
+            "https://github.com/erkantaylan/listen-along/archive/main.zip",         // not a release
+            "https://github.com/erkantaylan/listen-along/releases/edit/android-v0.5.0",
+            "https://github.com.evil.example/erkantaylan/listen-along/releases",     // look-alike host
+            "https://evil.example/erkantaylan/listen-along/releases",
+            "https://objects.githubusercontent.com/github-production-release-asset/x", // the redirect host: never handed to the app
+            "https://user@github.com/erkantaylan/listen-along/releases",              // credentials
+            "https://github.com:8443/erkantaylan/listen-along/releases",              // a port
+            "$base/download/android-v0.5.0/x.apk?redirect=https://evil.example",     // a query
+            "$base/tag/android-v0.5.0#x",                                            // a fragment
+            "$base/download/%2e%2e/%2e%2e/x.apk",                                    // encoded dots
+            "$base/download/a%2Fb/x.apk",                                            // an encoded slash
+            "$base/../../evil/releases",
+            "$base/download/android-v0.5.0/x.apk/more",
+        ).forEach { assertFalse(it, UpdateRules.isReleaseUrl(it)) }
+    }
+
+    @Test
+    fun `malformed and non-https values are refused`() {
+        listOf(
+            null, "", " ", "github.com/erkantaylan/listen-along/releases",
+            "http://github.com/erkantaylan/listen-along/releases",
+            "HTTPS://github.com/erkantaylan/listen-along/releases",
+            "javascript:alert(1)", "intent://github.com/erkantaylan/listen-along/releases#Intent;end",
+            "file:///sdcard/x.apk", "content://x/y", "https://", "https:///erkantaylan/listen-along/releases",
+            "https://github.com\\@evil.example/erkantaylan/listen-along/releases",
+            "https://github.com/erkantaylan/listen-along/releases/tag/a b",
+            "https://github.com/erkantaylan/listen-along/releases\n",
+        ).forEach { assertFalse(it.toString(), UpdateRules.isReleaseUrl(it)) }
+    }
 }

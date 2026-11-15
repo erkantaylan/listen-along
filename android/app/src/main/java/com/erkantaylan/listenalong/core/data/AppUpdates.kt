@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import okhttp3.HttpUrl
 
 /** A newer release to offer: its version and where to get it (the APK on GitHub, as the web's /app page links it). */
 data class UpdateNotice(val version: String, val downloadUrl: String)
@@ -76,7 +77,7 @@ class AppUpdates(
         } catch (_: Exception) {
             return UpdateCheck.Failed
         }
-        val notice = latest.notice()
+        val notice = latest.notice(client.baseUrl)
         return if (notice != null && UpdateRules.isNewer(notice.version, installedVersion)) {
             _notice.value = notice
             UpdateCheck.Available(notice)
@@ -94,7 +95,7 @@ class AppUpdates(
     private suspend fun fetch(): UpdateNotice? {
         val client = api() ?: return null
         return try {
-            client.appLatest().notice()
+            client.appLatest().notice(client.baseUrl)
         } catch (c: CancellationException) {
             throw c
         } catch (_: Exception) {
@@ -102,11 +103,17 @@ class AppUpdates(
         }
     }
 
-    private fun com.erkantaylan.listenalong.core.model.AppLatest.notice(): UpdateNotice? {
+    /**
+     * The notice for an answer from [server]. The link is the first of the
+     * APK, the release page and the releases list that is one of this
+     * repository's GitHub release URLs ([UpdateRules.isReleaseUrl]); anything
+     * else from the answer is never opened: the server's own `/app` page is.
+     */
+    private fun com.erkantaylan.listenalong.core.model.AppLatest.notice(server: HttpUrl): UpdateNotice? {
         if (!available) return null
         val v = version ?: return null
-        val url = apk?.url?.takeIf { it.startsWith("https://") } ?: releaseUrl?.takeIf { it.startsWith("https://") }
-            ?: releasesUrl?.takeIf { it.startsWith("https://") } ?: return null
+        val url = listOf(apk?.url, releaseUrl, releasesUrl).firstOrNull(UpdateRules::isReleaseUrl)
+            ?: server.resolve("app")?.toString() ?: return null
         return UpdateNotice(v, url)
     }
 }

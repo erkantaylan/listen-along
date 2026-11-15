@@ -14,7 +14,7 @@ import java.io.IOException
 class AppUpdatesTest {
     private val api = FakeApi().apply {
         latest = AppLatest(available = true, version = "0.5.0", tag = "android-v0.5.0",
-                           apk = AppApk("listen-along-0.5.0.apk", "https://github.com/x/releases/download/android-v0.5.0/listen-along-0.5.0.apk"))
+                           apk = AppApk("listen-along-0.5.0.apk", "https://github.com/erkantaylan/listen-along/releases/download/android-v0.5.0/listen-along-0.5.0.apk"))
     }
     private var clock = 1_000_000L
     private val store = MemoryTextStore()
@@ -85,5 +85,23 @@ class AppUpdatesTest {
         assertEquals(UpdateCheck.Failed, updates().checkNow())
         api.fail = IOException("offline")
         assertEquals(UpdateCheck.Failed, updates().checkNow())
+    }
+
+    @Test
+    fun `a link that is not this repository's GitHub release falls back to the server's app page`() = runBlocking {
+        // The APK link is foreign: the release page (allowed) is used instead.
+        api.latest = api.latest.copy(
+            apk = AppApk("x.apk", "https://evil.example/listen-along-0.5.0.apk"),
+            releaseUrl = "https://github.com/erkantaylan/listen-along/releases/tag/android-v0.5.0",
+        )
+        assertEquals("https://github.com/erkantaylan/listen-along/releases/tag/android-v0.5.0", (updates().checkNow() as UpdateCheck.Available).notice.downloadUrl)
+
+        // Nothing allowed at all: <configured server>/app.
+        api.latest = api.latest.copy(
+            apk = AppApk("x.apk", "https://github.com/someone-else/listen-along/releases/download/v/x.apk"),
+            releaseUrl = "http://github.com/erkantaylan/listen-along/releases/tag/android-v0.5.0",
+            releasesUrl = "javascript:alert(1)",
+        )
+        assertEquals("https://music.test/app", (updates().checkNow() as UpdateCheck.Available).notice.downloadUrl)
     }
 }
