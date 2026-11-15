@@ -38,7 +38,9 @@ where lobby persistence broke entirely on deployed instances.
   `authRoutes.js` (the auth guard right after the static files; legacy `/api/auth/register|status`; the
   central-login / dev sign-in round trips, `/api/auth/me`, logout, `/login`, `/api/auth/providers`),
   `playlistRoutes.js` (`/api/playlists` + `/api/lobbies`, songs included; `requireViewer`, `findVisiblePlaylist`;
-  returns `ownerNames`, whose cache the socket handlers share)
+  returns `ownerNames`, whose cache the socket handlers share).
+  Socket handler modules (`create…Sockets({ deps })`, whose `register(socket, ctx)` runs per connection):
+  `queueSockets.js` (`queue:*`). `memoryRateLimit.js`: the 20/min in-memory limits (admin login, `queue:add`)
 - Domain modules: lobby.js, playlistAccess.js, queue.js, covers.js, db.js,
   workerHub.js / downloadJobs.js / jobRoutes.js (downloaders + jobs, see below),
   library.js (music library + upload validation (m4a / Ogg Opus) + legacy cache migration +
