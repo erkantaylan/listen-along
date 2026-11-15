@@ -11,6 +11,7 @@
 
 const crypto = require('crypto');
 const db = require('./db');
+const { isMobileToken } = require('./mobileTokens');
 
 const TOKEN_PREFIX = 'la_';
 /** Most active tokens one user may hold at a time. */
@@ -149,10 +150,17 @@ function bearerFrom(req) {
   return m ? m[1] : null;
 }
 
-/** Express middleware: require a valid Bearer token; sets req.apiUser. */
+/**
+ * Express middleware: require a valid Bearer token; sets req.apiUser. The
+ * Android app's session (`lam_`, mobileTokens.js) is no CLI token: refused
+ * with 403 TOKEN_REQUIRED (not 401, which the app would read as "signed out").
+ */
 function requireToken(req, res, next) {
-  if (!db.isAvailable()) return res.status(503).json({ error: 'Database not available' });
   const token = bearerFrom(req);
+  if (isMobileToken(token)) {
+    return res.status(403).json({ error: 'This needs a CLI token (la_...); an app session cannot use it', code: 'TOKEN_REQUIRED' });
+  }
+  if (!db.isAvailable()) return res.status(503).json({ error: 'Database not available' });
   if (!token) return res.status(401).json({ error: 'Missing Authorization: Bearer <token>' });
   verifyToken(token).then((user) => {
     if (!user) return res.status(401).json({ error: 'Invalid or revoked token' });
@@ -167,8 +175,11 @@ function requireToken(req, res, next) {
  * Authorization schemes are ignored (browsers keep resending cached Basic
  * credentials from the old dashboard login).
  */
+// "Bearer" here means a CLI token: the Android app's `lam_` session token is a
+// user session (userAuth.js), so routes that take "a token or a signed-in
+// user" treat it as the signed-in user.
 function hasBearer(req) {
-  return /^Bearer\s/i.test(req.headers.authorization || '');
+  return /^Bearer\s/i.test(req.headers.authorization || '') && !isMobileToken(bearerFrom(req));
 }
 
 function optionalToken(req, res, next) {

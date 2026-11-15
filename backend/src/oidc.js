@@ -181,19 +181,41 @@ function createOidcClient(cfg, { secret, timeoutSeconds = 10, logger = console }
   }
 
   /**
+   * The authorization URL for a sign-in whose secrets the CALLER holds (the
+   * Android app: it made state, nonce and the PKCE verifier and keeps them;
+   * mobileAuth.js). Same scopes, S256 only.
+   */
+  async function authorizationUrl({ redirectUri, state, nonce, codeChallenge }) {
+    const client = await lib();
+    const config = await configuration();
+    return client.buildAuthorizationUrl(config, {
+      redirect_uri: redirectUri,
+      scope: cfg.scopes,
+      response_type: 'code',
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256',
+      state,
+      nonce,
+    }).href;
+  }
+
+  /**
    * Finish a sign-in: exchange the code and validate the id_token.
    * @param query   the callback's raw query string (with or without "?")
-   * @param flow    openFlow() result
+   * @param flow    openFlow() result (or the Android app's { state, nonce, verifier })
+   * @param redirectUri  the redirect URI the sign-in was started with: the
+   *                web callback by default, the app's custom scheme for the
+   *                Android app (mobileAuth.js)
    * @returns {{ claims: object, refreshToken: string|null, idToken: string|null }}
    * @throws OidcError('invalid'|'unavailable')
    */
-  async function finishLogin(query, flow) {
+  async function finishLogin(query, flow, { redirectUri = cfg.redirectUri } = {}) {
     if (!flow) throw new OidcError('invalid', 'no sign-in in progress (flow cookie missing, expired or forged)');
     const client = await lib();
     let config;
     try { config = await configuration(); } catch (err) { throw new OidcError('unavailable', describe(err), err); }
     // The registered redirect URI plus the IdP's answer (code, state, iss or error).
-    const current = new URL(cfg.redirectUri);
+    const current = new URL(redirectUri);
     current.search = String(query || '').replace(/^\?/, '');
     let tokens;
     try {
@@ -267,7 +289,7 @@ function createOidcClient(cfg, { secret, timeoutSeconds = 10, logger = console }
     }
   }
 
-  return { configuration, bootCheck, startLogin, finishLogin, refresh, endSessionUrl, openFlow, cfg };
+  return { configuration, bootCheck, startLogin, authorizationUrl, finishLogin, refresh, endSessionUrl, openFlow, cfg };
 }
 
 module.exports = { createOidcClient, OidcError, FLOW_COOKIE, FLOW_COOKIE_PATH, FLOW_MAX_AGE_MS, REFRESH_TIMEOUT_SECONDS, isTransient, describe };

@@ -12,6 +12,17 @@
  *   NODE_ENV is development or test; devLogin.js): identity is the
  *   HMAC-signed `la_dev_login` cookie holding users.id.
  *
+ * The Android app (mobileAuth.js) is a user session too, carried as
+ * `Authorization: Bearer lam_...` instead of a cookie (mobileTokens.js): in
+ * central mode a row of the same session store (same re-check, same ban
+ * handling), in dev mode a signed token. For HTTP requests only (who()):
+ * socket handshakes stay cookie-only, the app has no socket. When a `lam_`
+ * Bearer is sent it is the ONLY identity looked at (no fallback to a cookie),
+ * and a refusal for want of a session says `SESSION_ENDED` (401), which the
+ * app takes as "sign in again". It reaches what a browser session reaches,
+ * at the same account levels; admin stays the separate la_admin cookie, and
+ * CLI-token-only routes refuse it (tokens.js, 403 TOKEN_REQUIRED).
+ *
  * The old Google / GitHub `listen_auth` cookie is no login in either mode:
  * nothing here reads it.
  *
@@ -33,6 +44,7 @@
  */
 
 const { DEV_COOKIE, verifyDevToken } = require('./devLogin');
+const { mobileBearer, verifyDevMobileToken } = require('./mobileTokens');
 
 const BLOCKED_STATUSES = new Set(['denied', 'rejected']);
 
@@ -58,8 +70,14 @@ function meetsLevel(account, level) {
   return false;
 }
 
-/** HTTP status + JSON body for an account that does not meet `level`. */
-function refusal(account) {
+/**
+ * HTTP status + JSON body for an account that does not meet `level`.
+ * `mobile`: the caller sent the Android app's `lam_` Bearer token, so no
+ * account means that session is unknown, expired, signed out or ended by a
+ * re-check or a ban: SESSION_ENDED (the app goes back to its sign-in).
+ */
+function refusal(account, { mobile = false } = {}) {
+  if (!account && mobile) return { status: 401, body: { error: 'Your session has ended, sign in again', code: 'SESSION_ENDED' } };
   if (!account) return { status: 401, body: { error: 'Authentication required', code: 'AUTH_REQUIRED' } };
   if (isBlocked(account.status)) return { status: 403, body: { error: 'Access denied', code: 'ACCOUNT_DENIED' } };
   return { status: 403, body: { error: 'Your account is pending approval', code: 'ACCOUNT_PENDING' } };
@@ -89,6 +107,10 @@ const PUBLIC_EXACT = new Set([
   // Central login (OIDC) round trip; 404 unless it is configured.
   '/auth/oidc/login',
   '/auth/oidc/callback',
+  // The Android app's sign-in (mobileAuth.js): start, code exchange, sign-out.
+  '/auth/mobile/start',
+  '/auth/mobile/exchange',
+  '/auth/mobile/logout',
   // Dev sign-in (devLogin.js); 404 unless INSECURE_DEV_LOGIN is on.
   '/auth/dev/login',
 ]);
@@ -208,9 +230,30 @@ function createUserAuth({ secret, db, cacheMs = 5000, sessions = null, devLogin 
     return s ? { userId: String(s.userId), sessionId: s.idHash } : null;
   }
 
-  /** resolve() for a request, once per request. */
+  /**
+   * The Android app's `lam_` Bearer token -> { userId, sessionId } or null.
+   * Central: the session store (re-checked when due, like a cookie session).
+   * Dev: the signed dev token.
+   */
+  async function resolveMobile(token) {
+    if (mode === 'dev') {
+      const data = verifyDevMobileToken(secret, token);
+      return data ? { userId: String(data.id), sessionId: null } : null;
+    }
+    const s = await sessions.resolveBearer(token);
+    return s ? { userId: String(s.userId), sessionId: s.idHash } : null;
+  }
+
+  /**
+   * resolve() for a request, once per request; a `lam_` Bearer (the Android
+   * app) instead of the cookies when one is sent.
+   */
   async function who(req) {
-    if (req._listenWho === undefined) req._listenWho = await resolve(req.headers);
+    if (req._listenWho === undefined) {
+      const mobile = mobileBearer(req.headers);
+      req._listenMobile = mobile !== null;
+      req._listenWho = mobile !== null ? await resolveMobile(mobile) : await resolve(req.headers);
+    }
     return req._listenWho;
   }
 
@@ -235,7 +278,7 @@ function createUserAuth({ secret, db, cacheMs = 5000, sessions = null, devLogin 
     return (req, res, next) => {
       identify(req).then(({ account }) => {
         if (meetsLevel(account, level)) return next();
-        const { status, body } = refusal(account);
+        const { status, body } = refusal(account, { mobile: !!req._listenMobile });
         res.status(status).json(body);
       }).catch((err) => {
         console.error('Account lookup failed:', err.message);

@@ -21,6 +21,7 @@
 const express = require('express');
 const path = require('path');
 const { policyFor, parseCookie } = require('./userAuth');
+const { createMobileAuthRouter } = require('./mobileAuth');
 const { FLOW_COOKIE_PATH: OIDC_FLOW_PATH, FLOW_MAX_AGE_MS: OIDC_FLOW_MAX_AGE_MS } = require('./oidc');
 const { linkCentralIdentity } = require('./oidcLink');
 const { signDevToken, DEV_COOKIE, MAX_AGE_MS: DEV_LOGIN_MAX_AGE_MS } = require('./devLogin');
@@ -383,6 +384,14 @@ function createAuthRoutes({
   router.get('/api/auth/providers', (req, res) => {
     res.json({ central: OIDC.enabled, dev: DEV_LOGIN });
   });
+
+  // The Android app's sign-in (mobileAuth.js): /auth/mobile/start | exchange |
+  // logout (public in policyFor) and GET /api/me for an app session (the CLI
+  // token's /api/me in libraryRoutes.js passes it on with next('route')).
+  router.use(createMobileAuthRouter({
+    oidc: oidcClient, cfg: OIDC, store: sessionStore, settings, userAuth, db, dbExpected: DB_EXPECTED,
+    devLogin: DEV_LOGIN, secret: SESSION_SECRET, env,
+  }));
 
   return { guard, statusRouter, router };
 }

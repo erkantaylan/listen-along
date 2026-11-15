@@ -10,6 +10,11 @@
  * roles claim (kept for later; it gates nothing today), and the times.
  * Postgres `user_sessions`; a Map without a database.
  *
+ * The Android app's sessions (mobileAuth.js) are rows in the same table: the
+ * app holds `lam_` + 32 random bytes and sends it as a Bearer token
+ * (resolveBearer); the hash covers the prefix. Same lifetime, re-check and
+ * ban handling as a browser's.
+ *
  * Lifetime: 30 days from sign-in (as the old cookie), never extended.
  *
  * Re-check: when a session is used and its last successful check is older than
@@ -34,6 +39,7 @@
 const crypto = require('crypto');
 const { deriveKey, seal, open } = require('./secretBox');
 const { parseCookie } = require('./userAuth');
+const { CENTRAL_TOKEN_RE } = require('./mobileTokens');
 
 const SESSION_COOKIE = 'la_session';
 const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -84,8 +90,10 @@ function createSessionStore({ db, secret, dbExpected = false }) {
     };
   }
 
-  async function create({ userId, sub, refreshToken, idToken, roles, now = Date.now() }) {
-    const rawId = newRawId();
+  // `prefix`: 'lam_' for the Android app's Bearer sessions (mobileTokens.js);
+  // the stored hash covers the prefix, so a cookie id is never a Bearer.
+  async function create({ userId, sub, refreshToken, idToken, roles, prefix = '', now = Date.now() }) {
+    const rawId = prefix + newRawId();
     const idHash = hashId(rawId);
     const row = {
       id_hash: idHash,
@@ -255,7 +263,18 @@ function createOidcSessions({ store, client, cfg, cookieName = SESSION_COOKIE, o
     return idHash ? check(idHash, opts) : null;
   }
 
-  return { check, resolveHeaders, idHashFromHeaders, end };
+  /** The Android app's `lam_` Bearer token -> its id hash, or null when malformed. */
+  function idHashFromBearer(token) {
+    return typeof token === 'string' && CENTRAL_TOKEN_RE.test(token) ? hashId(token) : null;
+  }
+
+  /** The session behind an app's `lam_` Bearer token (same store, same re-check), or null. */
+  async function resolveBearer(token, opts) {
+    const idHash = idHashFromBearer(token);
+    return idHash ? check(idHash, opts) : null;
+  }
+
+  return { check, resolveHeaders, idHashFromHeaders, resolveBearer, idHashFromBearer, end };
 }
 
 module.exports = { createSessionStore, createOidcSessions, SESSION_COOKIE, SESSION_MAX_AGE_MS, RETRY_AFTER_MS, IDP_QUIET_MS, hashId };

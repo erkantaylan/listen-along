@@ -17,6 +17,7 @@ const db = require('./db');
 const library = require('./library');
 const requests = require('./requests');
 const tokens = require('./tokens');
+const { mobileBearer } = require('./mobileTokens');
 const downloadJobs = require('./downloadJobs');
 const songReports = require('./songReports');
 const songVerify = require('./songVerify');
@@ -201,7 +202,9 @@ function createLibraryRouter(hooks = {}) {
   // upload_formats: what /api/library/upload and /replace take (m4a = AAC in
   // MP4, opus = Opus in Ogg). A server without it takes m4a only, and the CLI
   // then downloads and converts to m4a as it always did.
-  router.get('/api/me', tokens.requireToken, (req, res) => {
+  // The Android app's session (`lam_` Bearer) is answered by mobileAuth.js.
+  const cliOnly = (req, res, next) => (mobileBearer(req.headers) ? next('route') : next());
+  router.get('/api/me', cliOnly, tokens.requireToken, (req, res) => {
     const { name, label, user } = req.apiUser;
     res.json({ name, user, token: { label, legacy: !user }, upload_formats: Object.keys(library.UPLOAD_FORMATS) });
   });
