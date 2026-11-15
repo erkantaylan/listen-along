@@ -34,7 +34,9 @@ where lobby persistence broke entirely on deployed instances.
   `appRoutes.js` (`createInfoRouter`: health, version, changelog, QR, mounted before the library router so outside
   its `apiLimiter`; `createPageRouter`: redirects, SPA views, `/api/app/latest`, `/dashboard`, `/`),
   `mediaRoutes.js` (`/api/stream`, `/api/covers/:id`), `profileRoutes.js` (`GET|PUT /api/profile`),
-  `adminRoutes.js` (dashboard users / statuses / settings / stats / playlist and chat moderation, all `requireAdmin`)
+  `adminRoutes.js` (dashboard users / statuses / settings / stats / playlist and chat moderation, all `requireAdmin`),
+  `authRoutes.js` (the auth guard right after the static files; legacy `/api/auth/register|status`; the
+  central-login / dev sign-in round trips, `/api/auth/me`, logout, `/login`, `/api/auth/providers`)
 - Domain modules: lobby.js, playlistAccess.js, queue.js, covers.js, db.js,
   workerHub.js / downloadJobs.js / jobRoutes.js (downloaders + jobs, see below),
   library.js (music library + upload validation (m4a / Ogg Opus) + legacy cache migration +
@@ -301,7 +303,7 @@ where lobby persistence broke entirely on deployed instances.
   and `/playlist/<id>/library`; old `/lobby/...` URLs 301 to them (and the SPA
   rewrites them, `legacyRedirect` in `frontend/router.js`). HTTP API:
   `/api/playlists` (`/api/lobbies` is an alias). It also takes a CLI Bearer
-  token (auth guard in index.js → `requireViewer`): the token acts as its
+  token (auth guard in authRoutes.js → `requireViewer`): the token acts as its
   owner; a legacy ownerless token sees/edits public playlists only, creates
   only ownerless (public) ones and manages nothing (`viewerCan*` in
   playlistAccess.js). Song endpoints (`/:id/songs`, used by `la playlist` and
@@ -408,7 +410,7 @@ where lobby persistence broke entirely on deployed instances.
   name sent by the client.
 - `users.status` decides access: `approved` = everything; `pending` = chat /
   people panel and own profile only; `denied` / `rejected` = nothing (sockets
-  refused). The auth guard in `index.js` is deny-by-default (`policyFor()` in
+  refused). The auth guard (`authRoutes.js`) is deny-by-default (`policyFor()` in
   userAuth.js). Only an admin changes a status — db.js must never rewrite
   statuses on boot (a restart once promoted every pending user). Blocking an
   account (`accountStatusChanged`) disconnects its sockets and, with central
