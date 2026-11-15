@@ -36,7 +36,9 @@ where lobby persistence broke entirely on deployed instances.
   `mediaRoutes.js` (`/api/stream`, `/api/covers/:id`), `profileRoutes.js` (`GET|PUT /api/profile`),
   `adminRoutes.js` (dashboard users / statuses / settings / stats / playlist and chat moderation, all `requireAdmin`),
   `authRoutes.js` (the auth guard right after the static files; legacy `/api/auth/register|status`; the
-  central-login / dev sign-in round trips, `/api/auth/me`, logout, `/login`, `/api/auth/providers`)
+  central-login / dev sign-in round trips, `/api/auth/me`, logout, `/login`, `/api/auth/providers`),
+  `playlistRoutes.js` (`/api/playlists` + `/api/lobbies`, songs included; `requireViewer`, `findVisiblePlaylist`;
+  returns `ownerNames`, whose cache the socket handlers share)
 - Domain modules: lobby.js, playlistAccess.js, queue.js, covers.js, db.js,
   workerHub.js / downloadJobs.js / jobRoutes.js (downloaders + jobs, see below),
   library.js (music library + upload validation (m4a / Ogg Opus) + legacy cache migration +
