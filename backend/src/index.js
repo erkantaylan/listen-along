@@ -1,22 +1,23 @@
+// The server's composition root: reads the configuration, builds the stores
+// and services, builds each area through its create…({ deps }) factory, mounts
+// the routers and registers the socket handlers, then starts listening.
+// Mount order is semantics in Express: the guard comes first, and the library
+// router's router.use(apiLimiter) counts every request that reaches it, so
+// what is mounted before it stays outside that limiter. Keep the order.
 require('./logger'); // timestamp + level on all console output — must be first
 require('dotenv').config();
 
-const express = require('express');
-const http = require('http');
-const cors = require('cors');
 const path = require('path');
-const fs = require('fs');
 const crypto = require('crypto');
 const ytdlp = require('./ytdlp');
 const lobby = require('./lobby');
-const { getQueue, getQueueAsync, deleteQueue, hasQueue } = require('./queue');
+const { getQueueAsync, deleteQueue, hasQueue } = require('./queue');
 const db = require('./db');
 const library = require('./library');
 const songRequests = require('./requests');
 const { createLibraryRouter, sendSongFile } = require('./libraryRoutes');
 const { createTokenRouter } = require('./tokenRoutes');
 const tokens = require('./tokens');
-const clientIpSetup = require('./clientIp');
 const adminAuth = require('./adminAuth');
 const { apiLimiter, make: makeLimiter } = require('./rateLimits');
 const { readOidcConfig } = require('./oidcConfig');
@@ -54,6 +55,8 @@ const { createPlaylistSockets } = require('./playlistSockets');
 const { APP_ROOM, userRoom, sessionRoom, createSocketServer, attachSocketHandlers } = require('./socketServer');
 const { createMemoryRateLimit } = require('./memoryRateLimit');
 const { createReactions } = require('./reactions');
+const { createHttpApp } = require('./httpApp');
+
 // The web's "pick the video" dialog (picker.js): lookups for it, and what they
 // said about each video, for the title of a chosen one.
 const picker = createPicker();
@@ -64,7 +67,6 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
 
 // The admin login's in-memory limit (memoryRateLimit.js; libraryRoutes.js loginRateLimit).
 const rateLimit = createMemoryRateLimit();
-
 
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 
@@ -117,69 +119,25 @@ const oidcSessions = OIDC.enabled ? createOidcSessions({
 // (approved / pending / denied). See userAuth.js for the levels.
 const userAuth = createUserAuth({ secret: SESSION_SECRET, db, sessions: oidcSessions, devLogin: DEV_LOGIN });
 
-const app = express();
-const server = http.createServer(app);
+// Serve static frontend files
+// In Docker: /app/src/index.js -> /app/frontend (../frontend)
+// Local dev: backend/src/index.js -> frontend (../../frontend)
+const frontendPath = path.resolve(process.env.FRONTEND_PATH || path.join(__dirname, '../frontend'));
 
-// Behind Cloudflare -> Traefik: trust the private proxy hop and take the
-// visitor's IP from CF-Connecting-IP only when the request really came from
-// Cloudflare. Sets req.clientIp, which the rate limits key on. See clientIp.js.
-const clientIpOf = clientIpSetup.install(app);
-
-// CORS configuration
+// CORS configuration (the HTTP API and Socket.IO)
 const corsOptions = {
   origin: FRONTEND_URL,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   credentials: true
 };
 
-app.use(cors(corsOptions));
-app.use(express.json());
-
-// HTTP request logging — one concise line per dynamic request with status +
-// duration, a SLOW tag for anything over 5s, and a PENDING warning for requests
-// still running after 15s. The PENDING warning is the key diagnostic: a request
-// that hangs (yt-dlp/db/upstream stall) otherwise surfaces only as a proxy 504
-// with nothing in our own logs. Static assets are skipped to keep signal high.
-const STATIC_ASSET_RE = /\.(?:js|css|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|map)$/i;
-app.use((req, res, next) => {
-  if (STATIC_ASSET_RE.test(req.path)) return next();
-  const start = Date.now();
-  let logged = false;
-  const pending = setTimeout(() => {
-    console.warn(`[http] PENDING ${req.method} ${req.path === '/auth/oidc/callback' ? req.path : req.originalUrl} still running after 15s`);
-  }, 15000);
-  const finish = (aborted) => {
-    if (logged) return;
-    logged = true;
-    clearTimeout(pending);
-    const ms = Date.now() - start;
-    const status = aborted ? 'ABORTED' : res.statusCode;
-    const slow = ms > 5000 ? ' SLOW' : '';
-    // The central login's callback carries a one-time code: not in the log.
-    const shownUrl = req.path === '/auth/oidc/callback' ? `${req.path}?…` : req.originalUrl;
-    const line = `[http] ${req.method} ${shownUrl} ${status} ${ms}ms${slow}`;
-    if (aborted || res.statusCode >= 500 || ms > 5000) console.warn(line);
-    else console.log(line);
-  };
-  res.on('finish', () => finish(false));
-  res.on('close', () => { if (!res.writableEnded) finish(true); });
-  next();
-});
+// The Express app and its HTTP server, with what runs before every route:
+// client IP, CORS, JSON bodies, the request log, the static files (httpApp.js).
+const { app, server, clientIpOf } = createHttpApp({ corsOptions, frontendPath });
 
 if (!process.env.SESSION_SECRET) {
   console.log('Warning: SESSION_SECRET not set, using random secret (logins will not survive a restart)');
 }
-
-// Serve static frontend files
-// In Docker: /app/src/index.js -> /app/frontend (../frontend)
-// Local dev: backend/src/index.js -> frontend (../../frontend)
-const frontendPath = path.resolve(process.env.FRONTEND_PATH || path.join(__dirname, '../frontend'));
-
-// Static assets (scripts, styles, icons, locales) are public: they hold no
-// data. `index: false` so "/" goes through the auth guard below instead of
-// express.static answering it with index.html. Compiled TypeScript in
-// <frontend>/dist is served first, at the same URLs (frontendStatic.js).
-app.use(require('./frontendStatic').frontendStatic(frontendPath));
 
 // Socket.IO setup with CORS (socketServer.js, which also names the rooms).
 const io = createSocketServer({ server, cors: corsOptions });
@@ -191,7 +149,6 @@ const auth = createAuthRoutes({
   db, settings, userAuth, oidcClient, sessionStore, oidcSessions, tokens, apiLimiter, makeLimiter, io, sessionRoom,
 });
 app.use(auth.guard);
-
 
 // Health, build info, changelog, the playlist QR code (appRoutes.js). Before
 // the library router: its router.use(apiLimiter) counts everything after it.
@@ -347,7 +304,6 @@ app.use(createAdminRouter({
   db, lobby, getQueueAsync, library, settings, oidc: OIDC, apiLimiter, adminAuth,
   accountStatusChanged, destroyLobby, getSocial: () => social,
 }));
-
 
 // Playlist membership and queue socket handlers (playlistSockets.js,
 // queueSockets.js), registered per connection below.

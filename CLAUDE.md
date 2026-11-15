@@ -29,8 +29,12 @@ where lobby persistence broke entirely on deployed instances.
 - Frontend: Vanilla JS, single-page (`frontend/`)
 - UI is stock Bootstrap 6 (vendored in `frontend/vendor/`) with light theming; read `DESIGN.md` before changing any page or CSS
 - Column widths: `frontend/layout-rules.js` (pure, tested) decides when the sidebar is a rail (automatically up to 1100px, `RAIL_MAX`, and above that while expanding it would leave the page column under 616px) and from where the chat docks (1010px); keep its numbers in step with `app.css` (DESIGN.md "Columns and breakpoints"). Queue entries' `artistName` is derived from the library on load (`Queue._loadArtists`), not a column; `title` stays "Title - Artist" for the CLI and Android
-- `index.js` is the main server (wiring, plus the HTTP routes and socket events not yet in a module of their own).
-  HTTP route modules (each a `create…Router({ deps })` mounted by index.js; mount order is semantics):
+- `index.js` is the composition root (about 460 lines, no routes or handlers of its own): reads the config (sign-in
+  is fixed at boot), builds the stores and services, builds each area through its `create…({ deps })` factory, mounts
+  the routers and registers the socket handlers, then `start()` (database, OIDC boot check, social / listen-along,
+  listen) and the shutdown. Areas never require each other: what one needs from another comes in its deps.
+  `httpApp.js`: the Express app and HTTP server with what runs before every route (client IP, CORS, JSON, request
+  log, static files). HTTP route modules (each a `create…Router({ deps })` mounted by index.js; mount order is semantics):
   `appRoutes.js` (`createInfoRouter`: health, version, changelog, QR, mounted before the library router so outside
   its `apiLimiter`; `createPageRouter`: redirects, SPA views, `/api/app/latest`, `/dashboard`, `/`),
   `mediaRoutes.js` (`/api/stream`, `/api/covers/:id`), `profileRoutes.js` (`GET|PUT /api/profile`),
