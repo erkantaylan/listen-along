@@ -64,15 +64,15 @@
              com.etaylan.listen:/oauth2redirect?code&state (the redirect
              registered for listen-along; scheme from build.gradle.kts). A path
              in a filter needs a host, which this URI has not, so the filter is
-             the scheme alone and auth/AuthFlow checks the path and the state.
+             the scheme alone and feature/auth/AuthFlow checks the path and the state.
              Release builds also take the https App Link from the production
-             server (src/release/AndroidManifest.xml); auth/AuthFlow.redirectFor
+             server (src/release/AndroidManifest.xml); feature/auth/AuthFlow.redirectFor
              picks one per sign-in.
              This activity only hands the URI to MainActivity and closes the
              Custom Tab. Anyone can send it a URI: a code is useless without
              the PKCE verifier, and a state that is not ours is refused. -->
         <activity
-            android:name=".auth.AuthRedirectActivity"
+            android:name=".feature.auth.AuthRedirectActivity"
             android:exported="true"
             android:excludeFromRecents="true"
             android:noHistory="true"
@@ -86,14 +86,14 @@
         </activity>
 
         <receiver
-            android:name=".download.CancelDownloadsReceiver"
+            android:name=".core.download.CancelDownloadsReceiver"
             android:exported="false" />
 
         <!-- Exported so the system, Bluetooth and Android Auto can find the
              media session and browse the library (MediaLibraryService; the
              MediaBrowserService action is what Android Auto looks for). -->
         <service
-            android:name=".player.PlaybackService"
+            android:name=".core.player.PlaybackService"
             android:exported="true"
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>

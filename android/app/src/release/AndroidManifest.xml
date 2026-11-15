@@ -11,10 +11,10 @@
              without asking; no other app can take it, as one can the custom
              scheme. Not verified (yet), Android shows the URL in the browser,
              whose page has a button back to this app (an intent: link naming
-             this package). auth/AuthFlow.redirectFor decides when this is
+             this package). feature/auth/AuthFlow.redirectFor decides when this is
              used; the custom-scheme filter in the main manifest stays for
              other servers. -->
-        <activity android:name=".auth.AuthRedirectActivity">
+        <activity android:name=".feature.auth.AuthRedirectActivity">
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

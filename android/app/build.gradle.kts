@@ -25,7 +25,7 @@ val keyAliasName: String = providers.environmentVariable("ANDROID_KEY_ALIAS").or
 // The sign-in redirect registered for the listen-along client at the central
 // login is com.etaylan.listen:/oauth2redirect, the same for debug and release
 // (it is not the applicationId). The manifest's intent filter and the code
-// (BuildConfig.AUTH_REDIRECT_SCHEME, auth/AuthFlow) both take it from here.
+// (BuildConfig.AUTH_REDIRECT_SCHEME, feature/auth/AuthFlow) both take it from here.
 val authRedirectScheme = "com.etaylan.listen"
 
 // Release builds sign in through an https App Link instead when the server is
@@ -34,7 +34,7 @@ val authRedirectScheme = "com.etaylan.listen"
 // (the release key's fingerprint; backend/src/mobileAuth.js). The intent
 // filter is in src/release/AndroidManifest.xml (release only: a debug build is
 // signed with the debug key and never verified for this host, so it keeps the
-// custom scheme). auth/AuthFlow.redirectFor picks one per sign-in.
+// custom scheme). feature/auth/AuthFlow.redirectFor picks one per sign-in.
 val authAppLinkHost = "music.etaylan.com"
 
 android {
