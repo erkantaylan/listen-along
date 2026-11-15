@@ -161,7 +161,7 @@ describe('la update', () => {
       assert.deepEqual(snapshot(root), before);
       assert.ok(!server.state.calls.some((c) => c.path === '/api/cli/bundle'));
       const h = await run(['update', '--check'], { server, deps: { installRoot: root } });
-      assert.match(h.stdout, new RegExp(`la ${NEWER} is available \\(this is ${pkg.version.replace(/\./g, '\\.')}\\)`));
+      assert.ok(h.stdout.includes(`la ${NEWER} is available (this is ${pkg.version})`), h.stdout);
     } finally { await server.close(); }
   });
 

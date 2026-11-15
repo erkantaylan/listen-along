@@ -434,10 +434,20 @@ describe('auth guard against a running server (no database, dev sign-in)', { tim
   it('cover fallback only redirects to known thumbnail hosts', async () => {
     const ok = await c.req('GET', `/api/covers/nope?fallback=${encodeURIComponent('https://i.ytimg.com/vi/x/hqdefault.jpg')}`, { cookie: alice });
     assert.equal(ok.status, 302);
-    for (const evil of ['https://evil.example/x.png', 'https://ytimg.com.evil.example/', 'javascript:alert(1)', 'https://user@i.ytimg.com/']) {
+    assert.equal(ok.headers.get('location'), 'https://i.ytimg.com/vi/x/hqdefault.jpg');
+    for (const evil of ['https://evil.example/x.png', 'https://ytimg.com.evil.example/', 'javascript:alert(1)', 'https://user@i.ytimg.com/',
+      'https://sites.googleusercontent.com/x', 'https://www.youtube.com/redirect?q=https://evil.example', '//i.ytimg.com/x']) {
       const r = await c.req('GET', `/api/covers/nope?fallback=${encodeURIComponent(evil)}`, { cookie: alice });
       assert.equal(r.status, 400, evil);
     }
+    const twice = await c.req('GET', `/api/covers/nope?fallback=${encodeURIComponent('https://i.ytimg.com/a.jpg')}&fallback=x`, { cookie: alice });
+    assert.equal(twice.status, 400, 'a repeated parameter is not a URL');
+    // The target is a fixed https origin + the given path and query.
+    const { coverRedirectTarget } = require('./mediaRoutes');
+    assert.equal(coverRedirectTarget('http://i.scdn.co/image/ab67?x=1#f'), 'https://i.scdn.co/image/ab67?x=1');
+    assert.equal(coverRedirectTarget('https://i.ytimg.com\\@evil.example/x'), 'https://i.ytimg.com/@evil.example/x');
+    assert.equal(coverRedirectTarget('https://i.ytimg.com:8443/x'), null, 'no other port');
+    assert.equal(coverRedirectTarget(['https://i.ytimg.com/x']), null);
   });
 
   it('sockets: anonymous, forged and foreign-origin handshakes are refused', async () => {

@@ -2,9 +2,9 @@
  * The app's own HTTP routes, two routers because of where index.js mounts them:
  *
  *   createInfoRouter   GET /health, /api/version, /api/changelog, /changelog,
- *                      /api/qr/:lobbyId. Mounted BEFORE the library router,
- *                      whose router.use(apiLimiter) counts every request that
- *                      reaches it, so these stay outside the general limiter.
+ *                      /api/qr/:lobbyId. Mounted before the library router;
+ *                      only the changelog routes (they read files) count
+ *                      against the general limiter (apiLimiter).
  *   createPageRouter   /admin and /lobby/... redirects, the SPA views,
  *                      GET /api/app/latest, the /dashboard shell and "/".
  *                      Mounted after the library router.
@@ -30,9 +30,10 @@ const LOOP_DELAY_RESOLUTION_MS = 20;
  * @param {{ isAvailable: () => boolean }} deps.db
  * @param {{ availableCached: () => Promise<boolean> }} deps.ytdlp
  * @param {string} deps.frontendPath - the frontend folder (index.html, changelog.html)
+ * @param {import('express').RequestHandler} deps.apiLimiter - rateLimits.apiLimiter
  * @returns {import('express').Router}
  */
-function createInfoRouter({ db, ytdlp, frontendPath }) {
+function createInfoRouter({ db, ytdlp, frontendPath, apiLimiter }) {
   const router = express.Router();
 
   const loopDelay = monitorEventLoopDelay({ resolution: LOOP_DELAY_RESOLUTION_MS });
@@ -78,7 +79,7 @@ function createInfoRouter({ db, ytdlp, frontendPath }) {
   });
 
   // Changelog endpoint - serves CHANGELOG.md as JSON
-  router.get('/api/changelog', (req, res) => {
+  router.get('/api/changelog', apiLimiter, (req, res) => {
     // In Docker: /app/CHANGELOG.md, locally: ../../CHANGELOG.md from backend/src/
     const changelogPath = [
       path.join(__dirname, '..', 'CHANGELOG.md'),
@@ -93,7 +94,7 @@ function createInfoRouter({ db, ytdlp, frontendPath }) {
   });
 
   // Changelog page
-  router.get('/changelog', (req, res) => {
+  router.get('/changelog', apiLimiter, (req, res) => {
     res.sendFile(path.join(frontendPath, 'changelog.html'));
   });
 
@@ -138,14 +139,14 @@ function createPageRouter({ frontendPath, apiLimiter, adminAuth, appRelease }) {
 
   // Old lobby URLs moved to /playlist/... (the client does the same for in-app
   // navigation, see legacyRedirect in frontend/router.js).
-  router.get(['/lobby/:id', '/lobby/:id/library'], (req, res) => {
+  router.get(['/lobby/:id', '/lobby/:id/library'], apiLimiter, (req, res) => {
     const qs = req.originalUrl.indexOf('?');
     const rest = req.path.endsWith('/library') ? '/library' : '';
     res.redirect(301, `/playlist/${encodeURIComponent(req.params.id)}${rest}${qs >= 0 ? req.originalUrl.slice(qs) : ''}`);
   });
 
   // SPA views (auth guard applied above; the client routes them, see frontend/router.js)
-  router.get(['/playlist/:id', '/playlist/:id/library', '/library', '/radio', '/artists', '/artist/:key', '/search', '/profile', '/social', '/app'], (req, res) => {
+  router.get(['/playlist/:id', '/playlist/:id/library', '/library', '/radio', '/artists', '/artist/:key', '/search', '/profile', '/social', '/app'], apiLimiter, (req, res) => {
     res.sendFile(path.join(frontendPath, 'index.html'));
   });
 
@@ -165,7 +166,7 @@ function createPageRouter({ frontendPath, apiLimiter, adminAuth, appRelease }) {
   });
 
   // Serve index for root
-  router.get('/', (req, res) => {
+  router.get('/', apiLimiter, (req, res) => {
     res.sendFile(path.join(frontendPath, 'index.html'));
   });
 

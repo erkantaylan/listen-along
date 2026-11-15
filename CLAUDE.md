@@ -50,8 +50,13 @@ of a fresh database and of a migrated old one.
   listen) and the shutdown. Areas never require each other: what one needs from another comes in its deps.
   `httpApp.js`: the Express app and HTTP server with what runs before every route (client IP, CORS, JSON, request
   log, static files). HTTP route modules (each a `create…Router({ deps })` mounted by index.js; mount order is semantics):
-  `appRoutes.js` (`createInfoRouter`: health, version, changelog, QR, mounted before the library router so outside
-  its `apiLimiter`; `createPageRouter`: redirects, SPA views, `/api/app/latest`, `/dashboard`, `/`),
+  `appRoutes.js` (`createInfoRouter`: health, version, changelog, QR, before the library router; `createPageRouter`:
+  redirects, SPA views, `/api/app/latest`, `/dashboard`, `/`). Rate limits: `rateLimits.apiLimiter` (3000/min per
+  client address) counts each request ONCE where its route is (the route lists it, the library / job router for its
+  own paths, a path-scoped `app.use(paths, apiLimiter)` in index.js right before the router serving them, the guard
+  for the playlist API before any credential is checked); never `router.use(apiLimiter)` without paths (it charges
+  every request that passes by). Not limited: `/health`, `/api/version`, `/api/qr`, the legacy status checks
+  (`rate-limits.test.js`),
   `mediaRoutes.js` (`/api/stream`, `/api/covers/:id`), `profileRoutes.js` (`GET|PUT /api/profile`),
   `adminRoutes.js` (dashboard users / statuses / settings / stats / playlist and chat moderation, all `requireAdmin`),
   `authRoutes.js` (the auth guard right after the static files; legacy `/api/auth/register|status`; the

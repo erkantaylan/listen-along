@@ -52,6 +52,12 @@ function downloadFilename(song) {
 const SEARCH_LIMIT = 120;
 const SEARCH_WINDOW_MS = 60 * 1000;
 
+// The paths this router serves, and the only ones its apiLimiter counts.
+const LIBRARY_PATHS = [
+  '/api/me', '/api/library', '/api/requests',
+  '/api/admin/status', '/api/admin/login', '/api/admin/logout', '/api/admin/tokens', '/api/admin/library',
+];
+
 // Automatic "needs replacement" reports (the web player's) per account.
 const AUTO_REPORT_LIMIT = 20;
 const AUTO_REPORT_WINDOW_MS = 10 * 60 * 1000;
@@ -116,6 +122,7 @@ function sendSongFile(req, res, song, { download = false } = {}) {
  * @param {(job: object, song: object) => void} [hooks.onJobUpload] - a worker uploaded a song for a job
  * @param {(request: object) => void} [hooks.onRequestDismissed]
  * @param {(songId: string) => void} [hooks.onReportsChanged] - a song was marked / unmarked broken, or its reports dismissed
+ * @param {Function} [hooks.apiLimiter] - the general limit for this router's paths (default rateLimits.apiLimiter; tests pass a small one)
  */
 function createLibraryRouter(hooks = {}) {
   const onSongAdded = hooks.onSongAdded || (() => {});
@@ -172,7 +179,10 @@ function createLibraryRouter(hooks = {}) {
     : (req._listenAuth && req._listenAuth.account && req._listenAuth.account.id) || null);
 
   const router = express.Router();
-  router.use(apiLimiter);
+  // The general API limit (rateLimits.apiLimiter), once per request to THIS
+  // router's paths only: a request that only passes through on its way to a
+  // router mounted later is not counted here (each of those limits its own).
+  router.use(LIBRARY_PATHS, hooks.apiLimiter || apiLimiter);
   router.use(express.json());
 
   const upload = multer({

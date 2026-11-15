@@ -10,8 +10,8 @@
  *   guard          the old Google / GitHub addresses (404) and the auth
  *                  guard; right after the static files, before every route.
  *   statusRouter   POST /api/auth/register, GET /api/auth/status (legacy
- *                  status checks); before the library router, so outside
- *                  its apiLimiter.
+ *                  status checks); mounted before index.js counts /api/auth
+ *                  against apiLimiter, so outside it.
  *   router         /auth/oidc/login|callback (central login only),
  *                  /auth/dev/login (dev sign-in only), GET /api/auth/me,
  *                  POST /api/auth/logout, GET /login,
@@ -90,10 +90,12 @@ function createAuthRoutes({
   // The playlist API (/api/playlists, /api/lobbies) also takes a CLI Bearer
   // token instead of the cookie: the token must be valid (its owner approved),
   // and the routes then act as the token's owner (requireViewer).
+  const playlistApi = (req) => PLAYLIST_API_RE.test(String(req.path).toLowerCase().replace(/\/{2,}/g, '/'));
+  // The playlist API's general limit (apiLimiter): once per request, cookie or
+  // CLI token, counted before either is checked (token guessing is limited too).
+  guard.use((req, res, next) => (playlistApi(req) ? apiLimiter(req, res, next) : next()));
   guard.use((req, res, next) => {
-    if (tokens.hasBearer(req) && PLAYLIST_API_RE.test(String(req.path).toLowerCase().replace(/\/{2,}/g, '/'))) {
-      return apiLimiter(req, res, () => tokens.requireToken(req, res, next));
-    }
+    if (tokens.hasBearer(req) && playlistApi(req)) return tokens.requireToken(req, res, next);
     const policy = policyFor(req.path);
     if (policy === 'public' || policy === 'self') return next();
     if (policy === 'page') {
@@ -368,7 +370,7 @@ function createAuthRoutes({
   // Login page (the SPA's login view). Someone already logged in goes on to
   // ?next (a same-origin path) or home. The sign-in round trips carry ?next
   // themselves (the central login in its flow cookie).
-  router.get('/login', async (req, res) => {
+  router.get('/login', apiLimiter, async (req, res) => {
     let account = null;
     try { ({ account } = await userAuth.identify(req)); } catch {}
     if (account) {

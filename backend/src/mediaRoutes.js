@@ -12,17 +12,32 @@
 const express = require('express');
 const path = require('path');
 
-// Thumbnail hosts queue entries use: YouTube (library songs, search) and
-// Spotify (track links).
-const COVER_HOST_SUFFIXES = ['ytimg.com', 'youtube.com', 'ggpht.com', 'googleusercontent.com', 'scdn.co', 'spotifycdn.com'];
-function isAllowedCoverUrl(value) {
+// Where a missing cover may send the browser instead: the image hosts queue
+// entries' thumbnails come from (YouTube: library songs, search, yt-dlp; YouTube
+// Music; Spotify track links), each one exactly, never a whole domain (other
+// hosts under googleusercontent.com or youtube.com serve pages people write).
+// The target is rebuilt from the fixed https origin + the path and query of the
+// given URL, so nothing in the request decides where it points.
+function coverRedirectTarget(value) {
+  if (typeof value !== 'string') return null; // ?fallback=a&fallback=b is an array
   let u;
-  try { u = new URL(String(value)); } catch { return false; }
-  if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
-  if (u.username || u.password) return false;
-  const host = u.hostname.toLowerCase();
-  return COVER_HOST_SUFFIXES.some(sfx => host === sfx || host.endsWith('.' + sfx));
+  try { u = new URL(value); } catch { return null; }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+  if (u.username || u.password || u.port) return null;
+  const rest = `${u.pathname}${u.search}`.slice(1); // the pathname always starts with "/"
+  switch (u.hostname) {
+    case 'i.ytimg.com': return 'https://i.ytimg.com/' + rest;
+    case 'img.youtube.com': return 'https://img.youtube.com/' + rest;
+    case 'yt3.ggpht.com': return 'https://yt3.ggpht.com/' + rest;
+    case 'lh3.googleusercontent.com': return 'https://lh3.googleusercontent.com/' + rest;
+    case 'i.scdn.co': return 'https://i.scdn.co/' + rest;
+    case 'mosaic.scdn.co': return 'https://mosaic.scdn.co/' + rest;
+    case 'image-cdn-ak.spotifycdn.com': return 'https://image-cdn-ak.spotifycdn.com/' + rest;
+    case 'image-cdn-fa.spotifycdn.com': return 'https://image-cdn-fa.spotifycdn.com/' + rest;
+    default: return null;
+  }
 }
+const isAllowedCoverUrl = (value) => coverRedirectTarget(value) !== null;
 
 /**
  * @param {object} deps
@@ -63,7 +78,7 @@ function createMediaRouter({ db, library, covers, apiLimiter, sendSongFile }) {
   });
 
   // Get cached cover art for a song
-  router.get('/api/covers/:id', (req, res) => {
+  router.get('/api/covers/:id', apiLimiter, (req, res) => {
     const songId = req.params.id;
     const fallbackUrl = req.query.fallback;
 
@@ -83,10 +98,9 @@ function createMediaRouter({ db, library, covers, apiLimiter, sendSongFile }) {
     // Not cached - redirect to the fallback thumbnail, but only on a known
     // image host (anything else would make this an open redirect).
     if (fallbackUrl) {
-      if (!isAllowedCoverUrl(fallbackUrl)) {
-        return res.status(400).json({ error: 'Invalid fallback URL' });
-      }
-      return res.redirect(fallbackUrl);
+      const target = coverRedirectTarget(fallbackUrl);
+      if (!target) return res.status(400).json({ error: 'Invalid fallback URL' });
+      return res.redirect(target);
     }
 
     res.status(404).json({ error: 'Cover not found' });
@@ -95,4 +109,4 @@ function createMediaRouter({ db, library, covers, apiLimiter, sendSongFile }) {
   return router;
 }
 
-module.exports = { createMediaRouter, isAllowedCoverUrl };
+module.exports = { createMediaRouter, isAllowedCoverUrl, coverRedirectTarget };

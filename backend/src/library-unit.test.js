@@ -377,6 +377,43 @@ describe('library.uploadTmpPath', () => {
   });
 });
 
+describe('library.pathInside / songsFile: every renamed, stat-ed or deleted path stays in the songs folder', () => {
+  const path = require('node:path');
+  const fs = require('node:fs');
+  const os = require('node:os');
+
+  it('keeps paths inside the folder and refuses traversal, other absolute paths, the folder itself and its look-alikes', () => {
+    const root = path.resolve('/srv/songs');
+    assert.equal(library.pathInside(root, '/srv/songs/library/a.m4a'), '/srv/songs/library/a.m4a');
+    assert.equal(library.pathInside(root, 'library/a.m4a'), '/srv/songs/library/a.m4a', 'relative = inside the folder');
+    assert.equal(library.pathInside(root, '/srv/songs/library/../old.m4a'), '/srv/songs/old.m4a', 'a ".." that stays inside is fine');
+    // Encoded separators are not decoded: a strange file name inside, never a way out.
+    assert.equal(library.pathInside(root, '..%2F..%2Fetc%2Fpasswd'), '/srv/songs/..%2F..%2Fetc%2Fpasswd');
+    for (const bad of ['../etc/passwd', '/srv/songs/../../etc/passwd', '/etc/passwd', '/srv/songs', '/srv/songs/', '/srv/songs-other/a.m4a', '..', '']) {
+      assert.throws(() => library.pathInside(root, bad), /outside/, bad);
+    }
+    assert.equal(library.songsFile(path.join(library.LIBRARY_DIR, 'x.m4a')), path.join(path.resolve(library.LIBRARY_DIR), 'x.m4a'));
+    assert.throws(() => library.songsFile('/etc/passwd'), /outside/);
+  });
+
+  it('a symlink in the folder is a path in the folder: deleting it removes the link, never its target', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'la-inside-'));
+    try {
+      const root = path.join(tmp, 'songs');
+      fs.mkdirSync(root);
+      const outside = path.join(tmp, 'outside.txt');
+      fs.writeFileSync(outside, 'keep me');
+      const link = path.join(root, 'link.m4a');
+      fs.symlinkSync(outside, link);
+      fs.unlinkSync(library.pathInside(root, link));
+      assert.equal(fs.existsSync(link), false);
+      assert.equal(fs.readFileSync(outside, 'utf8'), 'keep me');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('rateLimits', () => {
   it('returns 429 JSON once the per-IP limit is exceeded', async () => {
     const express = require('express');

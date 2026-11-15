@@ -47,6 +47,30 @@ function isUuid(value) {
   return typeof value === 'string' && UUID_RE.test(value);
 }
 
+/**
+ * `p` resolved against `root`, only when the result lies inside `root` (not
+ * `root` itself); throws otherwise. ".." segments and absolute paths elsewhere
+ * are refused, not followed. Nothing is decoded ("%2F" stays three characters
+ * of a file name) and symlinks are not resolved: renaming onto or deleting a
+ * link changes the link, never what it points to.
+ */
+function pathInside(root, p) {
+  const base = path.resolve(root);
+  const resolved = path.resolve(base, String(p));
+  if (!resolved.startsWith(base + path.sep)) throw new Error(`refused a path outside ${base}`);
+  return resolved;
+}
+
+/**
+ * A path in the songs folder (SONGS_PATH): every path this module renames,
+ * stats or deletes goes through here right before the filesystem call. File
+ * names are built from a song id (a checked UUID) or come from the database's
+ * file_path; neither should ever leave the folder, and this makes sure.
+ */
+function songsFile(p) {
+  return pathInside(SONGS_PATH, p);
+}
+
 function isYoutubeId(value) {
   return typeof value === 'string' && YOUTUBE_ID_RE.test(value);
 }
@@ -507,7 +531,7 @@ async function remove(id) {
   const song = await getById(id);
   if (!song) return null;
   await db.query('DELETE FROM library_songs WHERE id = $1', [id]);
-  try { fs.unlinkSync(song.file_path); } catch {}
+  try { fs.unlinkSync(songsFile(song.file_path)); } catch {}
   return song;
 }
 
@@ -714,7 +738,7 @@ async function ingestUpload(file, fields, uploader) {
 
     ensureDirs();
     const id = crypto.randomUUID();
-    finalPath = path.join(LIBRARY_DIR, `${id}${probe.ext}`);
+    finalPath = songsFile(path.join(LIBRARY_DIR, `${id}${probe.ext}`));
     fs.renameSync(tmpPath, finalPath);
     const size = fs.statSync(finalPath).size;
     const row = {
@@ -803,7 +827,7 @@ async function replaceSong(id, file, fields, actor) {
     ensureDirs();
     // A new file name: the old file stays untouched until the row points here.
     // The format may change (an m4a song replaced by an Opus file, or back).
-    newPath = path.join(LIBRARY_DIR, `${id}-${crypto.randomBytes(4).toString('hex')}${probe.ext}`);
+    newPath = songsFile(path.join(LIBRARY_DIR, `${id}-${crypto.randomBytes(4).toString('hex')}${probe.ext}`));
     fs.renameSync(tmpPath, newPath);
     const size = fs.statSync(newPath).size;
 
@@ -860,7 +884,7 @@ async function replaceSong(id, file, fields, actor) {
     }
     newPath = null; // owned by the row now
     if (previous.file_path && path.resolve(previous.file_path) !== path.resolve(updated.file_path)) {
-      try { fs.unlinkSync(previous.file_path); } catch {}
+      try { fs.unlinkSync(songsFile(previous.file_path)); } catch {}
     }
     return { song: updated, previous, resolvedReports };
   } finally {
@@ -1107,6 +1131,8 @@ module.exports = {
   UploadError,
   ensureDirs,
   isUuid,
+  pathInside,
+  songsFile,
   isYoutubeId,
   parseYoutubeId,
   youtubeUrl,

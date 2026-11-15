@@ -1,9 +1,11 @@
 // The server's composition root: reads the configuration, builds the stores
 // and services, builds each area through its create…({ deps }) factory, mounts
 // the routers and registers the socket handlers, then starts listening.
-// Mount order is semantics in Express: the guard comes first, and the library
-// router's router.use(apiLimiter) counts every request that reaches it, so
-// what is mounted before it stays outside that limiter. Keep the order.
+// Mount order is semantics in Express: the guard comes first. Rate limits:
+// the general one (rateLimits.apiLimiter, one budget per client address)
+// counts each request ONCE, where its route is: a route or router lists it
+// itself, or a path-scoped app.use(paths, apiLimiter) sits right before the
+// router that serves those paths. Nothing counts requests that only pass by.
 require('./shared/logger.ts'); // timestamp + level on all console output — must be first
 require('dotenv').config();
 
@@ -146,11 +148,11 @@ const auth = createAuthRoutes({
   oidc: OIDC, devLogin: DEV_LOGIN, sessionSecret: SESSION_SECRET, dbExpected: DB_EXPECTED, env: process.env, frontendPath,
   db, settings, userAuth, oidcClient, sessionStore, oidcSessions, tokens, apiLimiter, makeLimiter, io, sessionRoom,
 });
-app.use(auth.guard);
+app.use(auth.guard); // also counts the playlist API against apiLimiter, before any credential is checked
 
-// Health, build info, changelog, the playlist QR code (appRoutes.js). Before
-// the library router: its router.use(apiLimiter) counts everything after it.
-app.use(createInfoRouter({ db, ytdlp, frontendPath }));
+// Health, build info, changelog, the playlist QR code (appRoutes.js). The
+// changelog routes count against apiLimiter themselves; /health never does.
+app.use(createInfoRouter({ db, ytdlp, frontendPath, apiLimiter }));
 
 // Legacy status checks: POST /api/auth/register, GET /api/auth/status (authRoutes.js).
 app.use(auth.statusRouter);
@@ -231,6 +233,8 @@ app.use(createLibraryRouter({
 }));
 
 // Radio stations (features/radio). Approved accounts only, by the guard's default.
+// These three areas count against apiLimiter here.
+app.use(['/api/stations', '/api/artists', '/api/tokens'], apiLimiter);
 app.use(createStationRouter());
 
 // Artists: read-only song lists per library artist (features/artists). Approved accounts only, by the guard's default.
@@ -290,14 +294,20 @@ const { router: playlistRouter, ownerNames } = createPlaylistRoutes({
 app.use(playlistRouter);
 
 // Central login / dev sign-in round trips, /api/auth/me, logout, the login
-// page and /api/auth/providers (authRoutes.js).
+// page and /api/auth/providers (authRoutes.js). /api/auth/* counts against
+// apiLimiter here (the dashboard's /api/auth/users too, on its way to adminRoutes).
+app.use('/api/auth', apiLimiter);
 app.use(auth.router);
 
-// The caller's own profile (profileRoutes.js).
+// The caller's own profile (profileRoutes.js). /api/profile/activity was
+// answered (and counted) by jobRoutes above, so it never gets here.
+app.use('/api/profile', apiLimiter);
 app.use(createProfileRouter({ db, userAuth, getSocial: () => social }));
 
 // Dashboard APIs: users, statuses, settings, stats, playlist and chat
-// moderation (adminRoutes.js). All behind adminAuth.requireAdmin.
+// moderation (adminRoutes.js). All behind adminAuth.requireAdmin. The
+// settings routes count against apiLimiter themselves.
+app.use(['/api/dashboard', '/api/chat'], apiLimiter);
 app.use(createAdminRouter({
   db, lobby, getQueueAsync, library, settings, oidc: OIDC, apiLimiter, adminAuth,
   accountStatusChanged, destroyLobby, getSocial: () => social,
