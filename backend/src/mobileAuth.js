@@ -44,7 +44,8 @@
  *     as the expected nonce, so an id_token minted for another flow fails;
  *   - a replayed exchange: codes are single-use at the IdP, and the server
  *     refuses a code it has already seen (10 min, in memory: one instance)
- *     before asking the IdP;
+ *     before asking the IdP; only an undecided attempt (503
+ *     signin_unavailable) gives the code back for a retry;
  *   - bans, re-checks, expiry: the same session store as the web, so the same
  *     machinery; userAuth.js turns the Bearer into the user.
  */
@@ -120,17 +121,22 @@ function createMobileAuthRouter({
   const authLimit = Number.parseInt(env.AUTH_RATE_LIMIT, 10);
   const limiter = makeLimiter(Number.isFinite(authLimit) && authLimit > 0 ? authLimit : 30, 60 * 1000, { message: 'Too many sign-in attempts, try again in a minute' });
 
-  // Codes already submitted (SHA-256 -> when it may be forgotten).
+  // Codes already submitted (SHA-256 -> when it may be forgotten). A code
+  // stays burned after every definite outcome; only "could not be decided"
+  // (the IdP or the database unreachable: 503 signin_unavailable) releases
+  // it, so the app's retry with the same code can still work.
   const usedCodes = new Map();
+  const codeKey = (code) => crypto.createHash('sha256').update(code).digest('hex');
   function firstUse(code) {
     const t = now();
     for (const [k, until] of usedCodes) { if (until > t) break; usedCodes.delete(k); }
-    const key = crypto.createHash('sha256').update(code).digest('hex');
+    const key = codeKey(code);
     if (usedCodes.has(key)) return false;
     if (usedCodes.size >= USED_CODE_MAX) usedCodes.delete(usedCodes.keys().next().value);
     usedCodes.set(key, t + USED_CODE_TTL_MS);
     return true;
   }
+  const release = (code) => usedCodes.delete(codeKey(code));
 
   const fail = (res, code, error = MESSAGES[code]) => res.status(STATUS[code]).json({ error, code });
   const short = (x) => `${String(x).slice(0, 8)}…`;
@@ -225,7 +231,9 @@ function createMobileAuthRouter({
     return r.rows[0];
   }
 
-  router.post('/auth/mobile/exchange', limiter, express.json({ limit: '16kb' }), async (req, res) => {
+  router.post('/auth/mobile/exchange', limiter, async (req, res) => {
+    // The body is parsed by the app-wide express.json() (httpApp.js, 100 kB:
+    // a bigger body is a 413, malformed JSON a 400, before this runs).
     res.set('Cache-Control', 'no-store');
     const b = req.body && typeof req.body === 'object' ? req.body : {};
     const ok = typeof b.code === 'string' && CODE_RE.test(b.code)
@@ -246,6 +254,11 @@ function createMobileAuthRouter({
       logger.warn('[oidc] app sign-in refused: that code was already submitted');
       return fail(res, 'signin_failed');
     }
+    // Not decided (IdP or database unreachable): the code may be tried again.
+    const unavailable = () => {
+      release(b.code);
+      return fail(res, 'signin_unavailable');
+    };
 
     let userId;
     let account;
@@ -258,7 +271,7 @@ function createMobileAuthRouter({
       let u;
       try { u = await devUser(c.user); } catch (err) {
         logger.error('[auth] dev app sign-in failed:', err.message);
-        return fail(res, 'signin_unavailable');
+        return unavailable();
       }
       if (!u) return fail(res, 'signin_failed', 'No user with that id');
       if (u.status === 'denied' || u.status === 'rejected') return fail(res, 'account_disabled');
@@ -272,7 +285,7 @@ function createMobileAuthRouter({
         result = await exchangeCentral(b);
       } catch (err) {
         logger.warn(`[oidc] app sign-in rejected (${err.kind || 'error'}): ${err.message}`);
-        return fail(res, err.kind === 'unavailable' ? 'signin_unavailable' : 'signin_failed');
+        return err.kind === 'unavailable' ? unavailable() : fail(res, 'signin_failed');
       }
       const { claims } = result;
       let linked;
@@ -280,7 +293,7 @@ function createMobileAuthRouter({
         linked = await linkCentral(claims);
       } catch (err) {
         logger.error(`central-login: linking failed sub=${short(claims.sub)} client=app: ${err.message}`);
-        return fail(res, 'signin_unavailable');
+        return unavailable();
       }
       if (linked.outcome !== 'ok') return fail(res, linked.reason in STATUS ? linked.reason : 'signin_failed');
       userId = String(linked.user.id);
@@ -294,7 +307,7 @@ function createMobileAuthRouter({
         token = s.rawId;
       } catch (err) {
         logger.error(`[oidc] could not open an app session: ${err.message}`);
-        return fail(res, 'signin_unavailable');
+        return unavailable();
       }
       mode = 'central';
       // The app's previous session (sent along as the Bearer) is replaced.

@@ -88,7 +88,9 @@ fit, any id_token check, the nonce included), `account_disabled` and
 (503: the IdP or the database cannot be reached), 429 from `AUTH_RATE_LIMIT`
 (per client address, its own budget). A code is refused the second time
 before the IdP is asked (in memory, 10 minutes: one instance, as already
-required). With `DATABASE_URL` set but no database, the exchange answers 503
+required), unless the attempt ended 503 `signin_unavailable` (undecided: the
+app may retry with the same code). The access log hides `/auth/mobile/start`'s
+query (as the web callback's). With `DATABASE_URL` set but no database, the exchange answers 503
 before the code is spent.
 
 **The session**: `lam_` + 32 random bytes; the server stores only the SHA-256
@@ -100,7 +102,8 @@ levels (`policyFor` unchanged: approved for the API, pending for the member
 routes); the CLI-only routes (upload, check, `la` self-update, request
 dismiss) answer 403 `TOKEN_REQUIRED`, and admin stays the `la_admin` cookie.
 An unknown, expired, signed-out, re-check-ended or banned session answers
-**401 `SESSION_ENDED`**; that, and only a 401, sends the app back to Sign in.
+**401 `SESSION_ENDED`**; that, and nothing else (not a bare 401 or a 401
+`AUTH_REQUIRED` from some other route), sends the app back to Sign in.
 A 503 (database or IdP down) never does. `GET /api/me` with the session
 answers `{ name, user: { id, name, status }, session: { kind: "app" } }`
 (pending accounts too).

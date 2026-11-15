@@ -85,12 +85,12 @@ app"). It never asks for a token and never holds the central login's tokens.
   the app's own session token (`lam_…`). It is stored encrypted
   (EncryptedSharedPreferences, `settings/SettingsStore`) for the server it
   was made on (another address drops it) and sent as `Authorization: Bearer`.
-- **Signed out** happens only on a **401** from the server
-  (`auth/SessionEndedInterceptor` on every API and streaming call: the
-  session ended, expired after 30 days, was signed out, or the account was
+- **Signed out** happens only on a **401 with `code: SESSION_ENDED`** from
+  the server (`auth/SessionEndedInterceptor` on every API and streaming call:
+  the session ended, expired after 30 days, was signed out, or the account was
   disabled centrally or rejected in `/dashboard`). Then the app shows **Sign
-  in** again and says why. Offline, a timeout, a 5xx or a 403 never sign you
-  out: downloaded songs keep playing.
+  in** again and says why. Offline, a timeout, a 5xx, a 403, a bare 401 or a
+  401 `AUTH_REQUIRED` never sign you out: downloaded songs keep playing.
 - **Sign out** (Settings → Account) forgets the session at once and tells
   the server when it can be reached. It does not sign you out of the central
   login in the browser, so signing in again is one tap.

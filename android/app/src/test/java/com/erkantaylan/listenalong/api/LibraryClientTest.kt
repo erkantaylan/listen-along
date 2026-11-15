@@ -118,6 +118,21 @@ class LibraryClientTest {
     }
 
     @Test
+    fun `only a 401 SESSION_ENDED counts as an ended session`() = runTest {
+        server.enqueue(json("""{"error":"Admin login required"}""", code = 401))
+        server.enqueue(json("""{"error":"Authentication required","code":"AUTH_REQUIRED"}""", code = 401))
+        server.enqueue(json("""{"error":"Your account is pending approval","code":"ACCOUNT_PENDING"}""", code = 403))
+        repeat(3) {
+            try {
+                client(token = "lam_x").me()
+                fail("expected ApiException")
+            } catch (e: ApiException) {
+                assertFalse("${e.code} ${e.serverCode}", e.sessionEnded)
+            }
+        }
+    }
+
+    @Test
     fun `non-json error body falls back to the status`() = runTest {
         server.enqueue(MockResponse.Builder().code(502).body("<html>Bad gateway</html>").build())
         try {

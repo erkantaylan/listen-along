@@ -279,7 +279,7 @@ class LibraryViewModel(private val graph: AppGraph) : ViewModel() {
     }
 
     private fun describe(t: Throwable): String = when {
-        t is ApiException && t.code == 401 -> "Signed out: sign in again in Settings."
+        t is ApiException && t.sessionEnded -> "Signed out: sign in again in Settings."
         t is ApiException && t.code == 403 -> t.message ?: "Not allowed (403)"
         t is ApiException && t.code == 503 -> "The server's library is unavailable (no database)."
         t is ApiException -> "Server error ${t.code}: ${t.message}"

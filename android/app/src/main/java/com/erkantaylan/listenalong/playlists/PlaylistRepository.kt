@@ -216,7 +216,7 @@ class PlaylistRepository(
             list.sortedWith(compareBy<Playlist>({ !it.isOwner }, { it.displayName.lowercase() }))
 
         fun describe(t: Throwable): String = when {
-            t is ApiException && t.code == 401 -> "Signed out: sign in again"
+            t is ApiException && t.sessionEnded -> "Signed out: sign in again"
             t is ApiException -> t.message ?: "HTTP ${t.code}"
             else -> t.message ?: t::class.simpleName ?: "Network error"
         }

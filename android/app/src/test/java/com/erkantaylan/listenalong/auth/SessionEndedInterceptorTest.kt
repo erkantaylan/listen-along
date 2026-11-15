@@ -40,10 +40,24 @@ class SessionEndedInterceptorTest {
     ).execute().use { it.code }
 
     @Test
-    fun `a 401 for a session names that session`() {
-        server.enqueue(MockResponse.Builder().code(401).body("""{"code":"SESSION_ENDED"}""").build())
-        assertEquals(401, call("lam_abc"))
+    fun `a 401 SESSION_ENDED for a session names that session, and the caller still reads the body`() {
+        server.enqueue(MockResponse.Builder().code(401).body("""{"error":"Your session has ended","code":"SESSION_ENDED"}""").build())
+        val body = http.newCall(Request.Builder().url(server.url("/api/library")).header("Authorization", "Bearer lam_abc").build())
+            .execute().use { it.body.string() }
+        assertTrue(body.contains("Your session has ended"))
         assertEquals(listOf("lam_abc"), ended)
+    }
+
+    @Test
+    fun `a bare 401, a 401 AUTH_REQUIRED, an HTML 401 or a redirect to the login page sign nobody out`() {
+        server.enqueue(MockResponse.Builder().code(401).body("""{"error":"Admin login required"}""").build())
+        server.enqueue(MockResponse.Builder().code(401).body("""{"error":"Authentication required","code":"AUTH_REQUIRED"}""").build())
+        server.enqueue(MockResponse.Builder().code(401).body("<html>Unauthorized</html>").build())
+        server.enqueue(MockResponse.Builder().code(401).build())
+        server.enqueue(MockResponse.Builder().code(302).addHeader("Location", "/login").build())
+        server.enqueue(MockResponse.Builder().code(200).body("<html>login</html>").build())
+        repeat(5) { call("lam_abc") }
+        assertTrue(ended.isEmpty())
     }
 
     @Test

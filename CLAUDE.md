@@ -299,8 +299,9 @@ where lobby persistence broke entirely on deployed instances.
   through the central login like the web (`auth/`: Custom Tab, PKCE, the
   server exchanges the code; `backend/src/mobileAuth.js`, CENTRAL-LOGIN.md "The
   Android app") and holds only a `lam_` session token (encrypted), sent as
-  `Authorization: Bearer`. Only a 401 signs it out (`SessionEndedInterceptor`):
-  offline or a 5xx never does. It has no CLI-token UI any more; an old saved
+  `Authorization: Bearer`. Only a 401 with `code: SESSION_ENDED` signs it out
+  (`SessionEndedInterceptor`, `ApiException.sessionEnded`): a bare 401, offline
+  or a 5xx never does. It has no CLI-token UI any more; an old saved
   `la_` token is deleted at start. Library, playlists (edit mode), broken-song
   reports, background playback (`player/PlaybackService`, a Media3
   `MediaLibraryService`: previous/next only, never seek ±; Android Auto browses
@@ -456,7 +457,8 @@ where lobby persistence broke entirely on deployed instances.
   mobileAuth.js (libraryRoutes.js passes with `next('route')`). Exchange
   codes: `invalid_request`, `signin_failed`, `account_disabled`,
   `registrations_closed`, `link_conflict`, `signin_unavailable`; a code is
-  refused the second time before the IdP is asked; sign-out
+  refused the second time before the IdP is asked (released again only after
+  a 503 `signin_unavailable`, so a retry works); sign-out
   (`/auth/mobile/logout`) is local (the IdP's browser session stays). Dev
   sign-in: a "Continue as Dev User" page and a stateless signed token, `mode:
   'dev'`, which release builds of the app refuse.

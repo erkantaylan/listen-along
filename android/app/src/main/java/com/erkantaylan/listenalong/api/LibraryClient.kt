@@ -21,10 +21,13 @@ import java.io.IOException
 import java.io.InputStream
 import java.util.concurrent.TimeUnit
 
-/** A non-2xx answer from the server, with its status and its `error` text. */
-class ApiException(val code: Int, message: String) : IOException(message) {
-    /** A definite "this session is no good" (only a 401: never a 403, a 5xx or no answer). */
-    val sessionEnded: Boolean get() = code == 401
+/** A non-2xx answer from the server: its status, its `error` text and its `code`, if any. */
+class ApiException(val code: Int, message: String, val serverCode: String? = null) : IOException(message) {
+    /**
+     * A definite "this session is no good": a 401 with `SESSION_ENDED` only
+     * (never a bare 401, a 403, a 5xx or no answer), as SessionEndedInterceptor.
+     */
+    val sessionEnded: Boolean get() = code == 401 && serverCode == "SESSION_ENDED"
 }
 
 internal val apiJson = Json {
@@ -244,10 +247,10 @@ class LibraryClient(
     private fun Response.requireSuccess() {
         if (isSuccessful) return
         val raw = runCatching { body.string() }.getOrDefault("")
-        val serverMessage = runCatching {
-            apiJson.parseToJsonElement(raw).jsonObject["error"]?.jsonPrimitive?.content
-        }.getOrNull()
-        throw ApiException(code, serverMessage?.takeIf { it.isNotBlank() } ?: "HTTP $code")
+        val obj = runCatching { apiJson.parseToJsonElement(raw).jsonObject }.getOrNull()
+        val serverMessage = runCatching { obj?.get("error")?.jsonPrimitive?.content }.getOrNull()
+        val serverCode = runCatching { obj?.get("code")?.jsonPrimitive?.content }.getOrNull()
+        throw ApiException(code, serverMessage?.takeIf { it.isNotBlank() } ?: "HTTP $code", serverCode)
     }
 
     companion object {

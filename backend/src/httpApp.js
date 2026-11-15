@@ -14,6 +14,16 @@ const { frontendStatic } = require('./frontendStatic');
 // Requests the log skips (static assets).
 const STATIC_ASSET_RE = /\.(?:js|css|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|map)$/i;
 
+// Sign-in round trips whose query stays out of the log: the web callback
+// carries a one-time code, the app's start its state, nonce and PKCE
+// challenge (mobileAuth.js). Matched case-insensitively, as Express routes.
+const QUERY_HIDDEN_PATHS = new Set(['/auth/oidc/callback', '/auth/mobile/start']);
+function loggedUrl(req) {
+  const p = String(req.path || '').toLowerCase().replace(/\/{2,}/g, '/');
+  if (!QUERY_HIDDEN_PATHS.has(p)) return req.originalUrl;
+  return req.originalUrl.includes('?') ? `${req.path}?…` : req.path;
+}
+
 /**
  * @param {object} deps
  * @param {import('cors').CorsOptions} deps.corsOptions - shared with Socket.IO
@@ -42,7 +52,7 @@ function createHttpApp({ corsOptions, frontendPath }) {
     const start = Date.now();
     let logged = false;
     const pending = setTimeout(() => {
-      console.warn(`[http] PENDING ${req.method} ${req.path === '/auth/oidc/callback' ? req.path : req.originalUrl} still running after 15s`);
+      console.warn(`[http] PENDING ${req.method} ${loggedUrl(req)} still running after 15s`);
     }, 15000);
     const finish = (aborted) => {
       if (logged) return;
@@ -51,9 +61,7 @@ function createHttpApp({ corsOptions, frontendPath }) {
       const ms = Date.now() - start;
       const status = aborted ? 'ABORTED' : res.statusCode;
       const slow = ms > 5000 ? ' SLOW' : '';
-      // The central login's callback carries a one-time code: not in the log.
-      const shownUrl = req.path === '/auth/oidc/callback' ? `${req.path}?…` : req.originalUrl;
-      const line = `[http] ${req.method} ${shownUrl} ${status} ${ms}ms${slow}`;
+      const line = `[http] ${req.method} ${loggedUrl(req)} ${status} ${ms}ms${slow}`;
       if (aborted || res.statusCode >= 500 || ms > 5000) console.warn(line);
       else console.log(line);
     };

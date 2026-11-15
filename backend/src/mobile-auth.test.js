@@ -581,3 +581,124 @@ describe('app sign-in on Postgres: linking, bans, the app\'s API', { skip: pgSki
     assert.deepEqual([r.status, r.body.code], [401, 'SESSION_ENDED']);
   });
 });
+
+// ---------------------------------------------------------------- 5. hardening (no database)
+
+describe('app sign-in: hardening', { timeout: 120_000 }, () => {
+  let idp;
+  let srv;
+  before(async () => {
+    idp = await startFakeIssuer();
+    srv = await startServer(centralEnv(idp));
+  });
+  after(async () => {
+    if (srv) await srv.stop();
+    if (idp) await idp.close();
+  });
+  const exchange = (body, headers) => post(`${srv.base}/auth/mobile/exchange`, body, headers);
+  const bodyOf = (b) => ({ code: b.code, state: b.state, code_verifier: b.flow.verifier, nonce: b.flow.nonce });
+
+  it('a retry after an IdP outage (503) can use the same code; definite outcomes stay burned', async () => {
+    const b = await browse(srv.base, idp, { sub: 'h-1' });
+    idp.down = 'http503';
+    const first = await exchange(bodyOf(b));
+    assert.deepEqual([first.status, first.body.code], [503, 'signin_unavailable']);
+    idp.down = false;
+    const retry = await exchange(bodyOf(b));
+    assert.equal(retry.status, 200, JSON.stringify(retry.body));
+    assert.equal((await exchange(bodyOf(b))).body.code, 'signin_failed', 'used: burned');
+    const wrong = await browse(srv.base, idp, { sub: 'h-1' });
+    assert.equal((await exchange({ ...bodyOf(wrong), code_verifier: rand(32) })).body.code, 'signin_failed');
+    assert.equal((await exchange(bodyOf(wrong))).body.code, 'signin_failed', 'a refused code stays burned');
+  });
+
+  it('bodies of the wrong shape or size are refused cleanly (400 / 413, never 500)', async () => {
+    const b = await browse(srv.base, idp, { sub: 'h-2' });
+    const good = bodyOf(b);
+    for (const bad of [
+      { ...good, code: [good.code] }, { ...good, state: { $ne: '' } }, { ...good, nonce: 12345678901234567 },
+      { ...good, code_verifier: null }, { ...good, iss: ['http://x'] },
+    ]) {
+      const r = await exchange(bad);
+      assert.deepEqual([r.status, r.body && r.body.code], [400, 'invalid_request'], JSON.stringify(bad).slice(0, 60));
+    }
+    assert.equal((await exchange([good])).status, 400, 'an array body');
+    const raw = (text) => fetch(`${srv.base}/auth/mobile/exchange`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: text });
+    assert.equal((await raw('{"code":')).status, 400, 'malformed JSON');
+    assert.equal((await raw(JSON.stringify({ ...good, pad: 'x'.repeat(200 * 1024) }))).status, 413, 'oversized');
+    assert.equal((await exchange(good)).status, 200, 'none of that burned the code');
+  });
+
+  it('the start request\'s state, nonce and challenge stay out of the access log', async () => {
+    const f = newFlow();
+    assert.equal((await get(startUrl(srv.base, f))).status, 302);
+    assert.equal((await get(startUrl(srv.base, f).replace('/auth/mobile/start', '/AUTH/mobile/start'))).status, 302);
+    await sleep(100);
+    const log = srv.log();
+    assert.ok(!log.includes(f.state) && !log.includes(f.nonce) && !log.includes(f.challenge));
+    assert.match(log, /\[http\] GET \/auth\/mobile\/start\?… 302/);
+  });
+
+  it('a web code is no app code, and an app code no web code', async () => {
+    // The web flow's code (redirect_uri = the web callback) at the app's exchange.
+    const login = await get(`${srv.base}/auth/oidc/login`);
+    const flowCookie = login.headers.getSetCookie().find((c) => c.startsWith('la_oidc_flow=')).split(';')[0];
+    const webState = new URL(login.headers.get('location')).searchParams.get('state');
+    idp.user = { sub: 'h-3' };
+    const webCb = new URL((await get(login.headers.get('location'))).headers.get('location'));
+    const r = await exchange({ code: webCb.searchParams.get('code'), state: webCb.searchParams.get('state'), code_verifier: rand(32), nonce: rand(16) });
+    assert.deepEqual([r.status, r.body.code], [400, 'signin_failed']);
+    // The app's code at the web callback, with a live web flow and its own state.
+    const app = await browse(srv.base, idp, { sub: 'h-3' });
+    const done = await get(`${srv.base}/auth/oidc/callback?code=${encodeURIComponent(app.code)}&state=${encodeURIComponent(webState)}`, { cookie: flowCookie });
+    assert.equal(done.headers.get('location'), '/login?error=signin_failed');
+    assert.ok(!done.headers.getSetCookie().some((c) => /^la_session=[^;]/.test(c)), 'no session');
+  });
+
+  it('start ignores redirect_uri, scope, prompt, client_id and response_type from the request', async () => {
+    const f = newFlow();
+    const r = await get(startUrl(srv.base, f, {
+      redirect_uri: 'https://evil.example/cb', scope: 'openid admin', prompt: 'none', client_id: 'other', response_type: 'token',
+    }));
+    const q = new URL(r.headers.get('location')).searchParams;
+    assert.equal(q.get('redirect_uri'), MOBILE_REDIRECT_URI);
+    assert.equal(q.get('scope'), 'openid email profile entitlements offline_access');
+    assert.equal(q.get('client_id'), 'listen-along');
+    assert.equal(q.get('response_type'), 'code');
+    assert.equal(q.get('prompt'), null);
+    assert.equal(q.getAll('redirect_uri').length, 1);
+  });
+
+  it('an iss from another issuer, an expired id_token and alg none are refused', async () => {
+    assert.equal((await appSignIn(srv.base, idp, { sub: 'h-4' }, { over: { iss: 'https://evil.example/' } })).body.code, 'signin_failed');
+    idp.tamper = { exp: Math.floor(Date.now() / 1000) - 3600 };
+    assert.equal((await appSignIn(srv.base, idp, { sub: 'h-4' })).body.code, 'signin_failed');
+    idp.tamper = { alg: 'none' };
+    assert.equal((await appSignIn(srv.base, idp, { sub: 'h-4' })).body.code, 'signin_failed');
+    idp.tamper = null;
+    assert.equal((await appSignIn(srv.base, idp, { sub: 'h-4' }, { over: { iss: idp.issuer } })).status, 200, 'the right iss is fine');
+  });
+
+  it('an app session adds nothing to admin: only a valid la_admin cookie is admin', async () => {
+    const s = await appSignIn(srv.base, idp, { sub: 'h-5' });
+    const url = `${srv.base}/api/admin/settings`;
+    assert.equal((await get(url, bearer(s.token))).status, 401);
+    assert.equal((await get(url, { ...bearer(s.token), cookie: 'la_admin=forged' })).status, 401);
+    const web = await webSignIn(srv.base, idp, { sub: 'h-5' });
+    assert.equal((await get(url, { ...bearer(s.token), cookie: web })).status, 401);
+    // The admin cookie is a credential of its own; the Bearer neither grants nor blocks it.
+    assert.equal((await get(url, { cookie: adminCookie() })).status, 200);
+    assert.equal((await get(url, { ...bearer(s.token), cookie: adminCookie() })).status, 200);
+  });
+
+  it('a session token in the query string is no credential; sign-out with no or an unknown token is harmless', async () => {
+    const s = await appSignIn(srv.base, idp, { sub: 'h-6' });
+    for (const name of ['access_token', 'token', 'session']) {
+      const r = await getJson(`${srv.base}/api/playlists?${name}=${s.token}`);
+      assert.deepEqual([r.status, r.body.code], [401, 'AUTH_REQUIRED'], name);
+    }
+    assert.deepEqual((await post(`${srv.base}/auth/mobile/logout`)).body, { success: true });
+    assert.deepEqual((await post(`${srv.base}/auth/mobile/logout`, undefined, bearer('lam_' + rand()))).body, { success: true });
+    assert.equal((await get(`${srv.base}/api/me`, bearer(s.token))).status, 200, 'neither ended the real session');
+  });
+});
