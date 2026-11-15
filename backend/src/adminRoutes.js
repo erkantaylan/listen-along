@@ -4,7 +4,7 @@
  * adminAuth.requireAdmin (the la_admin cookie, not a user account):
  *
  *   GET    /api/auth/users                     users (older list)
- *   POST   /api/auth/users/:userId/status      { status: approved | denied }
+ *   POST   /api/auth/users/:userId/status      { status: approved | denied | rejected }
  *   GET    /api/dashboard/stats                disk, memory, playlists (private ones counted, never listed)
  *   GET    /api/dashboard/users                users
  *   GET|PUT /api/admin/settings                { registrations_open } (shared/settings.ts)
@@ -18,6 +18,9 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const access = require('./playlistAccess');
+
+// What the status route accepts: exactly what the dashboard's actions write.
+const ADMIN_SET_STATUSES = ['approved', 'denied', 'rejected'];
 
 /**
  * @param {object} deps
@@ -49,11 +52,13 @@ function createAdminRouter({ db, lobby, getQueueAsync, library, settings, oidc, 
     }
   });
 
-  // Admin: approve/deny user (dashboard auth)
+  // Admin: approve / block a user (dashboard auth). The statuses an admin
+  // sets anywhere: approved, or blocked as denied (here) or rejected (the
+  // dashboard's reject below); both blocked ones mean the same (userAuth.js).
   router.post('/api/auth/users/:userId/status', adminAuth.requireAdmin, express.json(), async (req, res) => {
-    const { status } = req.body;
-    if (!['approved', 'denied'].includes(status)) {
-      return res.status(400).json({ error: 'Status must be approved or denied' });
+    const { status } = req.body || {};
+    if (!ADMIN_SET_STATUSES.includes(status)) {
+      return res.status(400).json({ error: 'Status must be approved, denied or rejected' });
     }
     try {
       await db.query('UPDATE users SET status = $1, updated_at = $2 WHERE id = $3', [status, Date.now(), req.params.userId]);
@@ -224,7 +229,12 @@ function createAdminRouter({ db, lobby, getQueueAsync, library, settings, oidc, 
       return res.status(404).json({ error: 'Playlist not found' });
     }
 
-    await destroyLobby(lobbyId, { reason: 'This playlist has been deleted by an administrator.' });
+    try {
+      await destroyLobby(lobbyId, { reason: 'This playlist has been deleted by an administrator.' });
+    } catch (err) {
+      console.error('Delete playlist error:', err.message);
+      return res.status(500).json({ error: 'Failed to delete playlist' });
+    }
 
     console.log(`Lobby ${lobbyId} deleted via dashboard`);
     res.json({ success: true });
@@ -235,7 +245,13 @@ function createAdminRouter({ db, lobby, getQueueAsync, library, settings, oidc, 
   router.delete('/api/chat/messages/:id', adminAuth.requireAdmin, async (req, res) => {
     const social = getSocial();
     if (!social) return res.status(503).json({ error: 'Chat is not ready' });
-    const removed = await social.deleteMessage(req.params.id);
+    let removed;
+    try {
+      removed = await social.deleteMessage(req.params.id);
+    } catch (err) {
+      console.error('Delete chat message error:', err.message);
+      return res.status(500).json({ error: 'Failed to delete message' });
+    }
     if (!removed) return res.status(404).json({ error: 'Message not found' });
     res.json({ success: true });
   });

@@ -22,7 +22,13 @@ function createProfileRouter({ db, userAuth, getSocial }) {
 
   // Get current user's profile
   router.get('/api/profile', async (req, res) => {
-    const userId = await userAuth.userIdFor(req);
+    let userId;
+    try {
+      userId = await userAuth.userIdFor(req);
+    } catch (err) {
+      console.error('Profile account lookup error:', err.message);
+      return res.status(500).json({ error: 'Could not check your login' });
+    }
     if (!userId || !db.isAvailable()) {
       return res.status(401).json({ error: 'Authentication required' });
     }
@@ -50,7 +56,13 @@ function createProfileRouter({ db, userAuth, getSocial }) {
 
   // Update profile (display name, emoji)
   router.put('/api/profile', express.json(), async (req, res) => {
-    const userId = await userAuth.userIdFor(req);
+    let userId;
+    try {
+      userId = await userAuth.userIdFor(req);
+    } catch (err) {
+      console.error('Profile account lookup error:', err.message);
+      return res.status(500).json({ error: 'Could not check your login' });
+    }
     if (!userId || !db.isAvailable()) {
       return res.status(401).json({ error: 'Authentication required' });
     }
