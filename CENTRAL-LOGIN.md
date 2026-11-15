@@ -60,26 +60,94 @@ instead of a cookie (`backend/src/mobileAuth.js`). The server, not the app,
 talks to the IdP's token endpoint; the app never holds an IdP token.
 
 1. The app makes `state`, `nonce` and a PKCE verifier (32 random bytes each)
-   and keeps them encrypted until the redirect comes back. It opens a Custom
-   Tab on `GET <server>/auth/mobile/start?state&nonce&code_challenge&code_challenge_method=S256`.
-2. The server redirects to the IdP's authorize endpoint with the server's
-   scopes and `redirect_uri=com.etaylan.listen:/oauth2redirect` (registered
-   for the client in the central catalog, `static_redirects`). The IdP sends
-   the browser back to that URI with `code` and `state`; Android hands it to
-   the app (`auth/AuthRedirectActivity`). The app checks `state` against its
-   own (a redirect it did not start is refused).
-3. `POST <server>/auth/mobile/exchange` `{ code, state, code_verifier, nonce, iss? }`.
+   and keeps them encrypted until the redirect comes back. It picks the
+   redirect (below) and opens a Custom Tab on
+   `GET <server>/auth/mobile/start?state&nonce&code_challenge&code_challenge_method=S256&redirect_uri=<redirect>`.
+2. The server checks `redirect_uri` against a fixed allowlist of exactly two
+   values and redirects to the IdP's authorize endpoint with it, the server's
+   scopes and a nonce derived from the app's (below). The IdP sends the
+   browser back to that URI with `code` and `state`; Android hands it to the
+   app (`auth/AuthRedirectActivity`). The app checks that it came back on the
+   redirect it asked for and with its own `state` (anything else is refused).
+3. `POST <server>/auth/mobile/exchange` `{ code, state, code_verifier, nonce, iss?, redirect_uri? }`.
    The server exchanges the code at the token endpoint (public client, the
-   app's redirect URI, the app's verifier), validates the id_token exactly as
+   same redirect URI, the app's verifier), validates the id_token exactly as
    the web callback does (signature against the JWKS, issuer, audience
-   exactly `listen-along`, no foreign `azp`, expiry, and the **nonce the app
-   sent**), links the account with the rules above, logs the same
+   exactly `listen-along`, no foreign `azp`, expiry, and the **nonce bound to
+   the app's nonce and the redirect**), links the account with the rules above, logs the same
    `central-login: link ...` line with `client=app`, and creates a row in
    `user_sessions` (refresh token and id_token encrypted, 30 days, re-checked
    with the refresh token like any session). Answer:
    `{ token: "lam_...", token_type: "Bearer", expires_at, mode: "central", user: { id, name, status } }`.
 4. The app stores the token encrypted (EncryptedSharedPreferences) and sends
    `Authorization: Bearer lam_...` on every API call.
+
+### The redirect: an App Link, the custom scheme during the transition
+
+The two redirects (`backend/src/mobileAuth.js`, `readMobileConfig`):
+
+| `redirect_uri` | Who gets the code | Used by |
+|---|---|---|
+| `<BASE_URL>/auth/mobile/callback` (production: `https://music.etaylan.com/auth/mobile/callback`) | only the app signed with the key listed in `<BASE_URL>/.well-known/assetlinks.json` (an Android App Link, `autoVerify`) | release builds after 0.4.0, when the configured server is `https://music.etaylan.com` |
+| `com.etaylan.listen:/oauth2redirect` | **any** installed app that registers the scheme | app 0.4.0 and older (they send no `redirect_uri`: missing = this one), debug builds, release builds pointed at any other server |
+
+Why: a malicious app can register the custom scheme, start its own sign-in
+(with its own PKCE verifier, so PKCE does not help) and, if the IdP signs the
+victim in silently from an existing browser session, receive a code for the
+victim's account. An https App Link is handed only to the app whose signing
+certificate the site lists. Anything other than the two values (another
+host, the web callback, a trailing slash, the value twice) is refused at
+start (a 400 page) and at the exchange (`invalid_request`), before the code is
+spent. The https one is built from `BASE_URL`, never from the Host header.
+
+**The binding.** The IdP is not given the app's nonce but
+`HMAC-SHA256(SESSION_SECRET, "listen-along-mobile-nonce-v1\n" + redirect + "\n" + nonce)`,
+and the exchange expects exactly that in the id_token. So a code from a flow
+started with one redirect cannot be exchanged as the other, and a code from an
+authorize request the server did not build (another app using the public
+client id directly, e.g. on the custom scheme while it is still registered)
+fails too. This is the server's own check on purpose: authentik (2026.8,
+`check_redirect_uri`) only verifies that the token request's `redirect_uri`
+is one of the registered ones, not that it is the one the code was issued for
+(RFC 6749 4.1.3). A sign-in started before this server version and finished
+after it fails once (tap Sign in again).
+
+**`/.well-known/assetlinks.json`** (public, `application/json`, cached 5
+minutes): one statement, `delegate_permission/common.handle_all_urls` for
+`com.erkantaylan.listenalong` with the release certificate's SHA-256
+(`DD:B6:D8:FE:…:C3:F5`, from the signed APK of the `android-v0.3.0` release:
+`apksigner verify --print-certs`). `ANDROID_APP_PACKAGE` /
+`ANDROID_APP_CERT_SHA256` replace them (below). Debug builds (`.debug`, a
+per-machine debug key) are not listed and keep the custom scheme; list one
+only deliberately, through the variable.
+
+**`GET /auth/mobile/callback`** is never requested when Android has verified
+the link: it opens the app directly. When it has not (verification pending
+or failed, the app not installed, a desktop browser), the browser loads it: a
+static page (English and Turkish, no sign-in, no-store, `Referrer-Policy:
+no-referrer`, its query hidden in the access log) whose button opens
+`intent://<host>/auth/mobile/callback?<the same query>#Intent;scheme=https;package=com.erkantaylan.listenalong;S.browser_fallback_url=<BASE_URL>/app;end`.
+The query is read by the page's script from `location.search`; the server
+never echoes the code, exchanges it or sends it anywhere (it is useless
+without the app's verifier). An `intent:` link with the package works from a
+Custom Tab whether or not the domain is verified, and only this package can
+take it; a plain link to the same https URL would stay in the browser (same
+host). Without the app, Chrome opens `/app`.
+
+**Switching the custom scheme off** (`MOBILE_CUSTOM_SCHEME=off`; default `on`
+during the transition): once the App Link version of the app is installed
+everywhere that matters, set `MOBILE_CUSTOM_SCHEME=off` and redeploy, then
+remove `com.etaylan.listen:/oauth2redirect` from listen-along's
+`static_redirects` in the central-login catalog (`idp/catalog.py`) and
+redeploy the IdP. With it off, an old app (no `redirect_uri`, or the scheme)
+gets an "Update the app" page at start and `invalid_request` ("install the
+latest version") at the exchange. Debug builds then need a server with it on
+(development servers default to on).
+
+**Going live, in order**: (1) the central-login catalog registers
+`<LISTEN_ALONG_URL>/auth/mobile/callback` (both schemes stay); (2) this
+server is deployed (serves `assetlinks.json`, accepts both); (3) the new app
+release; (4) later, the custom scheme off here, then removed at the IdP.
 
 Errors from the exchange are `{ error, code }`: `invalid_request` (400),
 `signin_failed` (400: wrong, reused or expired code, a verifier that does not
@@ -89,8 +157,8 @@ fit, any id_token check, the nonce included), `account_disabled` and
 (per client address, its own budget). A code is refused the second time
 before the IdP is asked (in memory, 10 minutes: one instance, as already
 required), unless the attempt ended 503 `signin_unavailable` (undecided: the
-app may retry with the same code). The access log hides `/auth/mobile/start`'s
-query (as the web callback's). With `DATABASE_URL` set but no database, the exchange answers 503
+app may retry with the same code). The access log hides the query of
+`/auth/mobile/start` and `/auth/mobile/callback` (as the web callback's). With `DATABASE_URL` set but no database, the exchange answers 503
 before the code is spent.
 
 **The session**: `lam_` + 32 random bytes; the server stores only the SHA-256
@@ -119,7 +187,8 @@ old one.
 `/auth/mobile/start` shows a "Continue as Dev User" page (or `?user=<users.id>`)
 whose link goes straight back to the app with a signed one-time code; the
 exchange checks the PKCE verifier and the nonce against it and answers
-`mode: "dev"` with a stateless signed token (30 days). Release builds of the
+`mode: "dev"` with a stateless signed token (30 days). The redirect allowlist
+and binding apply there too (the https one only when `BASE_URL` is set). Release builds of the
 app refuse a `dev` session; production servers refuse to start with the dev
 sign-in. The app's stub server (`android/tools/stub_server.py`) does the same.
 Against a fake IdP (`node src/fakeOidcIssuer.js`) the real flow works too; the
@@ -143,6 +212,9 @@ Tests: `backend/src/mobile-auth.test.js` (fake IdP, with and without Postgres).
 | `BASE_URL` | the public address, e.g. `https://music.example.com`. The redirect URI is `<BASE_URL>/auth/oidc/callback` and the post-logout redirect `<BASE_URL>/`; never taken from the request. Falls back to `FRONTEND_URL`; one of the two is required |
 | `SESSION_SECRET` | required. Changing it signs everyone out |
 | `AUTH_RATE_LIMIT` | optional, sign-in round trips per client address per minute (default 30) |
+| `MOBILE_CUSTOM_SCHEME` | `on` (default) or `off`: whether the Android app may still use the custom-scheme redirect `com.etaylan.listen:/oauth2redirect` (app 0.4.0 and older). Switch it **off** once the App Link version is installed, then remove the scheme from the IdP ([above](#the-redirect-an-app-link-the-custom-scheme-during-the-transition)). `off` without `BASE_URL` stops the boot |
+| `ANDROID_APP_PACKAGE` | optional, default `com.erkantaylan.listenalong`: the package in `assetlinks.json` and the fallback page's intent |
+| `ANDROID_APP_CERT_SHA256` | optional, comma-separated SHA-256 signing-certificate fingerprints (hex, colons optional) for that package; `package=FINGERPRINT` names another package. Replaces the built-in release fingerprint (so after a key rotation list the new one, and the old one while old installs remain). A malformed value stops the boot |
 
 Both compose files carry these with empty defaults. The server refuses to
 start with `NODE_ENV=production` when `OIDC_ISSUER`, `OIDC_CLIENT_ID`,

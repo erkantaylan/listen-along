@@ -321,8 +321,13 @@ where lobby persistence broke entirely on deployed instances.
   belong there too. Tests: `./gradlew :app:testDebugUnitTest`.
   What the app relies on from the server: 404 (skip the song) vs 5xx
   (offline), 401 `SESSION_ENDED` = sign in again and nothing else is, `GET
-  /api/me` for its session, the `/auth/mobile/*` contract, and the redirect
-  `com.etaylan.listen:/oauth2redirect` registered at the central login.
+  /api/me` for its session, the `/auth/mobile/*` contract, and the redirects
+  registered at the central login: the https App Link
+  `<BASE_URL>/auth/mobile/callback` (release builds on music.etaylan.com;
+  `/.well-known/assetlinks.json` names the release key) and, during the
+  transition, `com.etaylan.listen:/oauth2redirect` (older apps, debug builds,
+  other servers; `MOBILE_CUSTOM_SCHEME=off` ends it). `auth/AuthFlow.redirectFor`
+  picks one; CENTRAL-LOGIN.md "The redirect".
 
 ## Playlists (internally "lobbies")
 
@@ -438,10 +443,14 @@ where lobby persistence broke entirely on deployed instances.
   name sent by the client.
 - **The Android app's session** (`mobileAuth.js`, `mobileTokens.js`;
   CENTRAL-LOGIN.md "The Android app"): the app runs code + PKCE in a Custom
-  Tab via `GET /auth/mobile/start` (302 to the IdP with `redirect_uri
-  com.etaylan.listen:/oauth2redirect`), the SERVER exchanges the code at
+  Tab via `GET /auth/mobile/start` (302 to the IdP with the app's
+  `redirect_uri`, one of exactly two: `<BASE_URL>/auth/mobile/callback` or
+  `com.etaylan.listen:/oauth2redirect`, the default; the IdP gets
+  `idpNonce` = HMAC(SESSION_SECRET, redirect + app nonce), which binds the code
+  to the redirect and to a start made here: authentik does not compare
+  redirect_uri at the token endpoint), the SERVER exchanges the code at
   `POST /auth/mobile/exchange` (`finishLogin` with that redirect URI and the
-  app's state / nonce / verifier: the same id_token checks, the same
+  app's state / bound nonce / verifier: the same id_token checks, the same
   `linkCentralIdentity`, a `central-login: ... client=app` line) and stores a
   `user_sessions` row like a cookie session (`create({ prefix: 'lam_' })`:
   the hash covers the prefix, so cookie ids and Bearers never cross). The app
