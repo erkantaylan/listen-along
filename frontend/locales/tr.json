@@ -311,7 +311,12 @@
     "retry": "Tekrar dene",
     "emptyTitle": "Henüz çalınacak şarkı yok",
     "emptyHint": "Şarkılar müzik kütüphanesine girer girmez burada olur.",
-    "statsLabel": "Radyo istatistikleri"
+    "statsLabel": "Radyo istatistikleri",
+    "searchLabel": "Radyo şarkılarında ara",
+    "searchPlaceholder": "Şarkı adı, sanatçı veya albüm ara",
+    "matchCount": "{total} şarkıdan {shown}",
+    "noMatch": "“{query}” ile eşleşen şarkı yok",
+    "noMatchShort": "Eşleşme yok"
   },
   "appPage": {
     "title": "Android uygulaması",

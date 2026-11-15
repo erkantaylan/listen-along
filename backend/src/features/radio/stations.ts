@@ -5,7 +5,8 @@
  * (shuffled in the browser, frontend/radio-order.js).
  *
  * GET /api/stations/:id        { id, count, duration_sec }
- * GET /api/stations/:id/songs  the same + songs (lean: no reports or upload details)
+ * GET /api/stations/:id/songs  the same + songs (lean: no reports or upload details; with the
+ *                              album, which Radio's search matches)
  *
  * Paging /api/library for this would take three requests at 2,500 songs, could
  * skip or repeat songs when an upload lands in between, and has no "not broken"
@@ -46,9 +47,14 @@ export interface StationSummary {
   duration_sec: number;
 }
 
+/** A station song: the lean row plus its album, which Radio's search matches too. */
+export interface StationListSong extends StationSong {
+  album: string | null;
+}
+
 /** GET /api/stations/:id/songs */
 export interface StationSongs extends StationSummary {
-  songs: StationSong[];
+  songs: StationListSong[];
 }
 
 export function toStationSong(row: StationSongRow): StationSong {
@@ -70,10 +76,10 @@ async function summary(id: string): Promise<StationSummary> {
 }
 
 async function songs(id: string): Promise<StationSongs> {
-  const r = await db.query<StationSongRow>(
-    `SELECT id, youtube_id, title, artist, duration_sec, sha256 FROM library_songs WHERE ${RULES.get(id)} ORDER BY id`
+  const r = await db.query<StationSongRow & { album: string | null }>(
+    `SELECT id, youtube_id, title, artist, album, duration_sec, sha256 FROM library_songs WHERE ${RULES.get(id)} ORDER BY id`
   );
-  const list = r.rows.map(toStationSong);
+  const list = r.rows.map((row): StationListSong => ({ ...toStationSong(row), album: row.album || null }));
   return { id, count: list.length, duration_sec: list.reduce((sum, s) => sum + (s.duration_sec || 0), 0), songs: list };
 }
 

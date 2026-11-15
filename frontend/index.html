@@ -316,6 +316,12 @@
     <div id="radio-body" class="lobby-body">
       <div class="container lobby-container radio-table">
         <ul id="radio-stats" class="playlist-stats" aria-label="Radio stats" data-i18n-aria-label="radio.statsLabel"></ul>
+        <!-- Search: filters what is shown; the station order and the player's queue stay as they are (radio.ts, radio-search.ts). -->
+        <div id="radio-toolbar" class="d-flex align-items-center gap-3 mb-3 radio-toolbar" role="search" hidden>
+          <label for="radio-search" class="visually-hidden" data-i18n="radio.searchLabel">Search Radio songs</label>
+          <input type="search" id="radio-search" class="form-control form-control-sm song-filter-input radio-search" placeholder="Search title, artist or album" autocomplete="off" spellcheck="false" data-i18n-placeholder="radio.searchPlaceholder">
+          <span id="radio-count" class="fs-sm fg-3 radio-count" role="status"></span>
+        </div>
         <div id="radio-head" class="queue-head fs-xs fg-3" aria-hidden="true" hidden>
           <span class="queue-head-num">#</span>
           <span data-i18n="queue.colTitle">Title</span>

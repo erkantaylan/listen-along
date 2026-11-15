@@ -311,7 +311,12 @@
     "retry": "Try again",
     "emptyTitle": "No songs to play yet",
     "emptyHint": "Songs land here as soon as they are in the music library.",
-    "statsLabel": "Radio stats"
+    "statsLabel": "Radio stats",
+    "searchLabel": "Search Radio songs",
+    "searchPlaceholder": "Search title, artist or album",
+    "matchCount": "{shown} of {total} songs",
+    "noMatch": "No songs match “{query}”",
+    "noMatchShort": "No matches"
   },
   "appPage": {
     "title": "Android app",

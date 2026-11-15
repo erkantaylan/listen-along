@@ -112,8 +112,9 @@ describe('stations API', { skip, timeout: 180_000 }, () => {
     assert.equal(list.body.duration_sec, 300);
     assert.equal(list.body.songs.length, 3);
     const one = list.body.songs.find((s: StationSong) => s.title === 'One');
-    assert.deepEqual(Object.keys(one).sort(), ['artist', 'duration_sec', 'file_version', 'id', 'title', 'youtube_id']);
+    assert.deepEqual(Object.keys(one).sort(), ['album', 'artist', 'duration_sec', 'file_version', 'id', 'title', 'youtube_id']);
     assert.equal(one.file_version, 'a'.repeat(16));
+    assert.equal(one.album, null);
     assert.equal(list.body.songs.find((s: StationSong) => s.title === 'No length').duration_sec, null);
   });
 

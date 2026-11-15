@@ -89,9 +89,9 @@ export interface Station {
   duration_sec: number;
 }
 
-// stations.js songs() — GET /api/stations/:id/songs
+// stations.js songs() — GET /api/stations/:id/songs (each song also has its album, for Radio's search)
 export interface StationWithSongs extends Station {
-  songs: StationSong[];
+  songs: (StationSong & { album?: string | null })[];
 }
 
 // artists.js summaryOf — an item of GET /api/artists
