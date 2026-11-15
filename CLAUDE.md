@@ -291,7 +291,7 @@ where lobby persistence broke entirely on deployed instances.
 - Android releases: a tag `android-vX.Y.Z` runs `.github/workflows/android-release.yml`
   (signed APK on a GitHub Release; version from the tag; key and backup rules in
   `android/README.md`). The web page `/app` (`frontend/app-page.js`) offers the latest
-  through `GET /api/app/latest` (`appRelease.js`: GitHub Releases API, no token, 10 min
+  through `GET /api/app/latest` (`backend/src/features/app-release/`: GitHub Releases API, no token, 10 min
   cache + ETag, always 200; only `android-v*` tags count, the repo has old `v2.x` ones).
   Both are open to pending accounts too (`policyFor`: `member`).
 - Android app (`android/`, see its README): Kotlin + Compose + Media3, a
@@ -542,6 +542,26 @@ stays JavaScript). Until an area is converted its files stay `.js`.
 - Relative imports name the real file: `./x.ts` (the frontend build rewrites
   them to `./x.js`).
 - Tests sit next to the code they test.
+- **Backend, while CommonJS and ES modules mix** (Node 22.18+ type stripping, no build):
+  - A converted area is a folder of ES-module `.ts` (`backend/src/features/<name>/`), moved with `git mv` so
+    history follows, its tests next to it as `*.test.ts` (plain `node --test` finds them). The folder holding
+    converted areas has a `package.json` that is only `{"type": "module"}` (`backend/src/features/package.json`;
+    add the same to `shared/`, `auth/`, `core/` when they start). Without it Node guesses the format of each `.ts`
+    and prints `MODULE_TYPELESS_PACKAGE_JSON` at boot and in tests; with it there is no warning and no flag. It
+    goes away when `backend/package.json` becomes `"type": "module"`.
+  - Still-CommonJS files `require('./features/<name>/index.ts')` (extension spelled out, always the folder's
+    `index.ts`, never its internals). Node's `require(esm)` and every `import` share one module instance (checked:
+    module state is not duplicated), so a store or singleton may be reached from both. No top-level `await` in
+    anything that is `require`d (`ERR_REQUIRE_ASYNC_MODULE`); test files may use it.
+  - From `.ts`, import a CommonJS file by its real name (`../../db.js`). Use the default import (`import db from
+    '../../db.js'`, the live `module.exports` object) when the code calls `db.query(...)`: tests replace properties
+    on such objects, and named imports of CommonJS are a snapshot. Named imports only work for the
+    `module.exports = { a, b }` shorthand. Packages: `import pg from 'pg'` then `pg.Client`.
+  - `import.meta.dirname` for `__dirname`; `createRequire(import.meta.url)` only where a test needs `require.cache`.
+  - Each area's `index.ts` exports its `create…({ deps })` factory with a typed deps interface (what the area needs
+    from the composition root) and the types of what it sends to clients. A dependency still in CommonJS gets a
+    small structural interface of what the area uses, not `any`.
+  - Every importer changes in the same commit, and so does every path this file cites.
 - `frontend/src/globals.d.ts` types the classic-script globals (`io`,
   `window.i18n`, `MediaSessionManager`); `i18n.js` and `media-session.js` stay
   classic scripts. `frontend/package.json` is `"type": "module"` so Node

@@ -3,7 +3,7 @@
 // also has older backend releases (v2.x), so only android-vX.Y.Z tags count and
 // /releases/latest cannot be used.
 const REPO = 'erkantaylan/listen-along';
-const RELEASES_PAGE = `https://github.com/${REPO}/releases`;
+export const RELEASES_PAGE = `https://github.com/${REPO}/releases`;
 const API_URL = `https://api.github.com/repos/${REPO}/releases?per_page=30`;
 
 const TTL_MS = 10 * 60 * 1000;   // how long an answer is reused
@@ -14,9 +14,67 @@ const TAG_RE = /^android-v(\d+)\.(\d{1,2})\.(\d{1,2})$/;
 const APK_RE = /^listen-along-[\w.-]+\.apk$/;
 const SHA_IN_NOTES_RE = /SHA-256:\s*([a-f0-9]{64})\b/i;
 
-const isGithubUrl = (url) => typeof url === 'string' && url.startsWith('https://github.com/');
+/** The fields of a GitHub release (and its assets) this module reads; GitHub sends many more. */
+export interface GithubAsset {
+  name?: string;
+  size?: number;
+  digest?: string | null;
+  browser_download_url?: string;
+}
+export interface GithubRelease {
+  tag_name?: string;
+  draft?: boolean;
+  prerelease?: boolean;
+  published_at?: string | null;
+  html_url?: string;
+  body?: string | null;
+  assets?: GithubAsset[];
+}
 
-function sha256Of(release, asset) {
+/** One release as the /app page shows it. */
+export interface AppReleaseView {
+  version: string;
+  tag: string;
+  publishedAt: string | null;
+  releaseUrl: string;
+  apk: { name: string; url: string; size: number | null };
+  sha256: string | null;
+}
+
+/** GET /api/app/latest's body. */
+export type AppLatest =
+  | ({ available: true } & AppReleaseView & { releasesUrl: string; stale: boolean })
+  | { available: false; reason: 'none' | 'unavailable'; releasesUrl: string };
+
+/** What createAppRelease needs from fetch (the global fetch's Response fits). */
+export interface FetchAnswer {
+  status: number;
+  ok: boolean;
+  headers: { get(name: string): string | null };
+  json(): Promise<unknown>;
+}
+export type FetchImpl = (url: string, init: { headers: Record<string, string>; signal: AbortSignal }) => Promise<FetchAnswer>;
+
+export interface AppReleaseOptions {
+  /** global fetch by default (injected by tests) */
+  fetchImpl?: FetchImpl;
+  /** the releases API (APP_RELEASES_API_URL overrides it for tests) */
+  apiUrl?: string;
+  now?: () => number;
+  ttlMs?: number;
+  retryMs?: number;
+  timeoutMs?: number;
+  log?: (message: string) => void;
+}
+
+export interface AppRelease {
+  /** Always resolves. */
+  latest(): Promise<AppLatest>;
+}
+
+const isGithubUrl = (url: unknown): url is string => typeof url === 'string' && url.startsWith('https://github.com/');
+
+function sha256Of(release: GithubRelease, asset: GithubAsset): string | null {
   const digest = /^sha256:([a-f0-9]{64})$/.exec(asset.digest || '');
   if (digest) return digest[1];
   const inNotes = SHA_IN_NOTES_RE.exec(release.body || '');
@@ -24,10 +82,10 @@ function sha256Of(release, asset) {
 }
 
 /** The newest published android release with an APK, as the page needs it, or null. */
-function pickLatest(releases) {
+export function pickLatest(releases: unknown): AppReleaseView | null {
   if (!Array.isArray(releases)) throw new Error('unexpected answer from GitHub');
-  let best = null;
-  for (const release of releases) {
+  let best: { code: number; view: AppReleaseView } | null = null;
+  for (const release of releases as (GithubRelease | null | undefined)[]) {
     if (!release || release.draft || release.prerelease) continue;
     const tag = TAG_RE.exec(release.tag_name || '');
     if (!tag) continue;
@@ -40,10 +98,10 @@ function pickLatest(releases) {
       code,
       view: {
         version: `${x}.${y}.${z}`,
-        tag: release.tag_name,
+        tag: release.tag_name as string,
         publishedAt: release.published_at || null,
         releaseUrl: isGithubUrl(release.html_url) ? release.html_url : RELEASES_PAGE,
-        apk: { name: asset.name, url: asset.browser_download_url, size: Number(asset.size) || null },
+        apk: { name: asset.name as string, url: asset.browser_download_url as string, size: Number(asset.size) || null },
         sha256: sha256Of(release, asset),
       },
     };
@@ -51,23 +109,18 @@ function pickLatest(releases) {
   return best ? best.view : null;
 }
 
-/**
- * @param fetchImpl  global fetch by default (injected by tests)
- * @param apiUrl     the releases API (APP_RELEASES_API_URL overrides it for tests)
- * @returns {{ latest: () => Promise<object> }} latest() always resolves.
- */
-function createAppRelease({
+export function createAppRelease({
   fetchImpl = (...args) => globalThis.fetch(...args), apiUrl = API_URL, now = Date.now,
   ttlMs = TTL_MS, retryMs = RETRY_MS, timeoutMs = TIMEOUT_MS, log = console.warn,
-} = {}) {
-  let known = null;     // the last good answer (null: no android release yet)
+}: AppReleaseOptions = {}): AppRelease {
+  let known: AppReleaseView | null = null;     // the last good answer (null: no android release yet)
   let lastCheckOk = false;
-  let etag = null;
+  let etag: string | null = null;
   let nextCheck = 0;
-  let inFlight = null;
+  let inFlight: Promise<void> | null = null;
 
-  async function refresh() {
-    const headers = {
+  async function refresh(): Promise<void> {
+    const headers: Record<string, string> = {
       Accept: 'application/vnd.github+json',
       'User-Agent': 'listen-along-server',
       'X-GitHub-Api-Version': '2022-11-28',
@@ -83,13 +136,13 @@ function createAppRelease({
       lastCheckOk = true;
       nextCheck = now() + ttlMs;
     } catch (err) {
-      log(`App release check failed: ${err.message}`);
+      log(`App release check failed: ${(err as Error).message}`);
       lastCheckOk = false;
       nextCheck = now() + retryMs;
     }
   }
 
-  async function latest() {
+  async function latest(): Promise<AppLatest> {
     if (now() >= nextCheck && !inFlight) inFlight = refresh().finally(() => { inFlight = null; });
     if (inFlight) await inFlight;
     if (known) return { available: true, ...known, releasesUrl: RELEASES_PAGE, stale: !lastCheckOk };
@@ -98,5 +151,3 @@ function createAppRelease({
 
   return { latest };
 }
-
-module.exports = { createAppRelease, pickLatest, RELEASES_PAGE };

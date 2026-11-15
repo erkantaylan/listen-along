@@ -30,7 +30,7 @@ const covers = require('./covers');
 const access = require('./playlistAccess');
 const playlistPins = require('./playlistPins');
 const spotify = require('./spotify');
-const { createAppRelease } = require('./appRelease');
+const { createAppRelease } = require('./features/app-release/index.ts');
 const { createCliRelease, createCliRouter } = require('./cliRelease');
 const { createUserAuth } = require('./userAuth');
 const { readDevLogin } = require('./devLogin');
@@ -276,7 +276,7 @@ app.use(createJobRouter({
   picker,
 }));
 
-// The latest Android release for the /app page (appRelease.js).
+// The latest Android release for the /app page (features/app-release).
 const appRelease = createAppRelease(process.env.APP_RELEASES_API_URL ? { apiUrl: process.env.APP_RELEASES_API_URL } : {});
 // Redirects, SPA views, the Android release, the dashboard shell, "/" (appRoutes.js).
 app.use(createPageRouter({ frontendPath, apiLimiter, adminAuth, appRelease }));
