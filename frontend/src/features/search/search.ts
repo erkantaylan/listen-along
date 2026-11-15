@@ -1,5 +1,5 @@
-// The global search: one field in the app shell's top bar, centred above the
-// panels on every signed-in page (#app-search, body.has-topbar; on phones only
+// The global search: one field in the app shell's top bar, centred in the page
+// column on every signed-in page (#app-search, body.has-topbar; on phones only
 // on the search page, which the row of places and the drawer open), Ctrl+K /
 // Cmd+K from anywhere, and the search page /search?q=… (DESIGN.md "Search").
 //
@@ -225,7 +225,8 @@ function barShown(): boolean {
 }
 
 // The bar is part of the shell (index.html, app.css "Top bar"): it never moves,
-// it is shown or not, and body.has-topbar makes the panels start under it.
+// it is shown or not, and body.has-topbar makes only the page panel start under
+// it (the sidebar and the chat column stay full height).
 function syncBar(): void {
   const bar = $('app-search');
   if (!bar) return;
