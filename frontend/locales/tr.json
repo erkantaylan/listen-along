@@ -315,7 +315,6 @@
   },
   "appPage": {
     "title": "Android uygulaması",
-    "setUpLink": "Android uygulamasını kur",
     "downloadTitle": "İndir",
     "checking": "Son sürüm denetleniyor…",
     "downloadButton": "APK'yı indir",
@@ -340,6 +339,10 @@
     "connectTitle": "Hesabınızı bağlayın",
     "pendingNote": "Hesabınız onay bekliyor. Uygulamayı şimdi kurup giriş yapabilirsiniz; hesabınız onaylanınca kütüphaneyi kullanabilir.",
     "connectSignIn": "Uygulamayı açın ve “Giriş yap”a dokunun. Bu sitedeki hesabınızın aynısını kullanın; token gerekmez."
+  },
+  "tokens": {
+    "introBefore": "Token,",
+    "introAfter": "komut satırı aracının ve indiricilerinin (la worker) kütüphaneyi sizin adınıza kullanmasını sağlar. Yüklemeler sizin adınıza kaydedilir. Her bilgisayar için ayrı bir tane oluşturun ve kullanmayı bıraktığınızda iptal edin."
   },
   "artists": {
     "title": "Sanatçılar",

@@ -315,7 +315,6 @@
   },
   "appPage": {
     "title": "Android app",
-    "setUpLink": "Set up the Android app",
     "downloadTitle": "Download",
     "checking": "Checking the latest version…",
     "downloadButton": "Download APK",
@@ -340,6 +339,10 @@
     "connectTitle": "Connect your account",
     "pendingNote": "Your account is waiting for approval. You can install the app and sign in now; it can use the library once your account is approved.",
     "connectSignIn": "Open the app and tap “Sign in”. Use the same account as on this website; no token needed."
+  },
+  "tokens": {
+    "introBefore": "A token lets the",
+    "introAfter": "command-line tool and its downloaders (la worker) use the library as you. Uploads are credited to your name. Make one per computer and revoke it when you stop using it."
   },
   "artists": {
     "title": "Artists",
