@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { startServer } = require('./testServer');
-const { isBuildConfig } = require('./frontendStatic');
+const { isBuildConfig } = require('./app/index.ts');
 
 const REAL_FRONTEND = path.join(__dirname, '..', '..', 'frontend');
 

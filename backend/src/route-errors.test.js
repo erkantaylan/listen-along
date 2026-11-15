@@ -6,8 +6,7 @@ const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const express = require('express');
-const { createAdminRouter } = require('./adminRoutes');
-const { createProfileRouter } = require('./profileRoutes');
+const { createAdminRouter, createProfileRouter } = require('./app/index.ts');
 
 const pass = (req, res, next) => next();
 const boom = async () => { throw new Error('connection terminated'); };
@@ -35,7 +34,7 @@ describe('dashboard and profile routes when storage fails', () => {
   it('deleting a playlist or a chat message answers 500, nothing is left unhandled', async () => {
     const s = await serve(createAdminRouter({
       db: { isAvailable: () => true, query: boom }, playlist: { getPlaylist: () => ({ id: 'p1', ownerId: null, visibility: 'public' }) },
-      apiLimiter: pass, adminAuth: { requireAdmin: pass }, destroyLobby: boom,
+      apiLimiter: pass, adminAuth: { requireAdmin: pass }, destroyPlaylist: boom,
       getSocial: () => ({ deleteMessage: boom }), accountStatusChanged: async () => {},
     }));
     try {

@@ -9,31 +9,37 @@
  *                      GET /api/app/latest, the /dashboard shell and "/".
  *                      Mounted after the library router.
  *
- * Pages are the data-free SPA shell; the auth guard (authRoutes.js) decides
+ * Pages are the data-free SPA shell; the auth guard (auth/authRoutes.ts) decides
  * who reaches them.
  */
 
-const express = require('express');
-const fs = require('fs');
-const path = require('path');
-const { monitorEventLoopDelay } = require('perf_hooks');
-const QRCode = require('qrcode');
-const pkg = require('../package.json');
-const { getVersionInfo } = require('./shared/build-info.ts');
+import express from 'express';
+import type { RequestHandler, Router } from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
+import QRCode from 'qrcode';
+import pkg from '../../package.json' with { type: 'json' };
+import { getVersionInfo } from '../shared/build-info.ts';
+import type { AppLatest } from '../features/app-release/index.ts';
+
+// The backend's src/ folder: this file is src/app/appRoutes.ts.
+const SRC_DIR = path.join(import.meta.dirname, '..');
 
 // Event-loop delay (main thread busy) for /health, over the last minute.
 // (The histogram includes its own sampling interval; /health subtracts it.)
 const LOOP_DELAY_RESOLUTION_MS = 20;
 
-/**
- * @param {object} deps
- * @param {{ isAvailable: () => boolean }} deps.db
- * @param {{ availableCached: () => Promise<boolean> }} deps.ytdlp
- * @param {string} deps.frontendPath - the frontend folder (index.html, changelog.html)
- * @param {import('express').RequestHandler} deps.apiLimiter - rateLimits.apiLimiter
- * @returns {import('express').Router}
- */
-function createInfoRouter({ db, ytdlp, frontendPath, apiLimiter }) {
+export interface InfoRouterDeps {
+  db: { isAvailable(): boolean };
+  ytdlp: { availableCached(): Promise<boolean> };
+  /** the frontend folder (index.html, changelog.html) */
+  frontendPath: string;
+  /** rateLimits.apiLimiter */
+  apiLimiter: RequestHandler;
+}
+
+export function createInfoRouter({ db, ytdlp, frontendPath, apiLimiter }: InfoRouterDeps): Router {
   const router = express.Router();
 
   const loopDelay = monitorEventLoopDelay({ resolution: LOOP_DELAY_RESOLUTION_MS });
@@ -44,7 +50,7 @@ function createInfoRouter({ db, ytdlp, frontendPath, apiLimiter }) {
   // file reads/writes, dns.lookup, crypto, zlib), so a slow answer means that
   // pool or the disk is saturated, not the main thread. Capped so /health
   // itself never hangs on it.
-  function fsProbeMs(cap = 2000) {
+  function fsProbeMs(cap = 2000): Promise<number> {
     const t = process.hrtime.bigint();
     return Promise.race([
       fs.promises.stat(frontendPath).catch(() => null),
@@ -58,7 +64,7 @@ function createInfoRouter({ db, ytdlp, frontendPath, apiLimiter }) {
     // yt-dlp is only used for YouTube search / playlist listing now (no audio).
     // Cached: spawning it per request made this probe slow under load.
     const ytdlpAvailable = await ytdlp.availableCached();
-    const ms = (ns) => Math.max(0, Math.round(ns / 1e5 - LOOP_DELAY_RESOLUTION_MS * 10) / 10);
+    const ms = (ns: number) => Math.max(0, Math.round(ns / 1e5 - LOOP_DELAY_RESOLUTION_MS * 10) / 10);
     res.json({
       status: 'ok',
       timestamp: new Date().toISOString(),
@@ -82,11 +88,12 @@ function createInfoRouter({ db, ytdlp, frontendPath, apiLimiter }) {
   router.get('/api/changelog', apiLimiter, (req, res) => {
     // In Docker: /app/CHANGELOG.md, locally: ../../CHANGELOG.md from backend/src/
     const changelogPath = [
-      path.join(__dirname, '..', 'CHANGELOG.md'),
-      path.join(__dirname, '..', '..', 'CHANGELOG.md')
+      path.join(SRC_DIR, '..', 'CHANGELOG.md'),
+      path.join(SRC_DIR, '..', '..', 'CHANGELOG.md')
     ].find(p => fs.existsSync(p));
     try {
-      const content = fs.readFileSync(changelogPath, 'utf8');
+      // Neither found: readFileSync(undefined) throws, answered as a 404 below.
+      const content = fs.readFileSync(changelogPath!, 'utf8');
       res.json({ changelog: content });
     } catch {
       res.status(404).json({ error: 'Changelog not found' });
@@ -101,10 +108,10 @@ function createInfoRouter({ db, ytdlp, frontendPath, apiLimiter }) {
   // Generate QR code for a playlist link. It only encodes the URL (the id comes
   // from the caller), so it reveals nothing about whether the playlist exists.
   router.get('/api/qr/:lobbyId', async (req, res) => {
-    const lobbyId = req.params.lobbyId;
-    if (!/^[a-zA-Z0-9-]{1,64}$/.test(lobbyId)) return res.status(400).json({ error: 'Invalid id' });
+    const playlistId = req.params.lobbyId;
+    if (!/^[a-zA-Z0-9-]{1,64}$/.test(playlistId)) return res.status(400).json({ error: 'Invalid id' });
     const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
-    const url = `${baseUrl}/playlist/${lobbyId}`;
+    const url = `${baseUrl}/playlist/${playlistId}`;
 
     try {
       const buffer = await QRCode.toBuffer(url, {
@@ -114,7 +121,7 @@ function createInfoRouter({ db, ytdlp, frontendPath, apiLimiter }) {
       });
       res.type('png').send(buffer);
     } catch (err) {
-      console.error('QR code generation error:', err.message);
+      console.error('QR code generation error:', (err as Error).message);
       res.status(500).json({ error: 'Failed to generate QR code' });
     }
   });
@@ -122,30 +129,31 @@ function createInfoRouter({ db, ytdlp, frontendPath, apiLimiter }) {
   return router;
 }
 
-/**
- * @param {object} deps
- * @param {string} deps.frontendPath
- * @param {import('express').RequestHandler} deps.apiLimiter - rateLimits.apiLimiter
- * @param {{ isEnabled: () => boolean }} deps.adminAuth
- * @param {{ latest: () => Promise<object> }} deps.appRelease - appRelease.createAppRelease()
- * @returns {import('express').Router}
- */
-function createPageRouter({ frontendPath, apiLimiter, adminAuth, appRelease }) {
+export interface PageRouterDeps {
+  frontendPath: string;
+  /** rateLimits.apiLimiter */
+  apiLimiter: RequestHandler;
+  adminAuth: { isEnabled(): boolean };
+  /** features/app-release createAppRelease() */
+  appRelease: { latest(): Promise<AppLatest> };
+}
+
+export function createPageRouter({ frontendPath, apiLimiter, adminAuth, appRelease }: PageRouterDeps): Router {
   const router = express.Router();
 
   // The admin page moved into /dashboard. The query is dropped on purpose (the old
   // ?next= has no meaning any more).
   router.get('/admin', apiLimiter, (req, res) => res.redirect(301, '/dashboard'));
 
-  // Old lobby URLs moved to /playlist/... (the client does the same for in-app
-  // navigation, see legacyRedirect in frontend/router.js).
+  // Old /lobby/... URLs moved to /playlist/... (the client does the same for in-app
+  // navigation, see legacyRedirect in frontend/src/router.ts).
   router.get(['/lobby/:id', '/lobby/:id/library'], apiLimiter, (req, res) => {
     const qs = req.originalUrl.indexOf('?');
     const rest = req.path.endsWith('/library') ? '/library' : '';
     res.redirect(301, `/playlist/${encodeURIComponent(req.params.id)}${rest}${qs >= 0 ? req.originalUrl.slice(qs) : ''}`);
   });
 
-  // SPA views (auth guard applied above; the client routes them, see frontend/router.js)
+  // SPA views (auth guard applied above; the client routes them, see frontend/src/router.ts)
   router.get(['/playlist/:id', '/playlist/:id/library', '/library', '/radio', '/artists', '/artist/:key', '/search', '/profile', '/social', '/app'], apiLimiter, (req, res) => {
     res.sendFile(path.join(frontendPath, 'index.html'));
   });
@@ -173,4 +181,3 @@ function createPageRouter({ frontendPath, apiLimiter, adminAuth, appRelease }) {
   return router;
 }
 
-module.exports = { createInfoRouter, createPageRouter };

@@ -11,8 +11,8 @@
  *   notifyPlaylistsChanged     playlists:changed (sidebars refetch); a private
  *                              playlist's only to its owner
  *   accountStatusChanged       an admin changed a status: caches, sockets, sessions
- *   destroyLobby               a playlist is deleted everywhere
- *   addLibrarySongToLobby      a library song into a playlist's queue
+ *   destroyPlaylist               a playlist is deleted everywhere
+ *   addLibrarySongToPlaylist      a library song into a playlist's queue
  *   emitUnavailableSongs       which queue entries are not in the library
  *   handleLibrarySongAdded     an upload: library views, requests fulfilled,
  *                              songs into the requesting playlists
@@ -21,36 +21,50 @@
  *                              and players are told (library:updated)
  */
 
-const { access } = require('./core/playlists/index.ts');
-const { isBlocked } = require('./auth/index.ts');
+import { access } from '../core/playlists/index.ts';
+import type { playlist as playlistModule, playlistPins as pinsModule } from '../core/playlists/index.ts';
+import type { Queue, QueueSong } from '../core/queue/index.ts';
+import type { library as libraryModule, covers as coversModule, SongRequestView } from '../core/library/index.ts';
+import type { downloadJobs as jobsModule, WorkerHub } from '../core/jobs/index.ts';
+import type { SongRequest } from '../core/requests/index.ts';
+import { isBlocked } from '../auth/index.ts';
+import type { SessionStore, UserAuth } from '../auth/index.ts';
+import type { ActivityFeed } from '../features/activity/index.ts';
+import type { Db, Io, JobWithJoins, LibrarySongRow, Playlist } from '../shared/types.ts';
 
-/**
- * @param {object} deps
- * @param {import('socket.io').Server} deps.io
- * @param {{ isAvailable: () => boolean, query: Function }} deps.db
- * @param {typeof import('./lobby')} deps.lobby
- * @param {(lobbyId: string) => Promise<object>} deps.getQueueAsync - queue.js
- * @param {(lobbyId: string) => boolean} deps.hasQueue - queue.js
- * @param {(lobbyId: string) => void} deps.deleteQueue - queue.js
- * @param {typeof import('./library')} deps.library
- * @param {{ cacheCover: (id: string, url: string) => Promise<unknown> }} deps.covers
- * @param {typeof import('./downloadJobs')} deps.downloadJobs
- * @param {{ forgetPlaylist: (lobbyId: string) => void }} deps.playlistPins
- * @param {{ invalidate: (userId: string) => void }} deps.userAuth
- * @param {{ removeForUser: (userId: string) => Promise<string[]> }|null} deps.sessionStore - central login only
- * @param {{ jobChanged: (row: object) => void }} deps.activityFeed
- * @param {() => { stats: () => object, dispatch: () => void }} deps.getWorkerHub - made after these (it calls emitJob)
- * @param {() => ({ profileChanged: Function, lobbyChanged: Function }|null)} deps.getSocial - made in start()
- * @param {string} deps.APP_ROOM
- * @param {(userId: string) => string} deps.userRoom
- * @param {(idHash: string) => string} deps.sessionRoom
- */
+export interface ReactionsDeps {
+  io: Io;
+  db: Db;
+  /** core/playlists playlist.ts */
+  playlist: Pick<typeof playlistModule, 'getPlaylistAsync' | 'deletePlaylistAsync' | 'getAllPlaylists'>;
+  getQueueAsync: (playlistId: string) => Promise<Queue>;
+  hasQueue: (playlistId: string) => boolean;
+  deleteQueue: (playlistId: string) => boolean;
+  library: typeof libraryModule;
+  covers: Pick<typeof coversModule, 'cacheCover'>;
+  downloadJobs: typeof jobsModule;
+  playlistPins: Pick<typeof pinsModule, 'forgetPlaylist'>;
+  userAuth: Pick<UserAuth, 'invalidate'>;
+  /** central login only */
+  sessionStore: Pick<SessionStore, 'removeForUser'> | null;
+  activityFeed: Pick<ActivityFeed, 'jobChanged'>;
+  /** made after these (it calls emitJob) */
+  getWorkerHub: () => Pick<WorkerHub, 'stats' | 'dispatch'>;
+  /** made in start() */
+  getSocial: () => { profileChanged(userId: string): unknown; lobbyChanged(playlistId: string): void } | null;
+  APP_ROOM: string;
+  userRoom: (userId: string) => string;
+  sessionRoom: (idHash: string) => string;
+}
 
-function createReactions({
+/** Something to emit to: a socket or a room. */
+interface Emitter { emit(event: string, payload?: unknown): unknown }
+
+export function createReactions({
   io, db, playlist, getQueueAsync, hasQueue, deleteQueue, library, covers, downloadJobs, playlistPins, userAuth, sessionStore,
   activityFeed, getWorkerHub, getSocial, APP_ROOM, userRoom, sessionRoom,
-}) {
-  function emitJob(row) {
+}: ReactionsDeps) {
+  function emitJob(row: JobWithJoins | null | undefined): void {
     if (!row) return;
     // Everyone's activity log (features/activity), then the requester's own, richer view.
     activityFeed.jobChanged(row);
@@ -60,14 +74,14 @@ function createReactions({
   // A web download job targets a playlist: add what it got (as the requester,
   // if they can still edit it). Song-request jobs need nothing here: the
   // request flow (handleLibrarySongAdded) adds to the requesting playlist.
-  async function addJobSongsToPlaylist(job, songs) {
+  async function addJobSongsToPlaylist(job: JobWithJoins | null | undefined, songs: Array<LibrarySongRow | null>): Promise<void> {
     if (!job || job.source !== 'web' || !job.playlist_id || !db.isAvailable()) return;
     const l = await playlist.getPlaylistAsync(job.playlist_id);
     if (!l || !access.canEdit(l, job.requested_by_user_id)) return;
     let added = 0;
     for (const song of songs) {
       if (!song) continue;
-      if (await addLibrarySongToLobby(job.playlist_id, song, job.requested_by || 'Someone', { skipIfQueued: true })) added++;
+      if (await addLibrarySongToPlaylist(job.playlist_id, song, job.requested_by || 'Someone', { skipIfQueued: true })) added++;
     }
     if (added) {
       const queue = await getQueueAsync(job.playlist_id);
@@ -77,8 +91,8 @@ function createReactions({
 
   // The worker counts every approved socket shows (workers:update). Coalesce
   // bursts (connect + dispatch + finish).
-  let workersChangedTimer = null;
-  function workersChanged() {
+  let workersChangedTimer: NodeJS.Timeout | null = null;
+  function workersChanged(): void {
     if (workersChangedTimer) return;
     workersChangedTimer = setTimeout(() => {
       workersChangedTimer = null;
@@ -87,21 +101,21 @@ function createReactions({
   }
 
   // A song request was created: it becomes a download job (automatic).
-  async function queueRequestJob(request, requestedByUserId) {
+  async function queueRequestJob(request: SongRequest, requestedByUserId: string | null): Promise<void> {
     try {
       const row = await downloadJobs.createForRequest(request, { requestedByUserId });
       if (!row) return;
       emitJob(row);
       getWorkerHub().dispatch();
     } catch (err) {
-      console.error('[jobs] could not queue a job for request', request && request.id, err.message);
+      console.error('[jobs] could not queue a job for request', request && request.id, (err as Error).message);
     }
   }
 
   // Sidebars refetch /api/playlists on this signal. It carries nothing, and a
   // private playlist's changes only reach its owner. `everyone`: the playlist
   // just changed visibility, so others gain or lose it.
-  function notifyPlaylistsChanged(l, { everyone = false } = {}) {
+  function notifyPlaylistsChanged(l: Playlist | null | undefined, { everyone = false }: { everyone?: boolean } = {}): void {
     if (!everyone && l && access.isPrivate(l) && l.ownerId) io.to(userRoom(l.ownerId)).emit('playlists:changed');
     else io.to(APP_ROOM).emit('playlists:changed');
   }
@@ -111,7 +125,7 @@ function createReactions({
   // new ones) and, with central login, every session (so it is signed out
   // everywhere; signing in again is refused while it stays blocked). Its CLI
   // tokens stop by themselves (tokens.verifyToken needs an approved owner).
-  async function accountStatusChanged(userId, status) {
+  async function accountStatusChanged(userId: string, status: string): Promise<void> {
     userAuth.invalidate(userId);
     const social = getSocial();
     if (social) social.profileChanged(String(userId));
@@ -124,57 +138,59 @@ function createReactions({
         if (gone.length) console.log(`[oidc] user ${userId} is ${status}: ${gone.length} session(s) ended`);
       } catch (err) {
         // Still locked out: every request checks the status.
-        console.error(`[oidc] could not end the sessions of user ${userId}:`, err.message);
+        console.error(`[oidc] could not end the sessions of user ${userId}:`, (err as Error).message);
       }
     }
   }
 
-  // Tear down a lobby everywhere: notify + disconnect members, clear
+  // Tear down a playlist everywhere: notify + disconnect members, clear
   // queue state, then delete the row from BOTH memory and the DB.
   // Shared by the admin (dashboard) and creator delete paths. Uses the async
   // delete so the row does not resurrect on restart (there is no longer any
   // time-based cleanup to remove stale rows — hq-9gvy).
-  async function destroyLobby(lobbyId, { reason } = {}) {
-    const before = await playlist.getPlaylistAsync(lobbyId);
-    io.to(lobbyId).emit('lobby:closed', {
-      lobbyId,
+  async function destroyPlaylist(playlistId: string, { reason }: { reason?: string } = {}): Promise<void> {
+    const before = await playlist.getPlaylistAsync(playlistId);
+    io.to(playlistId).emit('lobby:closed', {
+      lobbyId: playlistId,
       message: reason || 'This playlist has been deleted.'
     });
-    const room = io.sockets.adapter.rooms.get(lobbyId);
+    const room = io.sockets.adapter.rooms.get(playlistId);
     for (const socketId of room ? [...room] : []) {
       const s = io.sockets.sockets.get(socketId);
-      if (s && s.data.evict) s.data.evict(lobbyId);
+      if (s && s.data.evict) s.data.evict(playlistId);
     }
-    io.in(lobbyId).socketsLeave(lobbyId);
+    io.in(playlistId).socketsLeave(playlistId);
 
-    deleteQueue(lobbyId);
+    deleteQueue(playlistId);
 
-    await playlist.deletePlaylistAsync(lobbyId);
-    playlistPins.forgetPlaylist(lobbyId);
+    await playlist.deletePlaylistAsync(playlistId);
+    playlistPins.forgetPlaylist(playlistId);
     const social = getSocial();
-    if (social) social.lobbyChanged(lobbyId);
+    if (social) social.lobbyChanged(playlistId);
     notifyPlaylistsChanged(before);
   }
 
-  // Append a library song to a lobby's queue. Caller broadcasts the queue:update.
+  // Append a library song to a playlist's queue. Caller broadcasts the queue:update.
   // skipIfQueued: add nothing (returns null) when the song is already in the
   // queue. Checked here, with no await before addSong, so two quick adds of the
   // same song cannot both get through.
-  async function addLibrarySongToLobby(lobbyId, librarySong, addedBy, { skipIfQueued = false } = {}) {
-    const queue = await getQueueAsync(lobbyId);
+  async function addLibrarySongToPlaylist(
+    playlistId: string, librarySong: LibrarySongRow, addedBy: string | null | undefined, { skipIfQueued = false }: { skipIfQueued?: boolean } = {},
+  ): Promise<QueueSong | null> {
+    const queue = await getQueueAsync(playlistId);
     if (skipIfQueued && library.isQueued(queue.getSongs(), librarySong)) return null;
     const entry = library.toQueueEntry(librarySong);
     const song = queue.addSong({ ...entry, artistName: library.queueArtist(librarySong), addedBy: addedBy || 'anonymous' });
     if (entry.thumbnail) {
       covers.cacheCover(song.id, entry.thumbnail).catch(err => {
-        console.error(`Failed to cache cover for ${song.id}:`, err.message);
+        console.error(`Failed to cache cover for ${song.id}:`, (err as Error).message);
       });
     }
     return song;
   }
 
   // Tell a socket/room which queue entries are not playable (not in library).
-  async function emitUnavailableSongs(target, songs) {
+  async function emitUnavailableSongs(target: Emitter, songs: QueueSong[] | null | undefined): Promise<void> {
     if (!db.isAvailable() || !songs || !songs.length) return;
     try {
       const missing = await library.findUnavailableUrls(songs.map(s => s.url));
@@ -182,7 +198,7 @@ function createReactions({
         target.emit('download:status', { url, status: 'unavailable', error: 'Not in the library yet' });
       }
     } catch (err) {
-      console.error('Availability check failed:', err.message);
+      console.error('Availability check failed:', (err as Error).message);
     }
   }
 
@@ -192,7 +208,7 @@ function createReactions({
   // title / duration / cover, then tell clients. Players that are playing it
   // get library:updated { replaced } and reload the new file at the same
   // position (frontend player.reloadReplaced).
-  async function handleLibrarySongReplaced(librarySong, previous) {
+  async function handleLibrarySongReplaced(librarySong: LibrarySongRow, previous: LibrarySongRow): Promise<void> {
     const pub = library.toPublic(librarySong);
     const { entry, oldUrls, rewritten } = await rewriteQueueEntries(librarySong, previous, { covers: true });
     io.to(APP_ROOM).emit('library:updated', {
@@ -207,7 +223,7 @@ function createReactions({
 
   // Only the title, artist or album changed: queue entries follow, and players
   // update what they show without touching the audio (library:updated { details }).
-  async function handleLibrarySongDetailsChanged(librarySong, previous) {
+  async function handleLibrarySongDetailsChanged(librarySong: LibrarySongRow, previous: LibrarySongRow): Promise<void> {
     const { entry, oldUrls } = await rewriteQueueEntries(librarySong, previous, { covers: false });
     io.to(APP_ROOM).emit('library:updated', {
       song: library.toPublic(librarySong),
@@ -222,25 +238,25 @@ function createReactions({
 
   // Every entry of every playlist holding the song gets its current url / title
   // / duration / cover; viewers get queue:update.
-  async function rewriteQueueEntries(librarySong, previous, { covers: withCovers }) {
+  async function rewriteQueueEntries(librarySong: LibrarySongRow, previous: LibrarySongRow, { covers: withCovers }: { covers: boolean }) {
     const entry = library.toQueueEntry(librarySong);
     const oldUrls = [...new Set([library.queueUrlFor(previous), `library:${previous.id}`, previous.source_url].filter(Boolean))];
     // Queues already in memory, plus (below) any in the DB that hold the song.
-    const lobbyIds = new Set(playlist.getAllPlaylists().map(l => l.id).filter(id => hasQueue(id)));
+    const playlistIds = new Set(playlist.getAllPlaylists().map(l => l.id).filter(id => hasQueue(id)));
     if (db.isAvailable()) {
       // Playlists not loaded in memory yet still have their queue in the DB.
       const ytId = previous.youtube_id || null;
-      const r = await db.query(
+      const r = await db.query<{ lobby_id: string }>(
         `SELECT DISTINCT lobby_id FROM queue_songs WHERE url = ANY($1::text[])
            OR ($2::text IS NOT NULL AND url LIKE '%' || $2 || '%')`,
         [oldUrls, ytId]
-      ).catch(() => ({ rows: [] }));
-      for (const row of r.rows) lobbyIds.add(row.lobby_id);
+      ).catch(() => ({ rows: [] as Array<{ lobby_id: string }> }));
+      for (const row of r.rows) playlistIds.add(row.lobby_id);
     }
     let rewritten = 0;
-    for (const lobbyId of lobbyIds) {
+    for (const playlistId of playlistIds) {
       try {
-        const queue = await getQueueAsync(lobbyId);
+        const queue = await getQueueAsync(playlistId);
         const hits = queue.getSongs().filter(s => library.isQueued([s], previous));
         if (!hits.length) continue;
         for (const s of hits) {
@@ -248,9 +264,9 @@ function createReactions({
           if (withCovers && entry.thumbnail) covers.cacheCover(s.id, entry.thumbnail).catch(() => {});
           rewritten++;
         }
-        io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+        io.to(playlistId).emit('queue:update', { lobbyId: playlistId, songs: queue.getSongs() });
       } catch (err) {
-        console.error(`[library] could not rewrite queue of ${lobbyId} after a change:`, err.message);
+        console.error(`[library] could not rewrite queue of ${playlistId} after a change:`, (err as Error).message);
       }
     }
     return { entry, oldUrls, rewritten };
@@ -258,8 +274,8 @@ function createReactions({
 
   // A song was uploaded (or an upload hit an existing song that fulfils
   // requests): refresh library views, mark matching queue entries playable, and
-  // add the song to the queue of every lobby that requested it.
-  async function handleLibrarySongAdded(librarySong, fulfilled = []) {
+  // add the song to the queue of every playlist that requested it.
+  async function handleLibrarySongAdded(librarySong: LibrarySongRow, fulfilled: SongRequestView[] = []): Promise<void> {
     const pub = library.toPublic(librarySong);
     io.to(APP_ROOM).emit('library:updated', { song: pub });
     // Waiting download jobs for these requests have nothing left to do.
@@ -271,28 +287,28 @@ function createReactions({
     if (librarySong.source_url) urls.add(librarySong.source_url);
     for (const url of urls) io.to(APP_ROOM).emit('download:status', { url, status: 'ready', percent: 100 });
 
-    const byLobby = new Map();
+    const byPlaylist = new Map();
     for (const r of fulfilled) {
-      if (r.lobby_id && !byLobby.has(r.lobby_id)) byLobby.set(r.lobby_id, r);
+      if (r.lobby_id && !byPlaylist.has(r.lobby_id)) byPlaylist.set(r.lobby_id, r);
     }
-    for (const [lobbyId, request] of byLobby) {
+    for (const [playlistId, request] of byPlaylist) {
       try {
-        const lobbyData = await playlist.getPlaylistAsync(lobbyId);
-        if (!lobbyData) continue;
-        const queue = await getQueueAsync(lobbyId);
+        const data = await playlist.getPlaylistAsync(playlistId);
+        if (!data) continue;
+        const queue = await getQueueAsync(playlistId);
         const alreadyQueued = queue.getSongs().some(s => urls.has(s.url));
         if (!alreadyQueued) {
-          await addLibrarySongToLobby(lobbyId, librarySong, request.requested_by);
-          io.to(lobbyId).emit('queue:update', { lobbyId, songs: queue.getSongs() });
+          await addLibrarySongToPlaylist(playlistId, librarySong, request.requested_by);
+          io.to(playlistId).emit('queue:update', { lobbyId: playlistId, songs: queue.getSongs() });
         }
-        io.to(lobbyId).emit('request:fulfilled', {
+        io.to(playlistId).emit('request:fulfilled', {
           request,
           song: pub,
           addedToQueue: !alreadyQueued,
           message: `"${pub.title}" is now in the library${alreadyQueued ? '' : ' and was added to the queue'} (requested by ${request.requested_by})`
         });
       } catch (err) {
-        console.error(`[library] could not add fulfilled request to lobby ${lobbyId}:`, err.message);
+        console.error(`[library] could not add fulfilled request to lobby ${playlistId}:`, (err as Error).message);
       }
     }
   }
@@ -304,8 +320,8 @@ function createReactions({
     queueRequestJob,
     notifyPlaylistsChanged,
     accountStatusChanged,
-    destroyLobby,
-    addLibrarySongToLobby,
+    destroyPlaylist,
+    addLibrarySongToPlaylist,
     emitUnavailableSongs,
     handleLibrarySongAdded,
     handleLibrarySongReplaced,
@@ -314,4 +330,3 @@ function createReactions({
   };
 }
 
-module.exports = { createReactions };

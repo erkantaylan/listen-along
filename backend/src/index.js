@@ -8,6 +8,12 @@
 // router that serves those paths. Nothing counts requests that only pass by.
 require('./shared/logger.ts'); // timestamp + level on all console output — must be first
 require('dotenv').config();
+// The OpenTelemetry preload (telemetry.js, --require) patches a package when
+// it is require()d, not when an ES module imports it: every module that uses
+// Express is an ES module now, so require it here once, before any of them,
+// or route names would be missing from the spans. Goes with the switch to
+// --import (the final step of the TypeScript migration).
+require('express');
 
 const path = require('path');
 const crypto = require('crypto');
@@ -36,17 +42,17 @@ const { createListenAlong, createSourceResolver } = require('./features/listen-a
 const { createActivityFeed } = require('./features/activity/index.ts');
 const { createStationRouter } = require('./features/radio/index.ts');
 const { createArtistRouter } = require('./features/artists/index.ts');
-const { createInfoRouter, createPageRouter } = require('./appRoutes');
-const { createProfileRouter } = require('./profileRoutes');
-const { createAdminRouter } = require('./adminRoutes');
+const {
+  createInfoRouter, createPageRouter, createProfileRouter, createAdminRouter,
+  APP_ROOM, userRoom, sessionRoom, createSocketServer, attachSocketHandlers, createReactions, createHttpApp,
+} = require('./app/index.ts');
 const { createAuthRoutes } = require('./auth/index.ts');
 
 
 
-const { APP_ROOM, userRoom, sessionRoom, createSocketServer, attachSocketHandlers } = require('./socketServer');
+
 const { createMemoryRateLimit } = require('./shared/memoryRateLimit.ts');
-const { createReactions } = require('./reactions');
-const { createHttpApp } = require('./httpApp');
+
 
 // The web's "pick the video" dialog (features/picker): lookups for it, and what they
 // said about each video, for the title of a chosen one.
@@ -162,7 +168,7 @@ const activityFeed = createActivityFeed({
 // away, or an account is blocked. Areas get these functions, never each other.
 const {
   emitJob, addJobSongsToPlaylist, workersChanged, queueRequestJob, notifyPlaylistsChanged, accountStatusChanged,
-  destroyLobby, addLibrarySongToLobby, emitUnavailableSongs, handleLibrarySongReplaced, handleLibrarySongDetailsChanged,
+  destroyPlaylist, addLibrarySongToPlaylist, emitUnavailableSongs, handleLibrarySongReplaced, handleLibrarySongDetailsChanged,
   handleLibrarySongAdded,
 } = createReactions({
   io, db, playlist, getQueueAsync, hasQueue, deleteQueue, library, covers, downloadJobs, playlistPins, userAuth, sessionStore,
@@ -265,7 +271,7 @@ app.use(createJobRouter({
   },
   spotifyTrack: (url) => spotify.getTrack(url),
   addSongToPlaylist: async (playlistId, song, addedBy, { allowDuplicates = false } = {}) => {
-    const entry = await addLibrarySongToLobby(playlistId, song, addedBy, { skipIfQueued: !allowDuplicates });
+    const entry = await addLibrarySongToPlaylist(playlistId, song, addedBy, { skipIfQueued: !allowDuplicates });
     if (!entry) return false;
     const queue = await getQueueAsync(playlistId);
     io.to(playlistId).emit('queue:update', { lobbyId: playlistId, songs: queue.getSongs() });
@@ -292,7 +298,7 @@ app.use(createSilenceRouter({ db, resolveQueueUrl: (url) => library.resolveQueue
 // Playlists over HTTP, songs included (playlistRoutes.js).
 const { router: playlistRouter, ownerNames } = createPlaylistRoutes({
   io, db, playlist, getQueueAsync, library, playlistPins, userAuth, adminAuth, getSocial: () => social, userRoom,
-  notifyPlaylistsChanged, destroyPlaylist: destroyLobby, addLibrarySongToPlaylist: addLibrarySongToLobby,
+  notifyPlaylistsChanged, destroyPlaylist, addLibrarySongToPlaylist,
 });
 app.use(playlistRouter);
 
@@ -325,7 +331,7 @@ app.use(createProfileRouter({ db, userAuth, getSocial: () => social }));
 app.use(['/api/dashboard', '/api/chat'], apiLimiter);
 app.use(createAdminRouter({
   db, playlist, getQueueAsync, library, settings, oidc: OIDC, apiLimiter, adminAuth,
-  accountStatusChanged, destroyLobby, getSocial: () => social,
+  accountStatusChanged, destroyPlaylist, getSocial: () => social,
 }));
 
 // Playlist membership and queue socket handlers (playlistSockets.js,
@@ -334,7 +340,7 @@ const playlistSockets = createPlaylistSockets({
   io, playlist, getQueueAsync, adminAuth, getSocial: () => social, ownerNames, notifyPlaylistsChanged, emitUnavailableSongs,
 });
 const queueSockets = createQueueSockets({
-  io, db, getQueueAsync, resolver, songRequests, addLibrarySongToPlaylist: addLibrarySongToLobby, queueRequestJob, APP_ROOM,
+  io, db, getQueueAsync, resolver, songRequests, addLibrarySongToPlaylist, queueRequestJob, APP_ROOM,
 });
 
 // The handshake, the central-login re-check of open sockets, and every

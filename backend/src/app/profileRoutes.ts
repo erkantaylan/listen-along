@@ -8,16 +8,19 @@
  * there is no users table: 401.
  */
 
-const express = require('express');
+import express from 'express';
+import type { Router } from 'express';
+import type { UserAuth } from '../auth/index.ts';
+import type { Db, UserRow } from '../shared/types.ts';
 
-/**
- * @param {object} deps
- * @param {{ isAvailable: () => boolean, query: Function }} deps.db
- * @param {{ userIdFor: (req: object) => Promise<string|null>, invalidate: (userId: string) => void }} deps.userAuth
- * @param {() => ({ profileChanged: (userId: string) => void }|null)} deps.getSocial - features/social, once start() made it
- * @returns {import('express').Router}
- */
-function createProfileRouter({ db, userAuth, getSocial }) {
+export interface ProfileRouterDeps {
+  db: Db;
+  userAuth: Pick<UserAuth, 'userIdFor' | 'invalidate'>;
+  /** features/social, once start() made it */
+  getSocial: () => { profileChanged(userId: string): unknown } | null;
+}
+
+export function createProfileRouter({ db, userAuth, getSocial }: ProfileRouterDeps): Router {
   const router = express.Router();
 
   // Get current user's profile
@@ -26,14 +29,14 @@ function createProfileRouter({ db, userAuth, getSocial }) {
     try {
       userId = await userAuth.userIdFor(req);
     } catch (err) {
-      console.error('Profile account lookup error:', err.message);
+      console.error('Profile account lookup error:', (err as Error).message);
       return res.status(500).json({ error: 'Could not check your login' });
     }
     if (!userId || !db.isAvailable()) {
       return res.status(401).json({ error: 'Authentication required' });
     }
     try {
-      const userResult = await db.query(
+      const userResult = await db.query<Pick<UserRow, 'id' | 'display_name' | 'username' | 'emoji' | 'name' | 'email' | 'avatar_url' | 'provider'>>(
         'SELECT id, display_name, username, emoji, name, email, avatar_url, provider FROM users WHERE id = $1',
         [userId]
       );
@@ -49,7 +52,7 @@ function createProfileRouter({ db, userAuth, getSocial }) {
         avatarUrl: user.avatar_url
       });
     } catch (err) {
-      console.error('Profile fetch error:', err.message);
+      console.error('Profile fetch error:', (err as Error).message);
       res.status(500).json({ error: 'Failed to fetch profile' });
     }
   });
@@ -60,13 +63,13 @@ function createProfileRouter({ db, userAuth, getSocial }) {
     try {
       userId = await userAuth.userIdFor(req);
     } catch (err) {
-      console.error('Profile account lookup error:', err.message);
+      console.error('Profile account lookup error:', (err as Error).message);
       return res.status(500).json({ error: 'Could not check your login' });
     }
     if (!userId || !db.isAvailable()) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    const { displayName, emoji } = req.body;
+    const { displayName, emoji }: { displayName?: unknown; emoji?: unknown } = req.body;
     if (!displayName || typeof displayName !== 'string' || displayName.trim().length === 0) {
       return res.status(400).json({ error: 'displayName is required' });
     }
@@ -83,12 +86,10 @@ function createProfileRouter({ db, userAuth, getSocial }) {
       if (social) social.profileChanged(String(userId));
       res.json({ success: true });
     } catch (err) {
-      console.error('Profile update error:', err.message);
+      console.error('Profile update error:', (err as Error).message);
       res.status(500).json({ error: 'Failed to update profile' });
     }
   });
 
   return router;
 }
-
-module.exports = { createProfileRouter };

@@ -1,6 +1,6 @@
 /**
  * The dashboard's APIs that are not about the library, jobs or tokens (those
- * are in libraryRoutes.js / jobRoutes.js). Every route is behind
+ * are in core/library and core/jobs). Every route is behind
  * adminAuth.requireAdmin (the la_admin cookie, not a user account):
  *
  *   GET    /api/auth/users                     users (older list)
@@ -14,30 +14,48 @@
  *   DELETE /api/chat/messages/:id              a global chat message
  */
 
-const express = require('express');
-const fs = require('fs');
-const path = require('path');
-const { access } = require('./core/playlists/index.ts');
+import express from 'express';
+import type { RequestHandler, Router } from 'express';
+import fs from 'node:fs';
+import path from 'node:path';
+import { access } from '../core/playlists/index.ts';
+import type { playlist as playlistModule } from '../core/playlists/index.ts';
+import type { Queue } from '../core/queue/index.ts';
+import type { Settings } from '../shared/settings.ts';
+import type { Db } from '../shared/types.ts';
 
 // What the status route accepts: exactly what the dashboard's actions write.
 const ADMIN_SET_STATUSES = ['approved', 'denied', 'rejected'];
 
-/**
- * @param {object} deps
- * @param {{ isAvailable: () => boolean, query: Function }} deps.db
- * @param {{ lobbies: Map<string, object>, getLobby: Function, getLobbyUsers: Function }} deps.lobby - lobby.js
- * @param {(lobbyId: string) => Promise<object>} deps.getQueueAsync - queue.js
- * @param {{ SONGS_PATH: string, LIBRARY_DIR: string }} deps.library
- * @param {{ read: Function, set: Function }} deps.settings - shared/settings.ts createSettings()
- * @param {{ enabled: boolean }} deps.oidc - the central-login config (oidcConfig.js)
- * @param {import('express').RequestHandler} deps.apiLimiter
- * @param {{ requireAdmin: import('express').RequestHandler }} deps.adminAuth
- * @param {(userId: string, status: string) => Promise<void>} deps.accountStatusChanged
- * @param {(lobbyId: string, opts?: { reason?: string }) => Promise<void>} deps.destroyLobby
- * @param {() => ({ deleteMessage: (id: string) => Promise<boolean> }|null)} deps.getSocial
- * @returns {import('express').Router}
- */
-function createAdminRouter({ db, playlist, getQueueAsync, library, settings, oidc, apiLimiter, adminAuth, accountStatusChanged, destroyLobby, getSocial }) {
+export interface AdminRouterDeps {
+  db: Db;
+  /** core/playlists playlist.ts */
+  playlist: Pick<typeof playlistModule, 'playlists' | 'getPlaylist' | 'getPlaylistUsers'>;
+  /** core/queue */
+  getQueueAsync: (playlistId: string) => Promise<Queue>;
+  library: { SONGS_PATH: string; LIBRARY_DIR: string };
+  /** shared/settings.ts createSettings() */
+  settings: Pick<Settings, 'read' | 'set'>;
+  /** the central-login config (auth/oidcConfig.ts) */
+  oidc: { enabled: boolean };
+  apiLimiter: RequestHandler;
+  adminAuth: { requireAdmin: RequestHandler };
+  accountStatusChanged: (userId: string, status: string) => Promise<void>;
+  destroyPlaylist: (playlistId: string, opts?: { reason?: string }) => Promise<void>;
+  getSocial: () => { deleteMessage(id: string): Promise<boolean> } | null;
+}
+
+/** One public playlist on the dashboard's stats. */
+interface StatsPlaylist {
+  id: string;
+  name: string | null;
+  userCount: number;
+  queueLength: number;
+  createdAt: number;
+  lastActivity: number;
+}
+
+export function createAdminRouter({ db, playlist, getQueueAsync, library, settings, oidc, apiLimiter, adminAuth, accountStatusChanged, destroyPlaylist, getSocial }: AdminRouterDeps): Router {
   const router = express.Router();
 
   // Admin: list pending users (dashboard auth)
@@ -47,25 +65,27 @@ function createAdminRouter({ db, playlist, getQueueAsync, library, settings, oid
       const result = await db.query('SELECT id, provider, email, name, avatar_url, status, created_at FROM users ORDER BY created_at DESC');
       res.json({ users: result.rows });
     } catch (err) {
-      console.error('List users error:', err.message);
+      console.error('List users error:', (err as Error).message);
       res.status(500).json({ error: 'Failed to list users' });
     }
   });
 
   // Admin: approve / block a user (dashboard auth). The statuses an admin
   // sets anywhere: approved, or blocked as denied (here) or rejected (the
-  // dashboard's reject below); both blocked ones mean the same (userAuth.js).
+  // dashboard's reject below); both blocked ones mean the same (auth/userAuth.ts).
   router.post('/api/auth/users/:userId/status', adminAuth.requireAdmin, express.json(), async (req, res) => {
-    const { status } = req.body || {};
-    if (!ADMIN_SET_STATUSES.includes(status)) {
+    const { status: sent }: { status?: unknown } = req.body || {};
+    if (!ADMIN_SET_STATUSES.includes(sent as string)) {
       return res.status(400).json({ error: 'Status must be approved, denied or rejected' });
     }
+    // One of ADMIN_SET_STATUSES.
+    const status = sent as string;
     try {
       await db.query('UPDATE users SET status = $1, updated_at = $2 WHERE id = $3', [status, Date.now(), req.params.userId]);
       await accountStatusChanged(req.params.userId, status);
       res.json({ success: true });
     } catch (err) {
-      console.error('Update user status error:', err.message);
+      console.error('Update user status error:', (err as Error).message);
       res.status(500).json({ error: 'Failed to update user status' });
     }
   });
@@ -81,7 +101,7 @@ function createAdminRouter({ db, playlist, getQueueAsync, library, settings, oid
       const songsDir = library.SONGS_PATH;
       if (fs.existsSync(songsDir)) {
         const knownPathsResult = db.isAvailable()
-          ? await db.query('SELECT file_path FROM library_songs')
+          ? await db.query<{ file_path: string }>('SELECT file_path FROM library_songs')
           : { rows: [] };
         const knownPaths = new Set(knownPathsResult.rows.map(r => r.file_path));
 
@@ -114,24 +134,24 @@ function createAdminRouter({ db, playlist, getQueueAsync, library, settings, oid
       uptime: process.uptime(),
       memoryUsage: process.memoryUsage(),
       diskUsage: { bytes: diskUsageBytes, fileCount: diskFileCount, unregisteredFiles: unregisteredFileCount, unregisteredBytes },
-      lobbies: []
+      lobbies: [] as StatsPlaylist[]
     };
 
-    for (const [lobbyId, lobbyData] of playlist.playlists) {
-      const users = playlist.getPlaylistUsers(lobbyId);
+    for (const [playlistId, data] of playlist.playlists) {
+      const users = playlist.getPlaylistUsers(playlistId);
       const userCount = users ? users.length : 0;
       stats.totalUsers += userCount;
-      if (access.isPrivate(lobbyData)) { stats.privateLobbies++; continue; }
+      if (access.isPrivate(data)) { stats.privateLobbies++; continue; }
 
-      const queue = await getQueueAsync(lobbyId);
+      const queue = await getQueueAsync(playlistId);
 
       stats.lobbies.push({
-        id: lobbyId,
-        name: lobbyData.name || null,
+        id: playlistId,
+        name: data.name || null,
         userCount,
         queueLength: queue.getSongs().length,
-        createdAt: lobbyData.createdAt,
-        lastActivity: lobbyData.lastActivity
+        createdAt: data.createdAt,
+        lastActivity: data.lastActivity
       });
     }
 
@@ -139,7 +159,7 @@ function createAdminRouter({ db, playlist, getQueueAsync, library, settings, oid
   });
 
   // Song cache / cookie management was removed with server-side downloading.
-  // Library management (delete songs, tokens, requests): libraryRoutes.js, /api/admin/*.
+  // Library management (delete songs, tokens, requests): core/library, /api/admin/*.
 
   // List all registered users (dashboard only)
   router.get('/api/dashboard/users', adminAuth.requireAdmin, async (req, res) => {
@@ -153,7 +173,7 @@ function createAdminRouter({ db, playlist, getQueueAsync, library, settings, oid
       );
       res.json({ users: result.rows });
     } catch (err) {
-      console.error('List users error:', err.message);
+      console.error('List users error:', (err as Error).message);
       res.status(500).json({ error: 'Failed to fetch users' });
     }
   });
@@ -167,7 +187,7 @@ function createAdminRouter({ db, playlist, getQueueAsync, library, settings, oid
       const r = await settings.read('registrations_open');
       res.json({ registrations_open: r.value !== false, source: r.source, central_login: oidc.enabled });
     } catch (err) {
-      console.error('Read settings error:', err.message);
+      console.error('Read settings error:', (err as Error).message);
       res.status(500).json({ error: 'Failed to read settings' });
     }
   });
@@ -179,7 +199,7 @@ function createAdminRouter({ db, playlist, getQueueAsync, library, settings, oid
       console.log(`[admin] registrations ${value ? 'opened' : 'closed'}`);
       res.json({ registrations_open: value, source: 'saved', central_login: oidc.enabled });
     } catch (err) {
-      console.error('Update settings error:', err.message);
+      console.error('Update settings error:', (err as Error).message);
       res.status(500).json({ error: 'Failed to update settings' });
     }
   });
@@ -197,7 +217,7 @@ function createAdminRouter({ db, playlist, getQueueAsync, library, settings, oid
       await accountStatusChanged(req.params.id, 'approved');
       res.json({ success: true, user: result.rows[0] });
     } catch (err) {
-      console.error('Approve user error:', err.message);
+      console.error('Approve user error:', (err as Error).message);
       res.status(500).json({ error: 'Failed to approve user' });
     }
   });
@@ -215,28 +235,28 @@ function createAdminRouter({ db, playlist, getQueueAsync, library, settings, oid
       await accountStatusChanged(req.params.id, 'rejected');
       res.json({ success: true, user: result.rows[0] });
     } catch (err) {
-      console.error('Reject user error:', err.message);
+      console.error('Reject user error:', (err as Error).message);
       res.status(500).json({ error: 'Failed to reject user' });
     }
   });
 
-  // Delete a lobby (dashboard only)
+  // Delete a playlist (dashboard only)
   router.delete('/api/dashboard/lobbies/:id', adminAuth.requireAdmin, async (req, res) => {
-    const lobbyId = req.params.id;
-    const lobbyData = playlist.getPlaylist(lobbyId);
+    const playlistId = req.params.id;
+    const data = playlist.getPlaylist(playlistId);
 
-    if (!access.canAdminDelete(lobbyData)) {
+    if (!access.canAdminDelete(data)) {
       return res.status(404).json({ error: 'Playlist not found' });
     }
 
     try {
-      await destroyLobby(lobbyId, { reason: 'This playlist has been deleted by an administrator.' });
+      await destroyPlaylist(playlistId, { reason: 'This playlist has been deleted by an administrator.' });
     } catch (err) {
-      console.error('Delete playlist error:', err.message);
+      console.error('Delete playlist error:', (err as Error).message);
       return res.status(500).json({ error: 'Failed to delete playlist' });
     }
 
-    console.log(`Lobby ${lobbyId} deleted via dashboard`);
+    console.log(`Lobby ${playlistId} deleted via dashboard`);
     res.json({ success: true });
   });
 
@@ -245,11 +265,11 @@ function createAdminRouter({ db, playlist, getQueueAsync, library, settings, oid
   router.delete('/api/chat/messages/:id', adminAuth.requireAdmin, async (req, res) => {
     const social = getSocial();
     if (!social) return res.status(503).json({ error: 'Chat is not ready' });
-    let removed;
+    let removed: boolean;
     try {
       removed = await social.deleteMessage(req.params.id);
     } catch (err) {
-      console.error('Delete chat message error:', err.message);
+      console.error('Delete chat message error:', (err as Error).message);
       return res.status(500).json({ error: 'Failed to delete message' });
     }
     if (!removed) return res.status(404).json({ error: 'Message not found' });
@@ -259,4 +279,3 @@ function createAdminRouter({ db, playlist, getQueueAsync, library, settings, oid
   return router;
 }
 
-module.exports = { createAdminRouter };

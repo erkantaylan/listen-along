@@ -3,7 +3,7 @@
  * central-login re-check of open sockets, and the connection handler, which
  * builds one connection's account helpers and hands them to each area's
  * register(socket, ctx): features/social and features/listen-along (attach), then
- * playlistSockets.js and queueSockets.js, then the disconnect handler. The
+ * core/playlists' and core/queue's socket handlers, then the disconnect handler. The
  * order of registration is the order of the handlers, keep it.
  *
  * Rooms: APP_ROOM holds every socket of an approved account (library /
@@ -12,21 +12,24 @@
  * socket of one central-login session.
  */
 
-const { Server } = require('socket.io');
-const { isBlocked } = require('./auth/index.ts');
+import { Server } from 'socket.io';
+import type { Server as HttpServer, IncomingHttpHeaders } from 'node:http';
+import type { CorsOptions } from 'cors';
+import { isBlocked } from '../auth/index.ts';
+import type { UserAuth } from '../auth/index.ts';
+import type { PlaylistSockets } from '../core/playlists/index.ts';
+import type { QueueSockets } from '../core/queue/index.ts';
+import type { AppSocket, Io } from '../shared/types.ts';
 
-const APP_ROOM = 'app';
-const userRoom = (id) => `user:${id}`;
+export const APP_ROOM = 'app';
+export const userRoom = (id: string): string => `user:${id}`;
 // Central login: every socket of one session (keyed by the session id's hash).
-function sessionRoom(idHash) { return `session:${idHash}`; }
+export function sessionRoom(idHash: string): string { return `session:${idHash}`; }
 
 /**
- * @param {object} deps
- * @param {import('http').Server} deps.server
- * @param {object} deps.cors - the same CORS options as the HTTP API
- * @returns {import('socket.io').Server}
+ * @param deps.cors the same CORS options as the HTTP API
  */
-function createSocketServer({ server, cors }) {
+export function createSocketServer({ server, cors }: { server: HttpServer; cors: CorsOptions }): Io {
   return new Server(server, {
     cors
   });
@@ -36,12 +39,12 @@ function createSocketServer({ server, cors }) {
 // origins that are not this server (Host / X-Forwarded-Host) or the
 // configured FRONTEND_URL / BASE_URL, so another site cannot ride the login
 // cookie. Clients without an Origin header (CLI, tests) still need the cookie.
-function socketOriginAllowed(headers, env = process.env) {
+export function socketOriginAllowed(headers: IncomingHttpHeaders, env: NodeJS.ProcessEnv = process.env): boolean {
   const origin = headers.origin;
   if (!origin) return true;
-  let host;
+  let host: string;
   try { host = new URL(origin).host.toLowerCase(); } catch { return false; }
-  const allowed = new Set();
+  const allowed = new Set<string>();
   for (const h of [headers.host, headers['x-forwarded-host']]) {
     if (typeof h === 'string') for (const part of h.split(',')) allowed.add(part.trim().toLowerCase());
   }
@@ -52,20 +55,26 @@ function socketOriginAllowed(headers, env = process.env) {
   return allowed.has(host);
 }
 
-/**
- * @param {object} deps
- * @param {import('socket.io').Server} deps.io
- * @param {NodeJS.ProcessEnv} deps.env - FRONTEND_URL / BASE_URL (allowed origins)
- * @param {{ isAvailable: () => boolean }} deps.db
- * @param {{ resolve: Function, getAccount: Function }} deps.userAuth
- * @param {{ enabled: boolean, recheckMs: number }} deps.oidc
- * @param {{ check: Function }|null} deps.oidcSessions - central login only
- * @param {() => ({ attach: Function }|null)} deps.getSocial - made in start()
- * @param {() => ({ attach: Function }|null)} deps.getListenAlong - made in start()
- * @param {{ register: Function }} deps.playlistSockets - playlistSockets.createPlaylistSockets()
- * @param {{ register: Function }} deps.queueSockets - queueSockets.createQueueSockets()
- */
-function attachSocketHandlers({ io, env, db, userAuth, oidc: OIDC, oidcSessions, getSocial, getListenAlong, playlistSockets, queueSockets }) {
+export interface SocketHandlersDeps {
+  io: Io;
+  /** FRONTEND_URL / BASE_URL (allowed origins) */
+  env: NodeJS.ProcessEnv;
+  db: { isAvailable(): boolean };
+  userAuth: Pick<UserAuth, 'resolve' | 'getAccount'>;
+  oidc: { enabled: boolean; recheckMs?: number };
+  /** central login only */
+  oidcSessions: { check(idHash: string): Promise<boolean> } | null;
+  /** made in start() */
+  getSocial: () => { attach(socket: AppSocket): void } | null;
+  /** made in start() */
+  getListenAlong: () => { attach(socket: AppSocket): void } | null;
+  /** core/playlists createPlaylistSockets() */
+  playlistSockets: PlaylistSockets;
+  /** core/queue createQueueSockets() */
+  queueSockets: QueueSockets;
+}
+
+export function attachSocketHandlers({ io, env, db, userAuth, oidc: OIDC, oidcSessions, getSocial, getListenAlong, playlistSockets, queueSockets }: SocketHandlersDeps): void {
   // Socket.IO handshake: only a logged-in account that is not denied / rejected may
   // connect. Pending accounts connect for the global chat and people panel;
   // every playlist/queue event checks for an approved account itself.
@@ -91,7 +100,7 @@ function attachSocketHandlers({ io, env, db, userAuth, oidc: OIDC, oidcSessions,
       if (account.status === 'approved') socket.join(APP_ROOM);
       next();
     }).catch((err) => {
-      console.error('Socket account lookup failed:', err.message);
+      console.error('Socket account lookup failed:', (err as Error).message);
       next(new Error('Could not check your account, try again'));
     });
   });
@@ -100,12 +109,13 @@ function attachSocketHandlers({ io, env, db, userAuth, oidc: OIDC, oidcSessions,
   // a timer too (oidcSessions.check refreshes only when due). A session that
   // ends takes its sockets with it (oidcSessions' onEnded, index.js).
   if (OIDC.enabled) {
-    const SOCKET_CHECK_MS = Math.max(5_000, Math.min(60_000, OIDC.recheckMs));
+    // Central login has its re-check interval and its sessions.
+    const SOCKET_CHECK_MS = Math.max(5_000, Math.min(60_000, OIDC.recheckMs!));
     setInterval(() => {
-      const ids = new Set();
+      const ids = new Set<string>();
       for (const s of io.sockets.sockets.values()) if (s.data.sessionId) ids.add(s.data.sessionId);
       for (const id of ids) {
-        oidcSessions.check(id).then((live) => {
+        oidcSessions!.check(id).then((live) => {
           if (!live) io.in(sessionRoom(id)).disconnectSockets(true);
         }).catch((err) => console.error('[oidc] socket session check failed:', err.message));
       }
@@ -119,7 +129,8 @@ function attachSocketHandlers({ io, env, db, userAuth, oidc: OIDC, oidcSessions,
     // Who this socket is: the users.id from the handshake's login cookie
     // (the central-login session, or the dev sign-in; set by io.use above; never
     // a client-supplied id).
-    const userId = socket.data.userId;
+    // Set by the handshake above: only an account connects.
+    const userId = socket.data.userId!;
 
     // Global chat + people panel (presence, now playing): see features/social.
     const social = getSocial();
@@ -131,7 +142,7 @@ function attachSocketHandlers({ io, env, db, userAuth, oidc: OIDC, oidcSessions,
     // The account as it is now (status changes apply without reconnecting;
     // userAuth caches lookups for a few seconds). null on error: fail closed.
     const currentAccount = () => userAuth.getAccount(userId).catch((err) => {
-      console.error('Socket account lookup failed:', err.message);
+      console.error('Socket account lookup failed:', (err as Error).message);
       return null;
     });
     // Playlists, queue, listening: approved accounts only.
@@ -143,14 +154,14 @@ function attachSocketHandlers({ io, env, db, userAuth, oidc: OIDC, oidcSessions,
     // The name shown for this socket in playlists and on queued songs: the
     // account's display name. Only without a database (no users table) is the
     // client's name used, as features/social does.
-    const cleanName = (v) => (typeof v === 'string' ? v.trim().slice(0, 30) : '');
-    const cleanEmoji = (v) => (typeof v === 'string' && v ? v.slice(0, 10) : null);
-    const displayName = async (clientName) => {
+    const cleanName = (v: unknown) => (typeof v === 'string' ? v.trim().slice(0, 30) : '');
+    const cleanEmoji = (v: unknown) => (typeof v === 'string' && v ? v.slice(0, 10) : null);
+    const displayName = async (clientName: unknown) => {
       const account = await currentAccount();
       if (db.isAvailable()) return (account && account.name ? cleanName(account.name) : '') || 'Anonymous';
       return cleanName(clientName) || 'Anonymous';
     };
-    const displayEmoji = async (clientEmoji) => {
+    const displayEmoji = async (clientEmoji: unknown) => {
       if (!db.isAvailable()) return cleanEmoji(clientEmoji);
       const account = await currentAccount();
       return account ? cleanEmoji(account.emoji) : null;
@@ -160,10 +171,10 @@ function attachSocketHandlers({ io, env, db, userAuth, oidc: OIDC, oidcSessions,
     };
 
     // lobby:create / join / view / unview / leave / pin / rename, user:update,
-    // listener:now-playing (playlistSockets.js). The playlist this socket is in.
+    // listener:now-playing (core/playlists). The playlist this socket is in.
     const playlist = playlistSockets.register(socket, { userId, isApproved, displayName, displayEmoji, refusePending });
 
-    // queue:add / remove / restore / reorder / clear / get (queueSockets.js).
+    // queue:add / remove / restore / reorder / clear / get (core/queue).
     queueSockets.register(socket, { userId, visiblePlaylist: playlist.visiblePlaylist, editablePlaylist: playlist.editablePlaylist, displayName });
 
     socket.on('disconnect', (reason) => {
@@ -173,4 +184,3 @@ function attachSocketHandlers({ io, env, db, userAuth, oidc: OIDC, oidcSessions,
   });
 }
 
-module.exports = { APP_ROOM, userRoom, sessionRoom, createSocketServer, socketOriginAllowed, attachSocketHandlers };

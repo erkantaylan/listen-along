@@ -17,14 +17,15 @@
  * Both mounts are `index: false` so "/" goes through the auth guard; .js, .css,
  * .map and .ts are `no-cache` (revalidate every load, deploys take effect at once).
  */
-const path = require('path');
-const express = require('express');
+import path from 'node:path';
+import express from 'express';
+import type { RequestHandler, Response } from 'express';
 
 const BUILD_CONFIG = new Set(['/package.json', '/tsconfig.json']);
 
 /** True for a request path that must not be served from frontend/. */
-function isBuildConfig(urlPath) {
-  let p;
+export function isBuildConfig(urlPath: string): boolean {
+  let p: string;
   try { p = decodeURIComponent(urlPath); } catch { return false; }
   // The same normalisation serve-static applies before joining with the root;
   // lower-cased for case-insensitive file systems.
@@ -32,14 +33,14 @@ function isBuildConfig(urlPath) {
   return BUILD_CONFIG.has(p) || /^\/tsconfig\.[^/]*\.json$/.test(p) || p.endsWith('.tsbuildinfo') || p === '/dist' || p.startsWith('/dist/');
 }
 
-function setHeaders(res, filePath) {
+function setHeaders(res: Response, filePath: string): void {
   if (/\.(js|css|map|ts)$/.test(filePath)) res.setHeader('Cache-Control', 'no-cache');
   // A source for dev tools; the default type for .ts is video/mp2t.
   if (filePath.endsWith('.ts')) res.setHeader('Content-Type', 'text/plain; charset=utf-8');
 }
 
 /** Middleware list for `app.use(...)`: deny build config, then dist/, then frontend/. */
-function frontendStatic(frontendPath) {
+export function frontendStatic(frontendPath: string): RequestHandler[] {
   const distPath = path.join(frontendPath, 'dist');
   return [
     (req, res, next) => (isBuildConfig(req.path) ? res.sendStatus(404) : next()),
@@ -47,5 +48,3 @@ function frontendStatic(frontendPath) {
     express.static(frontendPath, { index: false, setHeaders }),
   ];
 }
-
-module.exports = { frontendStatic, isBuildConfig };

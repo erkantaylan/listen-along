@@ -2,14 +2,16 @@
  * The Express app and its HTTP server, with everything that runs before any
  * route, in this order: the client IP (shared/clientIp.ts), CORS, the JSON body
  * parser, one log line per dynamic request, and the static frontend files
- * (frontendStatic.js). index.js mounts the auth guard and the routes after.
+ * (frontendStatic.ts). index.js mounts the auth guard and the routes after.
  */
 
-const express = require('express');
-const http = require('http');
-const cors = require('cors');
-const clientIpSetup = require('./shared/clientIp.ts');
-const { frontendStatic } = require('./frontendStatic');
+import express from 'express';
+import type { Express, Request } from 'express';
+import http from 'node:http';
+import cors from 'cors';
+import type { CorsOptions } from 'cors';
+import * as clientIpSetup from '../shared/clientIp.ts';
+import { frontendStatic } from './frontendStatic.ts';
 
 // Requests the log skips (static assets).
 const STATIC_ASSET_RE = /\.(?:js|css|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|map)$/i;
@@ -17,21 +19,26 @@ const STATIC_ASSET_RE = /\.(?:js|css|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|map)$
 // Sign-in round trips whose query stays out of the log: the web callback
 // carries a one-time code, the app's start its state, nonce and PKCE
 // challenge, the app's https callback (its fallback page) a code and state
-// (mobileAuth.js). Matched case-insensitively, as Express routes.
+// (auth/mobileAuth.ts). Matched case-insensitively, as Express routes.
 const QUERY_HIDDEN_PATHS = new Set(['/auth/oidc/callback', '/auth/mobile/start', '/auth/mobile/callback']);
-function loggedUrl(req) {
+function loggedUrl(req: Request): string {
   const p = String(req.path || '').toLowerCase().replace(/\/{2,}/g, '/');
   if (!QUERY_HIDDEN_PATHS.has(p)) return req.originalUrl;
   return req.originalUrl.includes('?') ? `${req.path}?…` : req.path;
 }
 
+export interface HttpApp {
+  app: Express;
+  server: http.Server;
+  /** the visitor's IP of any request (an HTTP upgrade too) */
+  clientIpOf: ReturnType<typeof clientIpSetup.install>;
+}
+
 /**
- * @param {object} deps
- * @param {import('cors').CorsOptions} deps.corsOptions - shared with Socket.IO
- * @param {string} deps.frontendPath - the frontend folder (its dist/ is served first)
- * @returns {{ app: import('express').Express, server: import('http').Server, clientIpOf: (req: object) => string }}
+ * @param deps.corsOptions shared with Socket.IO
+ * @param deps.frontendPath the frontend folder (its dist/ is served first)
  */
-function createHttpApp({ corsOptions, frontendPath }) {
+export function createHttpApp({ corsOptions, frontendPath }: { corsOptions: CorsOptions; frontendPath: string }): HttpApp {
   const app = express();
   const server = http.createServer(app);
 
@@ -55,7 +62,7 @@ function createHttpApp({ corsOptions, frontendPath }) {
     const pending = setTimeout(() => {
       console.warn(`[http] PENDING ${req.method} ${loggedUrl(req)} still running after 15s`);
     }, 15000);
-    const finish = (aborted) => {
+    const finish = (aborted: boolean) => {
       if (logged) return;
       logged = true;
       clearTimeout(pending);
@@ -74,10 +81,8 @@ function createHttpApp({ corsOptions, frontendPath }) {
   // Static assets (scripts, styles, icons, locales) are public: they hold no
   // data. `index: false` so "/" goes through the auth guard instead of
   // express.static answering it with index.html. Compiled TypeScript in
-  // <frontend>/dist is served first, at the same URLs (frontendStatic.js).
+  // <frontend>/dist is served first, at the same URLs (frontendStatic.ts).
   app.use(frontendStatic(frontendPath));
 
   return { app, server, clientIpOf };
 }
-
-module.exports = { createHttpApp };
