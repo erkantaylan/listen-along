@@ -12,8 +12,7 @@ const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 const express = require('express');
-const { createCliRelease, createCliRouter, buildBundle, compareVersions, isOutdated, findCliDir } = require('./cliRelease');
-const { createWorkerHub, CLOSE_OUTDATED } = require('./workerHub');
+const { createCliRelease, createCliRouter, buildBundle, compareVersions, isOutdated, findCliDir, createWorkerHub, CLOSE_OUTDATED } = require('./core/jobs/index.ts');
 
 const CLI_DIR = path.join(__dirname, '..', '..', 'cli');
 const cliUpdate = require(path.join(CLI_DIR, 'src', 'update.js'));

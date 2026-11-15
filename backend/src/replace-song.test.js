@@ -16,8 +16,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { io: ioClient } = require('socket.io-client');
 const { cookieFor, adminCookie, startServer, requester } = require('./testServer');
-const { planAssignments } = require('./workerHub');
-const { durationDiffers } = require('./jobRoutes');
+const { planAssignments, durationDiffers } = require('./core/jobs/index.ts');
 
 let PostgreSqlContainer;
 try { PostgreSqlContainer = require('@testcontainers/postgresql').PostgreSqlContainer; } catch {}

@@ -1,11 +1,11 @@
 /**
  * Download jobs and the worker registry (Postgres: download_jobs,
  * download_workers). The server never downloads audio itself: a job is run by
- * a `la worker` process on someone's own machine (workerHub.js routes them).
+ * a `la worker` process on someone's own machine (workerHub.ts routes them).
  *
  * A job comes from
- *   - a song request (source 'request', automatic: index.js queue:add), or
- *   - the web "Download" box (source 'web', POST /api/jobs, jobRoutes.js), or
+ *   - a song request (source 'request', automatic: reactions queueRequestJob), or
+ *   - the web "Download" box (source 'web', POST /api/jobs, jobRoutes.ts), or
  *   - the song dialog's new link (source 'replace', POST /api/jobs/replace): the
  *     video replaces song replace_song_id and keeps the details in replace_*.
  *
@@ -20,40 +20,96 @@
  * (adminWorkerView); everyone else sees a worker's name and owner only.
  */
 
-const db = require('./shared/db.ts');
-// The library's own module, not its index: core/library/libraryRoutes.ts
-// imports this file while the library area loads (until jobs moves to core/).
-const library = require('./core/library/library.ts');
-// The requests area's own files, not its index (which loads the library,
-// whose routes import this file) until jobs moves to core/.
-const ytdlp = require('./core/requests/ytdlp.ts');
-const spotify = require('./core/requests/spotify.ts');
+import dbModule from '../../shared/db.ts';
+import type { DbModule } from '../../shared/db.ts';
+import { isUuid } from '../../shared/ids.ts';
+import type { JobRow, JobStatus, JobWithJoins, LibrarySongRow } from '../../shared/types.ts';
+import { library } from '../library/index.ts';
+import { ytdlp, spotify } from '../requests/index.ts';
+import type { SongRequest } from '../requests/index.ts';
 
-const STATUSES = ['queued', 'assigned', 'done', 'failed', 'cancelled'];
+// The live module object: tests replace its functions.
+const db: DbModule = dbModule;
+
+export const STATUSES: string[] = ['queued', 'assigned', 'done', 'failed', 'cancelled'];
 const ACTIVE = ['queued', 'assigned'];
 /** The activity log keeps this many of the newest jobs (and up to ACTIVITY_ACTIVE_MAX older active ones). */
-const ACTIVITY_LIMIT = 60;
+export const ACTIVITY_LIMIT = 60;
 const ACTIVITY_ACTIVE_MAX = 200;
 /** A job that lost its worker this many times fails (WORKER_LOST). */
-const MAX_ATTEMPTS = 5;
+export const MAX_ATTEMPTS = 5;
 
-function clean(value, max) {
+function clean(value: unknown, max: number): string | null {
   if (value === undefined || value === null) return null;
   const s = String(value).replace(/[\x00-\x1f\x7f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
   return s || null;
 }
 
-const isUuid = library.isUuid;
+/** A `download_workers` row (core/jobs/schema.ts). */
+export interface WorkerRow {
+  id: string;
+  user_id: string | null;
+  token_id: string | null;
+  owner_name: string | null;
+  name: string;
+  hostname: string | null;
+  platform: string | null;
+  arch: string | null;
+  os_release: string | null;
+  cli_version: string | null;
+  ytdlp_version: string | null;
+  node_version: string | null;
+  last_ip: string | null;
+  jobs_done: number;
+  jobs_failed: number;
+  created_at: Date;
+  last_connected_at: Date | null;
+  last_seen_at: Date | null;
+}
+
+/** A worker as getWorker / listWorkers return it: the row plus its owner's names (WORKER_SELECT). */
+export interface WorkerWithOwner extends WorkerRow {
+  u_display_name: string | null;
+  u_name: string | null;
+  u_username: string | null;
+}
+
+/** A worker's live state in the hub (workerHub.live), or null while offline. */
+export interface WorkerLive {
+  currentJobId: string | null;
+  connectedAt: number;
+  draining?: boolean;
+}
+
+/** Who runs a job (workerHub.workerInfo). */
+export interface WorkerInfo {
+  id: string;
+  name: string;
+  ownerName?: string | null;
+  canReplace?: boolean;
+}
+
+/**
+ * A job row for the views: id and status always, the rest as a getJob row has
+ * it (tests and the activity feed pass partial rows).
+ */
+export type JobLike = Pick<JobWithJoins, 'id' | 'status'> & Partial<JobWithJoins>;
 
 // --- Input classification -----------------------------------------------------
+
+/** What a worker should download. */
+export interface JobInput {
+  input: string;
+  kind: 'video' | 'search';
+  title: string;
+}
 
 /**
  * What a worker should download for a song request: the YouTube video when
  * the request has one, a YouTube link, else a YouTube search for
  * "artist - title" (a Spotify / other link is never handed to yt-dlp).
- * @returns {{input, kind, title}|null}
  */
-function requestInput(r) {
+export function requestInput(r: Pick<SongRequest, 'artist' | 'title' | 'youtube_id' | 'url'>): JobInput | null {
   const title = [r.artist, r.title].filter(Boolean).join(' - ') || null;
   if (r.youtube_id && library.isYoutubeId(r.youtube_id)) {
     return { input: library.youtubeUrl(r.youtube_id), kind: 'video', title: title || r.youtube_id };
@@ -64,11 +120,16 @@ function requestInput(r) {
   return null;
 }
 
+/** What someone pasted into the Download box, read without the network. */
+export type Classified =
+  | { error: string }
+  | { kind: 'video'; input: string; youtubeId: string }
+  | { kind: 'playlist' | 'spotify' | 'search'; input: string };
+
 /**
  * Classify what someone pasted into the Download box (no network).
- * @returns {{kind: 'video'|'playlist'|'spotify'|'search', input, youtubeId?}|{error}}
  */
-function classifyInput(raw) {
+export function classifyInput(raw: unknown): Classified {
   const text = typeof raw === 'string' ? raw.trim() : '';
   if (!text) return { error: 'Paste a YouTube or Spotify link, or type a song to search for' };
   if (text.length > 500) return { error: 'That is too long' };
@@ -94,18 +155,61 @@ function classifyInput(raw) {
 
 // --- Views ----------------------------------------------------------------------
 
-function summaryOf(result) {
-  if (!result || typeof result !== 'object' || !result.summary) return null;
-  const s = result.summary;
-  const n = (k) => (Number.isFinite(Number(s[k])) ? Number(s[k]) : 0);
+/** A finished job's counts (from the worker's result). */
+export interface JobSummary {
+  total: number;
+  uploaded: number;
+  skipped: number;
+  failed: number;
+  replaced: number;
+}
+
+function summaryOf(result: unknown): JobSummary | null {
+  if (!result || typeof result !== 'object' || !(result as { summary?: unknown }).summary) return null;
+  const s = (result as { summary: Record<string, unknown> }).summary;
+  const n = (k: string) => (Number.isFinite(Number(s[k])) ? Number(s[k]) : 0);
   return { total: n('total'), uploaded: n('uploaded'), skipped: n('skipped'), failed: n('failed'), replaced: n('replaced') };
+}
+
+/** A worker as a job names it: its name and its owner's. */
+export interface JobWorker {
+  name: string;
+  owner: string | null;
+}
+
+/** What the requester (and the web UI) sees of a job (toPublic). */
+export interface PublicJob {
+  id: string;
+  source: string | undefined;
+  kind: string | undefined;
+  input: string | undefined;
+  title: string | null;
+  request_id: string | null;
+  playlist_id: string | null;
+  playlist_name: string | null;
+  requested_by: string | null;
+  status: JobStatus;
+  stage: string | null;
+  progress: string | null;
+  worker: JobWorker | null;
+  attempts: number;
+  error_code: string | null;
+  error_message: string | null;
+  summary: JobSummary | null;
+  song: { id: string; title: string | null; artist: string | null } | null;
+  replace: { song_id: string; title: string | null; artist: string | null; album: string | null } | null;
+  created_at: Date | undefined;
+  started_at: Date | null;
+  finished_at: Date | null;
 }
 
 /**
  * What the requester (and the web UI) sees. No worker machine details: the
  * worker is its name and its owner's name.
  */
-function toPublic(row) {
+export function toPublic(row: JobLike): PublicJob;
+export function toPublic(row: JobLike | null | undefined): PublicJob | null;
+export function toPublic(row: JobLike | null | undefined): PublicJob | null {
   if (!row) return null;
   return {
     id: row.id,
@@ -146,7 +250,7 @@ function toPublic(row) {
 // stage and the upload percent, and passes on only notes this server wrote.
 
 /** Progress notes this server sets itself (requeue, settle, cancel): safe for everyone. */
-const SERVER_NOTES = new Set([
+const SERVER_NOTES = new Set<string | null | undefined>([
   'Server restarted',
   'Downloader went away',
   'Downloader reconnected without it',
@@ -156,20 +260,49 @@ const SERVER_NOTES = new Set([
   'Request dismissed',
   'Replaced by an uploaded file',
 ]);
-const STAGES = new Set(['assigned', 'resolving', 'downloading', 'uploading', 'working']);
+const STAGES = new Set<string | null | undefined>(['assigned', 'resolving', 'downloading', 'uploading', 'working']);
 
 /** A code is a short identifier, whoever sent it; anything else is dropped. */
-function publicErrorCode(code) {
+function publicErrorCode(code: unknown): string | null {
   return typeof code === 'string' && /^[A-Za-z0-9_]{1,64}$/.test(code) ? code : null;
 }
 
+/** What everyone may know of a job's progress (publicProgress). */
+export interface PublicProgress {
+  stage: string | null;
+  percent: number | null;
+  progress: string | null;
+}
+
 /** What everyone may know of a running job's progress: a known stage and the upload percent. */
-function publicProgress(row) {
+export function publicProgress(row: JobLike): PublicProgress {
   const running = row.status === 'assigned';
-  const stage = running && STAGES.has(row.stage) ? row.stage : null;
+  const stage = running && STAGES.has(row.stage) ? row.stage! : null;
   const m = running && stage === 'uploading' ? /(\d{1,3})%\s*$/.exec(row.progress || '') : null;
   const percent = m && Number(m[1]) <= 100 ? Number(m[1]) : null;
-  return { stage, percent, progress: !running && SERVER_NOTES.has(row.progress) ? row.progress : null };
+  return { stage, percent, progress: !running && SERVER_NOTES.has(row.progress) ? row.progress! : null };
+}
+
+/** The activity log's row (toActivity). */
+export interface ActivityRow extends PublicProgress {
+  id: string;
+  source: string | undefined;
+  kind: string | undefined;
+  input: string | null | undefined;
+  title: string | null | undefined;
+  playlist_id: string | null;
+  playlist_name: string | null;
+  requested_by: string | null;
+  status: JobStatus;
+  worker: JobWorker | null;
+  error_code: string | null;
+  summary: JobSummary | null;
+  song: { id: string; title: string | null; artist: string | null } | null;
+  replace: { song_id: string; title: string | null; artist: string | null } | null;
+  created_at: Date | undefined;
+  started_at: Date | null;
+  finished_at: Date | null;
+  updated_at: Date | null;
 }
 
 /**
@@ -180,10 +313,9 @@ function publicProgress(row) {
  * above), and a playlist only when the caller passes one this viewer can see
  * right now (never row.playlist_name: that join knows nothing about who is
  * looking).
- * @param {object} row
- * @param {{id, name}|null} [playlist] - the job's playlist, if the viewer may see it
+ * @param playlist the job's playlist, if the viewer may see it
  */
-function toActivity(row, playlist = null) {
+export function toActivity(row: JobLike | null | undefined, playlist: { id: string; name: string | null } | null = null): ActivityRow | null {
   if (!row) return null;
   return {
     id: row.id,
@@ -208,13 +340,32 @@ function toActivity(row, playlist = null) {
   };
 }
 
+/** The admin list's job (toAdmin). */
+export interface AdminJob extends PublicJob {
+  requested_by_user_id: string | null;
+  worker_id: string | null;
+  result: unknown;
+}
+
 /** Admin list: adds the requester's id and the worker id. */
-function toAdmin(row) {
+export function toAdmin(row: JobLike): AdminJob {
   return { ...toPublic(row), requested_by_user_id: row.requested_by_user_id || null, worker_id: row.worker_id || null, result: row.result || null };
 }
 
+/** The job a worker is sent (protocol message `job`). */
+export interface WorkerJob {
+  id: string;
+  kind: string;
+  input: string;
+  title: string | null;
+  request_id: string | null;
+  requested_by: string | null;
+  no_playlist: boolean;
+  replace?: { song_id: string; title: string | null; artist: string | null; album: string | null };
+}
+
 /** What a worker is sent: just enough to run it (no playlist, no user ids). */
-function toWorker(row) {
+export function toWorker(row: JobRow): WorkerJob {
   return {
     id: row.id,
     kind: row.kind,
@@ -229,12 +380,22 @@ function toWorker(row) {
   };
 }
 
-function workerOwnerName(row) {
+/** The owner's name of a worker row: the account's names, else the snapshot. */
+export function workerOwnerName(row: Partial<WorkerWithOwner>): string | null {
   return row.u_display_name || row.u_name || row.u_username || row.owner_name || null;
 }
 
+/** A worker as any signed-in user may see it. */
+export interface PublicWorker {
+  id: string;
+  name: string;
+  owner: string | null;
+  online: boolean;
+  busy: boolean;
+}
+
 /** Name + owner + live state: what any signed-in user may see of a worker. */
-function publicWorkerView(row, live) {
+export function publicWorkerView(row: WorkerWithOwner, live: WorkerLive | null | undefined): PublicWorker {
   return {
     id: row.id,
     name: row.name,
@@ -244,8 +405,29 @@ function publicWorkerView(row, live) {
   };
 }
 
+/** A worker on the admin page: machine, IP, versions. */
+export interface AdminWorker extends PublicWorker {
+  owner_id: string | null;
+  legacy_token: boolean;
+  hostname: string | null;
+  platform: string | null;
+  arch: string | null;
+  os_release: string | null;
+  cli_version: string | null;
+  ytdlp_version: string | null;
+  node_version: string | null;
+  last_ip: string | null;
+  jobs_done: number;
+  jobs_failed: number;
+  created_at: Date;
+  last_connected_at: Date | null;
+  last_seen_at: Date | null;
+  connected_since: string | null;
+  current_job_id: string | null;
+}
+
 /** Everything, for the admin page only (IP, machine, versions). */
-function adminWorkerView(row, live) {
+export function adminWorkerView(row: WorkerWithOwner, live: WorkerLive | null | undefined): AdminWorker {
   return {
     ...publicWorkerView(row, live),
     owner_id: row.user_id || null,
@@ -281,20 +463,29 @@ const WORKER_SELECT = `
 
 // --- Jobs -----------------------------------------------------------------------
 
-async function getJob(id) {
+export async function getJob(id: unknown): Promise<JobWithJoins | null> {
   if (!isUuid(id)) return null;
-  const r = await db.query(`${JOB_SELECT} WHERE j.id = $1`, [id]);
+  const r = await db.query<JobWithJoins>(`${JOB_SELECT} WHERE j.id = $1`, [id]);
   return r.rows[0] || null;
 }
 
-/**
- * @param {object} f - { source, kind, input, title, requestId, playlistId, requestedByUserId, requestedBy }
- * @returns {Promise<object>} the row
- */
-async function createJob(f) {
+/** A new job (createJob). */
+export interface NewJob {
+  source?: string;
+  kind?: string;
+  input: unknown;
+  title?: unknown;
+  requestId?: string | null;
+  playlistId?: string | null;
+  requestedByUserId?: string | null;
+  requestedBy?: unknown;
+}
+
+/** @returns the row */
+export async function createJob(f: NewJob): Promise<JobWithJoins> {
   const input = clean(f.input, 2000);
   if (!input) throw new Error('A job needs an input');
-  const r = await db.query(
+  const r = await db.query<{ id: string }>(
     `INSERT INTO download_jobs (source, kind, input, title, request_id, playlist_id, requested_by_user_id, requested_by)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
     [
@@ -308,44 +499,56 @@ async function createJob(f) {
       clean(f.requestedBy, 255),
     ]
   );
-  return getJob(r.rows[0].id);
+  // The row was just inserted.
+  return (await getJob(r.rows[0].id))!;
+}
+
+/** A replace job (createReplaceJob). */
+export interface NewReplaceJob {
+  song: Pick<LibrarySongRow, 'id'>;
+  youtubeId: string;
+  title: string;
+  artist: string;
+  album?: string | null;
+  requestedByUserId?: string | null;
+  requestedBy?: string | null;
 }
 
 /**
  * A job that downloads a YouTube video and replaces a song with it.
- * @param {object} f - { song, youtubeId, title, artist, album, requestedByUserId, requestedBy }
- * @returns {Promise<object>} the row
+ * @returns the row
  * @throws a pg 23505 when the song already has an active replace job
  */
-async function createReplaceJob(f) {
+export async function createReplaceJob(f: NewReplaceJob): Promise<JobWithJoins> {
   const label = [f.artist, f.title].filter(Boolean).join(' - ') || f.title;
-  const r = await db.query(
+  const r = await db.query<{ id: string }>(
     `INSERT INTO download_jobs (source, kind, input, title, requested_by_user_id, requested_by, replace_song_id, replace_title, replace_artist, replace_album)
      VALUES ('replace', 'video', $1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
     [library.youtubeUrl(f.youtubeId), clean(label, 300), isUuid(f.requestedByUserId) ? f.requestedByUserId : null, clean(f.requestedBy, 255), f.song.id, f.title, f.artist, f.album || null]
   );
-  return getJob(r.rows[0].id);
+  // The row was just inserted.
+  return (await getJob(r.rows[0].id))!;
 }
 
 /** The song's active replace job (at most one), whoever asked for it. */
-async function activeReplaceJob(songId) {
+export async function activeReplaceJob(songId: unknown): Promise<JobWithJoins | null> {
   if (!isUuid(songId)) return null;
-  const r = await db.query(`${JOB_SELECT} WHERE j.replace_song_id = $1 AND j.status = ANY($2::text[]) LIMIT 1`, [songId, ACTIVE]);
+  const r = await db.query<JobWithJoins>(`${JOB_SELECT} WHERE j.replace_song_id = $1 AND j.status = ANY($2::text[]) LIMIT 1`, [songId, ACTIVE]);
   return r.rows[0] || null;
 }
 
 /** This user's newest replace job for the song: what the dialog shows. */
-async function latestReplaceJob(songId, userId) {
+export async function latestReplaceJob(songId: unknown, userId: unknown): Promise<JobWithJoins | null> {
   if (!isUuid(songId) || !isUuid(userId)) return null;
-  const r = await db.query(`${JOB_SELECT} WHERE j.replace_song_id = $1 AND j.requested_by_user_id = $2 ORDER BY j.created_at DESC LIMIT 1`, [songId, userId]);
+  const r = await db.query<JobWithJoins>(`${JOB_SELECT} WHERE j.replace_song_id = $1 AND j.requested_by_user_id = $2 ORDER BY j.created_at DESC LIMIT 1`, [songId, userId]);
   return r.rows[0] || null;
 }
 
 const SONG_GONE = 'The song to replace was deleted from the library';
 
 /** A replace job whose song is gone fails, whatever state it is in. */
-async function failTargetGone(jobId) {
-  const r = await db.query(
+export async function failTargetGone(jobId: string): Promise<JobWithJoins | null> {
+  const r = await db.query<{ id: string }>(
     `UPDATE download_jobs SET status = 'failed', error_code = 'SONG_DELETED', error_message = $2,
        stage = NULL, progress = NULL, finished_at = now(), updated_at = now()
      WHERE id = $1 AND status = ANY($3::text[]) RETURNING id`,
@@ -355,16 +558,16 @@ async function failTargetGone(jobId) {
 }
 
 /** A song was deleted: its active replace jobs fail (a worker's upload is then refused). */
-async function failReplaceJobsForSong(songId) {
+export async function failReplaceJobsForSong(songId: unknown): Promise<JobWithJoins[]> {
   if (!isUuid(songId)) return [];
-  const r = await db.query(`SELECT id FROM download_jobs WHERE replace_song_id = $1 AND status = ANY($2::text[])`, [songId, ACTIVE]);
-  return (await Promise.all(r.rows.map((x) => failTargetGone(x.id)))).filter(Boolean);
+  const r = await db.query<{ id: string }>(`SELECT id FROM download_jobs WHERE replace_song_id = $1 AND status = ANY($2::text[])`, [songId, ACTIVE]);
+  return (await Promise.all(r.rows.map((x) => failTargetGone(x.id)))).filter((x): x is JobWithJoins => Boolean(x));
 }
 
 /** Someone uploaded a file for the song: the file wins, active jobs are dropped. */
-async function cancelReplaceJobsForSong(songId, reason) {
+export async function cancelReplaceJobsForSong(songId: unknown, reason: string): Promise<Array<JobWithJoins | null>> {
   if (!isUuid(songId)) return [];
-  const r = await db.query(
+  const r = await db.query<{ id: string }>(
     `UPDATE download_jobs SET status = 'cancelled', progress = $2, stage = NULL, finished_at = now(), updated_at = now()
      WHERE replace_song_id = $1 AND status = ANY($3::text[]) RETURNING id`,
     [songId, clean(reason, 300), ACTIVE]
@@ -372,14 +575,18 @@ async function cancelReplaceJobsForSong(songId, reason) {
   return Promise.all(r.rows.map((x) => getJob(x.id)));
 }
 
+/** What createForRequest reads of a song request. */
+export type RequestForJob = Pick<SongRequest, 'id' | 'artist' | 'title' | 'youtube_id' | 'url' | 'lobby_id' | 'requested_by'>
+  & { requested_by_id?: string | null };
+
 /**
  * The job for a new song request (one per request; an existing active job
  * for it is returned as is). null if the request has nothing to search for.
  */
-async function createForRequest(request, { requestedByUserId = null } = {}) {
+export async function createForRequest(request: RequestForJob, { requestedByUserId = null }: { requestedByUserId?: string | null } = {}): Promise<JobWithJoins | null> {
   const what = requestInput(request);
   if (!what) return null;
-  const existing = await db.query(
+  const existing = await db.query<{ id: string }>(
     `SELECT id FROM download_jobs WHERE request_id = $1 AND status = ANY($2::text[]) LIMIT 1`,
     [request.id, ACTIVE]
   );
@@ -397,14 +604,14 @@ async function createForRequest(request, { requestedByUserId = null } = {}) {
 }
 
 /** Oldest first. */
-async function listQueued(limit = 200) {
-  const r = await db.query(`${JOB_SELECT} WHERE j.status = 'queued' ORDER BY j.created_at, j.id LIMIT $1`, [limit]);
+export async function listQueued(limit = 200): Promise<JobWithJoins[]> {
+  const r = await db.query<JobWithJoins>(`${JOB_SELECT} WHERE j.status = 'queued' ORDER BY j.created_at, j.id LIMIT $1`, [limit]);
   return r.rows;
 }
 
-async function listForUser(userId, { limit = 50, sources = null } = {}) {
+export async function listForUser(userId: unknown, { limit = 50, sources = null }: { limit?: number; sources?: string[] | null } = {}): Promise<JobWithJoins[]> {
   if (!isUuid(userId)) return [];
-  const r = await db.query(
+  const r = await db.query<JobWithJoins>(
     `${JOB_SELECT} WHERE j.requested_by_user_id = $1 AND ($3::text[] IS NULL OR j.source = ANY($3::text[])) ORDER BY j.created_at DESC LIMIT $2`,
     [userId, limit, sources]);
   return r.rows;
@@ -414,8 +621,8 @@ async function listForUser(userId, { limit = 50, sources = null } = {}) {
  * The activity log: the newest `limit` jobs of everyone plus every job still
  * waiting or running (however old), newest first.
  */
-async function listActivity({ limit = ACTIVITY_LIMIT } = {}) {
-  const r = await db.query(
+export async function listActivity({ limit = ACTIVITY_LIMIT }: { limit?: number } = {}): Promise<JobWithJoins[]> {
+  const r = await db.query<JobWithJoins>(
     `${JOB_SELECT} WHERE j.status = ANY($2::text[])
        OR j.id IN (SELECT id FROM download_jobs ORDER BY created_at DESC, id LIMIT $1)
      ORDER BY j.created_at DESC, j.id LIMIT $3`,
@@ -423,19 +630,19 @@ async function listActivity({ limit = ACTIVITY_LIMIT } = {}) {
   return r.rows;
 }
 
-async function listAll({ status = 'all', limit = 100 } = {}) {
-  const params = [];
+export async function listAll({ status = 'all', limit = 100 }: { status?: string; limit?: number } = {}): Promise<JobWithJoins[]> {
+  const params: unknown[] = [];
   let where = '';
   if (status === 'active') where = `WHERE j.status = ANY('{queued,assigned}'::text[])`;
   else if (status !== 'all') { params.push(status); where = 'WHERE j.status = $1'; }
   params.push(limit);
-  const r = await db.query(`${JOB_SELECT} ${where} ORDER BY (j.status = 'assigned') DESC, (j.status = 'queued') DESC, j.created_at DESC LIMIT $${params.length}`, params);
+  const r = await db.query<JobWithJoins>(`${JOB_SELECT} ${where} ORDER BY (j.status = 'assigned') DESC, (j.status = 'queued') DESC, j.created_at DESC LIMIT $${params.length}`, params);
   return r.rows;
 }
 
-async function countByStatus() {
-  const r = await db.query('SELECT status, count(*)::int AS n FROM download_jobs GROUP BY status');
-  const counts = Object.fromEntries(STATUSES.map((s) => [s, 0]));
+export async function countByStatus(): Promise<Record<string, number>> {
+  const r = await db.query<{ status: string; n: number }>('SELECT status, count(*)::int AS n FROM download_jobs GROUP BY status');
+  const counts: Record<string, number> = Object.fromEntries(STATUSES.map((s) => [s, 0]));
   for (const row of r.rows) counts[row.status] = row.n;
   return counts;
 }
@@ -444,8 +651,8 @@ async function countByStatus() {
  * queued -> assigned to this worker. null when someone else got it first
  * (or it was cancelled meanwhile).
  */
-async function assign(jobId, worker) {
-  const r = await db.query(
+export async function assign(jobId: string, worker: WorkerInfo): Promise<JobWithJoins | null> {
+  const r = await db.query<{ id: string }>(
     `UPDATE download_jobs SET status = 'assigned', worker_id = $2, worker_name = $3, worker_owner = $4,
        attempts = attempts + 1, stage = 'assigned', progress = NULL, started_at = now(), updated_at = now()
      WHERE id = $1 AND status = 'queued' RETURNING id`,
@@ -458,9 +665,9 @@ async function assign(jobId, worker) {
  * A worker that reconnects still running `jobId` takes it back: it must be
  * queued (requeued meanwhile) or still assigned to this same worker.
  */
-async function reclaim(jobId, worker) {
+export async function reclaim(jobId: unknown, worker: WorkerInfo): Promise<JobWithJoins | null> {
   if (!isUuid(jobId)) return null;
-  const r = await db.query(
+  const r = await db.query<{ id: string }>(
     `UPDATE download_jobs SET status = 'assigned', worker_id = $2, worker_name = $3, worker_owner = $4, updated_at = now()
      WHERE id = $1 AND (status = 'queued' OR (status = 'assigned' AND worker_id = $2))
        AND ($5 OR replace_song_id IS NULL) RETURNING id`,
@@ -472,13 +679,13 @@ async function reclaim(jobId, worker) {
 /**
  * assigned -> queued again (worker gone / gave it back). With workerId, only
  * if it is still that worker's. After MAX_ATTEMPTS it fails instead.
- * @returns {Promise<object|null>} the updated row, or null if nothing changed
+ * @returns the updated row, or null if nothing changed
  */
-async function requeue(jobId, { workerId = null, reason = null } = {}) {
-  const params = [jobId, MAX_ATTEMPTS, clean(reason, 300)];
+export async function requeue(jobId: string, { workerId = null, reason = null }: { workerId?: string | null; reason?: string | null } = {}): Promise<JobWithJoins | null> {
+  const params: unknown[] = [jobId, MAX_ATTEMPTS, clean(reason, 300)];
   let mine = '';
   if (workerId) { params.push(workerId); mine = `AND worker_id = $${params.length}`; }
-  const r = await db.query(
+  const r = await db.query<{ id: string }>(
     `UPDATE download_jobs SET
        status = CASE WHEN attempts >= $2 THEN 'failed' ELSE 'queued' END,
        error_code = CASE WHEN attempts >= $2 THEN 'WORKER_LOST' ELSE error_code END,
@@ -492,7 +699,7 @@ async function requeue(jobId, { workerId = null, reason = null } = {}) {
 }
 
 /** Boot: nothing is connected yet, so no job can be running. */
-async function requeueAllAssigned() {
+export async function requeueAllAssigned(): Promise<number> {
   const r = await db.query(
     `UPDATE download_jobs SET status = 'queued', stage = NULL, progress = 'Server restarted', updated_at = now()
      WHERE status = 'assigned' RETURNING id`
@@ -500,7 +707,7 @@ async function requeueAllAssigned() {
   return r.rows.length;
 }
 
-async function setProgress(jobId, workerId, { stage, message }) {
+export async function setProgress(jobId: string, workerId: string, { stage, message }: { stage?: unknown; message?: unknown }): Promise<void> {
   await db.query(
     `UPDATE download_jobs SET stage = $3, progress = $4, updated_at = now()
      WHERE id = $1 AND status = 'assigned' AND worker_id = $2`,
@@ -508,17 +715,35 @@ async function setProgress(jobId, workerId, { stage, message }) {
   );
 }
 
+/** One item of a worker's batch result, as kept. */
+export interface ResultItem {
+  status: string | null;
+  title: string | null;
+  artist: string | null;
+  youtube_id: string | null;
+  song_id: string | null;
+  code: string | null;
+  error: string | null;
+  reason: string | null;
+}
+
+/** A worker's batch result, as kept (download_jobs.result). */
+export interface TrimmedResult {
+  summary: JobSummary;
+  results: ResultItem[];
+}
+
 /** Keep what the profile / admin pages need from a worker's batch result. */
-function trimResult(result) {
-  const r = result && typeof result === 'object' ? result : {};
-  const summary = r.summary && typeof r.summary === 'object' ? r.summary : {};
-  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
-  const items = (Array.isArray(r.results) ? r.results : []).slice(0, 500).map((x) => ({
+export function trimResult(result: unknown): TrimmedResult {
+  const r: Record<string, unknown> = result && typeof result === 'object' ? result as Record<string, unknown> : {};
+  const summary: Record<string, unknown> = r.summary && typeof r.summary === 'object' ? r.summary as Record<string, unknown> : {};
+  const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  const items = (Array.isArray(r.results) ? r.results as Array<Record<string, unknown> | null> : []).slice(0, 500).map((x) => ({
     status: clean(x && x.status, 32),
     title: clean(x && x.title, 300),
     artist: clean(x && x.artist, 300),
     youtube_id: clean(x && x.youtube_id, 32),
-    song_id: isUuid(x && x.song_id) ? x.song_id : null,
+    song_id: isUuid(x && x.song_id) ? (x!.song_id as string) : null,
     code: clean(x && x.code, 64),
     error: clean(x && x.error, 500),
     reason: clean(x && x.reason, 200),
@@ -533,9 +758,9 @@ function trimResult(result) {
  * A worker finished running a job. Accepted while the job is active (first
  * finisher wins if it was handed to two workers); the reporting worker is
  * recorded as the one that did it.
- * @returns {Promise<{job: object, songIds: string[]}|null>} null if it was already finished
+ * @returns null if it was already finished
  */
-async function finish(jobId, worker, result) {
+export async function finish(jobId: string, worker: WorkerInfo, result: unknown): Promise<{ job: JobWithJoins; songIds: string[] } | null> {
   const trimmed = trimResult(result);
   const current = await getJob(jobId);
   // A replace job only counts when the song was replaced: an upload or a
@@ -544,11 +769,12 @@ async function finish(jobId, worker, result) {
     ? trimmed.summary.replaced > 0
     : trimmed.summary.uploaded + trimmed.summary.skipped > 0;
   const firstFail = trimmed.results.find((x) => x.status === 'failed');
-  const songIds = [...new Set(trimmed.results.filter((x) => ['uploaded', 'skipped', 'replaced'].includes(x.status) && x.song_id).map((x) => x.song_id))];
+  const songIds = [...new Set(trimmed.results.filter((x) => ['uploaded', 'skipped', 'replaced'].includes(x.status!) && x.song_id).map((x) => x.song_id!))];
   const status = ok ? 'done' : 'failed';
-  const errorCode = ok ? null : clean((result && result.error_code) || (firstFail && firstFail.code) || 'NOTHING_DOWNLOADED', 64);
-  const errorMessage = ok ? null : clean((result && result.error_message) || (firstFail && firstFail.error) || 'Nothing was downloaded', 500);
-  const r = await db.query(
+  const given = result as { error_code?: unknown; error_message?: unknown } | null | undefined;
+  const errorCode = ok ? null : clean((given && given.error_code) || (firstFail && firstFail.code) || 'NOTHING_DOWNLOADED', 64);
+  const errorMessage = ok ? null : clean((given && given.error_message) || (firstFail && firstFail.error) || 'Nothing was downloaded', 500);
+  const r = await db.query<{ id: string }>(
     `UPDATE download_jobs SET status = $3, result = $4, error_code = $5, error_message = $6,
        song_id = $7, worker_id = $2, worker_name = $8, worker_owner = $9,
        stage = NULL, progress = NULL, finished_at = now(), updated_at = now()
@@ -561,16 +787,17 @@ async function finish(jobId, worker, result) {
     `UPDATE download_workers SET ${ok ? 'jobs_done = jobs_done + 1' : 'jobs_failed = jobs_failed + 1'}, last_seen_at = now() WHERE id = $1`,
     [worker.id]
   ).catch(() => {});
-  return { job: await getJob(jobId), songIds };
+  // The row was just updated.
+  return { job: (await getJob(jobId))!, songIds };
 }
 
 /** Requester (or admin): a queued job is dropped. */
-async function cancel(jobId, { userId = null } = {}) {
+export async function cancel(jobId: unknown, { userId = null }: { userId?: string | null } = {}): Promise<JobWithJoins | null> {
   if (!isUuid(jobId)) return null;
-  const params = [jobId];
+  const params: unknown[] = [jobId];
   let mine = '';
   if (userId) { params.push(userId); mine = `AND requested_by_user_id = $${params.length}`; }
-  const r = await db.query(
+  const r = await db.query<{ id: string }>(
     `UPDATE download_jobs SET status = 'cancelled', finished_at = now(), updated_at = now(), stage = NULL
      WHERE id = $1 AND status = 'queued' ${mine} RETURNING id`,
     params
@@ -579,14 +806,14 @@ async function cancel(jobId, { userId = null } = {}) {
 }
 
 /** Requester (or admin): a failed / cancelled job goes back in the queue. */
-async function retry(jobId, { userId = null } = {}) {
+export async function retry(jobId: unknown, { userId = null }: { userId?: string | null } = {}): Promise<JobWithJoins | null> {
   if (!isUuid(jobId)) return null;
-  const params = [jobId];
+  const params: unknown[] = [jobId];
   let mine = '';
   if (userId) { params.push(userId); mine = `AND requested_by_user_id = $${params.length}`; }
   let r;
   try {
-    r = await db.query(
+    r = await db.query<{ id: string }>(
       `UPDATE download_jobs SET status = 'queued', attempts = 0, error_code = NULL, error_message = NULL,
          result = NULL, worker_id = NULL, worker_name = NULL, worker_owner = NULL, stage = NULL,
          progress = NULL, started_at = NULL, finished_at = NULL, updated_at = now()
@@ -594,12 +821,13 @@ async function retry(jobId, { userId = null } = {}) {
       params
     );
   } catch (err) {
-    if (err.code === '23505') return null; // the song has another active replace job
+    if ((err as { code?: string }).code === '23505') return null; // the song has another active replace job
     throw err;
   }
   if (!r.rows[0]) return null;
-  const row = await getJob(jobId);
-  return row.replace_song_id && !row.replace_target_id ? failTargetGone(jobId) : row;
+  // The row was just updated.
+  const row = (await getJob(jobId))!;
+  return row.replace_song_id && !row.replace_target_id ? failTargetGone(jobId as string) : row;
 }
 
 /**
@@ -607,10 +835,10 @@ async function retry(jobId, { userId = null } = {}) {
  * done — nothing left to download. Assigned ones finish on their own (the
  * upload answers "already in the library").
  */
-async function settleForFulfilledRequests(requestIds, song) {
+export async function settleForFulfilledRequests(requestIds: readonly string[] | null | undefined, song: { id: string } | null | undefined): Promise<Array<JobWithJoins | null>> {
   const ids = (requestIds || []).filter(isUuid);
   if (!ids.length) return [];
-  const r = await db.query(
+  const r = await db.query<{ id: string }>(
     `UPDATE download_jobs SET status = 'done', song_id = $2, progress = 'Uploaded by someone else',
        finished_at = now(), updated_at = now()
      WHERE request_id = ANY($1::uuid[]) AND status = 'queued' RETURNING id`,
@@ -620,9 +848,9 @@ async function settleForFulfilledRequests(requestIds, song) {
 }
 
 /** A dismissed request's queued job is cancelled. */
-async function cancelForRequest(requestId) {
+export async function cancelForRequest(requestId: unknown): Promise<Array<JobWithJoins | null>> {
   if (!isUuid(requestId)) return [];
-  const r = await db.query(
+  const r = await db.query<{ id: string }>(
     `UPDATE download_jobs SET status = 'cancelled', progress = 'Request dismissed', finished_at = now(), updated_at = now()
      WHERE request_id = $1 AND status = 'queued' RETURNING id`,
     [requestId]
@@ -632,31 +860,41 @@ async function cancelForRequest(requestId) {
 
 // --- Workers --------------------------------------------------------------------
 
-async function getWorker(id) {
+export async function getWorker(id: unknown): Promise<WorkerWithOwner | null> {
   if (!isUuid(id)) return null;
-  const r = await db.query(`${WORKER_SELECT} WHERE w.id = $1`, [id]);
+  const r = await db.query<WorkerWithOwner>(`${WORKER_SELECT} WHERE w.id = $1`, [id]);
   return r.rows[0] || null;
 }
 
-async function listWorkers() {
-  const r = await db.query(`${WORKER_SELECT} ORDER BY w.last_connected_at DESC NULLS LAST, w.created_at DESC`);
+export async function listWorkers(): Promise<WorkerWithOwner[]> {
+  const r = await db.query<WorkerWithOwner>(`${WORKER_SELECT} ORDER BY w.last_connected_at DESC NULLS LAST, w.created_at DESC`);
   return r.rows;
 }
 
-async function listUserWorkers(userId) {
+export async function listUserWorkers(userId: unknown): Promise<WorkerWithOwner[]> {
   if (!isUuid(userId)) return [];
-  const r = await db.query(`${WORKER_SELECT} WHERE w.user_id = $1 ORDER BY w.last_connected_at DESC NULLS LAST`, [userId]);
+  const r = await db.query<WorkerWithOwner>(`${WORKER_SELECT} WHERE w.user_id = $1 ORDER BY w.last_connected_at DESC NULLS LAST`, [userId]);
   return r.rows;
 }
+
+/** The token a worker connected with (tokens.verifyToken's answer, as far as it is read here). */
+export interface WorkerToken {
+  /** api_tokens.id */
+  id: string;
+  name: string;
+  userId: string | null;
+}
+
+/** What registerWorker keeps of a hello (strings are cleaned, anything else dropped). */
+export type HelloFields = Partial<Record<'name' | 'hostname' | 'platform' | 'arch' | 'os_release' | 'cli_version' | 'ytdlp_version' | 'node_version', unknown>>;
 
 /**
  * Register (or update) the worker a `la worker` process is: one row per
  * owner + name (case-insensitive); a legacy ownerless token keys on the token.
- * @param {object} apiUser - tokens.verifyToken() result
- * @param {object} hello - the worker's hello message
- * @param {string} ip
+ * @param apiUser tokens.verifyToken() result
+ * @param hello the worker's hello message
  */
-async function registerWorker(apiUser, hello, ip) {
+export async function registerWorker(apiUser: WorkerToken, hello: HelloFields, ip: string | null): Promise<WorkerWithOwner> {
   const name = clean(hello.name, 100) || clean(hello.hostname, 100) || 'worker';
   const fields = [
     clean(hello.hostname, 255), clean(hello.platform, 32), clean(hello.arch, 32), clean(hello.os_release, 128),
@@ -664,9 +902,9 @@ async function registerWorker(apiUser, hello, ip) {
     clean(apiUser.name, 255),
   ];
   const key = apiUser.userId
-    ? await db.query('SELECT id FROM download_workers WHERE user_id = $1 AND lower(name) = lower($2) LIMIT 1', [apiUser.userId, name])
-    : await db.query('SELECT id FROM download_workers WHERE user_id IS NULL AND token_id = $1 AND lower(name) = lower($2) LIMIT 1', [apiUser.id, name]);
-  let id;
+    ? await db.query<{ id: string }>('SELECT id FROM download_workers WHERE user_id = $1 AND lower(name) = lower($2) LIMIT 1', [apiUser.userId, name])
+    : await db.query<{ id: string }>('SELECT id FROM download_workers WHERE user_id IS NULL AND token_id = $1 AND lower(name) = lower($2) LIMIT 1', [apiUser.id, name]);
+  let id: string;
   if (key.rows[0]) {
     id = key.rows[0].id;
     await db.query(
@@ -677,7 +915,7 @@ async function registerWorker(apiUser, hello, ip) {
       [id, name, ...fields, apiUser.id]
     );
   } else {
-    const r = await db.query(
+    const r = await db.query<{ id: string }>(
       `INSERT INTO download_workers (name, hostname, platform, arch, os_release, cli_version, ytdlp_version,
          node_version, last_ip, owner_name, token_id, user_id, last_connected_at, last_seen_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), now()) RETURNING id`,
@@ -685,10 +923,11 @@ async function registerWorker(apiUser, hello, ip) {
     );
     id = r.rows[0].id;
   }
-  return getWorker(id);
+  // The row was just written.
+  return (await getWorker(id))!;
 }
 
-async function touchWorker(id) {
+export async function touchWorker(id: string): Promise<void> {
   await db.query('UPDATE download_workers SET last_seen_at = now() WHERE id = $1', [id]).catch(() => {});
 }
 
@@ -696,59 +935,23 @@ async function touchWorker(id) {
  * May this token upload as this worker? Its owner's, or (legacy token) the
  * token's own.
  */
-async function workerForUpload(workerId, apiUser) {
+export async function workerForUpload(workerId: unknown, apiUser: { id: string | null | undefined; userId?: string | null }): Promise<WorkerWithOwner | null> {
   const w = await getWorker(workerId);
   if (!w) return null;
   if (w.user_id ? w.user_id === apiUser.userId : w.token_id === apiUser.id) return w;
   return null;
 }
 
-module.exports = {
-  STATUSES,
-  MAX_ATTEMPTS,
-  requestInput,
-  classifyInput,
-  toPublic,
-  toActivity,
-  publicProgress,
-  toAdmin,
-  toWorker,
-  publicWorkerView,
-  adminWorkerView,
-  workerOwnerName,
-  trimResult,
-  getJob,
-  createJob,
-  createForRequest,
-  createReplaceJob,
-  activeReplaceJob,
-  latestReplaceJob,
-  failTargetGone,
-  failReplaceJobsForSong,
-  cancelReplaceJobsForSong,
-  listQueued,
-  listForUser,
-  listAll,
-  listActivity,
-  ACTIVITY_LIMIT,
-  countByStatus,
-  assign,
-  reclaim,
-  requeue,
-  requeueAllAssigned,
-  setProgress,
-  finish,
-  cancel,
-  retry,
-  settleForFulfilledRequests,
-  cancelForRequest,
-  getWorker,
-  listWorkers,
-  listUserWorkers,
-  registerWorker,
-  touchWorker,
-  workerForUpload,
-};
+/** Who/what is behind a CLI upload (uploadContext). */
+export interface UploadContext {
+  workerId: string | null;
+  workerName: string | null;
+  jobId: string | null;
+  requestedByUserId: string | null;
+  requestedBy: string | null;
+  job: JobWithJoins | null;
+  requestId: string | null;
+}
 
 /**
  * Upload records: who/what is behind a CLI upload. The worker (worker_id
@@ -756,10 +959,13 @@ module.exports = {
  * who asked for the song (the job's requester, else the song request's).
  * A job that came from a song request also supplies its request_id.
  * Bad or foreign ids are ignored (the upload itself still counts).
- * @returns {Promise<{workerId, workerName, jobId, requestedByUserId, requestedBy, job, requestId}>}
  */
-async function uploadContext(apiUser, body = {}, fields = {}) {
-  const ctx = { workerId: null, workerName: null, jobId: null, requestedByUserId: null, requestedBy: null, job: null, requestId: fields.request_id || null };
+export async function uploadContext(
+  apiUser: { id: string | null | undefined; userId?: string | null },
+  body: Record<string, unknown> = {},
+  fields: { request_id?: string | null } = {},
+): Promise<UploadContext> {
+  const ctx: UploadContext = { workerId: null, workerName: null, jobId: null, requestedByUserId: null, requestedBy: null, job: null, requestId: fields.request_id || null };
   if (isUuid(body.worker_id)) {
     const w = await workerForUpload(body.worker_id, apiUser).catch(() => null);
     if (w) { ctx.workerId = w.id; ctx.workerName = w.name; }
@@ -776,7 +982,8 @@ async function uploadContext(apiUser, body = {}, fields = {}) {
     }
   }
   if (!ctx.requestedBy && ctx.requestId) {
-    const r = await db.query('SELECT requested_by, requested_by_id FROM song_requests WHERE id = $1', [ctx.requestId]).catch(() => ({ rows: [] }));
+    const r = await db.query<{ requested_by: string | null; requested_by_id: string | null }>('SELECT requested_by, requested_by_id FROM song_requests WHERE id = $1', [ctx.requestId])
+      .catch(() => ({ rows: [] as Array<{ requested_by: string | null; requested_by_id: string | null }> }));
     if (r.rows[0]) {
       ctx.requestedBy = r.rows[0].requested_by || null;
       ctx.requestedByUserId = isUuid(r.rows[0].requested_by_id) ? r.rows[0].requested_by_id : null;
@@ -784,5 +991,3 @@ async function uploadContext(apiUser, body = {}, fields = {}) {
   }
   return ctx;
 }
-
-module.exports.uploadContext = uploadContext;

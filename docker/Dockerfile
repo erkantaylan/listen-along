@@ -49,10 +49,12 @@ COPY frontend/ ./frontend/
 COPY --from=frontend /src/frontend/dist/ ./frontend/dist/
 COPY CHANGELOG.md ./CHANGELOG.md
 # The la CLI (no npm dependencies), offered to `la worker` / `la update` for
-# self-update (src/cliRelease.js bundles it at boot). Not its tests.
+# self-update (src/core/jobs/cliRelease.ts bundles it at boot from CLI_DIR,
+# so it does not depend on where that file sits under src/). Not its tests.
 COPY cli/package.json cli/README.md ./cli/
 COPY cli/bin/ ./cli/bin/
 COPY cli/src/ ./cli/src/
+ENV CLI_DIR=/app/cli
 COPY --from=buildinfo /build-info.json ./build-info.json
 
 # libuv's threadpool (fs reads/writes, dns.lookup, crypto) defaults to 4

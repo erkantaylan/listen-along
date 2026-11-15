@@ -20,27 +20,16 @@ import * as library from './library.ts';
 import type { PublicSong, UploadFields, Uploader } from './library.ts';
 import { requests } from '../requests/index.ts';
 import { mobileBearer, adminAuth, tokens } from '../../auth/index.ts';
-import downloadJobsJs from '../../downloadJobs.js';
+import { downloadJobs } from '../jobs/index.ts';
+import type { UploadContext } from '../jobs/index.ts';
 import * as songReports from './songReports.ts';
 import * as songVerify from './songVerify.ts';
 import { apiLimiter, keyFor, make as makeLimiter } from '../../shared/rateLimits.ts';
-import type { JobRow, LibrarySongRow } from '../../shared/types.ts';
+import type { JobWithJoins, LibrarySongRow } from '../../shared/types.ts';
 
 // The live module object: tests replace its functions.
 const db: DbModule = dbModule;
 
-// What these routes use of the song requests and the download jobs (still
-// CommonJS until they move to core/; their JSDoc types are looser than this).
-interface JobsUse {
-  uploadContext(apiUser: Uploader, body: Record<string, unknown>, fields: Partial<UploadFields>): Promise<UploadContext>;
-  getWorker(id: string | null): Promise<{ id: string; name: string } | null>;
-  activeReplaceJob(songId: string): Promise<JobRow | null>;
-  workerOwnerName(worker: { id: string; name: string }): string | null;
-  finish(jobId: string, worker: { id: string; name: string; ownerName: string | null }, result: unknown): Promise<{ job: JobRow } | null>;
-  cancelReplaceJobsForSong(songId: string, reason: string): Promise<JobRow[]>;
-}
-
-const downloadJobs = downloadJobsJs as unknown as JobsUse;
 
 function parseIntParam(value: unknown, def: number, min: number, max: number): number {
   const n = parseInt(String(value), 10);
@@ -154,13 +143,13 @@ export interface LibraryHooks {
   /** after its title, artist or album changed */
   onSongDetailsChanged?: (song: LibrarySongRow, previous: LibrarySongRow) => void;
   /** a job changed here (a replace finished or dropped one) */
-  onJobUpdated?: (job: JobRow) => void;
+  onJobUpdated?: (job: JobWithJoins | null) => void;
   /** middleware for POST /api/admin/login */
   loginRateLimit?: RequestHandler;
   /** middleware: is the caller a web user allowed to read? */
   requireWebUser?: RequestHandler;
   /** a worker uploaded a song for a job */
-  onJobUpload?: (job: JobRow, song: LibrarySongRow) => void;
+  onJobUpload?: (job: JobWithJoins, song: LibrarySongRow) => void;
   onRequestDismissed?: (request: SongRequestView) => void;
   /** a song was marked / unmarked broken, or its reports dismissed */
   onReportsChanged?: (songId: string) => void;
@@ -168,16 +157,6 @@ export interface LibraryHooks {
   apiLimiter?: RequestHandler;
 }
 
-/** The worker / job records of an upload (downloadJobs.uploadContext). */
-interface UploadContext {
-  job: JobRow | null;
-  jobId: string | null;
-  requestId: string | null;
-  workerId: string | null;
-  workerName: string | null;
-  requestedByUserId: string | null;
-  requestedBy: string | null;
-}
 
 export function createLibraryRouter(hooks: LibraryHooks = {}): Router {
   const onSongAdded = hooks.onSongAdded || (() => {});
@@ -412,7 +391,7 @@ export function createLibraryRouter(hooks: LibraryHooks = {}): Router {
     }
     try {
       let actor = actorOf(req);
-      let job: JobRow | null = null;
+      let job: JobWithJoins | null = null;
       let worker: { id: string; name: string } | null = null;
       if (req.apiUser && (req.body || {}).job_id) {
         // A worker running a replace job: it must still hold the job, for this
@@ -434,7 +413,7 @@ export function createLibraryRouter(hooks: LibraryHooks = {}): Router {
         actor = { ...actor, jobId: job.id, workerName: ctx.workerName, requestedBy: job.requested_by || null };
       } else {
         // By hand: a job still waiting is overtaken below; one running is not.
-        const active: JobRow | null = await downloadJobs.activeReplaceJob(req.params.id);
+        const active = await downloadJobs.activeReplaceJob(req.params.id);
         if (active && active.status === 'assigned') {
           cleanupTmp();
           return res.status(409).json({ error: 'A downloader is replacing this song right now; try again when it is done', code: 'replace_job_active' });
@@ -447,13 +426,13 @@ export function createLibraryRouter(hooks: LibraryHooks = {}): Router {
         // after this must not run it again (it would be the same file).
         // The worker held the job, so it exists.
         const w = worker!;
-        const finished: { job: JobRow } | null = await downloadJobs.finish(job.id, { id: w.id, name: w.name, ownerName: downloadJobs.workerOwnerName(w) }, {
+        const finished = await downloadJobs.finish(job.id, { id: w.id, name: w.name, ownerName: downloadJobs.workerOwnerName(w) }, {
           summary: { total: 1, replaced: 1 },
           results: [{ status: 'replaced', song_id: song.id, title: song.title, artist: song.artist, youtube_id: song.youtube_id }],
         }).catch((err: Error) => { console.error('[library] could not finish replace job:', err.message); return null; });
         if (finished) { try { onJobUpdated(finished.job); } catch {} }
       } else {
-        const dropped: JobRow[] = await downloadJobs.cancelReplaceJobsForSong(song.id, 'Replaced by an uploaded file').catch(() => []);
+        const dropped = await downloadJobs.cancelReplaceJobsForSong(song.id, 'Replaced by an uploaded file').catch(() => []);
         for (const row of dropped) { try { onJobUpdated(row); } catch {} }
       }
       console.log(`[library] ${actor.name} replaced the audio of ${song.id}: "${previous.title}" by ${previous.artist} -> "${song.title}" by ${song.artist}${resolvedReports ? `; resolved ${resolvedReports} report(s)` : ''}`);

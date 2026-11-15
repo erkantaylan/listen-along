@@ -22,7 +22,7 @@
  */
 
 import access from '../../playlistAccess.js';
-import jobsModule from '../../downloadJobs.js';
+import { downloadJobs as jobsModule } from '../../core/jobs/index.ts';
 import type { JobWithJoins, Playlist } from '../../shared/types.ts';
 
 export const PROGRESS_MS = 1500;
@@ -46,7 +46,7 @@ export interface ActivityIo {
   sockets: { adapter: { rooms: { get(room: string): Set<string> | undefined } } };
 }
 
-/** What this feed uses of downloadJobs.js (CommonJS until core/ moves). */
+/** What this feed uses of downloadJobs. */
 interface JobViews {
   /** The activity log's row: what every approved account may see of a job (activity:job's `job`). */
   toActivity(row: ActivityJobRow, playlist: ActivityPlaylist | null): object | null;

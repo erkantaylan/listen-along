@@ -3,7 +3,7 @@
 // tested in frontend/src/features/social/activity-rules.test.ts.
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const downloadJobs = require('./downloadJobs');
+const { downloadJobs } = require('./core/jobs/index.ts');
 
 const at = (min) => new Date(Date.UTC(2026, 0, 1, 12, min)).toISOString();
 

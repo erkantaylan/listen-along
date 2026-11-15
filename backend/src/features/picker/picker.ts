@@ -22,7 +22,7 @@
 
 import { library as realLibrary } from '../../core/library/index.ts';
 import { ytdlp as realYtdlp, spotify as realSpotify, cleanPicks, MAX_PICKS } from '../../core/requests/index.ts';
-import { classifyInput as classifyInputJs } from '../../downloadJobs.js';
+import { downloadJobs } from '../../core/jobs/index.ts';
 import type { LibrarySongRow } from '../../shared/types.ts';
 
 export const SEARCH_COUNT = 5;
@@ -117,12 +117,7 @@ export interface Picker {
 }
 
 /** downloadJobs.classifyInput: what a typed or pasted text is. */
-type Classified =
-  | { error: string }
-  | { kind: 'video'; input: string; youtubeId: string }
-  | { kind: 'playlist' | 'spotify' | 'search'; input: string };
-// Typed here: its JavaScript source infers a looser shape.
-const classifyInput = classifyInputJs as (input: unknown) => Classified;
+const { classifyInput } = downloadJobs;
 
 function pickError(status: number, code: PickError['code'], message: string): PickError {
   return Object.assign(new Error(message), { status, code });

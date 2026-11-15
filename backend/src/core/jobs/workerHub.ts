@@ -3,7 +3,8 @@
  * WebSocket (GET /api/workers/connect, upgraded; nothing listens on the
  * user's machine) and receive download jobs.
  *
- * Protocol (JSON text messages, one object per message, `type` field):
+ * Protocol (JSON text messages, one object per message, `type` field; typed
+ * in protocol.ts):
  *
  *   worker -> server
  *     hello        { token, name, hostname, platform, arch, os_release,
@@ -28,7 +29,7 @@
  *     welcome      { worker: {id, name}, user: {id, name}|null, owner, heartbeat_ms,
  *                    cli_latest? }
  *                  cli_latest: { version, sha256, url } when the server ships
- *                  a la bundle (cliRelease.js). A newer version than its own
+ *                  a la bundle (cliRelease.ts). A newer version than its own
  *                  makes an 'update' worker fetch url (GET /api/cli/bundle,
  *                  same server, its token), check sha256, swap its files and
  *                  restart itself while idle (after the running job). Workers
@@ -66,27 +67,47 @@
  * with no capable worker the job just waits (and does not hold up other jobs).
  */
 
-const { WebSocketServer } = require('ws');
-const jobs = require('./downloadJobs');
-const { isOutdated } = require('./cliRelease');
+import type { IncomingMessage, Server } from 'node:http';
+import type { Duplex } from 'node:stream';
+import { WebSocketServer } from 'ws';
+import type { WebSocket } from 'ws';
+import * as jobs from './downloadJobs.ts';
+import type { WorkerWithOwner, WorkerInfo, WorkerLive } from './downloadJobs.ts';
+import type { JobWithJoins } from '../../shared/types.ts';
+import { isOutdated } from './cliRelease.ts';
+import type { CliLatest, HelloMessage, ServerMessage, WelcomeMessage } from './protocol.ts';
+import type { ApiUser } from '../../auth/index.ts';
 
-const PATH = '/api/workers/connect';
-const PROTOCOL = 1;
+export const PATH = '/api/workers/connect';
+export const PROTOCOL = 1;
 const CAP_REPLACE = 'replace';
 const CAP_UPDATE = 'update';
-const CLOSE_OUTDATED = 4010;
+export const CLOSE_OUTDATED = 4010;
+
+/** What planAssignments reads of a queued job. */
+export interface PlannedJob {
+  id: string;
+  requested_by_user_id?: string | null;
+  replace_song_id?: string | null;
+}
+
+/** What planAssignments reads of an idle worker. */
+export interface IdleWorker {
+  userId?: string | null;
+  idleSince?: number;
+  canReplace?: boolean;
+}
 
 /**
  * Pure routing: which idle worker gets which queued job.
- * @param {object[]} queued - jobs oldest first ({ id, requested_by_user_id, replace_song_id? })
- * @param {object[]} idle - idle workers ({ userId, idleSince, canReplace? })
- * @returns {{job, worker}[]}
+ * @param queued jobs oldest first
+ * @param idle idle workers
  */
-function planAssignments(queued, idle) {
+export function planAssignments<J extends PlannedJob, W extends IdleWorker>(queued: readonly J[], idle: readonly W[]): Array<{ job: J; worker: W }> {
   const free = [...idle].sort((a, b) => (a.idleSince || 0) - (b.idleSince || 0));
-  const plan = [];
-  const rest = [];
-  const fits = (job, w) => !job.replace_song_id || w.canReplace === true;
+  const plan: Array<{ job: J; worker: W }> = [];
+  const rest: J[] = [];
+  const fits = (job: J, w: W) => !job.replace_song_id || w.canReplace === true;
   // 1. The requester's own idle worker, if any.
   for (const job of queued) {
     const i = job.requested_by_user_id ? free.findIndex((w) => w.userId && w.userId === job.requested_by_user_id && fits(job, w)) : -1;
@@ -102,25 +123,76 @@ function planAssignments(queued, idle) {
   return plan;
 }
 
-/**
- * @param {object} opts
- * @param {(token: string) => Promise<object|null>} opts.verifyToken - tokens.verifyToken
- * @param {(req) => string} [opts.ipOf] - client IP of the upgrade request
- * @param {(job: object) => void} [opts.onJobUpdated] - any job state change (row)
- * @param {(job: object, songIds: string[]) => void} [opts.onJobFinished] - a worker finished it
- * @param {() => void} [opts.onWorkersChanged] - a worker connected / went idle / busy / away
- * @param {() => boolean} [opts.dbAvailable]
- * @param {number} [opts.heartbeatMs]
- * @param {number} [opts.requeueGraceMs]
- * @param {number} [opts.helloTimeoutMs]
- * @param {object} [opts.store] - downloadJobs (tests may stub)
- * @param {() => ({version, sha256, url}|null)} [opts.cliLatest] - cliRelease.latest
- * @param {number} [opts.outdatedNudgeMs] - see close code 4010; 0 = off
- */
-function createWorkerHub(opts = {}) {
+/** What the hub uses of the job store (downloadJobs; tests may stub it). */
+export type WorkerStore = Pick<typeof jobs,
+  'listQueued' | 'failTargetGone' | 'assign' | 'toWorker' | 'requeue' | 'registerWorker' | 'workerOwnerName' | 'reclaim'
+  | 'touchWorker' | 'setProgress' | 'getJob' | 'finish' | 'listAll' | 'requeueAllAssigned'>;
+
+export interface WorkerHubOptions {
+  /** tokens.verifyToken */
+  verifyToken: (token: string) => Promise<ApiUser | null>;
+  /** client IP of the upgrade request */
+  ipOf?: (req: IncomingMessage) => string | null;
+  /** any job state change (row) */
+  onJobUpdated?: (job: JobWithJoins) => void;
+  /** a worker finished it */
+  onJobFinished?: (job: JobWithJoins, songIds: string[]) => void;
+  /** a worker connected / went idle / busy / away */
+  onWorkersChanged?: () => void;
+  dbAvailable?: () => boolean;
+  heartbeatMs?: number;
+  requeueGraceMs?: number;
+  helloTimeoutMs?: number;
+  /** downloadJobs (tests may stub) */
+  store?: WorkerStore;
+  /** cliRelease.latest */
+  cliLatest?: () => CliLatest | null;
+  /** see close code 4010; 0 = off */
+  outdatedNudgeMs?: number;
+}
+
+/** One connected worker process. */
+interface Conn {
+  ws: WebSocket;
+  worker: WorkerWithOwner;
+  userId: string | null;
+  tokenId: string;
+  ownerName: string | null;
+  canReplace: boolean;
+  currentJobId: string | null;
+  draining: boolean;
+  ready: boolean;
+  idleSince: number;
+  connectedAt: number;
+  lastSeen: number;
+  /** another process connected as the same worker */
+  replaced?: boolean;
+}
+
+/** A message from a worker after the JSON check: an object whose fields are not trusted yet. */
+type Incoming = Record<string, unknown>;
+
+export interface WorkerHub {
+  /** Attach to the HTTP server: upgrades on PATH become worker connections. */
+  attach(server: Server): void;
+  /** Boot: no worker is connected yet. */
+  start(): Promise<void>;
+  /** Hand queued jobs to idle workers. */
+  dispatch(): Promise<void>;
+  stats(): { online: number; idle: number; busy: number; can_replace: number };
+  /** Live state of a worker id (for the views), or null if offline. */
+  live(workerId: string): WorkerLive | null;
+  onlineWorkers(): Array<{ id: string; name: string; owner: string | null; busy: boolean }>;
+  close(): void;
+  sweep(): Promise<void>;
+  PATH: string;
+  _conns: Map<string, Conn>;
+}
+
+export function createWorkerHub(opts: WorkerHubOptions): WorkerHub {
   const store = opts.store || jobs;
   const verifyToken = opts.verifyToken;
-  const ipOf = opts.ipOf || ((req) => (req.socket && req.socket.remoteAddress) || null);
+  const ipOf = opts.ipOf || ((req: IncomingMessage) => (req.socket && req.socket.remoteAddress) || null);
   const onJobUpdated = opts.onJobUpdated || (() => {});
   const onJobFinished = opts.onJobFinished || (() => {});
   const onWorkersChanged = opts.onWorkersChanged || (() => {});
@@ -130,33 +202,33 @@ function createWorkerHub(opts = {}) {
   const helloTimeoutMs = opts.helloTimeoutMs ?? 10000;
   const cliLatest = opts.cliLatest || (() => null);
   const outdatedNudgeMs = opts.outdatedNudgeMs ?? Number(process.env.WORKER_OUTDATED_NUDGE_MS ?? 24 * 3600 * 1000);
-  const nudgedAt = new Map(); // workerId -> when it last got close 4010
+  const nudgedAt = new Map<string, number>(); // workerId -> when it last got close 4010
 
   /** workerId -> conn { ws, worker, userId, ownerName, currentJobId, draining, idleSince, connectedAt, lastSeen } */
-  const conns = new Map();
-  const graceTimers = new Map(); // jobId -> timeout
+  const conns = new Map<string, Conn>();
+  const graceTimers = new Map<string, NodeJS.Timeout>(); // jobId -> timeout
   const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024 });
-  let dispatching = Promise.resolve();
+  let dispatching: Promise<void> = Promise.resolve();
   let dispatchAgain = false;
-  let sweepTimer = null;
-  let pingTimer = null;
+  let sweepTimer: NodeJS.Timeout | null = null;
+  let pingTimer: NodeJS.Timeout | null = null;
   let closed = false;
 
-  const log = (...a) => console.log('[workers]', ...a);
-  const safe = (fn) => { try { return fn(); } catch (err) { console.error('[workers] hook failed:', err); return undefined; } };
-  const notify = (row) => { if (row) safe(() => onJobUpdated(row)); };
+  const log = (...a: unknown[]) => console.log('[workers]', ...a);
+  const safe = <T>(fn: () => T): T | undefined => { try { return fn(); } catch (err) { console.error('[workers] hook failed:', err); return undefined; } };
+  const notify = (row: JobWithJoins | null | undefined) => { if (row) safe(() => onJobUpdated(row)); };
 
-  function send(ws, msg) {
+  function send(ws: WebSocket, msg: ServerMessage): boolean {
     if (ws.readyState !== ws.OPEN) return false;
     try { ws.send(JSON.stringify(msg)); return true; } catch { return false; }
   }
 
-  function closeWith(ws, code, errCode, message) {
+  function closeWith(ws: WebSocket, code: number, errCode: string, message: string): void {
     send(ws, { type: 'error', code: errCode, message });
     try { ws.close(code, message.slice(0, 120)); } catch {}
   }
 
-  function workerInfo(conn) {
+  function workerInfo(conn: Conn): WorkerInfo {
     return { id: conn.worker.id, name: conn.worker.name, ownerName: conn.ownerName, canReplace: conn.canReplace };
   }
 
@@ -174,7 +246,7 @@ function createWorkerHub(opts = {}) {
   }
 
   /** Live state of a worker id (for the views), or null if offline. */
-  function live(workerId) {
+  function live(workerId: string): WorkerLive | null {
     const c = conns.get(workerId);
     return c && c.ready ? { currentJobId: c.currentJobId, connectedAt: c.connectedAt, draining: c.draining } : null;
   }
@@ -188,7 +260,7 @@ function createWorkerHub(opts = {}) {
   // --- Dispatch -----------------------------------------------------------------
 
   /** Hand queued jobs to idle workers. Serialized; coalesces bursts. */
-  function dispatch() {
+  function dispatch(): Promise<void> {
     if (closed) return dispatching;
     dispatchAgain = true;
     dispatching = dispatching.then(async () => {
@@ -200,11 +272,11 @@ function createWorkerHub(opts = {}) {
     return dispatching;
   }
 
-  async function dispatchOnce() {
+  async function dispatchOnce(): Promise<void> {
     if (!dbAvailable()) return;
     const idle = [...conns.values()].filter((c) => c.ready && !c.currentJobId && !c.draining);
     if (!idle.length) return;
-    const queued = [];
+    const queued: JobWithJoins[] = [];
     for (const job of await store.listQueued(200)) {
       if (job.replace_song_id && !job.replace_target_id) notify(await store.failTargetGone(job.id));
       else queued.push(job);
@@ -231,12 +303,12 @@ function createWorkerHub(opts = {}) {
 
   // --- Requeue ------------------------------------------------------------------
 
-  function jobHeldLive(jobId) {
+  function jobHeldLive(jobId: string): boolean {
     for (const c of conns.values()) if (c.currentJobId === jobId) return true;
     return false;
   }
 
-  async function requeueNow(jobId, workerId, reason) {
+  async function requeueNow(jobId: string, workerId: string | null, reason: string): Promise<void> {
     clearTimeout(graceTimers.get(jobId));
     graceTimers.delete(jobId);
     if (jobHeldLive(jobId)) return;
@@ -248,7 +320,7 @@ function createWorkerHub(opts = {}) {
     dispatch();
   }
 
-  function scheduleRequeue(jobId, workerId, reason) {
+  function scheduleRequeue(jobId: string, workerId: string, reason: string): void {
     if (requeueGraceMs <= 0) { requeueNow(jobId, workerId, reason); return; }
     clearTimeout(graceTimers.get(jobId));
     graceTimers.set(jobId, setTimeout(() => requeueNow(jobId, workerId, reason), requeueGraceMs));
@@ -256,18 +328,20 @@ function createWorkerHub(opts = {}) {
 
   // --- Messages -----------------------------------------------------------------
 
-  async function handleHello(ws, req, msg, state) {
+  async function handleHello(ws: WebSocket, req: IncomingMessage, raw: Incoming, state: { conn: Conn | null }): Promise<void> {
     if (!dbAvailable()) return closeWith(ws, 4005, 'NO_DATABASE', 'The server has no database; downloads are unavailable');
-    if (!msg || msg.type !== 'hello' || typeof msg.token !== 'string') return closeWith(ws, 4002, 'BAD_HELLO', 'Expected a hello message with a token');
+    if (!raw || raw.type !== 'hello' || typeof raw.token !== 'string') return closeWith(ws, 4002, 'BAD_HELLO', 'Expected a hello message with a token');
+    // Checked just above: a hello with a token; every other field is still unknown.
+    const msg = raw as unknown as HelloMessage;
     const apiUser = await verifyToken(msg.token).catch(() => null);
     if (!apiUser) return closeWith(ws, 4001, 'AUTH', 'Invalid or revoked token (or its owner is not approved)');
     if (ws.readyState !== ws.OPEN) return;
     const worker = await store.registerWorker(apiUser, msg, ipOf(req));
     const ownerName = store.workerOwnerName(worker) || apiUser.name;
     const prev = conns.get(worker.id);
-    const caps = Array.isArray(msg.capabilities) ? msg.capabilities : [];
+    const caps: unknown[] = Array.isArray(msg.capabilities) ? msg.capabilities : [];
     const latest = safe(cliLatest) || null;
-    const welcome = {
+    const welcome: WelcomeMessage = {
       type: 'welcome',
       protocol: PROTOCOL,
       worker: { id: worker.id, name: worker.name },
@@ -288,7 +362,7 @@ function createWorkerHub(opts = {}) {
       log(`${worker.name} (${ownerName || 'legacy token'}) runs la ${msg.cli_version} < ${latest.version}: told to update (close ${CLOSE_OUTDATED}); it reconnects`);
       return;
     }
-    const conn = {
+    const conn: Conn = {
       ws, worker, userId: apiUser.userId || null, tokenId: apiUser.id, ownerName,
       canReplace: caps.includes(CAP_REPLACE),
       currentJobId: null, draining: false, ready: false,
@@ -320,7 +394,8 @@ function createWorkerHub(opts = {}) {
     dispatch();
   }
 
-  async function handleMessage(conn, msg) {
+  // Every message after the hello (protocol.ts WorkerMessage); fields are read as unknown.
+  async function handleMessage(conn: Conn, msg: Incoming): Promise<void> {
     conn.lastSeen = Date.now();
     const jobId = typeof msg.job_id === 'string' ? msg.job_id : null;
     switch (msg.type) {
@@ -367,27 +442,28 @@ function createWorkerHub(opts = {}) {
     }
   }
 
-  function onConnection(ws, req) {
-    const state = { conn: null, helloDone: false };
-    let chain = Promise.resolve();
+  function onConnection(ws: WebSocket, req: IncomingMessage): void {
+    const state: { conn: Conn | null; helloDone: boolean } = { conn: null, helloDone: false };
+    let chain: Promise<void> = Promise.resolve();
     const helloTimer = setTimeout(() => {
       if (!state.helloDone) closeWith(ws, 4002, 'HELLO_TIMEOUT', 'No hello received');
     }, helloTimeoutMs);
 
     ws.on('message', (data, isBinary) => {
       if (isBinary) return;
-      let msg;
+      let msg: unknown;
       try { msg = JSON.parse(String(data)); } catch { return closeWith(ws, 4002, 'BAD_MESSAGE', 'Messages must be JSON'); }
       if (!msg || typeof msg !== 'object') return;
+      const checked = msg as Incoming;
       // Handle one message at a time, in order.
       chain = chain.then(async () => {
         if (!state.helloDone) {
           state.helloDone = true;
           clearTimeout(helloTimer);
-          await handleHello(ws, req, msg, state);
+          await handleHello(ws, req, checked, state);
           return;
         }
-        if (state.conn && state.conn.ready) await handleMessage(state.conn, msg);
+        if (state.conn && state.conn.ready) await handleMessage(state.conn, checked);
       }).catch((err) => console.error('[workers] message handling failed:', err));
     });
 
@@ -411,10 +487,10 @@ function createWorkerHub(opts = {}) {
   wss.on('connection', onConnection);
 
   /** Attach to the HTTP server: upgrades on PATH become worker connections. */
-  function attach(server) {
-    server.on('upgrade', (req, socket, head) => {
+  function attach(server: Server): void {
+    server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
       let pathname;
-      try { pathname = new URL(req.url, 'http://x').pathname; } catch { return; }
+      try { pathname = new URL(req.url!, 'http://x').pathname; } catch { return; }
       if (pathname !== PATH) return; // Socket.IO's own listener handles /socket.io/
       wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
     });
@@ -432,7 +508,7 @@ function createWorkerHub(opts = {}) {
     sweepTimer.unref?.();
   }
 
-  async function sweep() {
+  async function sweep(): Promise<void> {
     if (!dbAvailable()) return;
     const active = await store.listAll({ status: 'assigned', limit: 500 });
     for (const j of active) {
@@ -444,16 +520,16 @@ function createWorkerHub(opts = {}) {
   }
 
   /** Boot: no worker is connected yet. */
-  async function start() {
+  async function start(): Promise<void> {
     if (!dbAvailable()) return;
     const n = await store.requeueAllAssigned();
     if (n) log(`requeued ${n} job(s) that were running when the server stopped`);
   }
 
-  function close() {
+  function close(): void {
     closed = true;
-    clearInterval(pingTimer);
-    clearInterval(sweepTimer);
+    if (pingTimer) clearInterval(pingTimer);
+    if (sweepTimer) clearInterval(sweepTimer);
     for (const t of graceTimers.values()) clearTimeout(t);
     graceTimers.clear();
     for (const c of conns.values()) { try { c.ws.close(1001, 'Server shutting down'); } catch {} }
@@ -462,5 +538,3 @@ function createWorkerHub(opts = {}) {
 
   return { attach, start, dispatch, stats, live, onlineWorkers, close, sweep, PATH, _conns: conns };
 }
-
-module.exports = { createWorkerHub, planAssignments, PATH, PROTOCOL, CLOSE_OUTDATED };

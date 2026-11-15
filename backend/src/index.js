@@ -25,15 +25,13 @@ const access = require('./playlistAccess');
 const playlistPins = require('./playlistPins');
 
 const { createAppRelease } = require('./features/app-release/index.ts');
-const { createCliRelease, createCliRouter } = require('./cliRelease');
+const { downloadJobs, createWorkerHub, createJobRouter, createCliRelease, createCliRouter } = require('./core/jobs/index.ts');
 const {
   readOidcConfig, readDevLogin, adminAuth, tokens, createTokenRouter, createUserAuth, createOidcClient, createSessionStore, createOidcSessions,
 } = require('./auth/index.ts');
 const { chat, createPresence, createSocial } = require('./features/social/index.ts');
 const { createListenAlong, createSourceResolver } = require('./features/listen-along/index.ts');
-const downloadJobs = require('./downloadJobs');
-const { createWorkerHub } = require('./workerHub');
-const { createJobRouter } = require('./jobRoutes');
+
 const { createActivityFeed } = require('./features/activity/index.ts');
 const { createStationRouter } = require('./features/radio/index.ts');
 const { createArtistRouter } = require('./features/artists/index.ts');

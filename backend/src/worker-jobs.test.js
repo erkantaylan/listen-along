@@ -19,8 +19,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { io: ioClient } = require('socket.io-client');
 const { cookieFor, adminCookie, startServer, requester } = require('./testServer');
-const { planAssignments } = require('./workerHub');
-const downloadJobs = require('./downloadJobs');
+const { planAssignments, downloadJobs } = require('./core/jobs/index.ts');
 const cliVersion = require('../../cli/package.json').version;
 
 let PostgreSqlContainer;

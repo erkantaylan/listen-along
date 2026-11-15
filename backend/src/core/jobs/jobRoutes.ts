@@ -22,15 +22,33 @@
  * everyone else sees a worker as "<name> (<owner>)".
  */
 
-const express = require('express');
-const db = require('./shared/db.ts');
-const { library } = require('./core/library/index.ts');
-const jobs = require('./downloadJobs');
-const { adminAuth } = require('./auth/index.ts');
-const { ytdlp } = require('./core/requests/index.ts');
-const { apiLimiter, make } = require('./shared/rateLimits.ts');
-const { isOutdated } = require('./cliRelease');
-const { cleanPicks, MAX_PICKS } = require('./core/requests/index.ts');
+import express from 'express';
+import type { Request, RequestHandler, Response, Router } from 'express';
+import dbModule from '../../shared/db.ts';
+import type { DbModule } from '../../shared/db.ts';
+import { library } from '../library/index.ts';
+import type { PublicSong } from '../library/index.ts';
+import * as jobs from './downloadJobs.ts';
+
+import { adminAuth } from '../../auth/index.ts';
+import type { Account } from '../../auth/index.ts';
+import { ytdlp, cleanPicks, MAX_PICKS } from '../requests/index.ts';
+import { apiLimiter, make } from '../../shared/rateLimits.ts';
+import { isOutdated } from './cliRelease.ts';
+import type { CliLatestView } from './cliRelease.ts';
+import type { WorkerHub } from './workerHub.ts';
+import type { JobWithJoins, LibrarySongRow, Playlist } from '../../shared/types.ts';
+
+// The live module object: tests replace its functions.
+const db: DbModule = dbModule;
+
+// What the account guards set (index.js withAccount): the caller's account.
+declare module 'express-serve-static-core' {
+  interface Request {
+    /** requireUser / requireMember: the signed-in account */
+    account?: Account;
+  }
+}
 
 // Each preview may run yt-dlp once on the server; results are kept a while.
 const previewLimiter = make(30, 60 * 1000, { message: 'Too many link lookups, slow down' });
@@ -40,37 +58,69 @@ const PREVIEW_CACHE_SIZE = 200;
 const pickLimiter = make(30, 60 * 1000, { message: 'Too many searches, slow down' });
 
 /** "Differs a lot": more than 15 seconds and more than 10% of the current length. */
-function durationDiffers(current, next) {
-  if (!(current > 0) || !(next > 0)) return false;
-  return Math.abs(current - next) > Math.max(15, current * 0.1);
+export function durationDiffers(current: number | null | undefined, next: number | null | undefined): boolean {
+  // Both are checked to be > 0 here (`!(x > 0)` is also true for null).
+  if (!(current! > 0) || !(next! > 0)) return false;
+  return Math.abs(current! - next!) > Math.max(15, current! * 0.1);
 }
 
-/**
- * @param {object} hooks
- * @param {Function} hooks.requireUser - approved account; sets req.account { id, name }
- * @param {Function} hooks.requireMember - any non-blocked account; sets req.account
- * @param {object} hooks.hub - workerHub (stats, live, onlineWorkers, dispatch)
- * @param {(playlistId, userId) => Promise<object|null>} hooks.editablePlaylist
- * @param {(url) => Promise<{title, artist}>} hooks.spotifyTrack
- * @param {(playlistId, song, addedBy, {allowDuplicates}) => Promise<boolean>} hooks.addSongToPlaylist - true if added now
- *   (false: already in it, unless allowDuplicates)
- * @param {(playlistId, userId) => Promise<object|null>} hooks.visiblePlaylist - the playlist if this user can see it
- * @param {(job) => void} [hooks.onJobUpdated]
- * @param {(videoId) => Promise<{title, channel, duration_sec}|null>} [hooks.previewVideo]
- * @param {object} hooks.picker - features/picker (lookup, search, titles)
- */
-function createJobRouter(hooks) {
+/** A video's title and length (ytdlp.previewVideo). */
+export interface VideoPreview {
+  title: string | null;
+  channel: string | null;
+  duration_sec: number | null;
+}
+
+/** What the routes use of the pick dialog's lookups (features/picker, built by index.js). */
+export interface JobPicker {
+  search(query: unknown): Promise<unknown>;
+  lookup(input: unknown, opts: { matchLibrary: boolean }): Promise<unknown>;
+  titles(ids: string[]): Promise<Map<string, string>>;
+}
+
+/** The playlist the routes add to or name (lobby's in-memory playlist). */
+export type JobPlaylist = Pick<Playlist, 'id' | 'name'>;
+
+export interface JobRouterHooks {
+  /** approved account; sets req.account { id, name } */
+  requireUser: RequestHandler;
+  /** any non-blocked account; sets req.account */
+  requireMember: RequestHandler;
+  /** the worker hub (stats, live, onlineWorkers, dispatch) */
+  hub: Pick<WorkerHub, 'stats' | 'live' | 'onlineWorkers' | 'dispatch'>;
+  cliLatest?: () => CliLatestView | null;
+  /** the playlist if this user may edit it */
+  editablePlaylist: (playlistId: string, userId: string) => Promise<JobPlaylist | null>;
+  spotifyTrack: (url: string) => Promise<{ name?: string | null; title?: string | null; artist?: string | null } | null>;
+  /** true if added now (false: already in it, unless allowDuplicates) */
+  addSongToPlaylist: (playlistId: string, song: LibrarySongRow, addedBy: string, opts?: { allowDuplicates?: boolean }) => Promise<boolean>;
+  /** the playlist if this user can see it */
+  visiblePlaylist: (playlistId: string, userId: string) => Promise<JobPlaylist | null>;
+  onJobUpdated?: (job: JobWithJoins) => void;
+  previewVideo?: (videoId: string) => Promise<VideoPreview | null>;
+  /** features/picker (lookup, search, titles) */
+  picker: JobPicker;
+}
+
+/** What checkReplace answers: the song and the video, or a refusal. */
+type ReplaceCheck =
+  | { song: LibrarySongRow; youtubeId: string; status?: undefined }
+  | { status: number; error: string; code: string; song?: PublicSong };
+
+export function createJobRouter(hooks: JobRouterHooks): Router {
   const { requireUser, requireMember, hub } = hooks;
   const cliLatest = hooks.cliLatest || (() => null);
   const onJobUpdated = hooks.onJobUpdated || (() => {});
   const router = express.Router();
   router.use(['/api/workers', '/api/jobs', '/api/profile/activity', '/api/activity', '/api/admin/workers', '/api/admin/jobs'], apiLimiter);
 
-  const requireDb = (req, res, next) => {
+  const requireDb: RequestHandler = (req, res, next) => {
     if (!db.isAvailable()) return res.status(503).json({ error: 'Downloads need the database' });
     next();
   };
-  const route = (label, fn) => (req, res) => {
+  // The account guard ran first (requireUser / requireMember).
+  const accountOf = (req: Request) => req.account!;
+  const route = (label: string, fn: (req: Request, res: Response) => unknown) => (req: Request, res: Response) => {
     Promise.resolve(fn(req, res)).catch((err) => {
       console.error(`[jobs] ${label} error:`, err);
       if (!res.headersSent) res.status(500).json({ error: `Failed to ${label}` });
@@ -78,13 +128,13 @@ function createJobRouter(hooks) {
   };
   const workerCounts = () => hub.stats();
   const previewVideo = hooks.previewVideo || ytdlp.previewVideo;
-  const previews = new Map(); // video id -> { at, value }
+  const previews = new Map<string, { at: number; value: VideoPreview }>(); // video id -> { at, value }
 
-  async function cachedPreview(id) {
+  async function cachedPreview(id: string): Promise<VideoPreview | null> {
     const hit = previews.get(id);
     if (hit && Date.now() - hit.at < PREVIEW_CACHE_MS) return hit.value;
     const value = await previewVideo(id).catch(() => null);
-    if (previews.size >= PREVIEW_CACHE_SIZE) previews.delete(previews.keys().next().value);
+    if (previews.size >= PREVIEW_CACHE_SIZE) previews.delete(previews.keys().next().value!);
     // A failed lookup may be momentary: only an answer is kept.
     if (value) previews.set(id, { at: Date.now(), value });
     return value;
@@ -94,11 +144,11 @@ function createJobRouter(hooks) {
    * Can this link replace this song? Every rule of a link replace, for the
    * preview and the real thing: { song, youtubeId } or { status, error, code, song? }.
    */
-  async function checkReplace(songId, input) {
+  async function checkReplace(songId: unknown, input: unknown): Promise<ReplaceCheck> {
     const song = library.isUuid(songId) ? await library.getById(songId) : null;
     if (!song) return { status: 404, error: 'Song not found', code: 'not_found' };
     const what = jobs.classifyInput(input);
-    if (what.error || what.kind !== 'video') {
+    if ('error' in what || what.kind !== 'video') {
       return { status: 400, error: 'Paste a link to a YouTube video', code: 'BAD_INPUT' };
     }
     if (what.youtubeId === song.youtube_id) {
@@ -118,15 +168,15 @@ function createJobRouter(hooks) {
     }
     return { song, youtubeId: what.youtubeId };
   }
-  const refuse = (res, c) => res.status(c.status).json({ error: c.error, code: c.code, ...(c.song ? { song: c.song } : {}) });
+  const refuse = (res: Response, c: Extract<ReplaceCheck, { error: string }>) => res.status(c.status).json({ error: c.error, code: c.code, ...(c.song ? { song: c.song } : {}) });
 
   router.get('/api/workers', requireUser, (req, res) => {
     res.json({ workers: hub.onlineWorkers(), ...workerCounts() });
   });
 
   router.get('/api/jobs', requireUser, requireDb, route('list jobs', async (req, res) => {
-    const rows = await jobs.listForUser(req.account.id, { limit: 50 });
-    res.json({ jobs: rows.map(jobs.toPublic), workers: workerCounts() });
+    const rows = await jobs.listForUser(accountOf(req).id, { limit: 50 });
+    res.json({ jobs: rows.map((row) => jobs.toPublic(row)), workers: workerCounts() });
   }));
 
   // What the pick dialog shows before anything is queued (features/picker for the
@@ -139,8 +189,9 @@ function createJobRouter(hooks) {
         ? await hooks.picker.search(body.query)
         : await hooks.picker.lookup(body.input, { matchLibrary: body.match_library === true }));
     } catch (err) {
-      if (!err.status) throw err;
-      res.status(err.status).json({ error: err.message, code: err.code });
+      const e = err as Error & { status?: number; code?: string };
+      if (!e.status) throw err;
+      res.status(e.status).json({ error: e.message, code: e.code });
     }
   }));
 
@@ -151,15 +202,16 @@ function createJobRouter(hooks) {
     if (body.picks !== undefined && !picks) {
       return res.status(400).json({ error: `picks must be 1 to ${MAX_PICKS} YouTube video ids`, code: 'BAD_INPUT' });
     }
-    const what = picks ? null : jobs.classifyInput(body.input);
-    if (what && what.error) return res.status(400).json({ error: what.error, code: 'BAD_INPUT' });
+    const classified = picks ? null : jobs.classifyInput(body.input);
+    if (classified && 'error' in classified) return res.status(400).json({ error: classified.error, code: 'BAD_INPUT' });
 
-    let playlist = null;
+    const account = accountOf(req);
+    let playlist: JobPlaylist | null = null;
     if (body.playlist_id !== undefined && body.playlist_id !== null && body.playlist_id !== '') {
-      playlist = await hooks.editablePlaylist(String(body.playlist_id), req.account.id);
+      playlist = await hooks.editablePlaylist(String(body.playlist_id), account.id);
       if (!playlist) return res.status(404).json({ error: 'Playlist not found', code: 'PLAYLIST_NOT_FOUND' });
     }
-    const requester = req.account.name || 'Someone';
+    const requester = account.name || 'Someone';
 
     if (picks) {
       // One video job each (any worker runs those); what the library has is
@@ -170,12 +222,12 @@ function createJobRouter(hooks) {
       const allowDuplicates = body.allow_duplicates === true;
       const have = await library.getByYoutubeIds(picks);
       const titles = await hooks.picker.titles(picks.filter((id) => !have.has(id)));
-      const created = [];
-      const existing = [];
-      const already = [];
-      const handled = new Set();
+      const created: JobWithJoins[] = [];
+      const existing: PublicSong[] = [];
+      const already: string[] = [];
+      const handled = new Set<string>();
       let added = 0;
-      let failure = null;
+      let failure: unknown = null;
       try {
         for (const id of picks) {
           const song = have.get(id);
@@ -192,7 +244,7 @@ function createJobRouter(hooks) {
               input: library.youtubeUrl(id),
               title: titles.get(id) || null,
               playlistId: playlist ? playlist.id : null,
-              requestedByUserId: req.account.id,
+              requestedByUserId: account.id,
               requestedBy: requester,
             });
             created.push(row);
@@ -213,11 +265,13 @@ function createJobRouter(hooks) {
       // without queuing the others twice.
       const failed = picks.filter((id) => !handled.has(id));
       return res.status(created.length ? 201 : 200).json({
-        jobs: created.map(jobs.toPublic), existing, added_to_playlist: added, already_in_playlist: already, playlist_id: playlist ? playlist.id : null, workers: workerCounts(),
+        jobs: created.map((row) => jobs.toPublic(row)), existing, added_to_playlist: added, already_in_playlist: already, playlist_id: playlist ? playlist.id : null, workers: workerCounts(),
         ...(failed.length ? { failed, error: `${failed.length} of ${picks.length} could not be queued` } : {}),
       });
     }
 
+    // Without picks, classifyInput ran and was not an error.
+    const what = classified!;
     // A video the library already has: nothing to download.
     if (what.kind === 'video') {
       const song = await library.getByYoutubeId(what.youtubeId);
@@ -233,11 +287,12 @@ function createJobRouter(hooks) {
       // The worker searches YouTube for it (the server only reads the page).
       let track;
       try { track = await hooks.spotifyTrack(what.input); } catch (err) {
-        return res.status(400).json({ error: `Could not read that Spotify link: ${err.message}`, code: 'BAD_INPUT' });
+        return res.status(400).json({ error: `Could not read that Spotify link: ${(err as Error).message}`, code: 'BAD_INPUT' });
       }
       const name = track && (track.name || track.title);
       if (!name) return res.status(400).json({ error: 'That Spotify link has no track title', code: 'BAD_INPUT' });
-      const artist = track.artist && track.artist !== 'Unknown Artist' ? track.artist : null;
+      // A track with a name.
+      const artist = track!.artist && track!.artist !== 'Unknown Artist' ? track!.artist : null;
       title = artist ? `${artist} - ${name}` : name;
       input = title;
     }
@@ -247,7 +302,7 @@ function createJobRouter(hooks) {
       input,
       title,
       playlistId: playlist ? playlist.id : null,
-      requestedByUserId: req.account.id,
+      requestedByUserId: account.id,
       requestedBy: requester,
     });
     console.log(`[jobs] ${requester} queued ${what.kind} job ${row.id}: ${title || input}${playlist ? ` -> playlist ${playlist.id}` : ''}`);
@@ -261,7 +316,7 @@ function createJobRouter(hooks) {
     const body = req.body && typeof req.body === 'object' ? req.body : {};
     const c = await checkReplace(body.song_id, body.input);
     if (c.status === 404) return refuse(res, c);
-    if (c.status) return res.json({ resolved: false, problem: { code: c.code, message: c.error, song: c.song || null } });
+    if (c.status !== undefined) return res.json({ resolved: false, problem: { code: c.code, message: c.error, song: c.song || null } });
     const found = await cachedPreview(c.youtubeId);
     const current = c.song.duration_sec === null ? null : Number(c.song.duration_sec);
     res.json({
@@ -271,7 +326,7 @@ function createJobRouter(hooks) {
       channel: found ? found.channel : null,
       duration_sec: found ? found.duration_sec : null,
       current_duration_sec: current,
-      duration_differs: !!found && durationDiffers(current, found.duration_sec),
+      duration_differs: !!found && durationDiffers(current, found!.duration_sec),
       problem: null,
     });
   }));
@@ -279,19 +334,20 @@ function createJobRouter(hooks) {
   router.post('/api/jobs/replace', requireUser, requireDb, express.json(), route('replace the song', async (req, res) => {
     const body = req.body && typeof req.body === 'object' ? req.body : {};
     const c = await checkReplace(body.song_id, body.input);
-    if (c.status) return refuse(res, c);
+    if (c.status !== undefined) return refuse(res, c);
     const title = body.title === undefined ? c.song.title : library.cleanText(body.title, 300);
     const artist = body.artist === undefined ? c.song.artist : library.cleanText(body.artist, 300);
     const album = body.album === undefined ? (c.song.album || null) : (library.cleanText(body.album, 300) || null);
     if (!title || !artist) return res.status(400).json({ error: 'Title and artist are required', code: 'bad_details' });
     let row;
+    const account = accountOf(req);
     try {
       row = await jobs.createReplaceJob({
         song: c.song, youtubeId: c.youtubeId, title, artist, album,
-        requestedByUserId: req.account.id, requestedBy: req.account.name || 'Someone',
+        requestedByUserId: account.id, requestedBy: account.name || 'Someone',
       });
     } catch (err) {
-      if (err.code !== '23505') throw err;
+      if ((err as { code?: string }).code !== '23505') throw err;
       return res.status(409).json({ error: 'A replacement is already in progress for this song', code: 'replace_job_active' });
     }
     console.log(`[jobs] ${row.requested_by} queued replace job ${row.id}: song ${c.song.id} from ${c.youtubeId}`);
@@ -302,19 +358,19 @@ function createJobRouter(hooks) {
 
   // The job itself is the requester's only; anyone may learn that one is running.
   router.get('/api/jobs/replace/:songId', requireUser, requireDb, route('load the replace job', async (req, res) => {
-    const [active, mine] = await Promise.all([jobs.activeReplaceJob(req.params.songId), jobs.latestReplaceJob(req.params.songId, req.account.id)]);
+    const [active, mine] = await Promise.all([jobs.activeReplaceJob(req.params.songId), jobs.latestReplaceJob(req.params.songId, accountOf(req).id)]);
     res.json({ active: !!active, job: mine ? jobs.toPublic(mine) : null, workers: workerCounts() });
   }));
 
   router.post('/api/jobs/:id/cancel', requireUser, requireDb, route('cancel job', async (req, res) => {
-    const row = await jobs.cancel(req.params.id, { userId: req.account.id });
+    const row = await jobs.cancel(req.params.id, { userId: accountOf(req).id });
     if (!row) return res.status(409).json({ error: 'Only a job of yours that is still waiting can be cancelled', code: 'NOT_CANCELLABLE' });
     onJobUpdated(row);
     res.json({ job: jobs.toPublic(row) });
   }));
 
   router.post('/api/jobs/:id/retry', requireUser, requireDb, route('retry job', async (req, res) => {
-    const row = await jobs.retry(req.params.id, { userId: req.account.id });
+    const row = await jobs.retry(req.params.id, { userId: accountOf(req).id });
     if (!row) return res.status(409).json({ error: 'Only a failed or cancelled job of yours can be retried', code: 'NOT_RETRYABLE' });
     onJobUpdated(row);
     hub.dispatch();
@@ -323,17 +379,17 @@ function createJobRouter(hooks) {
 
   // --- Profile: the caller's own activity (only ever their own) -------------
   router.get('/api/profile/activity', requireMember, requireDb, route('load activity', async (req, res) => {
-    const me = req.account.id;
+    const me = accountOf(req).id;
     // One page of every list (the page reads the tab it shows).
-    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 100);
-    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+    const limit = Math.min(Math.max(parseInt(String(req.query.limit), 10) || 100, 1), 100);
+    const offset = Math.max(parseInt(String(req.query.offset), 10) || 0, 0);
     const [uploaded, asked, fulfilled, counts, workers, webJobs] = await Promise.all([
       // Songs I uploaded: with any token of mine, so via my workers too.
       db.query(
         `SELECT id, title, artist, youtube_id, created_at, uploaded_by_worker AS worker, requested_by
          FROM library_songs WHERE uploaded_by_user_id = $1 ORDER BY created_at DESC, id LIMIT $2 OFFSET $3`, [me, limit, offset]),
       // Songs I asked for (song requests), whether fulfilled, by whose worker.
-      db.query(
+      db.query<AskedRow>(
         `SELECT r.id, r.title, r.artist, r.youtube_id, r.status, r.created_at, r.updated_at,
                 s.id AS song_id, s.title AS song_title, s.artist AS song_artist,
                 s.uploaded_by AS fulfilled_by, s.uploaded_by_worker AS fulfilled_worker
@@ -358,19 +414,19 @@ function createJobRouter(hooks) {
       jobs.listForUser(me, { limit: offset + limit, sources: ['web', 'replace'] }),
     ]);
     // The asked tab merges song requests and web downloads: page the merged list.
-    const askedPage = [
+    const askedPage: Array<{ at: Date; row?: AskedRow; job?: JobWithJoins }> = [
       ...asked.rows.map((row) => ({ at: row.created_at, row })),
       ...webJobs.map((job) => ({ at: job.created_at, job })),
-    ].sort((a, b) => new Date(b.at) - new Date(a.at)).slice(offset, offset + limit);
+    ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()).slice(offset, offset + limit);
     res.json({
       counts: counts.rows[0],
       uploaded: uploaded.rows,
-      asked: askedPage.filter((x) => x.row).map((x) => x.row).map((r) => ({
+      asked: askedPage.filter((x) => x.row).map((x) => x.row!).map((r) => ({
         id: r.id, title: r.title, artist: r.artist, youtube_id: r.youtube_id, status: r.status, created_at: r.created_at,
         song: r.song_id ? { id: r.song_id, title: r.song_title, artist: r.song_artist } : null,
         fulfilled_by: r.song_id ? { name: r.fulfilled_by || null, worker: r.fulfilled_worker || null } : null,
       })),
-      downloads: askedPage.filter((x) => x.job).map((x) => jobs.toPublic(x.job)),
+      downloads: askedPage.filter((x) => x.job).map((x) => jobs.toPublic(x.job!)),
       fulfilled_by_my_workers: fulfilled.rows,
       // Own workers: name and state only (machine details are admin-only).
       workers: workers.map((w) => {
@@ -387,9 +443,9 @@ function createJobRouter(hooks) {
   router.get('/api/activity/downloads', requireUser, route('load the activity', async (req, res) => {
     if (!db.isAvailable()) return res.json({ jobs: [], workers: workerCounts() });
     const rows = await jobs.listActivity();
-    const seen = new Map();
-    for (const id of new Set(rows.map((r) => r.playlist_id).filter(Boolean))) {
-      seen.set(id, await hooks.visiblePlaylist(id, req.account.id));
+    const seen = new Map<string | null, JobPlaylist | null>();
+    for (const id of new Set(rows.map((r) => r.playlist_id).filter((x): x is string => Boolean(x)))) {
+      seen.set(id, await hooks.visiblePlaylist(id, accountOf(req).id));
     }
     res.json({ jobs: rows.map((r) => jobs.toActivity(r, seen.get(r.playlist_id) || null)), workers: workerCounts() });
   }));
@@ -414,7 +470,7 @@ function createJobRouter(hooks) {
       return res.status(400).json({ error: 'status must be all, active, queued, assigned, done, failed or cancelled' });
     }
     const [rows, counts] = await Promise.all([jobs.listAll({ status, limit: 200 }), jobs.countByStatus()]);
-    res.json({ jobs: rows.map(jobs.toAdmin), counts, workers: workerCounts() });
+    res.json({ jobs: rows.map((row) => jobs.toAdmin(row)), counts, workers: workerCounts() });
   }));
 
   router.post('/api/admin/jobs/:id/cancel', adminAuth.requireAdmin, requireDb, route('cancel job', async (req, res) => {
@@ -435,4 +491,18 @@ function createJobRouter(hooks) {
   return router;
 }
 
-module.exports = { createJobRouter, durationDiffers };
+/** A song request of the caller, with the song that fulfilled it (the profile's "asked" tab). */
+interface AskedRow {
+  id: string;
+  title: string | null;
+  artist: string | null;
+  youtube_id: string | null;
+  status: string;
+  created_at: Date;
+  updated_at: Date;
+  song_id: string | null;
+  song_title: string | null;
+  song_artist: string | null;
+  fulfilled_by: string | null;
+  fulfilled_worker: string | null;
+}
