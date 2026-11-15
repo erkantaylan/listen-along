@@ -1,9 +1,9 @@
-const test = require('node:test');
-const assert = require('node:assert');
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const { getVersionInfo } = require('./build-info');
+import test from 'node:test';
+import assert from 'node:assert';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { getVersionInfo } from './build-info.ts';
 
 const pkg = { version: '1.2.3', name: 'x' };
 

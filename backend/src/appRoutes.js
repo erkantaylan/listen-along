@@ -19,7 +19,7 @@ const path = require('path');
 const { monitorEventLoopDelay } = require('perf_hooks');
 const QRCode = require('qrcode');
 const pkg = require('../package.json');
-const { getVersionInfo } = require('./build-info');
+const { getVersionInfo } = require('./shared/build-info.ts');
 
 // Event-loop delay (main thread busy) for /health, over the last minute.
 // (The histogram includes its own sampling interval; /health subtracts it.)
