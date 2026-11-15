@@ -676,6 +676,11 @@ pins the SDK and `Aspire.Hosting.PostgreSQL` and fixes the dashboard ports in it
 OTLP 19260 gRPC / 19261 HTTP, resource service 20260; plain http, so no dev certificate). `aspire/.aspire/` is the
 SDK the CLI generates (`aspire restore`), gitignored; `tsc -p aspire/tsconfig.apphost.json --noEmit` typechecks
 the AppHost (the root `tsc -b` does not include it).
+`aspire/package.json`'s `nodemon` and `tsx` are used by the Aspire CLI itself (it runs the AppHost as `npx --no-install
+nodemon --watch . --ext ts,mts --exec 'tsc --noEmit … && tsx apphost.mts'`; without nodemon `make up` fails): keep them.
+Its `overrides` lift nodemon's minimatch to ^11.0.1, as `backend/package.json`'s lift testcontainers' archiver-utils glob
+to ^14 (minimatch GHSA-g3hv-75wg-m249; no upstream release allows the fix yet; both dev only): drop each override once
+nodemon / testcontainers depend on a fixed version.
 
 - Resources: `postgres` (16-alpine, as in production; volume `listen-along-dev-pgdata-<sha256(checkout path)[:10]>`,
   kept across runs) + database `listen`, `pgweb`, `frontend` (`tsc -b frontend -w`), `listen-along` (the server,
