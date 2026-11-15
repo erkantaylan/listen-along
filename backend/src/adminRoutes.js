@@ -7,7 +7,7 @@
  *   POST   /api/auth/users/:userId/status      { status: approved | denied }
  *   GET    /api/dashboard/stats                disk, memory, playlists (private ones counted, never listed)
  *   GET    /api/dashboard/users                users
- *   GET|PUT /api/admin/settings                { registrations_open } (settings.js)
+ *   GET|PUT /api/admin/settings                { registrations_open } (shared/settings.ts)
  *   PUT    /api/dashboard/users/:id/approve
  *   PUT    /api/dashboard/users/:id/reject
  *   DELETE /api/dashboard/lobbies/:id          an ownerless / public playlist
@@ -25,7 +25,7 @@ const access = require('./playlistAccess');
  * @param {{ lobbies: Map<string, object>, getLobby: Function, getLobbyUsers: Function }} deps.lobby - lobby.js
  * @param {(lobbyId: string) => Promise<object>} deps.getQueueAsync - queue.js
  * @param {{ SONGS_PATH: string, LIBRARY_DIR: string }} deps.library
- * @param {{ read: Function, set: Function }} deps.settings - settings.js createSettings()
+ * @param {{ read: Function, set: Function }} deps.settings - shared/settings.ts createSettings()
  * @param {{ enabled: boolean }} deps.oidc - the central-login config (oidcConfig.js)
  * @param {import('express').RequestHandler} deps.apiLimiter
  * @param {{ requireAdmin: import('express').RequestHandler }} deps.adminAuth
@@ -153,7 +153,7 @@ function createAdminRouter({ db, lobby, getQueueAsync, library, settings, oidc, 
     }
   });
 
-  // Sign-in settings (dashboard only; settings.js). registrations_open: whether a
+  // Sign-in settings (dashboard only; shared/settings.ts). registrations_open: whether a
   // central identity that matches no account gets a new one. Stored in the
   // database (in memory without one), read at every sign-in: no restart. Until
   // saved, REGISTRATIONS_DEFAULT decides (`source: 'default'`).

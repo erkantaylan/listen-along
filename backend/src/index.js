@@ -23,7 +23,7 @@ const { apiLimiter, make: makeLimiter } = require('./shared/rateLimits.ts');
 const { readOidcConfig } = require('./oidcConfig');
 const { createOidcClient } = require('./oidc');
 const { createSessionStore, createOidcSessions } = require('./oidcSessions');
-const { createSettings, parseRegistrationsDefault } = require('./settings');
+const { createSettings, parseRegistrationsDefault } = require('./shared/settings.ts');
 const { createResolver } = require('./songResolver');
 const { createPicker } = require('./features/picker/index.ts');
 const covers = require('./covers');
@@ -84,7 +84,7 @@ try {
 }
 try {
   OIDC = readOidcConfig(process.env);
-  // Registrations before an admin has saved the switch (settings.js).
+  // Registrations before an admin has saved the switch (shared/settings.ts).
   REGISTRATIONS_DEFAULT_OPEN = parseRegistrationsDefault(process.env);
 } catch (err) {
   console.error(`[oidc] ${err.message}`);

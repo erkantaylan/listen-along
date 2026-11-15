@@ -427,7 +427,7 @@ where lobby persistence broke entirely on deployed instances.
   never a new account), c. `email_verified === true` and exactly one unlinked
   user with that address from GOOGLE only (legacy GitHub addresses were stored
   unverified), e. new `approved` user unless registrations are closed
-  (`settings.js`, `app_settings.registrations_open`, dashboard switch,
+  (`shared/settings.ts`, `app_settings.registrations_open`, dashboard switch,
   `GET|PUT /api/admin/settings`; until saved, `REGISTRATIONS_DEFAULT=open|closed`
   decides, then the saved value wins). One `central-login: link rule=<x>
   user=<id> ...` / `central-login: refused ...` log line per sign-in. A denied /

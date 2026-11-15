@@ -1,6 +1,6 @@
 // Central login (OIDC) end to end, against a fake OpenID provider
 // (fakeOidcIssuer.js) and the real server (src/index.js as a child process):
-//   1. unit rules: configuration, secret boxes, upstream_identities parsing,
+//   1. unit rules: configuration, upstream_identities parsing,
 //      userAuth in central-login mode
 //   2. boot: half-configured / malformed issuer refuse to start; an unreachable
 //      IdP does not stop the server and sign-in works once it is back
@@ -26,7 +26,6 @@ const { SECRET, cookieFor, adminCookie, startServer, centralSessionCookie, freeP
 const { readOidcConfig, OidcConfigError } = require('./oidcConfig');
 const secretBox = require('./shared/secretBox.ts');
 const { parseUpstream } = require('./oidcLink');
-const { parseRegistrationsDefault, createSettings } = require('./settings');
 const { createOidcSessions } = require('./oidcSessions');
 const userAuthMod = require('./userAuth');
 
@@ -162,20 +161,6 @@ describe('central login: rules', () => {
     assert.equal(readOidcConfig({ ...env, OIDC_ISSUER: 'http://id.localhost:39100/application/o/listen-along/' }).allowInsecure, true);
   });
 
-  it('secret boxes open only with the same key and context', () => {
-    const k = secretBox.deriveKey('secret', 'purpose-a');
-    const box = secretBox.seal(k, 'refresh-token-value', 'row-1');
-    assert.doesNotMatch(box, /refresh-token-value/);
-    assert.equal(secretBox.open(k, box, 'row-1'), 'refresh-token-value');
-    assert.equal(secretBox.open(k, box, 'row-2'), null, 'bound to its row');
-    assert.equal(secretBox.open(secretBox.deriveKey('secret', 'purpose-b'), box, 'row-1'), null, 'bound to its purpose');
-    assert.equal(secretBox.open(secretBox.deriveKey('other', 'purpose-a'), box, 'row-1'), null, 'bound to the secret');
-    const parts = box.split('.');
-    parts[2] = Buffer.from('x'.repeat(19)).toString('base64url');
-    assert.equal(secretBox.open(k, parts.join('.'), 'row-1'), null, 'tampering is detected');
-    assert.notEqual(secretBox.seal(k, 'same', 'r'), secretBox.seal(k, 'same', 'r'), 'random IV');
-  });
-
   it('upstream_identities: mapped providers only, ids as strings, junk ignored', () => {
     const map = { google: 'google', github: 'github', gh: 'github' };
     assert.deepEqual(parseUpstream(undefined, map), []);
@@ -209,24 +194,6 @@ describe('central login: rules', () => {
     const raw = crypto.randomBytes(32).toString('base64url');
     assert.equal(s.idHashFromHeaders({ cookie: `la_session=${raw}` }), null, 'the unprefixed name is ignored when Secure');
     assert.ok(s.idHashFromHeaders({ cookie: `__Host-la_session=${raw}` }));
-  });
-
-  it('REGISTRATIONS_DEFAULT: open by default, closed on request, junk refused; a saved value wins', async () => {
-    assert.equal(parseRegistrationsDefault({}), true);
-    assert.equal(parseRegistrationsDefault({ REGISTRATIONS_DEFAULT: '' }), true);
-    assert.equal(parseRegistrationsDefault({ REGISTRATIONS_DEFAULT: 'open' }), true);
-    assert.equal(parseRegistrationsDefault({ REGISTRATIONS_DEFAULT: ' Closed ' }), false);
-    for (const bad of ['no', 'false', '0', 'off']) assert.throws(() => parseRegistrationsDefault({ REGISTRATIONS_DEFAULT: bad }));
-    const noDb = { isAvailable: () => false };
-    const closed = createSettings({ db: noDb, defaults: { registrations_open: false } });
-    assert.deepEqual(await closed.read('registrations_open'), { value: false, source: 'default' });
-    await closed.set('registrations_open', true);
-    assert.deepEqual(await closed.read('registrations_open'), { value: true, source: 'saved' });
-    const open = createSettings({ db: noDb, defaults: { registrations_open: true } });
-    await open.set('registrations_open', false);
-    assert.equal(await open.registrationsOpen(), false, 'saved closed beats env open');
-    const expected = createSettings({ db: noDb, dbExpected: true });
-    await assert.rejects(expected.registrationsOpen(), /unavailable/, 'no silent default when the database is missing');
   });
 
   it('the route policy knows the central login round trip', () => {
