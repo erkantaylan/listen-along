@@ -16,7 +16,7 @@
 //   the song; several failures and nothing playing is the network, the browser
 //   or the server.
 // - Listening along: the leader decides what plays and hears the same file, so
-//   a follower greys the song and nothing else (listen-along.js shows its own
+//   a follower greys the song and nothing else (listen-along.ts shows its own
 //   notice and waits for the next song).
 import { state, elements, auth } from '../shared/state.ts';
 import { player } from './player.ts';

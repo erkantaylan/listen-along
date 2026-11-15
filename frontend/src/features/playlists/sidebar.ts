@@ -2,7 +2,7 @@
 // drawer opened from the navbars below that, plus the row of places above the
 // page there (#app-places; DESIGN.md "Playlists sidebar").
 // Two panels: the places (Home, Radio, Artists, Music library; links handled by
-// app-page.ts's data-spa-link, the library by app.js) over the playlists.
+// app-page.ts's data-spa-link, the library by app.ts) over the playlists.
 // The column is expanded or a 72px rail of avatars: the user's choice, else
 // automatic by the room left for the page (panel-widths.ts, layout-rules.ts).
 // The list comes from playlist-store.ts, so everything here only navigates,

@@ -3,7 +3,7 @@
 // Normal mode (default): rows are clean and a click / tap / Enter plays.
 // Edit mode ("Edit" in the playlist header, only for users who may edit the
 // playlist): rows get a drag handle and a remove button, and clicking a row
-// does nothing. queue.js renders the rows; this module only keeps the mode
+// does nothing. queue.ts renders the rows; this module only keeps the mode
 // and moves rows around under the pointer.
 import type { VirtualList } from '../../shared/virtual-list.ts';
 

@@ -5,12 +5,12 @@
 //   /playlist/<id>             playlist (internally the view is still "lobby")
 //   /library                   music library (no playlist; Add is disabled)
 //   /playlist/<id>/library     music library over a playlist (Add targets it)
-//   /radio                     Radio: every song, shuffled (radio.js)
-//   /artists                   every artist in the library (artists.js)
-//   /artist/<key>              one artist's songs, read-only (artist-page.js)
-//   /search?q=<text>           the global search (search.js): library songs,
+//   /radio                     Radio: every song, shuffled (radio.ts)
+//   /artists                   every artist in the library (artists.ts)
+//   /artist/<key>              one artist's songs, read-only (artist-page.ts)
+//   /search?q=<text>           the global search (search.ts): library songs,
 //                              artists, playlists, YouTube on request, links
-//   /app                       Android app: download, install, connect (app-page.js)
+//   /app                       Android app: download, install, connect (app-page.ts)
 //   /profile                   own profile
 //   /social                    chat + people (full-screen below 1010px; from
 //                              1010px the column beside the current page)

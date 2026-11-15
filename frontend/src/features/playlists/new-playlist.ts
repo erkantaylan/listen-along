@@ -1,6 +1,6 @@
 // "New playlist" dialog (landing page). An .app-modal card: name (required,
 // 50 chars like the server), Public / Private, Cancel + primary Create.
-// Creating goes over the socket (lobby:create); lobby.js tells this module
+// Creating goes over the socket (lobby:create); playlist.ts tells this module
 // how it went (newPlaylistCreated / newPlaylistFailed). options.create replaces
 // that: it is awaited and the dialog closes without opening the new playlist
 // ("Add to playlist" in the song menu, which must not leave the page).

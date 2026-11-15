@@ -182,7 +182,7 @@ becomes `node --import ./src/telemetry.ts`, registering
 ├── backend/          # Node.js + Express + Socket.IO server
 │   ├── scripts/      # dev-seed.js (local development only)
 │   └── src/
-├── frontend/         # Vanilla JS client (mobile-first)
+├── frontend/         # Web client: TypeScript in src/, compiled to dist/ (mobile-first)
 ├── docker/           # Docker configuration
 ├── docker-compose.yml
 └── Makefile

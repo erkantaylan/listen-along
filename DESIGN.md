@@ -445,7 +445,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   label + `select#language-selector`, English / Türkçe in their own names, a muted "Saved in this browser";
   `setupLanguageSelector` in ui.ts, stored by i18n.ts; login and pending have none and follow the browser);
   connected-accounts card; Sign out; last, the
-  About card (version, Changelog, GitHub). The pending-approval card has no route here (app.js stops at it).
+  About card (version, Changelog, GitHub). The pending-approval card has no route here (app.ts stops at it).
   Approved accounts also get a "CLI tokens" card (`/profile#tokens` scrolls to it and focuses the label; it links to `/app`): label input + grey "Create token"
   button (the display-name Save stays the one primary), a success alert that shows a new
   token once (read-only input + Copy, a `pre` "how to use" snippet that scrolls sideways,
@@ -498,7 +498,7 @@ Two rounded panels, a gap apart (see "App shell"):
   profile's About card keeps its own), profile, the collapse toggle (× in the drawer instead).
   Then the app's main navigation (`.plnav-nav`): **Home** (`#plnav-nav-home`, `/`), **Radio** (`#plnav-radio`, see
   "Radio"), **Artists** (`#plnav-nav-artists`, `/artists`) and **Library & Downloads** (`#plnav-nav-library`, key `landing.library`;
-  opens the library overlay like the landing button, over the playlist on screen if any; app.js). Icon + semibold
+  opens the library overlay like the landing button, over the playlist on screen if any; app.ts). Icon + semibold
   `fs-sm` label, 2.75rem tall. The place on screen is `aria-current="page"` (`syncPlaces` in sidebar.ts: Home on the
   landing page, Artists on `/artists` and `/artist/<key>`, the library while its overlay is open; Radio marks
   itself in radio.ts): the accent tint and accent text, never an edge. Home and Artists are `data-spa-link`s.
@@ -529,7 +529,7 @@ Two rounded panels, a gap apart (see "App shell"):
   the page panel's head), `--app-gap` around it; it holds the top safe area, and `--app-view-height` and the
   library overlay's `top` leave room for it. Home, Radio, Artists, Library & Downloads as real links
   (`#places-*`): Home, Radio and Artists are `data-spa-link`s, the library opens the overlay as the sidebar's does
-  (app.js). 44px targets sharing the width, icon + `fs-sm` semibold label, icon only below 576px (the label stays
+  (app.ts). 44px targets sharing the width, icon + `fs-sm` semibold label, icon only below 576px (the label stays
   the name, visually hidden; `title` is the tooltip). The place on screen is `aria-current="page"` (`syncPlaces`,
   Radio only on `/radio`, not while merely playing): the selection tint and accent text, never an edge; focus is
   the usual 2px ring, inset. Not shown from 768px.

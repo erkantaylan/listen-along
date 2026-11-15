@@ -66,7 +66,7 @@ export function notifyViewChange(): void {
   document.dispatchEvent(new CustomEvent('app:viewchange'));
 }
 
-// In-app navigation: add a history entry and let the router (app.js, which
+// In-app navigation: add a history entry and let the router (app.ts, which
 // listens to popstate) make the UI match it, as Back/Forward do.
 export function navigateTo(path: string): void {
   if (window.location.pathname + window.location.search !== path) window.history.pushState({}, '', path);
@@ -242,7 +242,7 @@ export function trapFocus(container: HTMLElement, e: KeyboardEvent): void {
   else if (!e.shiftKey && (document.activeElement === last || !container.contains(document.activeElement))) { e.preventDefault(); first.focus(); }
 }
 
-export function switchTab(tabName: string): void {
+export function switchTab(tabName: string | undefined): void {
   elements.navItems.forEach(item => {
     item.classList.toggle('active', item.dataset.tab === tabName);
   });

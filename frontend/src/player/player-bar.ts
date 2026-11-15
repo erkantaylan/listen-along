@@ -156,7 +156,7 @@ export function setupPlayerBarControls(): void {
   byId('player-open').addEventListener('click', () => {
     const path = contextPath(player.context);
     if (!path) return;
-    // The playlist page brings the current song into view (queue.js).
+    // The playlist page brings the current song into view (queue.ts).
     // A path means a context; only a playlist's has a lobbyId (the others give null).
     state.revealPlayingIn = (player.context as { lobbyId?: string }).lobbyId || null;
     navigateTo(path);

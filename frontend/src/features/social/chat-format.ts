@@ -1,4 +1,4 @@
-// Pure helpers for the global chat and people panel (social.js). No DOM, so
+// Pure helpers for the global chat and people panel (social.ts). No DOM, so
 // they are unit tested in Node (chat-format.test.ts).
 
 const HTML_ESCAPES: Readonly<Record<string, string>> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };

@@ -1,5 +1,5 @@
 // What to do when a song fails to play: pure rules, no DOM (tested in
-// playback-failure-rules.test.ts). playback-failures.js gathers the
+// playback-failure-rules.test.ts). playback-failures.ts gathers the
 // facts (the <audio> error, a probe of the song's url, what this browser can
 // decode) and acts on the answer; playback-failure-flow.ts keeps the state.
 //
@@ -12,11 +12,11 @@ import type { Track } from '../shared/types.ts';
 /** Why a song failed (failureCause). */
 export type FailureCause = 'offline' | 'network' | 'session' | 'server' | 'not-in-library' | 'gone' | 'missing' | 'unsupported' | 'undecodable' | 'unknown';
 
-/** The whole file fetched again and played from memory (playback-failures.js confirm). */
+/** The whole file fetched again and played from memory (playback-failures.ts confirm). */
 export type BytesVerdict = 'undecodable' | 'decodes' | 'incomplete';
 
 /**
- * The song's url asked again past the browser cache (playback-failures.js probe):
+ * The song's url asked again past the browser cache (playback-failures.ts probe):
  * no answer at all, or the server's answer (`code` from its JSON error body,
  * `version` names the file served: ETag, else Last-Modified + length).
  */

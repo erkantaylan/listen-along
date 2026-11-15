@@ -312,7 +312,7 @@ export function setupQueueInteractions() {
   const rowIndex = (row: HTMLElement) => parseInt(row.dataset.index as string, 10);
 
   list.addEventListener('click', (e) => {
-    // The empty playlist's "Find songs": the global search, adding here (search.js).
+    // The empty playlist's "Find songs": the global search, adding here (search.ts).
     if ((e.target as HTMLElement).closest('[data-search-focus]')) { document.dispatchEvent(new CustomEvent('app:focus-search')); return; }
     const row = (e.target as HTMLElement).closest<HTMLElement>('.queue-item[data-index]');
     if (!row) return;

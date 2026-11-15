@@ -31,7 +31,7 @@ const HEARTBEAT_MS = 10000;
 
 // The song of a listen:sync (what the leader plays).
 type SyncTrack = NonNullable<ListenSyncPayload['track']>;
-// Someone in the people panel (social.js): only id and name are read here.
+// Someone in the people panel (social.ts): only id and name are read here.
 export type ListenTarget = Pick<PresenceEntry, 'id' | 'name'>;
 
 /** listenState(): what the player bar and the people panel show. */
@@ -61,7 +61,7 @@ const L: {
   ending: false,    // leader went offline: stop after this song
   missing: null,    // title of a song we could not load (notice shown once)
   followers: { count: 0, names: [] },
-  report: null,     // () => void, re-report now-playing (social.js)
+  report: null,     // () => void, re-report now-playing (social.ts)
 };
 const subscribers = new Set<() => void>();
 let checkTimer: ReturnType<typeof setInterval> | null = null;
@@ -273,7 +273,7 @@ function onFollowers(payload: Partial<ListenFollowersPayload> = {}): void {
 
 /**
  * Call once with the app socket. `report` re-sends this browser's
- * now-playing (social.js), used as the leader heartbeat.
+ * now-playing (social.ts), used as the leader heartbeat.
  */
 export function setupListenAlong(sock: AppSocket, { report }: { report?: (() => void) | null } = {}): void {
   L.sock = sock;

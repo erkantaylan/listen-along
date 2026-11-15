@@ -1,7 +1,7 @@
 // Full-player controls. Playback itself is player.ts; every listener plays at
 // their own pace, and the server only learns what each listener is playing
 // (listener:now-playing, presence:now-playing). Listening along with another
-// user is listen-along.js.
+// user is listen-along.ts.
 import { state, elements, STORAGE_KEYS, storageSet } from '../shared/state.ts';
 import { escapeHtml, getCoverUrl, sanitizeUrl, showToast, syncRangeFill, t } from '../shared/ui.ts';
 import { player } from './player.ts';
@@ -10,7 +10,7 @@ import { clearFailureFor } from './playback-failures.ts';
 import type { RepeatMode } from './player-queue.ts';
 import type { DownloadProgressPayload, DownloadStatusPayload, Track, UsersUpdatedPayload } from '../shared/types.ts';
 
-// These are imported lazily to avoid circular deps with queue.js
+// These are imported lazily to avoid circular deps with queue.ts
 let _updateQueue: (() => void) | undefined, _updateListeners: (() => void) | undefined;
 export function _setQueueFns(updateQueue: () => void, updateListeners: () => void): void {
   _updateQueue = updateQueue;

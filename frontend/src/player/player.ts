@@ -5,8 +5,8 @@
 // "Context" is what playback was last started from: a lobby queue
 // ({ type: 'lobby', lobbyId, name }), the music library list
 // ({ type: 'library' }), Radio ({ type: 'radio', stationId }), an artist's songs
-// ({ type: 'artist', key, name }, artist-page.js), one song played from the
-// search page ({ type: 'search', query }, search.js: it repeats that song until
+// ({ type: 'artist', key, name }, artist-page.ts), one song played from the
+// search page ({ type: 'search', query }, search.ts: it repeats that song until
 // something else is chosen, player-queue.ts contextRepeat), or another user while listening along
 // ({ type: 'listen', leaderId, name }, no songs), plus its songs. It stays current while other pages
 // (and other lobbies) are shown, and changes only when play is pressed on a
@@ -22,7 +22,7 @@
 //   player.renameContext(lobbyId, name)
 //   player.replaceQueue(ctx, songs)      new order for a context that is no lobby (ignored unless it is current)
 //   player.setRefill(fn)                 fn(context, track) -> songs | null: what comes after the last song (Radio)
-//   player.setSkip(fn)                   fn(track) -> true for a song next / previous go past (it failed to play, playback-failures.js)
+//   player.setSkip(fn)                   fn(track) -> true for a song next / previous go past (it failed to play, playback-failures.ts)
 //   player.playIndex(i) / playTrack(track, { position, autoplay })
 //   player.play() / pause() / toggle() / next() / previous() / seek(seconds) / stop()
 //     (these are the listener's own actions: each one ends a driver; the
@@ -36,7 +36,7 @@
 //     'queue'   (songs)
 //     'seeked'  (currentTime)       any seek finished (also the driver's)
 //   player.setDriver({ name, onTakeover, onEnded }) lets something else steer
-//     playback (listen-along, listen-along.js) through playTrack and
+//     playback (listen-along, listen-along.ts) through playTrack and
 //     play/pause/seek with { keepDriver: true }. The listener's first own
 //     action (play/pause, seek, next/previous, a queue or library pick, a
 //     context change, another tab of this browser starting to play) calls
@@ -58,7 +58,7 @@ export type ListenContext = { type: 'listen'; leaderId: string; name: string | n
 export type PlayerContext = LobbyContext | LibraryContext | RadioContext | ArtistContext | SearchContext | ListenContext;
 
 // What callers hand in (setContext, playFrom, replaceQueue): a context or
-// something like one; a lobby's comes without `type` (playback.js viewedContext).
+// something like one; a lobby's comes without `type` (playback.ts viewedContext).
 export interface PlayerContextInput {
   type?: string;
   name?: string | null;

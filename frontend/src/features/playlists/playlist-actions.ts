@@ -11,7 +11,7 @@ import type { MenuItem } from '../../shared/context-menu.ts';
 import type { PlaylistSummary, Visibility } from '../../shared/types.ts';
 
 // A playlist as the menu and dialogs read it: a /api/playlists item, or the
-// playlist page's own { id, name, visibility, canManage } (lobby.js).
+// playlist page's own { id, name, visibility, canManage } (playlist.ts).
 export type PlaylistMenuTarget = Pick<PlaylistSummary, 'id' | 'name' | 'visibility' | 'canManage'>
   & Partial<Pick<PlaylistSummary, 'songCount' | 'pinnedByMe'>>;
 

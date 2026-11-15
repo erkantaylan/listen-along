@@ -1,4 +1,4 @@
-// What the stats strip on a playlist says (pure, no DOM; queue.js renders it,
+// What the stats strip on a playlist says (pure, no DOM; queue.ts renders it,
 // playlist-stats.test.ts tests it). Only from what the entries really
 // carry: a value nothing supports is left out rather than guessed.
 import { addedByLabel } from '../queue/queue-format.ts';

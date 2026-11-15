@@ -119,21 +119,24 @@ describe('the real frontend', () => {
   before(async () => { srv = await startServer({ FRONTEND_PATH: REAL_FRONTEND }); });
   after(async () => { await srv?.stop(); });
 
-  it('serves /app.js and hides package.json / tsconfig.json', async () => {
+  it('hides package.json / tsconfig*.json', async () => {
+    assert.equal((await get(srv.base, '/package.json')).status, 404);
+    assert.equal((await get(srv.base, '/tsconfig.json')).status, 404);
+    assert.equal((await get(srv.base, '/tsconfig.test.json')).status, 404);
+  });
+
+  // The app is compiled (frontend/src/app.ts -> dist/app.js): needs `npm run
+  // build` at the repo root first, as CI and the root `npm test` do.
+  const built = fs.existsSync(path.join(REAL_FRONTEND, 'dist', 'app.js'));
+  it('serves the compiled /app.js and its modules, no-cache', { skip: built ? false : 'frontend not built (npm run build)' }, async () => {
     const app = await get(srv.base, '/app.js');
     assert.equal(app.status, 200);
     assert.equal(app.headers.get('cache-control'), 'no-cache');
-    assert.equal((await get(srv.base, '/package.json')).status, 404);
-    assert.equal((await get(srv.base, '/tsconfig.json')).status, 404);
-  });
-
-  // The build probe (frontend/src/build-probe.ts): needs `npm run build` at the
-  // repo root first, as CI does. Delete with the probe.
-  const built = fs.existsSync(path.join(REAL_FRONTEND, 'dist', 'build-probe.js'));
-  it('serves the compiled /build-probe.js', { skip: built ? false : 'frontend not built (npm run build)' }, async () => {
-    const r = await get(srv.base, '/build-probe.js');
-    assert.equal(r.status, 200);
-    assert.equal(r.headers.get('cache-control'), 'no-cache');
-    assert.match(r.text, /export const BUILD_PROBE/);
+    assert.match(app.text, /from '\.\/shared\/state\.js'/, 'imports name the emitted .js files');
+    for (const url of ['/shared/state.js', '/shared/i18n.js', '/shared/media-session.js', '/features/playlists/playlist.js', '/app.js.map']) {
+      assert.equal((await get(srv.base, url)).status, 200, url);
+    }
+    const i18n = await get(srv.base, '/shared/i18n.js');
+    assert.doesNotMatch(i18n.text, /^export /m, 'a classic script, not a module');
   });
 });

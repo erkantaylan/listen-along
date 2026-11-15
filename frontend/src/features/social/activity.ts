@@ -1,8 +1,8 @@
 // The download activity log: the Activity card of the chat and people panel
-// (#social-activity; social.js shows or hides it). Every download job of
+// (#social-activity; social.ts shows or hides it). Every download job of
 // everyone, live: who asked for what, where it is now, and how it ended.
 // Watching only, no actions. Approved accounts only: the server sends a
-// pending account neither the list nor the events, and social.js leaves the
+// pending account neither the list nor the events, and social.ts leaves the
 // card hidden for it.
 //
 // Data: GET /api/activity/downloads, then socket activity:job (a row is new or

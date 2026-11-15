@@ -3,7 +3,7 @@
 // its own: everything it needs to ask is injected, so the whole flow (error ->
 // verdict -> grey / hold -> proof -> send, with a replace, a retry or another
 // song in between) is tested in playback-failure-flow.test.ts.
-// playback-failures.js wires it to the <audio> element. Decisions are
+// playback-failures.ts wires it to the <audio> element. Decisions are
 // playback-failure-rules.ts.
 //
 // Two things keep a good song from being reported:

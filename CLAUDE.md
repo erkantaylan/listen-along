@@ -26,7 +26,7 @@ where lobby persistence broke entirely on deployed instances.
 ## Architecture
 
 - Backend: Node.js + Express + Socket.IO (`backend/src/`)
-- Frontend: Vanilla JS, single-page (`frontend/`)
+- Frontend: single-page TypeScript, no framework or bundler (`frontend/src`, compiled by `tsc` to `frontend/dist`; see "TypeScript")
 - UI is stock Bootstrap 6 (vendored in `frontend/vendor/`) with light theming; read `DESIGN.md` before changing any page or CSS
 - Column widths: `frontend/src/shared/layout-rules.ts` (pure, tested) decides when the sidebar is a rail (automatically up to 1100px, `RAIL_MAX`, and above that while expanding it would leave the page column under 616px) and from where the chat docks (1010px); keep its numbers in step with `app.css` (DESIGN.md "Columns and breakpoints"). Queue entries' `artistName` is derived from the library on load (`Queue._loadArtists`), not a column; `title` stays "Title - Artist" for the CLI and Android
 - `index.js` is the composition root (about 460 lines, no routes or handlers of its own): reads the config (sign-in
@@ -331,8 +331,9 @@ where lobby persistence broke entirely on deployed instances.
 
 ## Playlists (internally "lobbies")
 
-- Users see **playlists**; the code, DB table (`lobbies`), socket events
-  (`lobby:*`) and `lobbyId` fields keep the old name. URLs are `/playlist/<id>`
+- Users see **playlists**; the server code, DB table (`lobbies`), socket events
+  (`lobby:*`), `lobbyId` fields, DOM ids (`#lobby-view`) and storage keys keep
+  the old name (the web's own code says playlist: `features/playlists/playlist.ts`). URLs are `/playlist/<id>`
   and `/playlist/<id>/library`; old `/lobby/...` URLs 301 to them (and the SPA
   rewrites them, `legacyRedirect` in `frontend/src/router.ts`). HTTP API:
   `/api/playlists` (`/api/lobbies` is an alias). It also takes a CLI Bearer
@@ -515,8 +516,9 @@ where lobby persistence broke entirely on deployed instances.
 
 ## TypeScript
 
-The backend and frontend are moving to TypeScript one area at a time (the CLI
-stays JavaScript). Until an area is converted its files stay `.js`.
+The frontend is TypeScript (`frontend/src`). The backend is moving to
+TypeScript one area at a time; until an area is converted its files stay
+`.js`. The CLI stays JavaScript.
 
 - Configs: `tsconfig.base.json` (shared, `strict`), `backend/tsconfig.json`
   (typecheck only: Node runs `.ts` itself; `allowJs` without `checkJs`, add
@@ -529,23 +531,27 @@ stays JavaScript). Until an area is converted its files stay `.js`.
 - The root `package.json` holds only `typescript` and `@types/*` (no
   workspaces: the server's dependencies and the Docker install stay in
   `backend/`). From the repo root: `npm ci`, `npm run typecheck` (`tsc -b`),
-  `npm run build` (the frontend), `npm test` (backend tests, then
-  `frontend/src/**/*.test.ts`), `npm run dev` (= `make dev`: builds the
+  `npm run build` (the frontend), `npm test` (builds the frontend, then the
+  backend tests, then `frontend/src/**/*.test.ts`; backend tests serve the
+  compiled `/app.js`, so run `npm run build` first when running them from
+  `backend/` alone), `npm run dev` (= `make dev`: builds the
   frontend once, then backend watch + `tsc -w`; sets `FRONTEND_PATH` to this
   checkout's `frontend/`). CI runs `typecheck`, and `build` before the tests.
 - Serving (`backend/src/frontendStatic.js`): `<FRONTEND_PATH>/dist` and
   `<FRONTEND_PATH>` are both mounted at the site root, dist first, so
-  `frontend/src/shared/x.ts` is `/shared/x.js` and a compiled module wins over
-  an old `frontend/shared/x.js` (delete the old file when converting; never
-  keep both). Same `no-cache` for `.js`, `.css`, `.map`; `/src/**/*.ts` is
+  `frontend/src/shared/x.ts` is `/shared/x.js` (and a compiled file wins over a
+  file of the same name in `frontend/`). Same `no-cache` for `.js`, `.css`, `.map`; `/src/**/*.ts` is
   served as text so source maps resolve. A missing `dist/` just falls through.
   `/package.json`, `/tsconfig*.json`, `*.tsbuildinfo` and `/dist/...` answer 404.
 - Frontend layout (`frontend/src`): `app.ts`, `router.ts`, `globals.d.ts`,
   `shared/` (state, ui, dom, types, i18n, …), `player/`, `features/<area>/`.
-  The URL mirrors the path: `src/shared/state.ts` is `/shared/state.js`.
-  While the conversion runs, an old `frontend/x.js` imports a converted module
-  by its URL (`./shared/state.js`); modules are converted leaf-first, so a
-  `.ts` never imports an old `.js`.
+  The URL mirrors the path: `src/shared/state.ts` is `/shared/state.js`, and
+  `index.html` loads `/app.js` (compiled `src/app.ts`) plus the two classic
+  scripts. Every module is imported statically from `app.ts` (the one
+  `import('./shared/state.ts')` re-reads a module already loaded), so a tab
+  opened before a deploy keeps working until it reloads: a renamed module is
+  never fetched by an old page. Do not add a lazily imported module without
+  thinking about old tabs.
 - Frontend types: the server's JSON and the socket events are typed once in
   `frontend/src/shared/types.ts` (from the backend's views; the socket is
   `AppSocket`, typed with socket.io-client's types, a root devDependency pinned
@@ -556,9 +562,7 @@ stays JavaScript). Until an area is converted its files stay `.js`.
   build` at the root and only `frontend/dist` is copied into the final image
   (no TypeScript, no root `node_modules`; the backend install stays
   `--production`). `.dockerignore` keeps a local `frontend/dist` out of the
-  context. `frontend/src/build-probe.ts` only proves this pipeline: delete it
-  (and its check in `frontend-static.test.js`) once a real module is in
-  `frontend/src`.
+  context.
 - Erasable syntax only: no `enum`, `namespace` or constructor parameter
   properties (Node strips types, it does not compile them;
   `erasableSyntaxOnly` reports them). Type-only imports use `import type`.
@@ -606,9 +610,11 @@ stays JavaScript). Until an area is converted its files stay `.js`.
     queries and routes) go to `core/` with the library, not to `features/`. The artist pages import the radio's
     `toStationSong`: the one feature-to-feature import, until that row moves to the library.
 - `frontend/src/globals.d.ts` types the classic-script globals (`io`,
-  `window.i18n`, `MediaSessionManager`); `i18n.ts` and `media-session.ts` stay
-  classic scripts. `frontend/package.json` is `"type": "module"` so Node
-  (backend tests) loads frontend files as ES modules.
+  `window.i18n`, `MediaSessionManager`); `shared/i18n.ts` and
+  `shared/media-session.ts` are classic scripts (no import / export).
+  `window.app` / `window.dashboard*` (handlers named in generated HTML) are
+  declared in `app.ts`. `frontend/package.json` is `"type": "module"` so Node
+  loads frontend files as ES modules.
 
 ## Testing
 

@@ -196,7 +196,7 @@ export interface LobbyUser {
   currentTrack: { title: string; thumbnail: string | null } | null;
 }
 
-// index.js playlistInfo — an item of GET /api/playlists (also PATCH /:id answer)
+// playlistRoutes.js playlistInfo — an item of GET /api/playlists (also PATCH /:id answer)
 export interface PlaylistSummary {
   id: string;
   name: string | null;
@@ -217,23 +217,23 @@ export interface PlaylistSummary {
   createdAt: number;
 }
 
-// index.js GET /api/playlists (`lobbies` is the same list, for old clients)
+// playlistRoutes.js GET /api/playlists (`lobbies` is the same list, for old clients)
 export interface PlaylistListResponse {
   playlists: PlaylistSummary[];
   lobbies: PlaylistSummary[];
 }
 
-// index.js POST /api/playlists (201)
+// playlistRoutes.js POST /api/playlists (201)
 export interface PlaylistCreated extends PlaylistSummary {
   link: string;
 }
 
-// index.js GET /api/playlists/:id
+// playlistRoutes.js GET /api/playlists/:id
 export interface PlaylistDetail extends PlaylistSummary {
   users: LobbyUser[];
 }
 
-// index.js setPlaylistPin — PUT|DELETE /api/playlists/:id/pin
+// playlistRoutes.js setPlaylistPin — PUT|DELETE /api/playlists/:id/pin
 export interface PlaylistPinResponse {
   id: string;
   pinnedByMe: boolean;
@@ -241,7 +241,7 @@ export interface PlaylistPinResponse {
   pinnedAt: number | null;
 }
 
-// index.js playlistSongViews — GET /api/playlists/:id/songs, move answer
+// playlistRoutes.js playlistSongViews — GET /api/playlists/:id/songs, move answer
 export interface PlaylistSongView {
   position: number;
   entry_id: string;
@@ -258,19 +258,19 @@ export interface PlaylistSongView {
   available: boolean | null;
 }
 
-// index.js GET /api/playlists/:id/songs
+// playlistRoutes.js GET /api/playlists/:id/songs
 export interface PlaylistSongsResponse {
   playlist: PlaylistSummary;
   songs: PlaylistSongView[];
 }
 
-// index.js POST /api/playlists/:id/songs — one result per ref
+// playlistRoutes.js POST /api/playlists/:id/songs — one result per ref
 export type PlaylistAddResult =
   | { input: unknown; status: 'invalid' | 'not_in_library'; code: 'INVALID' | 'NOT_IN_LIBRARY'; error: string }
   | { input: unknown; status: 'already_in_playlist'; song: LibrarySong }
   | { input: unknown; status: 'added'; song: LibrarySong; entry_id: string };
 
-// index.js POST /api/playlists/:id/songs
+// playlistRoutes.js POST /api/playlists/:id/songs
 export interface PlaylistAddResponse {
   playlist_id: string;
   summary: { total: number; added: number; already_in_playlist: number; not_in_library: number; invalid: number };
@@ -278,7 +278,7 @@ export interface PlaylistAddResponse {
   song_count: number;
 }
 
-// index.js sendLobbyState — lobby:joined
+// playlistSockets.js sendLobbyState — lobby:joined
 export interface LobbyJoinedPayload {
   lobbyId: string;
   viewing: boolean;
@@ -297,7 +297,7 @@ export interface LobbyJoinedPayload {
 /** The playlist state a client keeps from lobby:joined. */
 export type LobbyState = LobbyJoinedPayload;
 
-// index.js lobby:create handler — lobby:created (no canEdit: the creator owns it)
+// playlistSockets.js lobby:create handler — lobby:created (no canEdit: the creator owns it)
 export interface LobbyCreatedPayload {
   lobbyId: string;
   viewing: boolean;
@@ -311,7 +311,7 @@ export interface LobbyCreatedPayload {
   users: LobbyUser[];
 }
 
-// index.js broadcastPlaylistUpdated — lobby:updated
+// playlistRoutes.js broadcastPlaylistUpdated — lobby:updated
 export interface LobbyUpdatedPayload {
   lobbyId: string;
   name: string | null;
@@ -320,81 +320,81 @@ export interface LobbyUpdatedPayload {
   ownerName: string | null;
 }
 
-// index.js — lobby:renamed (socket rename and HTTP PATCH)
+// playlistSockets.js / playlistRoutes.js — lobby:renamed (socket rename and HTTP PATCH)
 export interface LobbyRenamedPayload {
   lobbyId: string;
   name: string | null;
 }
 
-// index.js lobby:pin handler — lobby:pinned
+// playlistSockets.js lobby:pin handler — lobby:pinned
 export interface LobbyPinnedPayload {
   lobbyId: string;
   pinned: boolean;
 }
 
-// index.js destroyLobby / evictNonOwners — lobby:closed
+// reactions.js destroyLobby / playlistRoutes.js evictNonOwners — lobby:closed
 export interface LobbyClosedPayload {
   lobbyId: string;
   message: string;
 }
 
-// index.js lobby:join / lobby:view — lobby:not-found (echoes the id the client sent)
+// playlistSockets.js lobby:join / lobby:view — lobby:not-found (echoes the id the client sent)
 export interface LobbyNotFoundPayload {
   lobbyId: string;
 }
 
-// index.js — lobby:error (code only from refusePending)
+// playlistSockets.js — lobby:error (code only from refusePending)
 export interface LobbyErrorPayload {
   message: string;
   code?: 'ACCOUNT_PENDING';
 }
 
-// index.js lobby:join handler / handleLeave — lobby:user-joined, lobby:user-left
+// playlistSockets.js lobby:join handler / handleLeave — lobby:user-joined, lobby:user-left
 export interface LobbyUserChangePayload {
   lobbyId: string;
   user: LobbyUser;
   users: LobbyUser[];
 }
 
-// index.js user:update / listener:now-playing — users:updated
+// playlistSockets.js user:update / listener:now-playing — users:updated
 export interface UsersUpdatedPayload {
   lobbyId: string;
   users: LobbyUser[];
 }
 
-// index.js — queue:update
+// queueSockets.js, reactions.js — queue:update
 export interface QueueUpdatePayload {
   lobbyId: string;
   songs: QueueEntry[];
 }
 
 // queue:song-added — the server never sends it (no emit in backend/src);
-// app.js still listens for it (queue.ts handleSongAdded reads these fields).
+// app.ts still listens for it (queue.ts handleSongAdded reads these fields).
 export interface QueueSongAddedPayload {
   lobbyId?: string;
   song: QueueEntry;
 }
 
-// index.js queue:add handler — queue:error
+// queueSockets.js queue:add handler — queue:error
 export interface QueueErrorPayload {
   message: string;
   /** Echoes the client's libraryId on "Already in the queue". */
   libraryId?: string;
 }
 
-// index.js queue:add handler — queue:adding
+// queueSockets.js queue:add handler — queue:adding
 export interface QueueAddingPayload {
   status: string;
 }
 
-// index.js queue:add handler — queue:requested
+// queueSockets.js queue:add handler — queue:requested
 export interface QueueRequestedPayload {
   request: SongRequest;
   created: boolean;
   message: string;
 }
 
-// index.js handleLibrarySongAdded — request:fulfilled
+// reactions.js handleLibrarySongAdded — request:fulfilled
 export interface RequestFulfilledPayload {
   request: SongRequest;
   song: LibrarySong;
@@ -402,7 +402,7 @@ export interface RequestFulfilledPayload {
   message: string;
 }
 
-// index.js emitUnavailableSongs / handleLibrarySong{Added,Replaced} — download:status
+// reactions.js emitUnavailableSongs / handleLibrarySong{Added,Replaced} — download:status
 // (the absent field is spelled out as `?: undefined` so the client can read
 // `data.percent` / `data.error` on either kind, playback.ts handleDownloadStatus)
 export type DownloadStatusPayload =
@@ -410,13 +410,13 @@ export type DownloadStatusPayload =
   | { url: string; status: 'ready'; percent: 100; error?: undefined };
 
 // download:progress — the server never sends it (no emit in backend/src);
-// app.js still listens for it (playback.ts handleDownloadProgress).
+// app.ts still listens for it (playback.ts handleDownloadProgress).
 export interface DownloadProgressPayload {
   url: string;
   percent: number;
 }
 
-// index.js library hooks / handleLibrarySong{Added,Replaced,DetailsChanged} — library:updated
+// reactions.js library hooks / handleLibrarySong{Added,Replaced,DetailsChanged} — library:updated
 export type LibraryUpdatedPayload =
   /** A song was deleted (onSongRemoved). */
   | { removed: string }
@@ -753,7 +753,7 @@ export interface ActivityProgressPayload {
   percent: number | null;
 }
 
-// index.js emitJob — jobs:update
+// reactions.js emitJob — jobs:update
 export interface JobsUpdatePayload {
   job: DownloadJob;
   workers: WorkerStats;
@@ -930,14 +930,14 @@ export interface AdminStatus {
   authenticated: boolean;
 }
 
-// index.js GET|PUT /api/admin/settings
+// adminRoutes.js GET|PUT /api/admin/settings
 export interface AdminSettings {
   registrations_open: boolean;
   source: string;
   central_login: boolean;
 }
 
-// index.js GET /api/dashboard/stats — stats.lobbies items (public playlists only)
+// adminRoutes.js GET /api/dashboard/stats — stats.lobbies items (public playlists only)
 export interface DashboardLobby {
   id: string;
   name: string | null;
@@ -949,7 +949,7 @@ export interface DashboardLobby {
   lastActivity: number;
 }
 
-// index.js GET /api/dashboard/stats
+// adminRoutes.js GET /api/dashboard/stats
 export interface DashboardStats {
   totalLobbies: number;
   privateLobbies: number;
@@ -962,7 +962,7 @@ export interface DashboardStats {
   lobbies: DashboardLobby[];
 }
 
-// index.js GET /api/dashboard/users (raw users rows)
+// adminRoutes.js GET /api/dashboard/users (raw users rows)
 export interface DashboardUser {
   id: string;
   user_id: string | null;
@@ -979,7 +979,7 @@ export interface DashboardUser {
   /** Linked to the central login (oidc_sub set). */
   central: boolean;
   /**
-   * NOT sent: the SELECT in index.js GET /api/dashboard/users does not include
+   * NOT sent: the SELECT in adminRoutes.js GET /api/dashboard/users does not include
    * users.name. The dashboard's user list (features/admin/dashboard.ts) reads it
    * anyway (search + display name, falling back to username), so it is typed
    * optional to keep that code as it is.
@@ -987,12 +987,12 @@ export interface DashboardUser {
   name?: string | null;
 }
 
-// index.js GET /api/dashboard/users
+// adminRoutes.js GET /api/dashboard/users
 export interface DashboardUsersResponse {
   users: DashboardUser[];
 }
 
-// index.js PUT /api/dashboard/users/:id/approve|reject
+// adminRoutes.js PUT /api/dashboard/users/:id/approve|reject
 export interface DashboardUserStatusResponse {
   success: true;
   user: { user_id: string | null; username: string | null; status: AccountStatus };
@@ -1039,10 +1039,10 @@ export type AppLatestResponse =
 
 // ------------------------------------------------------------------ socket events
 
-// Every event the server emits to web sockets (index.js, social.js,
+// Every event the server emits to web sockets (playlistSockets.js, queueSockets.js, reactions.js, social.js,
 // listenAlong.js, activityFeed.js). For Socket<ServerToClientEvents, ClientToServerEvents>.
 export interface ServerToClientEvents {
-  // playlists (index.js)
+  // playlists (playlistSockets.js, playlistRoutes.js, reactions.js)
   'lobby:joined': (p: LobbyJoinedPayload) => void;
   'lobby:created': (p: LobbyCreatedPayload) => void;
   'lobby:updated': (p: LobbyUpdatedPayload) => void;
@@ -1056,9 +1056,9 @@ export interface ServerToClientEvents {
   'users:updated': (p: UsersUpdatedPayload) => void;
   /** No payload: refetch /api/playlists. */
   'playlists:changed': () => void;
-  // queue (index.js)
+  // queue (queueSockets.js, reactions.js)
   'queue:update': (p: QueueUpdatePayload) => void;
-  /** Never sent by the server (no emit in backend/src); app.js keeps a listener. */
+  /** Never sent by the server (no emit in backend/src); app.ts keeps a listener. */
   'queue:song-added': (p: QueueSongAddedPayload) => void;
   'queue:error': (p: QueueErrorPayload) => void;
   'queue:adding': (p: QueueAddingPayload) => void;
@@ -1066,12 +1066,12 @@ export interface ServerToClientEvents {
   'request:fulfilled': (p: RequestFulfilledPayload) => void;
   /** No payload: refetch /api/requests. */
   'requests:updated': () => void;
-  // library (index.js)
+  // library (reactions.js)
   'library:updated': (p: LibraryUpdatedPayload) => void;
   'download:status': (p: DownloadStatusPayload) => void;
-  /** Never sent by the server (no emit in backend/src); app.js keeps a listener. */
+  /** Never sent by the server (no emit in backend/src); app.ts keeps a listener. */
   'download:progress': (p: DownloadProgressPayload) => void;
-  // downloads (index.js, activityFeed.js)
+  // downloads (reactions.js, activityFeed.js)
   'jobs:update': (p: JobsUpdatePayload) => void;
   'workers:update': (p: WorkerStats) => void;
   'activity:job': (p: ActivityJobPayload) => void;
@@ -1091,7 +1091,7 @@ export interface ServerToClientEvents {
   'listen:followers': (p: ListenFollowersPayload) => void;
 }
 
-// presence.normalizeReport input (what frontend/social.js reportNowPlaying sends)
+// presence.normalizeReport input (what the web sends: features/social/social.ts reportNowPlaying)
 export type PresenceContextReport =
   | { type: 'library' }
   | { type: 'radio' }
@@ -1110,7 +1110,7 @@ export type NowPlayingReport =
   /** Nothing is playing. */
   | { track: null };
 
-// Every event the server handles from a web socket (index.js, social.js,
+// Every event the server handles from a web socket (playlistSockets.js, queueSockets.js, social.js,
 // listenAlong.js), payloads as the handlers read them. `userId` in lobby:*
 // payloads is sent by the web and ignored by the server (it uses the login).
 export interface ClientToServerEvents {

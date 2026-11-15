@@ -1,17 +1,18 @@
 // Static checks on frontend/index.html and the locales: the library place's
 // label, the language setting living on the profile page only, and the tab sets
-// sharing one segmented-control style.
-const { describe, it } = require('node:test');
-const assert = require('node:assert');
-const fs = require('fs');
-const path = require('path');
+// sharing one segmented-control style. (Moved from
+// backend/src/frontend-settings-markup.test.js.)
+import { describe, it } from 'node:test';
+import assert from 'node:assert';
+import fs from 'node:fs';
+import path from 'node:path';
 
-const FRONTEND = path.join(__dirname, '..', '..', 'frontend');
-const read = (f) => fs.readFileSync(path.join(FRONTEND, f), 'utf8');
-const locale = (lang) => JSON.parse(read(`locales/${lang}.json`));
+const FRONTEND = path.join(import.meta.dirname, '..');
+const read = (f: string): string => fs.readFileSync(path.join(FRONTEND, f), 'utf8');
+const locale = (lang: string) => JSON.parse(read(`locales/${lang}.json`));
 const html = read('index.html');
 // The markup of one top-level view, from its opening tag to the next view's.
-const viewHtml = (id) => {
+const viewHtml = (id: string): string => {
   const start = html.indexOf(`<div id="${id}"`);
   assert.ok(start >= 0, id);
   const next = html.indexOf('<div id="', html.indexOf('\n  <!--', start));
@@ -24,7 +25,7 @@ describe('frontend: Library & Downloads label', () => {
     assert.equal(locale('tr').landing.library, 'Kütüphane ve İndirmeler');
   });
   it('no default text or fallback keeps the old name', () => {
-    for (const f of ['index.html', 'src/features/playlists/playlist.ts', 'app.js']) assert.doesNotMatch(read(f), /Music library (&amp;|&) requests/, f);
+    for (const f of ['index.html', 'src/features/playlists/playlist.ts', 'src/app.ts']) assert.doesNotMatch(read(f), /Music library (&amp;|&) requests/, f);
     const bound = html.match(/<[^>]*data-i18n(-title|-aria-label)?="landing\.library"[^>]*>[^<]*/g) || [];
     assert.ok(bound.length >= 4, 'sidebar, phone row and Home button use the key');
     for (const el of bound) assert.match(el, /Library &amp; Downloads/, el);
@@ -33,7 +34,7 @@ describe('frontend: Library & Downloads label', () => {
 
 describe('frontend: language setting', () => {
   it('is one labelled select on the profile page, not on Home', () => {
-    assert.equal(html.match(/id="language-selector"/g).length, 1);
+    assert.equal(html.match(/id="language-selector"/g)?.length, 1);
     const profile = viewHtml('profile-view');
     assert.match(profile, /<label for="language-selector"[^>]*data-i18n="language\.select"/);
     assert.match(profile, /<select id="language-selector"[^>]*>\s*<option value="en"[^>]*>English<\/option>\s*<option value="tr"[^>]*>Türkçe<\/option>/);

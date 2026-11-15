@@ -1,4 +1,4 @@
-// The downloads activity log's rules (activity.js renders; the server's row is
+// The downloads activity log's rules (activity.ts renders; the server's row is
 // downloadJobs.toActivity). Pure: no DOM, tested in activity-rules.test.ts.
 import type { ActivityProgressPayload, ActivityRow } from '../../shared/types.ts';
 

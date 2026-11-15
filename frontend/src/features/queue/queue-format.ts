@@ -1,4 +1,4 @@
-// What a playlist row shows (pure, no DOM; queue.js renders it).
+// What a playlist row shows (pure, no DOM; queue.ts renders it).
 import type { QueueEntry } from '../../shared/types.ts';
 
 /** A row's two lines: the song's own title and its artist ('' when unknown). */

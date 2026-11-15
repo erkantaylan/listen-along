@@ -3,8 +3,8 @@ import { state, elements, STORAGE_KEYS, storageSet } from './state.ts';
 import { showToast, formatTime, syncRangeFill } from './ui.ts';
 
 // Full (lobby page) player readouts and audio housekeeping. Track changes,
-// ended -> next and the Media Session live in player.js; a song that fails to
-// play is playback-failures.js.
+// ended -> next and the Media Session live in player.ts; a song that fails to
+// play is playback-failures.ts.
 export function setupAudioPlayer(): void {
   const audio = elements.audioPlayer;
 
@@ -120,7 +120,7 @@ function updateVolumeIcon(): void {
 export function playAudioWithUnlock(src: string, position: number, shouldPlay: boolean): void {
   const audio = elements.audioPlayer;
   // Whether this load is meant to sound: a failed load resets audio.paused, so
-  // playback-failures.js reads this to know if it should move on.
+  // playback-failures.ts reads this to know if it should move on.
   state.playRequested = !!shouldPlay;
   if (src && audio.src !== src) audio.src = src;
   if (position !== undefined && isFinite(position)) audio.currentTime = position;

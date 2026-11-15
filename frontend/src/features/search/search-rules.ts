@@ -1,4 +1,4 @@
-// The global search (search.js): the pure rules, no DOM. Unit tested in
+// The global search (search.ts): the pure rules, no DOM. Unit tested in
 // search-rules.test.ts.
 import { isVideoId } from '../picker/pick-rules.ts';
 import type { PicksAnswer } from '../picker/pick-rules.ts';

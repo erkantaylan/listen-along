@@ -159,7 +159,7 @@ export function pickSongs({ input, returnFocus = null }: { input: string; return
 }
 
 /**
- * The checklist for a YouTube playlist already looked up (search.js); see ImportOptions.
+ * The checklist for a YouTube playlist already looked up (search.ts); see ImportOptions.
  */
 export function importPlaylist({ playlist, destinations, loadSongs, newName, initial = null, returnFocus = null }: ImportOptions): Promise<ImportResult | null> {
   // With `imported`, openPick resolves only { picks, destination } or null (confirm).

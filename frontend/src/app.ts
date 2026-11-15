@@ -1,31 +1,32 @@
-// Listen-Along Frontend — Entry point and orchestrator
-import { state, elements, auth, socket, STORAGE_KEYS, viewActivators, setSocket, storageSet } from './shared/state.js';
-import { showView, showToast, switchTab, setupLanguageSelector, setupAppMeta, t, setupRangeFill, navigateTo } from './shared/ui.js';
-import { setupAudioPlayer } from './shared/audio.js';
-import { player, setupPlayer } from './player/player.js';
-import { setupPlaybackFailures } from './player/playback-failures.js';
-import { setupPlayerBar, setupPlayerBarControls, refreshPlayerBar } from './player/player-bar.js';
-import { checkAuth, setupLoginView, showPendingCard, setupProfilePage, loadProfilePage } from './features/account/auth.js';
-import { setupSocial, applySocialRoute, toggleSocial, refreshPeople, reportNowPlaying as reportPresence } from './features/social/social.js';
-import { setupListenAlong, listenAlongWith, isListeningWith, stopListenAlong, onListenChange } from './features/social/listen-along.js';
-import { checkUrlForDashboard, dashboardJoinLobby, dashboardRemoveLobby, dashboardApproveUser, dashboardRejectUser } from './features/admin/dashboard.js';
-import { setupLibraryPage, openLibraryPage, closeLibraryPage, isLibraryOpen, showLibraryRoute, handleLibraryUpdated, handleRequestsUpdated } from './features/library/library.js';
-import { handleJobUpdate, handleWorkersUpdate } from './features/library/jobs.js';
-import { loadReports } from './features/library/song-reports.js';
-import { parseRoute, legacyRedirect } from './router.js';
-import { openNewPlaylistDialog } from './features/playlists/new-playlist.js';
-import { setupSidebar, closeDrawer } from './features/playlists/sidebar.js';
-import { setupAppPage } from './features/account/app-page.js';
-import { setupRadio, openRadioPage, closeRadioPage, handleRadioLibraryUpdated, refreshRadio, playRadioFromTop } from './features/radio/radio.js';
-import { setupArtists, openArtistsPage, closeArtistsPage, handleArtistsLibraryUpdated } from './features/artists/artists.js';
-import { setupArtistPage, openArtistPage, closeArtistPage, handleArtistLibraryUpdated, playArtistFromTop } from './features/artists/artist-page.js';
-import { setupRowDoubleClick } from './shared/row-double-click.js';
-import { scheduleReload } from './features/playlists/playlist-store.js';
-import { sharePlaylist, handlePlaylistCreated, handlePlaylistJoined, handlePlaylistNotFound, handlePlaylistError, handlePlaylistRenamed, handlePlaylistUpdated, openPlaylistHeaderMenu, setupLandingMenus, handleUserJoined, handleUserLeft, handlePlaylistClosed, checkForLastPlaylist, joinPlaylistFromCard, updatePinButton, togglePin, quickPlayPlaylist, togglePlaylistPlayback, openPlaylistPage, closePlaylistPage, syncMembership, resyncMembership, reportNowPlaying } from './features/playlists/playlist.js';
-import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, updatePlayButton, updatePlaybackModeUI, updateNowPlaying, _setQueueFns } from './player/playback.js';
-import { closePickDialog } from './features/picker/pick-dialog.js';
-import { setupSearch, openSearchPage, closeSearchPage, searchRouteChanged, handleSearchLibraryUpdated } from './features/search/search.js';
-import { handleQueueUpdated, handleSongAdded, removeSong, clearQueue, downloadPlaylist, cancelPlaylistDownload, moveSongUp, moveSongDown, playSongAt, setupQueueInteractions, setupQueueSearch, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './features/queue/queue.js';
+// Listen-Along Frontend — Entry point and orchestrator (served as /app.js)
+import { state, elements, auth, socket, STORAGE_KEYS, viewActivators, setSocket, storageSet } from './shared/state.ts';
+import { showView, showToast, switchTab, setupLanguageSelector, setupAppMeta, t, setupRangeFill, navigateTo } from './shared/ui.ts';
+import { setupAudioPlayer } from './shared/audio.ts';
+import { player, setupPlayer } from './player/player.ts';
+import { setupPlaybackFailures } from './player/playback-failures.ts';
+import { setupPlayerBar, setupPlayerBarControls, refreshPlayerBar } from './player/player-bar.ts';
+import { checkAuth, setupLoginView, showPendingCard, setupProfilePage, loadProfilePage } from './features/account/auth.ts';
+import { setupSocial, applySocialRoute, toggleSocial, refreshPeople, reportNowPlaying as reportPresence } from './features/social/social.ts';
+import type { SocialOptions } from './features/social/social.ts';
+import { setupListenAlong, listenAlongWith, isListeningWith, stopListenAlong, onListenChange } from './features/social/listen-along.ts';
+import { checkUrlForDashboard, dashboardJoinLobby, dashboardRemoveLobby, dashboardApproveUser, dashboardRejectUser } from './features/admin/dashboard.ts';
+import { setupLibraryPage, openLibraryPage, closeLibraryPage, isLibraryOpen, showLibraryRoute, handleLibraryUpdated, handleRequestsUpdated } from './features/library/library.ts';
+import { handleJobUpdate, handleWorkersUpdate } from './features/library/jobs.ts';
+import { loadReports } from './features/library/song-reports.ts';
+import { parseRoute, legacyRedirect } from './router.ts';
+import { openNewPlaylistDialog } from './features/playlists/new-playlist.ts';
+import { setupSidebar, closeDrawer } from './features/playlists/sidebar.ts';
+import { setupAppPage } from './features/account/app-page.ts';
+import { setupRadio, openRadioPage, closeRadioPage, handleRadioLibraryUpdated, refreshRadio, playRadioFromTop } from './features/radio/radio.ts';
+import { setupArtists, openArtistsPage, closeArtistsPage, handleArtistsLibraryUpdated } from './features/artists/artists.ts';
+import { setupArtistPage, openArtistPage, closeArtistPage, handleArtistLibraryUpdated, playArtistFromTop } from './features/artists/artist-page.ts';
+import { setupRowDoubleClick } from './shared/row-double-click.ts';
+import { scheduleReload } from './features/playlists/playlist-store.ts';
+import { sharePlaylist, handlePlaylistCreated, handlePlaylistJoined, handlePlaylistNotFound, handlePlaylistError, handlePlaylistRenamed, handlePlaylistUpdated, openPlaylistHeaderMenu, setupLandingMenus, handleUserJoined, handleUserLeft, handlePlaylistClosed, checkForLastPlaylist, joinPlaylistFromCard, updatePinButton, togglePin, quickPlayPlaylist, togglePlaylistPlayback, openPlaylistPage, closePlaylistPage, syncMembership, resyncMembership, reportNowPlaying } from './features/playlists/playlist.ts';
+import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, updatePlayButton, updatePlaybackModeUI, updateNowPlaying, _setQueueFns } from './player/playback.ts';
+import { closePickDialog } from './features/picker/pick-dialog.ts';
+import { setupSearch, openSearchPage, closeSearchPage, searchRouteChanged, handleSearchLibraryUpdated } from './features/search/search.ts';
+import { handleQueueUpdated, handleSongAdded, removeSong, clearQueue, downloadPlaylist, cancelPlaylistDownload, moveSongUp, moveSongDown, playSongAt, setupQueueInteractions, setupQueueSearch, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './features/queue/queue.ts';
 
 // Wire up cross-module dependencies
 _setQueueFns(updateQueue, updateListeners);
@@ -34,7 +35,7 @@ _setQueueFns(updateQueue, updateListeners);
 viewActivators.profile = () => { loadProfilePage(); };
 
 // Socket.IO Setup
-function setupSocket() {
+function setupSocket(): void {
   const sock = io({ reconnection: true, reconnectionAttempts: 5, reconnectionDelay: 1000 });
   setSocket(sock);
   // Global chat + people panel, and now-playing reports from the player.
@@ -47,12 +48,12 @@ function setupSocket() {
     isListeningWith,
     stopListening: stopListenAlong,
   });
-  // Listen along with another user (people panel -> listen-along.js).
+  // Listen along with another user (people panel -> listen-along.ts).
   setupListenAlong(sock, { report: reportPresence });
   onListenChange(refreshPeople);
 
   // We need to re-import socket after setSocket to get the live binding
-  import('./shared/state.js').then(mod => {
+  import('./shared/state.ts').then(mod => {
     const s = mod.socket;
 
     // Events emitted before the first connect are buffered; after a reconnect
@@ -107,7 +108,7 @@ function setupSocket() {
 }
 
 // Event Listeners Setup
-function setupEventListeners() {
+function setupEventListeners(): void {
   elements.newPlaylistBtn.addEventListener('click', () => openNewPlaylistDialog(elements.newPlaylistBtn));
   if (elements.playlistMenuBtn) elements.playlistMenuBtn.addEventListener('click', openPlaylistHeaderMenu);
   setupLandingMenus();
@@ -148,7 +149,7 @@ function setupEventListeners() {
 
   if (elements.queueSortSelect) {
     elements.queueSortSelect.value = state.queueSort;
-    elements.queueSortSelect.addEventListener('change', (e) => { state.queueSort = e.target.value; storageSet(STORAGE_KEYS.QUEUE_SORT, state.queueSort); updateQueue(); });
+    elements.queueSortSelect.addEventListener('change', (e) => { state.queueSort = (e.target as HTMLSelectElement).value; storageSet(STORAGE_KEYS.QUEUE_SORT, state.queueSort); updateQueue(); });
   }
   if (elements.clearQueueBtn) elements.clearQueueBtn.addEventListener('click', clearQueue);
   if (elements.downloadQueueBtn) elements.downloadQueueBtn.addEventListener('click', downloadPlaylist);
@@ -162,21 +163,22 @@ function setupEventListeners() {
 }
 
 // Switching or leaving a playlist page: clear its lists.
-function resetLobbyPage() {
+function resetLobbyPage(): void {
   resetLobbyUI();
 }
 
-const routeViews = { landing: 'landingView', lobby: 'lobbyView', profile: 'profileView', radio: 'radioView', app: 'appView', artists: 'artistsView', artist: 'artistView', search: 'searchView' };
+type ViewElement = 'landingView' | 'lobbyView' | 'profileView' | 'radioView' | 'appView' | 'artistsView' | 'artistView' | 'searchView';
+const routeViews: Record<string, ViewElement> = { landing: 'landingView', lobby: 'lobbyView', profile: 'profileView', radio: 'radioView', app: 'appView', artists: 'artistsView', artist: 'artistView', search: 'searchView' };
 // The path applyRoute last showed (an artist page's back button returns to /artists from there).
-let lastPath = null;
-function isViewActive(view) {
-  const el = elements[routeViews[view]];
+let lastPath: string | null = null;
+function isViewActive(view: string): boolean {
+  const el = elements[routeViews[view]] as HTMLElement | undefined;
   return !!el && el.classList.contains('active');
 }
 
-// Make the UI match the address bar (see router.js for the URL scheme). Runs
+// Make the UI match the address bar (see router.ts for the URL scheme). Runs
 // on load and on Back/Forward; in-app navigation pushes the URL itself.
-function applyRoute() {
+function applyRoute(): void {
   // A choice left open belongs to the page that was left.
   closePickDialog();
   // Old /lobby/<id> links (bookmarks, history entries) become /playlist/<id>.
@@ -196,15 +198,16 @@ function applyRoute() {
     closePlaylistPage(resetLobbyPage);
     if (!isViewActive('landing') && !isViewActive('profile')) showView('landing');
   } else if (route.lobbyId) {
-    // The lobby view shows once lobby:joined arrives.
+    // The playlist view (#lobby-view) shows once lobby:joined arrives.
     if (route.lobbyId !== state.lobbyId) openPlaylistPage(route.lobbyId, resetLobbyPage);
   } else {
     closePlaylistPage(resetLobbyPage);
     if (!isViewActive(route.view)) showView(route.view);
     if (route.view === 'radio') openRadioPage();
     if (route.view === 'artists') openArtistsPage();
-    if (route.view === 'artist') openArtistPage(route.artistKey, { from: lastPath });
-    if (route.view === 'search') openSearchPage(route.searchQuery, { from: lastPath });
+    // parseRoute sets artistKey on the artist view and searchQuery on the search view.
+    if (route.view === 'artist') openArtistPage(route.artistKey as string, { from: lastPath });
+    if (route.view === 'search') openSearchPage(route.searchQuery as string, { from: lastPath });
   }
   lastPath = window.location.pathname.replace(/\/+$/, '') || '/';
   refreshPlayerBar();
@@ -213,7 +216,7 @@ function applyRoute() {
 }
 
 // Initialize Application
-async function init() {
+async function init(): Promise<void> {
   if (window.i18n) { await window.i18n.init(); setupLanguageSelector(updateQueue, updateListeners); }
   setupAppMeta();
   setupPlayerBar();
@@ -240,13 +243,13 @@ async function init() {
 
 // Pending users can already use the global chat (and see who is around),
 // nothing else: a socket for the social panel only.
-function initPendingSocial() {
+function initPendingSocial(): void {
   initSocialOnly();
   const btn = document.getElementById('pending-chat-btn');
   if (btn) { btn.hidden = false; btn.addEventListener('click', toggleSocial); }
 }
 
-function initSocialOnly(opts = {}) {
+function initSocialOnly(opts: Partial<SocialOptions> = {}): void {
   const sock = io({ reconnection: true, reconnectionAttempts: 5, reconnectionDelay: 1000 });
   setupSocial(sock, { name: auth.user && auth.user.name, emoji: auth.user && auth.user.emoji, ...opts });
   const sync = () => applySocialRoute(parseRoute(window.location.pathname).view === 'social');
@@ -258,7 +261,7 @@ function initSocialOnly(opts = {}) {
 // in to the app keeps the chat and people panel here. (The admin login alone is
 // not an account: no panel.)
 let dashboardSocialStarted = false;
-async function initDashboardSocial() {
+async function initDashboardSocial(): Promise<void> {
   if (dashboardSocialStarted) return;
   dashboardSocialStarted = true;
   const authData = await checkAuth().catch(() => null);
@@ -267,7 +270,7 @@ async function initDashboardSocial() {
   initSocialOnly({ noListenHint: t('social.cardListenInApp', 'Open the app to listen along.'), activity: status === 'approved' });
 }
 
-function initAuthenticatedApp() {
+function initAuthenticatedApp(): void {
   // Old account-link redirects land on /#profile.
   if (window.location.hash === '#profile') history.replaceState(null, '', '/profile');
   const moved = legacyRedirect(window.location.pathname, window.location.search);
@@ -291,12 +294,14 @@ function initAuthenticatedApp() {
   setupArtists({ play: playArtistFromTop });
   setupArtistPage();
   setupSearch();
-  setupRowDoubleClick((id) => {
+  setupRowDoubleClick((rowId) => {
+    // Every row the gesture knows carries an id (row-double-click.ts ROWS).
+    const id = rowId as string;
     if (id === 'radio') playRadioFromTop();
     else if (id.startsWith('artist:')) playArtistFromTop(id.slice('artist:'.length));
     else quickPlayPlaylist(id);
   });
-  // Songs marked "needs replacement" (badges everywhere; song-reports.js).
+  // Songs marked "needs replacement" (badges everywhere; song-reports.ts).
   loadReports();
   // The full player and the lobby page follow the app-wide player.
   player.on('state', updatePlayButton);
@@ -315,6 +320,27 @@ function initAuthenticatedApp() {
 }
 
 // Expose API for inline onclick handlers
+declare global {
+  interface Window {
+    app: {
+      removeSong: typeof removeSong;
+      moveSongUp: typeof moveSongUp;
+      moveSongDown: typeof moveSongDown;
+      playSongAt: typeof playSongAt;
+      openSource: typeof openSource;
+      copySourceUrl: typeof copySourceUrl;
+      joinLobbyFromCard: typeof joinPlaylistFromCard;
+      quickPlayPlaylist: typeof quickPlayPlaylist;
+      toggleLobbyPlayback: typeof togglePlaylistPlayback;
+      playRadio: () => void;
+      newPlaylist: (btn: HTMLElement | null) => void;
+    };
+    dashboardJoinLobby: typeof dashboardJoinLobby;
+    dashboardRemoveLobby: typeof dashboardRemoveLobby;
+    dashboardApproveUser: typeof dashboardApproveUser;
+    dashboardRejectUser: typeof dashboardRejectUser;
+  }
+}
 window.app = {
   removeSong, moveSongUp, moveSongDown, playSongAt,
   openSource, copySourceUrl,
@@ -322,7 +348,7 @@ window.app = {
   joinLobbyFromCard: joinPlaylistFromCard,
   quickPlayPlaylist, toggleLobbyPlayback: togglePlaylistPlayback,
   playRadio: () => playRadioFromTop(),
-  newPlaylist: (btn) => openNewPlaylistDialog(btn)
+  newPlaylist: (btn: HTMLElement | null) => openNewPlaylistDialog(btn)
 };
 window.dashboardJoinLobby = dashboardJoinLobby;
 window.dashboardRemoveLobby = dashboardRemoveLobby;

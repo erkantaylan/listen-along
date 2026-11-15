@@ -1,5 +1,5 @@
 // The song menu's pure decisions (no DOM), unit tested in
-// song-menu-rules.test.ts. song-reports.js builds the items.
+// song-menu-rules.test.ts. song-reports.ts builds the items.
 
 /** Where a song's link can come from (a player track, a library row mapped to one). */
 export interface SongSourceFields {

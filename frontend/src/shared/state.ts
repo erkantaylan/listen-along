@@ -138,7 +138,7 @@ export interface AppState {
   listeningAlong: boolean;
   playRequested: boolean;
   lobbyName: string | null;
-  // The page on screen's "play from the top" (radio.js, artist-page.js set it;
+  // The page on screen's "play from the top" (radio.ts, artist-page.ts set it;
   // the player bar's Play uses it with nothing loaded). Not in the initial state.
   viewPlay?: (() => void) | null;
 }
@@ -172,8 +172,8 @@ export const state: AppState = {
   volumeBeforeMute: 1,
   queueSort: storageGet(STORAGE_KEYS.QUEUE_SORT) || 'default',
   revealPlayingIn: null,  // lobby id: bring the current song into view once its queue is here
-  listeningAlong: false,  // listen-along.js drives the player
-  playRequested: false,   // the last load was meant to sound (audio.js playAudioWithUnlock)
+  listeningAlong: false,  // listen-along.ts drives the player
+  playRequested: false,   // the last load was meant to sound (audio.ts playAudioWithUnlock)
   lobbyName: null
 };
 

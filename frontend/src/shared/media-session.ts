@@ -6,7 +6,7 @@
  *   - iOS Safari: Control Center + lock screen
  *   - Desktop: media keys on keyboard
  *
- * Usage from app.js:
+ * Usage from app.ts:
  *   MediaSessionManager.init({ onPlay, onPause, onNext, onPrevious })
  *   MediaSessionManager.updateTrack({ title, artist, thumbnail, songId })
  *   MediaSessionManager.updatePlaybackState('playing' | 'paused' | 'none')

@@ -5,7 +5,7 @@
 export const RESTART_THRESHOLD = 3;
 
 // Repeat: 'off' | 'all' (Replay list) | 'one'. Someone who never chose one gets
-// 'all'; a stored choice, 'off' included, is kept (state.js, localStorage).
+// 'all'; a stored choice, 'off' included, is kept (state.ts, localStorage).
 export type RepeatMode = 'off' | 'all' | 'one';
 export const REPEAT_MODES: readonly RepeatMode[] = ['off', 'all', 'one'];
 export const DEFAULT_REPEAT: RepeatMode = 'all';
@@ -46,7 +46,7 @@ export function findTrackIndex(queue: readonly (TrackKey | null | undefined)[] |
 //   a manual Next always moves on).
 //   random: () => [0, 1), injectable for tests.
 //   blocked: (index) => true for a song to go past (it failed to play here,
-//   playback-failures.js). With everything else blocked the answer is -1.
+//   playback-failures.ts). With everything else blocked the answer is -1.
 export interface NextIndexOptions {
   length: number;
   current?: number;
