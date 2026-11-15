@@ -114,7 +114,8 @@ if [ "$STUB" = 1 ]; then
   # Debug builds take the server for this run from intent extras, held in
   # memory only: the server and token saved on the phone stay untouched.
   adb shell am start -n "$APP_ID/com.erkantaylan.listenalong.MainActivity" \
-    --es server "http://localhost:$STUB_PORT" --es session devtoken >/dev/null
+    --es server "http://localhost:$STUB_PORT" --es session devtoken \
+    --es thumbs "http://localhost:$STUB_PORT/stub/thumbs/" >/dev/null
   echo "==> Launched $APP_ID against the stub (saved settings unchanged)"
 else
   adb shell monkey -p "$APP_ID" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1

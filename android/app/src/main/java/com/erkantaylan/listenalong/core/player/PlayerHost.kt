@@ -35,4 +35,8 @@ class CarSources(
     val index: DownloadIndex,
     /** Downloaded songs this app can read right now (an earlier install's files need music access). */
     val readableDownloads: () -> Map<String, LocalSong>,
+    /** The saved cover of a downloaded song, as a content:// URI. */
+    val coverUri: (String) -> android.net.Uri? = { null },
+    /** Lets a car app read a cover URI ([coverUri]'s FileProvider is not exported). */
+    val grantRead: (packageName: String, uri: android.net.Uri) -> Unit = { _, _ -> },
 )

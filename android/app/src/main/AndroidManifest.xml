@@ -89,6 +89,18 @@
             android:name=".core.download.CancelDownloadsReceiver"
             android:exported="false" />
 
+        <!-- The saved covers of downloaded songs as content:// URIs (not
+             exported; the car's app is granted each URI it is shown). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.covers"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/cover_paths" />
+        </provider>
+
         <!-- Exported so the system, Bluetooth and Android Auto can find the
              media session and browse the library (MediaLibraryService; the
              MediaBrowserService action is what Android Auto looks for). -->

@@ -15,9 +15,11 @@ data class QueuedSong(
     val title: String,
     val artist: String = "",
     val durationSec: Int? = null,
+    /** For the cover saved next to the download. */
+    val youtubeId: String? = null,
 ) {
     companion object {
-        fun of(song: Song) = QueuedSong(song.id, song.title, song.artist, song.durationSec)
+        fun of(song: Song) = QueuedSong(song.id, song.title, song.artist, song.durationSec, youtubeId = song.youtubeId)
     }
 }
 

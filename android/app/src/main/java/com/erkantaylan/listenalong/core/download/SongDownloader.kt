@@ -69,6 +69,7 @@ class SongDownloader(private val sink: AudioSink) {
                     mimeType = format.mimeType,
                     bytes = written,
                     savedAt = now(),
+                    youtubeId = song.youtubeId,
                 )
             } catch (t: Throwable) {
                 pending.abort()

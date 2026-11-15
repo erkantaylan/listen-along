@@ -36,6 +36,8 @@ data class NowPlaying(
     val local: Boolean = false,
     /** Cover art embedded in the file, once the player has read it. */
     val artwork: ByteArray? = null,
+    /** The item's cover when the file has none: the saved cover (content://) or the public thumbnail. */
+    val artworkUri: String? = null,
 ) {
     val isEmpty: Boolean get() = songId == null
 }
@@ -60,7 +62,11 @@ interface PlayerControls {
  * it is.
  */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-class PlayerConnection(private val context: Context) : PlayerControls {
+class PlayerConnection(
+    private val context: Context,
+    /** The saved cover of a downloaded song (see MediaItems.forEntry). */
+    private val coverUri: (String) -> android.net.Uri? = { null },
+) : PlayerControls {
 
     private var future: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
@@ -117,7 +123,7 @@ class PlayerConnection(private val context: Context) : PlayerControls {
      */
     fun play(queue: BuiltQueue, contextLabel: String, shuffle: Boolean = false) {
         if (queue.entries.isEmpty()) return
-        val items = queue.entries.map { MediaItems.forEntry(it, contextLabel) }
+        val items = queue.entries.map { MediaItems.forEntry(it, contextLabel, coverUri) }
         val start = if (shuffle) items.indices.random() else queue.startIndex
         withController { c ->
             if (shuffle) c.shuffleModeEnabled = true
@@ -188,6 +194,7 @@ class PlayerConnection(private val context: Context) : PlayerControls {
             repeatMode = player.repeatMode,
             local = extras?.getBoolean(EXTRA_LOCAL) ?: false,
             artwork = meta.artworkData,
+            artworkUri = (meta.artworkUri ?: item.mediaMetadata.artworkUri)?.toString(),
         )
     }
 

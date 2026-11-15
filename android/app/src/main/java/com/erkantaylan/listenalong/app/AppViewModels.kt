@@ -18,7 +18,7 @@ import com.erkantaylan.listenalong.feature.settings.SettingsViewModel
 object AppViewModels {
 
     fun app(c: AppContainer): ViewModelProvider.Factory = viewModelFactory {
-        initializer { AppViewModel(c.settings.config, c.connectivity, c.reports, c.downloads, c.messages) }
+        initializer { AppViewModel(c.settings.config, c.connectivity, c.reports, c.downloads, c.messages, syncCovers = { c.coverSync.sync() }) }
     }
 
     fun library(c: AppContainer): ViewModelProvider.Factory = viewModelFactory {

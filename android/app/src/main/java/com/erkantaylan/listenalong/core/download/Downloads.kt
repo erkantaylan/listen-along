@@ -56,6 +56,8 @@ class Downloads(
     private val now: () -> Long = System::currentTimeMillis,
     /** Where file and MediaStore work runs (tests pass their own dispatcher). */
     private val io: CoroutineDispatcher = Dispatchers.IO,
+    /** After a song is saved (its cover is fetched next to it); a failure here never fails the download. */
+    private val onSaved: suspend (LocalSong) -> Unit = {},
 ) {
 
     private val downloader = SongDownloader(sink)
@@ -141,6 +143,7 @@ class Downloads(
                     savedAt = now(),
                     // Without media access only this install's own files are visible.
                     reclaimed = hasAccess,
+                    youtubeId = song.youtubeId,
                 ))
             }
             val taken = matches.mapTo(HashSet()) { it.second.uri }
@@ -223,6 +226,7 @@ class Downloads(
             index.put(local)
             queue.finish(id)
             stats.done.incrementAndGet()
+            runCatching { onSaved(local) }
         } catch (c: CancellationException) {
             // Cancelled by the user: already out of the queue, release is a
             // no-op. Worker stopping: stays queued for the next run.

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The covers of downloaded songs (core/storage/CoverStore), shared as
+     content:// URIs with the notification, the lock screen and Android Auto
+     (which is granted read access per URI). Nothing else is shared. -->
+<paths>
+    <files-path name="covers" path="covers/" />
+</paths>

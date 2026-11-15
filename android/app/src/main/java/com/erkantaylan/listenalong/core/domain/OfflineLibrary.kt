@@ -15,6 +15,7 @@ fun LocalSong.toSong(): Song = Song(
     title = title.ifBlank { displayName.substringBeforeLast('.') },
     artist = artist,
     durationRaw = durationSec?.toDouble(),
+    youtubeId = youtubeId,
 )
 
 /** The offline library: what is on the device, searched and sorted like the server would. */

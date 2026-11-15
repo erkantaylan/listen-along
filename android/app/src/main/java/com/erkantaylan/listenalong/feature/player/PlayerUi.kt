@@ -12,6 +12,7 @@ import com.erkantaylan.listenalong.core.ui.ReportMenuEntries
 import com.erkantaylan.listenalong.core.ui.SongActionsSheet
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
+import coil3.compose.AsyncImage
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -87,6 +88,11 @@ private fun rememberArtwork(bytes: ByteArray?): ImageBitmap? = remember(bytes) {
     bytes?.let { runCatching { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() }.getOrNull() }
 }
 
+/**
+ * The playing song's cover: the picture embedded in the file when the player
+ * found one, else the item's cover (the saved one of a downloaded song, or
+ * the public thumbnail) through the image loader, over the placeholder.
+ */
 @Composable
 private fun Cover(now: NowPlaying, size: Dp, corner: Dp) {
     val art = rememberArtwork(now.artwork)
@@ -94,8 +100,12 @@ private fun Cover(now: NowPlaying, size: Dp, corner: Dp) {
         Image(art, contentDescription = null, contentScale = ContentScale.Crop,
               modifier = Modifier.size(size).clip(RoundedCornerShape(corner)))
     } else {
-        Box(Modifier.size(size).clip(RoundedCornerShape(corner)).background(Palette.bg3), contentAlignment = Alignment.Center) {
-            Icon(AppIcons.MusicNote, contentDescription = null, tint = Palette.fg3, modifier = Modifier.size(size * 0.45f))
+        Box(Modifier.size(size).clip(RoundedCornerShape(corner)).background(Palette.pressed), contentAlignment = Alignment.Center) {
+            Icon(AppIcons.MusicNote, contentDescription = null, tint = Palette.fg4, modifier = Modifier.size(size * 0.45f))
+            if (now.artworkUri != null) {
+                AsyncImage(model = now.artworkUri, contentDescription = null, contentScale = ContentScale.Crop,
+                           modifier = Modifier.size(size))
+            }
         }
     }
 }
@@ -204,6 +214,10 @@ fun FullPlayer(now: NowPlaying, player: PlayerControls, onClose: () -> Unit) {
                             .border(1.dp, Palette.border, RoundedCornerShape(12.dp)),
                         contentAlignment = Alignment.Center) {
                         Icon(AppIcons.MusicNote, contentDescription = null, tint = Palette.fg4, modifier = Modifier.size(96.dp))
+                        if (now.artworkUri != null) {
+                            AsyncImage(model = now.artworkUri, contentDescription = null, contentScale = ContentScale.Crop,
+                                       modifier = Modifier.fillMaxSize().testTag("player:cover"))
+                        }
                     }
                 }
             }

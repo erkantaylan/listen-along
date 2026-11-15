@@ -17,6 +17,8 @@ media3 = "1.11.1"
 browser = "1.9.0"
 # Type-safe routes between the screens (one ViewModel per destination).
 navigation = "2.10.2"
+# Cover images (YouTube thumbnails) in lists and the player, with a disk cache.
+coil = "3.6.3"
 junit = "4.13.2"
 
 [libraries]
@@ -39,6 +41,8 @@ androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplaye
 androidx-media3-session = { group = "androidx.media3", name = "media3-session", version.ref = "media3" }
 androidx-media3-datasource-okhttp = { group = "androidx.media3", name = "media3-datasource-okhttp", version.ref = "media3" }
 androidx-browser = { group = "androidx.browser", name = "browser", version.ref = "browser" }
+coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
+coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigation" }
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }

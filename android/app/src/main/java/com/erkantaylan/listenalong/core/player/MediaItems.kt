@@ -13,7 +13,13 @@ object MediaItems {
     const val EXTRA_CONTEXT = "listenalong.context"
     const val EXTRA_LOCAL = "listenalong.local"
 
-    fun forEntry(entry: QueueEntry, contextLabel: String): MediaItem {
+    /**
+     * [coverUri]: the saved cover of a downloaded song as a `content://`
+     * URI (core/storage/CoverStore through the app's FileProvider), which the
+     * notification, the lock screen and the car can read with no connection;
+     * else the public thumbnail.
+     */
+    fun forEntry(entry: QueueEntry, contextLabel: String, coverUri: (String) -> android.net.Uri? = { null }): MediaItem {
         val song = entry.song
         val local = entry.source is PlaySource.Local
         val metadata = MediaMetadata.Builder()
@@ -24,10 +30,11 @@ object MediaItems {
             .setIsPlayable(true)
             .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
             .apply {
-                // The notification's (and the car's) cover for a stream; a
-                // downloaded file's own embedded art is preferred when the
-                // player finds it.
-                thumbnailUrl(song.youtubeId)?.takeIf { !local }?.let { setArtworkUri(it.toUri()) }
+                // The notification's, the lock screen's and the car's cover:
+                // the saved one (offline too), else the public thumbnail. A
+                // file's own embedded art is preferred by the player when it
+                // finds it.
+                (coverUri(song.id) ?: thumbnailUrl(song.youtubeId)?.toUri())?.let { setArtworkUri(it) }
             }
             .setExtras(Bundle().apply {
                 putString(EXTRA_CONTEXT, contextLabel)
@@ -57,6 +64,5 @@ object MediaItems {
         return item.mediaMetadata.extras?.getBoolean(EXTRA_LOCAL) ?: false
     }
 
-    fun thumbnailUrl(youtubeId: String?): String? =
-        youtubeId?.takeIf { it.isNotBlank() }?.let { "https://i.ytimg.com/vi/$it/hqdefault.jpg" }
+    fun thumbnailUrl(youtubeId: String?): String? = com.erkantaylan.listenalong.core.model.CoverArt.thumbnailUrl(youtubeId)
 }

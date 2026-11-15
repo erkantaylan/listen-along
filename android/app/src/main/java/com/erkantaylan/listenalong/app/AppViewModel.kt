@@ -44,6 +44,8 @@ class AppViewModel(
     private val reports: ReportRepository,
     private val downloads: Downloads,
     private val messages: UserMessages,
+    /** Saves the covers of downloaded songs that have none yet (core/download/CoverSync); quiet offline. */
+    private val syncCovers: suspend () -> Unit = {},
 ) : ViewModel() {
 
     val online: StateFlow<Boolean> = network.online
@@ -72,10 +74,14 @@ class AppViewModel(
             if (c.signedIn) {
                 runCatching { reports.refresh() }
                 foundInFolder(downloads.reclaim(force = true))
+                runCatching { syncCovers() }
             }
         }.launchIn(viewModelScope)
         network.online.drop(1).onEach { online ->
-            if (online && config.value.signedIn) runCatching { reports.refresh() }
+            if (online && config.value.signedIn) {
+                runCatching { reports.refresh() }
+                runCatching { syncCovers() }
+            }
         }.launchIn(viewModelScope)
     }
 

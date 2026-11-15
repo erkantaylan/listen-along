@@ -32,6 +32,8 @@ import com.erkantaylan.listenalong.core.model.Song
 import com.erkantaylan.listenalong.core.player.PlayOutcome
 import com.erkantaylan.listenalong.core.storage.LocalSong
 import com.erkantaylan.listenalong.core.ui.AppActions
+import com.erkantaylan.listenalong.core.ui.CoverSource
+import com.erkantaylan.listenalong.core.ui.LocalCovers
 import com.erkantaylan.listenalong.core.ui.LocalMusicAccess
 import com.erkantaylan.listenalong.core.ui.LocalOnline
 import com.erkantaylan.listenalong.core.ui.LocalReportActions
@@ -93,6 +95,7 @@ fun AppUi(
     val nowPlaying by container.player.state.collectAsStateWithLifecycle()
     val reportDialog by appVm.reportDialog.collectAsStateWithLifecycle()
     val reportDetails by appVm.reportDetails.collectAsStateWithLifecycle()
+    val savedCovers by container.covers.known.collectAsStateWithLifecycle()
     var showPlayer by rememberSaveable { mutableStateOf(false) }
     var addingToPlaylist by remember { mutableStateOf<List<Song>?>(null) }
     // Signed out at the first start: Settings, where "Sign in" is (Back still goes to the Library).
@@ -171,6 +174,7 @@ fun AppUi(
         LocalReports provides reports,
         LocalOnline provides online,
         LocalReportActions provides reportActions,
+        LocalCovers provides CoverSource(savedCovers, container.covers::file),
         LocalMusicAccess provides MusicAccessUi(
             granted = music.granted,
             // Worth asking only when nothing is known to be here and a server can match files.

@@ -103,6 +103,7 @@ class CarLibrary(
         mediaId: String,
     ): ListenableFuture<LibraryResult<MediaItem>> = future {
         if (!mayBrowse(session, browser)) return@future LibraryResult.ofError(SessionError.ERROR_PERMISSION_DENIED)
+        lastBrowser = browser.packageName
         val item = when (val node = CarNode.parse(mediaId)) {
             null -> null
             CarNode.Root -> folder(node, "Listen Along", MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
@@ -128,6 +129,7 @@ class CarLibrary(
         params: LibraryParams?,
     ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> = future {
         if (!mayBrowse(session, browser)) return@future LibraryResult.ofError(SessionError.ERROR_PERMISSION_DENIED)
+        lastBrowser = browser.packageName
         val children: List<MediaItem> = when (val node = CarNode.parse(parentId)) {
             CarNode.Root -> listOf(
                 folder(CarNode.Playlists, "Playlists", MediaMetadata.MEDIA_TYPE_FOLDER_PLAYLISTS),
@@ -164,6 +166,7 @@ class CarLibrary(
         params: LibraryParams?,
     ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> = future {
         if (!mayBrowse(session, browser)) return@future LibraryResult.ofError(SessionError.ERROR_PERMISSION_DENIED)
+        lastBrowser = browser.packageName
         val list = CarList.Search(query.trim())
         val items = songs(list).mapIndexed { i, song -> track(CarNode.Track(list, i, song.id), song) }
         LibraryResult.ofItemList(page(items, page, pageSize), params)
@@ -224,7 +227,7 @@ class CarLibrary(
             val song = songs.getOrNull(CarNode.startIndex(songs, node.index, node.songId))?.takeIf { it.id == node.songId }
                 ?: return@mapNotNull null
             PlayQueue.build(listOf(song), 0, graph.readableDownloads(), streamUrl(), online)
-                .entries.firstOrNull()?.let { MediaItems.forEntry(it, listTitle(node.list)) }
+                .entries.firstOrNull()?.let { MediaItems.forEntry(it, listTitle(node.list), graph.coverUri) }
         }
         if (resolved.isEmpty()) throw IOException(if (online) "Nothing to play" else "Offline, and this song is not on the phone")
         return resolved
@@ -245,7 +248,7 @@ class CarLibrary(
             throw IOException(if (online) "Nothing to play here" else "Offline, and none of these songs are on the phone")
         }
         val label = contextLabel(list)
-        val items = queue.entries.map { MediaItems.forEntry(it, label) }
+        val items = queue.entries.map { MediaItems.forEntry(it, label, graph.coverUri) }
         // Shuffle in the car is the app's Shuffle button: shuffle on, a random first song.
         // Otherwise the shuffle setting is left as it is, as in the app.
         if (shuffle) player.shuffleModeEnabled = true
@@ -377,13 +380,28 @@ class CarLibrary(
                     .setIsBrowsable(false)
                     .setIsPlayable(true)
                     .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                    .apply { MediaItems.thumbnailUrl(song.youtubeId)?.let { setArtworkUri(it.toUri()) } }
+                    .apply { artworkFor(song)?.let { setArtworkUri(it) } }
                     // The car marks downloaded songs with its download icon.
                     .setExtras(Bundle().apply { if (downloaded) putLong(EXTRA_DOWNLOAD_STATUS, STATUS_DOWNLOADED) })
                     .build(),
             )
             .build()
     }
+
+    /**
+     * A row's cover for the car: the saved cover (a content:// URI the car's
+     * app is granted, so it shows offline too), else the public thumbnail.
+     */
+    private fun artworkFor(song: Song): android.net.Uri? {
+        graph.coverUri(song.id)?.let { uri ->
+            lastBrowser?.let { pkg -> runCatching { graph.grantRead(pkg, uri) } }
+            return uri
+        }
+        return MediaItems.thumbnailUrl(song.youtubeId)?.toUri()
+    }
+
+    /** The controller that is browsing (the car's app), to grant it the covers. */
+    @Volatile private var lastBrowser: String? = null
 
     // ---- Plumbing ----------------------------------------------------------------------------
 

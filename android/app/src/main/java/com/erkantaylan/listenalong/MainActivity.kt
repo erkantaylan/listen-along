@@ -40,6 +40,7 @@ import com.erkantaylan.listenalong.app.MusicAccessState
 import com.erkantaylan.listenalong.app.PlatformActions
 import com.erkantaylan.listenalong.core.designsystem.ListenAlongTheme
 import com.erkantaylan.listenalong.core.designsystem.Palette
+import com.erkantaylan.listenalong.core.model.CoverArt
 import com.erkantaylan.listenalong.core.network.ServerUrl
 import com.erkantaylan.listenalong.core.player.ExternalPlayer
 import com.erkantaylan.listenalong.core.storage.LocalSong
@@ -168,6 +169,8 @@ class MainActivity : ComponentActivity(), PlatformActions {
         if (!debuggable) return
         val url = ServerUrl.normalize(server) ?: return
         container.settings.overrideForSession(url, intent.getStringExtra(EXTRA_DEBUG_SESSION))
+        // The stub serves its own thumbnails, so the dev loop never asks YouTube.
+        intent.getStringExtra(EXTRA_DEBUG_THUMBS)?.let { CoverArt.base = it }
     }
 
     /** The sign-in redirect (custom scheme or App Link) from feature/auth/AuthRedirectActivity. */
@@ -269,6 +272,7 @@ class MainActivity : ComponentActivity(), PlatformActions {
     companion object {
         const val EXTRA_DEBUG_SERVER = "server"
         const val EXTRA_DEBUG_SESSION = "session"
+        const val EXTRA_DEBUG_THUMBS = "thumbs"
         private const val PREF_PROMPT_DISMISSED = "prompt_dismissed"
         private const val PREF_DECLINED = "declined"
     }

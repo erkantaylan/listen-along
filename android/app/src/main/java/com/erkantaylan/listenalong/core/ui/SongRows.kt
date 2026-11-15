@@ -71,8 +71,8 @@ fun SongRow(
     detail: String? = null,
     /** The current row's song is sounding (its equaliser moves); paused, it stands still. */
     currentPlaying: Boolean = true,
-    /** The row's cover (default: the placeholder). */
-    art: @Composable (Modifier) -> Unit = { Thumb(it) },
+    /** The row's cover (default: the library song's, see [SongArt]). */
+    art: @Composable (Modifier) -> Unit = { SongArt(reportSong?.id, reportSong?.youtubeId, it) },
     menu: (@Composable ColumnScope.(dismiss: () -> Unit) -> Unit)? = null,
 ) {
     var sheet by remember { mutableStateOf(false) }

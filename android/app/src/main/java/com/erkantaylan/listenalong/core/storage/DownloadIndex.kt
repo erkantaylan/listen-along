@@ -26,6 +26,8 @@ data class LocalSong(
      * user's consent, and with no access its absence proves nothing.
      */
     val reclaimed: Boolean = false,
+    /** The song's YouTube video, for its cover (core/model/CoverArt). Null for older entries until the cover backfill finds it. */
+    val youtubeId: String? = null,
 )
 
 /**
@@ -53,6 +55,11 @@ class DownloadIndex(private val store: TextStore) {
     fun put(song: LocalSong) = mutate { it + (song.songId to song) }
 
     fun remove(songId: String) = mutate { it - songId }
+
+    /** Fills in the YouTube ids of entries that are still here (the cover backfill), in one write. */
+    fun setYoutubeIds(ids: Map<String, String>) = mutate { current ->
+        current.mapValues { (id, local) -> ids[id]?.let { local.copy(youtubeId = it) } ?: local }
+    }
 
     /**
      * Drops every entry whose file no longer exists and returns them.

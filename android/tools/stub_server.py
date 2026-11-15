@@ -13,6 +13,13 @@ Serves every .m4a / .opus / .ogg / .mp3 under --music as a library song
                                              withdraw your own report (seeded
                                              with one report by "Ayşe")
   GET /api/library/<id>/file                 the bytes, with Range support
+  GET /stub/thumbs/<video>/hqdefault.jpg     a song's cover, as YouTube's
+                                             thumbnail host would (no
+                                             session; PNG bytes). Every
+                                             sample song but "No Artist Here"
+                                             has a made-up youtube_id; the
+                                             app is pointed here with
+                                             --es thumbs (dev.sh does)
   GET  /auth/mobile/start?state&nonce&code_challenge[&redirect_uri]
                                              the sign-in "page": a link back
                                              to the app (as the server's dev
@@ -57,8 +64,10 @@ import re
 import shutil
 import subprocess
 import sys
+import struct
 import time
 import uuid
+import zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -91,9 +100,14 @@ def scan(music_dir):
             artist, _, title = stem.partition(" - ")
             if not title:
                 artist, title = "Unknown", stem
+            song_id = str(uuid.UUID(hashlib.md5(path.encode()).hexdigest()))
+            # A made-up video id (11 characters, like YouTube's) for every song but
+            # one, so the app's covers and its placeholder are both exercised.
+            video = None if title == "No Artist Here" else "st" + hashlib.md5(song_id.encode()).hexdigest()[:9]
             songs.append({
-                "id": str(uuid.UUID(hashlib.md5(path.encode()).hexdigest())),
-                "youtube_id": None,
+                "id": song_id,
+                "youtube_id": video,
+                "thumbnail": thumb_path(video),
                 "title": title,
                 "artist": artist,
                 "album": None,
@@ -106,6 +120,34 @@ def scan(music_dir):
                 "_mtime": os.path.getmtime(path),
             })
     return songs
+
+
+def thumb_path(video):
+    return f"/stub/thumbs/{video}/hqdefault.jpg" if video else None
+
+
+def make_thumb(video):
+    """A 480x360 PNG (any decoder sniffs it; the name says .jpg as YouTube's does):
+    two colours from the video id in a diagonal split and a light disc."""
+    h = hashlib.md5(video.encode()).digest()
+    a, b = (h[0] % 160 + 40, h[1] % 160 + 40, h[2] % 160 + 40), (h[3] % 120 + 20, h[4] % 120 + 20, h[5] % 120 + 20)
+    w, ht = 480, 360
+    rows = []
+    for y in range(ht):
+        row = bytearray([0])
+        for x in range(w):
+            c = a if x + y < (w + ht) // 2 else b
+            if (x - w / 2) ** 2 + (y - ht / 2) ** 2 < 70 ** 2:
+                c = (235, 235, 235)
+            row += bytes(c)
+        rows.append(bytes(row))
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, ht, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(b"".join(rows), 6)) + chunk(b"IEND", b""))
+
+
+THUMBS = {}
 
 
 def make_samples(target):
@@ -162,10 +204,10 @@ def s256(verifier):
 def seed_playlists(songs):
     """Two playlists: one of ours (private), one of someone else's (public)."""
     def entry(song):
-        return {"entry_id": str(uuid.uuid4()), "library_id": song["id"], "youtube_id": None,
+        return {"entry_id": str(uuid.uuid4()), "library_id": song["id"], "youtube_id": song.get("youtube_id"),
                 "title": f"{song['title']} - {song['artist']}" if song["artist"] != "Unknown" else song["title"],
                 "artist": song["artist"], "duration_sec": song["duration_sec"], "url": f"library:{song['id']}",
-                "thumbnail": None, "added_by": ME, "added_at": 1761800000000}
+                "thumbnail": song.get("thumbnail"), "added_by": ME, "added_at": 1761800000000}
     mine = {"id": str(uuid.uuid4()), "name": "Stub mix", "visibility": "private", "ownerId": "u-me",
             "ownerName": ME, "entries": [entry(s) for s in songs[:3]]}
     theirs = {"id": str(uuid.uuid4()), "name": "Ayşe's road trip", "visibility": "public", "ownerId": "u-ayse",
@@ -284,6 +326,22 @@ class Handler(BaseHTTPRequestHandler):
         parts = [p for p in url.path.split("/") if p]
         if parts == ["auth", "mobile", "start"]:
             return self.mobile_start(parse_qs(url.query))
+        if len(parts) == 4 and parts[:2] == ["stub", "thumbs"] and parts[3] == "hqdefault.jpg":
+            # Like i.ytimg.com: public, no session. Never sees the app's Bearer (the app's
+            # image client has none); log it if one ever arrives.
+            if self.headers.get("Authorization"):
+                print("stub: WARNING an image request carried an Authorization header", flush=True)
+            video = parts[2]
+            if not any(s.get("youtube_id") == video for s in self.songs):
+                return self.send_json(404, {"error": "No such thumbnail"})
+            data = THUMBS.get(video) or THUMBS.setdefault(video, make_thumb(video))
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.end_headers()
+            self.wfile.write(data)
+            return
         authed = self.auth()
         if authed is False:
             return self.send_json(401, SESSION_ENDED)

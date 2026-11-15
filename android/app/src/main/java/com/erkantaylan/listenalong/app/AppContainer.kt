@@ -35,6 +35,19 @@ import kotlinx.coroutines.SupervisorJob
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import java.io.File
+import android.content.Intent
+import android.net.Uri
+import androidx.core.content.FileProvider
+import coil3.ImageLoader
+import coil3.serviceLoaderEnabled
+import coil3.disk.DiskCache
+import coil3.memory.MemoryCache
+import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import com.erkantaylan.listenalong.core.download.CoverSync
+import com.erkantaylan.listenalong.core.network.ImageHttp
+import com.erkantaylan.listenalong.core.storage.CoverStore
+import kotlinx.coroutines.launch
+import okio.Path.Companion.toOkioPath
 
 /**
  * The app's dependencies, built once per process by hand (no DI framework:
@@ -90,12 +103,40 @@ class AppContainer(context: Context) {
         return LibraryClient(config.baseUrl, config.token, apiHttp).also { cached = config to it }
     }
 
+    /**
+     * Cover images come from a third-party host (YouTube's thumbnails): their
+     * own client, built from scratch so it can never carry the session.
+     */
+    val imageHttp: OkHttpClient = ImageHttp.newClient()
+
+    /** Coil: covers decoded at the size they are drawn, 64 MB on disk, 15% of the heap in memory. */
+    val imageLoader: ImageLoader = ImageLoader.Builder(app)
+        .serviceLoaderEnabled(false)
+        .components { add(OkHttpNetworkFetcherFactory(callFactory = { imageHttp })) }
+        .diskCache {
+            DiskCache.Builder().directory(File(app.cacheDir, "image_cache").toOkioPath())
+                .maxSizeBytes(64L * 1024 * 1024).build()
+        }
+        .memoryCache { MemoryCache.Builder().maxSizePercent(app, 0.15).build() }
+        .build()
+
+    /** The covers of downloaded songs, kept for offline (app-private, not in Music/ListenAlong). */
+    val covers = CoverStore(File(app.filesDir, "covers"))
+
+    val coverSync = CoverSync(index, covers, ::client, fetch = { url -> ImageHttp.fetch(imageHttp, url) })
+
+    /** A saved cover as a content:// URI (the FileProvider in the manifest), for the notification and the car. */
+    fun coverUri(songId: String): Uri? =
+        if (!covers.has(songId)) null
+        else runCatching { FileProvider.getUriForFile(app, "${app.packageName}.covers", covers.file(songId)) }.getOrNull()
+
     val downloads = Downloads(
         queue = queue,
         index = index,
         sink = sink,
         clientProvider = ::client,
         kick = { DownloadScheduler.kick(app) },
+        onSaved = { coverSync.fetchFor(it) },
     )
 
     /** Downloaded songs this app can read right now; with no media access, an earlier install's files stream instead. */
@@ -149,7 +190,7 @@ class AppContainer(context: Context) {
         .addInterceptor(SessionEndedInterceptor(auth::sessionEnded))
         .build()
 
-    val player = PlayerConnection(app)
+    val player = PlayerConnection(app, ::coverUri)
 
     val playLauncher = PlayLauncher(player, settings.config, connectivity, ::client, ::readableDownloads)
 
@@ -163,6 +204,16 @@ class AppContainer(context: Context) {
             playlists = playlists,
             index = index,
             readableDownloads = ::readableDownloads,
+            coverUri = ::coverUri,
+            grantRead = { pkg, uri -> app.grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) },
         ),
     )
+
+    init {
+        appScope.launch(Dispatchers.IO) {
+            covers.load()
+            // A song's cover goes with its download.
+            index.entries.collect { covers.retainOnly(it.keys) }
+        }
+    }
 }
