@@ -44,7 +44,10 @@ where lobby persistence broke entirely on deployed instances.
   connection's account helpers, then `social` / `listenAlong` `attach`, then each area's `register`, then `disconnect`.
   Socket handler modules (`create…Sockets({ deps })`, whose `register(socket, ctx)` runs per connection):
   `playlistSockets.js` (`lobby:*`, `user:update`, `listener:now-playing`; owns `visibleLobby` / `editableLobby`
-  and hands them to the queue handlers), `queueSockets.js` (`queue:*`). `memoryRateLimit.js`: the 20/min in-memory limits (admin login, `queue:add`)
+  and hands them to the queue handlers), `queueSockets.js` (`queue:*`). `memoryRateLimit.js`: the 20/min in-memory limits (admin login, `queue:add`).
+  `reactions.js`: the cross-area functions (`emitJob`, `queueRequestJob`, `notifyPlaylistsChanged`, `destroyLobby`,
+  `accountStatusChanged`, `addLibrarySongToLobby`, `handleLibrarySong{Added,Replaced,DetailsChanged}`,
+  `rewriteQueueEntries`, …). Areas get them through their deps and never require each other
 - Domain modules: lobby.js, playlistAccess.js, queue.js, covers.js, db.js,
   workerHub.js / downloadJobs.js / jobRoutes.js (downloaders + jobs, see below),
   library.js (music library + upload validation (m4a / Ogg Opus) + legacy cache migration +
@@ -72,7 +75,7 @@ where lobby persistence broke entirely on deployed instances.
   first via `POST /api/library/check`.
 - Replace (`POST /api/library/:id/replace`, any valid token or approved web
   user): new audio + metadata under the same song id, audit row in
-  `library_song_replacements`, old file deleted after commit; index.js
+  `library_song_replacements`, old file deleted after commit; reactions.js
   rewrites queue entries of every playlist holding it and emits
   `library:updated { replaced }` (players reload the new file). Audio
   responses are `no-cache` unless the url has `?v=<file_version>`: never mark
@@ -168,7 +171,7 @@ where lobby persistence broke entirely on deployed instances.
   (Postgres `download_jobs`, `download_workers`) and the views:
   `publicWorkerView` = name + owner only; `adminWorkerView` adds hostname /
   OS / IP / versions — never send those to non-admins. Jobs come from every
-  new song request (index.js `queueRequestJob`) and the web Download box
+  new song request (reactions.js `queueRequestJob`) and the web Download box
   (`POST /api/jobs`, `jobRoutes.js`, which also serves `/api/workers`,
   `/api/profile/activity` (caller's own only) and `/api/admin/workers|jobs`).
   Uploads carry `job_id` + `worker_id` (`downloadJobs.uploadContext`):
@@ -193,7 +196,7 @@ where lobby persistence broke entirely on deployed instances.
   (that join ignores the viewer). List: `GET /api/activity/downloads` (jobRoutes.js;
   guard default: approved, no tokens; `listActivity`: newest `ACTIVITY_LIMIT` = 60
   plus every active job; empty without a database). Live: `activityFeed.js`, fed by
-  `emitJob` in index.js, so every job change reaches it (a details edit of a song
+  `emitJob` in reactions.js, so every job change reaches it (a details edit of a song
   with an active replace job emits it too): `activity:job { job }` to `APP_ROOM`,
   where a private playlist's owner gets the row with the playlist and everyone else
   the same row without (looked up at every emit, as `emitNowPlaying` does), and
@@ -339,7 +342,7 @@ where lobby persistence broke entirely on deployed instances.
   page's pin button is the personal pin.
 - The web sidebar (`frontend/sidebar.js`, list in `playlist-store.js`, search in
   `playlist-filter.js`) refetches `/api/playlists` on socket `playlists:changed`
-  (`notifyPlaylistsChanged` in index.js). The signal carries no data; a private
+  (`notifyPlaylistsChanged` in reactions.js). The signal carries no data; a private
   playlist's changes go only to its owner's `userRoom`. Emit it from anything that
   creates, renames, deletes or changes the visibility of a playlist.
 - The page holds the full queue (`queue:update`, about 230 bytes per song) and windows only the rows:
