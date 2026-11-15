@@ -784,24 +784,15 @@
             <li data-i18n="appPage.install4">Tap Install, then Open.</li>
           </ol>
           <p class="fs-sm fg-2 mb-0"><strong data-i18n="appPage.protectTitle">Play Protect.</strong> <span data-i18n="appPage.protectBody">The app is not on Google Play, so Play Protect does not know its developer and may warn you or offer to scan it. If you trust this site, open “More details” and choose “Install anyway”. The wording differs from phone to phone.</span></p>
-          <p class="fs-sm fg-2 mb-0"><strong data-i18n="appPage.updatesTitle">Updates.</strong> <span data-i18n="appPage.updatesBody">The app does not update itself. To update, come back here, download the new version and install it over the old one. Your token, settings and songs stay.</span></p>
-          <p class="fs-sm fg-2 mb-0"><strong data-i18n="appPage.debugTitle">Developer builds.</strong> <span data-i18n="appPage.debugBody">A debug build is a separate app (com.erkantaylan.listenalong.debug), so both can be installed side by side. They do not share a token or settings: connect this one on its own.</span></p>
+          <p class="fs-sm fg-2 mb-0"><strong data-i18n="appPage.updatesTitle">Updates.</strong> <span data-i18n="appPage.updatesBody">The app does not update itself. To update, come back here, download the new version and install it over the old one. Your sign-in, settings and songs stay.</span></p>
+          <p class="fs-sm fg-2 mb-0"><strong data-i18n="appPage.debugTitle">Developer builds.</strong> <span data-i18n="appPage.debugBody">A debug build is a separate app (com.erkantaylan.listenalong.debug), so both can be installed side by side. They do not share a sign-in or settings: sign in to this one on its own.</span></p>
         </div>
       </section>
       <section class="card mb-4" aria-labelledby="app-connect-title">
         <div class="card-header"><h2 id="app-connect-title" class="h6 mb-0" data-i18n="appPage.connectTitle">Connect your account</h2></div>
         <div class="card-body vstack gap-4">
-          <div id="app-pending-note" class="alert theme-warning mb-0" role="status" data-i18n="appPage.pendingNote" hidden>Your account is waiting for approval. You can install the app now, but tokens need an approved account.</div>
-          <ol class="app-steps mb-0">
-            <li data-i18n="appPage.connect1">On your profile, under “CLI tokens”, type a label such as Phone and press “Create token”.</li>
-            <li data-i18n="appPage.connect2">Press “Copy”. The token is shown only once; if you lose it, create another.</li>
-            <li data-i18n="appPage.connect3">Open the app. It starts on Settings until it has a token (later: the Settings tab).</li>
-            <li id="app-connect-server"></li>
-            <li data-i18n="appPage.connect5">Under “API token”, press “Paste”, then “Save and test”.</li>
-            <li data-i18n="appPage.connect6">You should see “Signed in as” with your name and “Library reachable”. If the token is rejected, create a new one.</li>
-          </ol>
-          <div><a id="app-tokens-link" class="btn" href="/profile#tokens" data-spa-link data-i18n="appPage.openTokens">Open CLI tokens on my profile</a></div>
-          <p class="fs-sm fg-2 mb-0"><strong data-i18n="appPage.revokeTitle">Revoking.</strong> <span data-i18n="appPage.revokeBody">The token acts as you, so keep it private and use one per device. To cut a device off, press “Revoke” next to its token on your profile; the app then gets “Token rejected” until it has a new one.</span></p>
+          <div id="app-pending-note" class="alert theme-warning mb-0" role="status" data-i18n="appPage.pendingNote" hidden>Your account is waiting for approval. You can install the app and sign in now; it can use the library once your account is approved.</div>
+          <p class="mb-0" data-i18n="appPage.connectSignIn">Open the app and tap “Sign in”. Use the same account as on this website; no token needed.</p>
         </div>
       </section>
     </main>

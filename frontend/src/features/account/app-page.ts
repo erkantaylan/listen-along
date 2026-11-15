@@ -1,4 +1,4 @@
-// /app: download the Android app, install it, connect it with a token. The text
+// /app: download the Android app, install it, sign in to it. The text
 // is static (index.html + locales); this fills in the release from
 // /api/app/latest. Whatever goes wrong there, the releases link stays.
 import { auth, viewActivators } from '../../shared/state.ts';
@@ -6,7 +6,6 @@ import { navigateTo, showToast, t } from '../../shared/ui.ts';
 import { byId } from '../../shared/dom.ts';
 import type { AppLatestResponse, AppRelease } from '../../shared/types.ts';
 
-const tf = (key: string, fallback: string, vars: Record<string, string>) => t(key, fallback, vars).replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? vars[k] : m));
 const language = () => (window.i18n && window.i18n.getLanguage && window.i18n.getLanguage()) || undefined;
 const isPending = () => !!(auth.user && auth.user.status === 'pending');
 
@@ -63,10 +62,6 @@ async function loadRelease(): Promise<void> {
 
 function openPage(): void {
   byId('app-pending-note').hidden = !isPending();
-  byId('app-tokens-link').hidden = isPending();
-  byId('app-connect-server').textContent = tf(
-    'appPage.connect4', 'Under “Server”, check that “Address” is {origin}.', { origin: window.location.origin },
-  );
   loadRelease();
 }
 
