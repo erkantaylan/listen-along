@@ -39,6 +39,9 @@ where lobby persistence broke entirely on deployed instances.
   central-login / dev sign-in round trips, `/api/auth/me`, logout, `/login`, `/api/auth/providers`),
   `playlistRoutes.js` (`/api/playlists` + `/api/lobbies`, songs included; `requireViewer`, `findVisiblePlaylist`;
   returns `ownerNames`, whose cache the socket handlers share).
+  `socketServer.js`: the Socket.IO server, the room names (`APP_ROOM`, `userRoom`, `sessionRoom`), the handshake
+  (origin check, account, rooms), the central-login re-check of open sockets, and the connection handler: the
+  connection's account helpers, then `social` / `listenAlong` `attach`, then each area's `register`, then `disconnect`.
   Socket handler modules (`create…Sockets({ deps })`, whose `register(socket, ctx)` runs per connection):
   `playlistSockets.js` (`lobby:*`, `user:update`, `listener:now-playing`; owns `visibleLobby` / `editableLobby`
   and hands them to the queue handlers), `queueSockets.js` (`queue:*`). `memoryRateLimit.js`: the 20/min in-memory limits (admin login, `queue:add`)
@@ -352,7 +355,7 @@ where lobby persistence broke entirely on deployed instances.
   presence entry to a client: `viewNowPlaying()` drops a playlist the
   viewer cannot see.
 - **Listen along** = follow a user (not a playlist): `backend/src/listenAlong.js`
-  (graph + socket events `listen:*`, wired in index.js) and
+  (graph + socket events `listen:*`, attached per connection in socketServer.js) and
   `frontend/listen-along.js` (drives `player.js` as its driver). Everyone hears
   the root of their chain (chains collapse); the follow lives in one socket;
   followers get only the song + `/api/library/:id/file`, never the playlist.
