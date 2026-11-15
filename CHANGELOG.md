@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- change(web): "Music library & requests" is now **Library & Downloads** (Turkish "Kütüphane ve İndirmeler") in the sidebar, the row of icons on phones, Home's header button and its shortcut tile, so the Download tab is easier to find
+- change(web): the **language setting** moved from the bottom of Home to the profile page, as a labelled "Language" field. The choice is still kept in this browser and applies at once
 - change(web): **a new app shell.** The sidebar, the page, the chat and people panel and the player bar are now separate rounded panels with gaps between them, and the player bar floats at the bottom. The sidebar has two panels: Home, Radio, Artists and Music library & requests on top, the playlists below, each row with a coloured cover; the place you are in is tinted, and the playlist that is playing shows an equaliser. Home shows your playlists as tiles and artists and public playlists as shelves of cards. Chat, People and Activity are stacked cards instead of tabs, and tabs elsewhere are pill chips
 - change(web): the sidebar is an icon rail from 768 to 1100 px wide (it was 768 to 879), and from 1010 to 1159 px while chat is docked, as before. The collapse button still works at every width
 - feat(web): on phones a row of icons at the top goes to Home, Radio, Artists and the Music library; the ☰ drawer still holds them and the playlists

@@ -167,7 +167,7 @@ tertiary.
 | --- | --- | --- | --- |
 | **Primary** | `.btn-solid.theme-primary` | accent fill, dark semibold text; lightens on hover | The main action of a view or dialog: New playlist (landing), Create playlist (its dialog), Save (display name), Download, Replace, Mark as broken (in its dialog), Done (playlist edit mode), the chat send button, the player's **Play/Pause** pill (a size up, 2.75rem, 1.5rem icon). |
 | **Secondary, tonal** | `.btn` | grey fill `--app-btn-tonal` + strong border | Neutral actions next to a primary or on their own: Cancel, Edit, Create token, Disconnect, Refresh, Play (dashboard), Retry/Cancel on jobs, preset reasons. |
-| **Secondary, outline** | `.btn-outline.theme-secondary` | border only, transparent | Navigation-ish or less important neutral actions: Music library & requests, login providers, Dismiss all, library pager, round library play buttons. |
+| **Secondary, outline** | `.btn-outline.theme-secondary` | border only, transparent | Navigation-ish or less important neutral actions: Library & Downloads, login providers, Dismiss all, library pager, round library play buttons. |
 | **Tertiary / ghost** | `.btn-text.theme-secondary` (+ `.btn-icon`) | no fill, no border; `--app-text-secondary` icon; grey fill + bright icon on hover | Icon buttons: player controls (repeat, shuffle, prev, next, mute, chat), navbar back / pin / share / lock, ⋮ song menus, drag handles, collapse chevrons, small text links like "Dismiss". Toggled on = `.active`: accent tint + accent icon + accent border. |
 | **Danger** | `.btn-outline.theme-danger` (text) / `.btn-text.theme-danger.btn-icon` (icon) / `.btn-solid.theme-danger` (rare: a confirm step) | red text and border / red icon; red tint on hover | Anything that deletes or revokes: Delete playlist (trash), Clear queue, remove from queue (minus), Revoke token, Sign out, Delete (dashboard), delete chat message, Reject. |
 | **Success** | `.btn-subtle.theme-success` | green tint, green text | Approve (dashboard). Don't use green for ordinary confirm buttons — that's primary. |
@@ -326,7 +326,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   the brand and the profile); below 768px a navbar (☰, brand, profile; the brand folds to its icon below 400px)
   under the row of places (see "Playlists sidebar").
   A header row: `h1.h4` "Playlists" + muted tagline ("Your playlists and everyone's public ones.") on the left;
-  on the right the outline secondary **"Music library & requests"** (folds to its icon when the page column is
+  on the right the outline secondary **"Library & Downloads"** (folds to its icon when the page column is
   below 34rem; the actions wrap under the title rather than squeeze it) next to the view's one primary button
   **"New playlist"** (plus icon). Then three sections, each a bold `fs-lg` heading over its content, no cards:
   - **Your playlists**: every playlist you own, public and private, your pins first, then newest, as **tiles**
@@ -334,7 +334,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
     the name (semibold, a pin icon when pinned) over a muted line with the "Private" badge (lock + text, the
     current **state**; nothing for public), songs and listeners. Three columns, two in a page column under 40rem,
     one under 30rem. After your playlists, three shortcut tiles with gradient covers: **Radio** (with a Play
-    button), **Music library & requests** and **Artists** (links to `/radio`, `/library`, `/artists`). No
+    button), **Library & Downloads** (muted line "Songs, requests and downloads") and **Artists** (links to `/radio`, `/library`, `/artists`). No
     playlists of your own: an empty state ("No playlists yet", a muted hint, a grey "New playlist" button) before
     the shortcuts.
   - **Artists**: the shelf, see "Artists".
@@ -350,7 +350,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   everyone, plus — owner only — Rename (dialog), Make private / Make public (with a one-line hint) and a danger
   Delete that opens a confirm dialog (grey Cancel focused first, `.btn-solid.theme-danger` Delete). The playlist
   playing now is the accent tint with an accent title and the equaliser, never an edge.
-  Below the sections: the "Have a link?" hint. Footer (language only). On load, a "Back to your last playlist?"
+  Below the sections: the "Have a link?" hint; no footer (the language setting is on the profile). On load, a "Back to your last playlist?"
   prompt names the last playlist you opened (looked up first; not shown if it is gone or no longer visible to you).
   **New playlist dialog** (`new-playlist.js`, an `.app-modal`, see "Modal dialogs"): Playlist
   name (required, 50 chars, live `n/50` counter), Visibility as two `.radio` choices with a
@@ -398,7 +398,10 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   the tab is not on screen. Song rows elsewhere in the library read "uploaded by
   <worker> (<owner>)" when a downloader uploaded them, plus "asked by <name>".
 - **Profile**: navbar with back; avatar + display-name card (the only place to edit your
-  name/avatar; the chat and people panel show them); connected-accounts card; Sign out; last, the
+  name/avatar; the chat and people panel show them); a **Language** card (the only language control:
+  label + `select#language-selector`, English / Türkçe in their own names, a muted "Saved in this browser";
+  `setupLanguageSelector` in ui.js, stored by i18n.js; login and pending have none and follow the browser);
+  connected-accounts card; Sign out; last, the
   About card (version, Changelog, GitHub). The pending-approval card has no route here (app.js stops at it).
   Approved accounts also get a "CLI tokens" card (`/profile#tokens` scrolls to it and focuses the label; it links to `/app`): label input + grey "Create token"
   button (the display-name Save stays the one primary), a success alert that shows a new
@@ -449,7 +452,7 @@ Two rounded panels, a gap apart (see "App shell"):
 
 - **Upper panel, the places.** Head: brand (link to Home), profile, the collapse toggle (× in the drawer instead).
   Then the app's main navigation (`.plnav-nav`): **Home** (`#plnav-nav-home`, `/`), **Radio** (`#plnav-radio`, see
-  "Radio"), **Artists** (`#plnav-nav-artists`, `/artists`) and **Music library & requests** (`#plnav-nav-library`;
+  "Radio"), **Artists** (`#plnav-nav-artists`, `/artists`) and **Library & Downloads** (`#plnav-nav-library`, key `landing.library`;
   opens the library overlay like the landing button, over the playlist on screen if any; app.js). Icon + semibold
   `fs-sm` label, 2.75rem tall. The place on screen is `aria-current="page"` (`syncPlaces` in sidebar.js: Home on the
   landing page, Artists on `/artists` and `/artist/<key>`, the library while its overlay is open; Radio marks
@@ -479,7 +482,7 @@ Two rounded panels, a gap apart (see "App shell"):
 - **Row of places, below 768px** (`nav#app-places`, "Main", in addition to the drawer, which keeps the places and
   the playlists): a 52px panel of its own above the page panel (the page's navbar with ☰, brand and profile stays
   the page panel's head), `--app-gap` around it; it holds the top safe area, and `--app-view-height` and the
-  library overlay's `top` leave room for it. Home, Radio, Artists, Music library & requests as real links
+  library overlay's `top` leave room for it. Home, Radio, Artists, Library & Downloads as real links
   (`#places-*`): Home, Radio and Artists are `data-spa-link`s, the library opens the overlay as the sidebar's does
   (app.js). 44px targets sharing the width, icon + `fs-sm` semibold label, icon only below 576px (the label stays
   the name, visually hidden; `title` is the tooltip). The place on screen is `aria-current="page"` (`syncPlaces`,

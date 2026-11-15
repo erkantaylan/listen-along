@@ -91,9 +91,9 @@
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
         <span class="app-place-label" data-i18n="artists.title">Artists</span>
       </a></li>
-      <li><a id="places-library" class="app-place" href="/library" title="Music library &amp; requests" data-i18n-title="landing.library">
+      <li><a id="places-library" class="app-place" href="/library" title="Library &amp; Downloads" data-i18n-title="landing.library">
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 5h-3v5.5a2.5 2.5 0 1 1-1-2V5h4v2z"/></svg>
-        <span class="app-place-label" data-i18n="landing.library">Music library &amp; requests</span>
+        <span class="app-place-label" data-i18n="landing.library">Library &amp; Downloads</span>
       </a></li>
     </ul>
   </nav>
@@ -120,9 +120,9 @@
           <p class="fs-sm fg-3 mb-0 tagline" data-i18n="app.tagline">Your playlists and everyone's public ones.</p>
         </div>
         <div class="d-flex flex-wrap justify-content-end gap-2 flex-shrink-0 landing-actions">
-          <button id="landing-library-btn" class="btn-outline theme-secondary landing-library-btn" type="button" aria-label="Music library &amp; requests" title="Music library &amp; requests" data-i18n-aria-label="landing.library" data-i18n-title="landing.library">
+          <button id="landing-library-btn" class="btn-outline theme-secondary landing-library-btn" type="button" aria-label="Library &amp; Downloads" title="Library &amp; Downloads" data-i18n-aria-label="landing.library" data-i18n-title="landing.library">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 5h-3v5.5a2.5 2.5 0 1 1-1-2V5h4v2z"/></svg>
-            <span class="landing-library-label" data-i18n="landing.library">Music library &amp; requests</span>
+            <span class="landing-library-label" data-i18n="landing.library">Library &amp; Downloads</span>
           </button>
           <button id="new-playlist-btn" class="btn-solid theme-primary flex-shrink-0 new-playlist-btn" type="button" aria-haspopup="dialog">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
@@ -170,12 +170,6 @@
         <p class="fs-sm fg-3 text-center mb-0 join-section" data-i18n="landing.joinHint">Have a link? Just paste it in your browser.</p>
       </div>
     </main>
-    <footer class="app-footer">
-      <select id="language-selector" class="form-control form-control-sm language-selector" aria-label="Select language">
-        <option value="en">English</option>
-        <option value="tr">Türkçe</option>
-      </select>
-    </footer>
   </div>
 
   <!-- Playlist View (internally "lobby") -->
@@ -630,6 +624,17 @@
           <p class="form-text fs-sm fg-3 mt-2 mb-0">This name appears in listener lists</p>
         </div>
       </div>
+      <!-- Language (ui.js setupLanguageSelector): kept in this browser by i18n.js. -->
+      <div class="card mb-4 profile-language">
+        <div class="card-body">
+          <label for="language-selector" class="form-label fw-medium" data-i18n="language.select">Language</label>
+          <select id="language-selector" class="form-control" aria-describedby="language-selector-hint">
+            <option value="en" lang="en">English</option>
+            <option value="tr" lang="tr">Türkçe</option>
+          </select>
+          <p id="language-selector-hint" class="form-text fs-sm fg-3 mt-2 mb-0" data-i18n="language.hint">Saved in this browser</p>
+        </div>
+      </div>
       <div class="card mb-4">
         <div class="card-header">
           <h2 class="h6 mb-0">Connected Accounts</h2>
@@ -822,9 +827,9 @@
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
         <span class="plnav-nav-label" data-i18n="artists.title">Artists</span>
       </a></li>
-      <li><a id="plnav-nav-library" class="plnav-nav-item" href="/library" title="Music library &amp; requests" data-i18n-title="landing.library">
+      <li><a id="plnav-nav-library" class="plnav-nav-item" href="/library" title="Library &amp; Downloads" data-i18n-title="landing.library">
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 5h-3v5.5a2.5 2.5 0 1 1-1-2V5h4v2z"/></svg>
-        <span class="plnav-nav-label" data-i18n="landing.library">Music library &amp; requests</span>
+        <span class="plnav-nav-label" data-i18n="landing.library">Library &amp; Downloads</span>
       </a></li>
     </ul>
     </div>

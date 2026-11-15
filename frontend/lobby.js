@@ -498,16 +498,16 @@ function cardHtml(l, nowId) {
     + `</li>`;
 }
 
-// After your playlists: Radio, the music library and Artists, as tiles too.
+// After your playlists: Radio, Library & Downloads and Artists, as tiles too.
 function shortcutTilesHtml() {
   const tile = (href, cover, icon, name, meta, extra = '') => `<li class="landing-tile landing-shortcut">`
     + `<a class="landing-tile-link" href="${href}" data-spa-link><span class="playlist-avatar ${cover}" aria-hidden="true">${icon}</span>`
-    + `<span class="landing-tile-text"><span class="landing-tile-name">${escapeHtml(name)}</span><span class="landing-tile-meta"><span class="text-truncate">${escapeHtml(meta)}</span></span></span></a>${extra}</li>`;
+    + `<span class="landing-tile-text"><span class="landing-tile-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span><span class="landing-tile-meta"><span class="text-truncate">${escapeHtml(meta)}</span></span></span></a>${extra}</li>`;
   const radio = t('radio.title', 'Radio');
   const playRadio = t('landing.play', `Play ${radio}`, { name: radio });
   return tile('/radio', 'cover-radio', RADIO_ICON, radio, t('radio.subtitleLoading', 'All songs, shuffled'),
     `<button type="button" class="btn-text theme-secondary btn-icon btn-sm landing-shortcut-play" title="${escapeHtml(playRadio)}" aria-label="${escapeHtml(playRadio)}" onclick="window.app.playRadio()">${PLAY_ICON}</button>`)
-    + tile('/library', 'cover-library', LIBRARY_ICON, t('landing.library', 'Music library & requests'), t('landing.libraryTileMeta', 'Songs, requests and downloads'))
+    + tile('/library', 'cover-library', LIBRARY_ICON, t('landing.library', 'Library & Downloads'), t('landing.libraryTileMeta', 'Songs, requests and downloads'))
     + tile('/artists', 'cover-artists', ARTIST_ICON, t('artists.title', 'Artists'), t('landing.artistsTileMeta', 'Every artist in the library'));
 }
 

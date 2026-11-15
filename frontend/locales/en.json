@@ -29,7 +29,7 @@
     "yourPlaylists": "Your playlists",
     "publicPlaylists": "Public playlists",
     "loading": "Loading…",
-    "library": "Music library & requests",
+    "library": "Library & Downloads",
     "emptyHint": "Make one, add songs, and share the link to listen together.",
     "nameRequired": "Give the playlist a name.",
     "creating": "Creating…",
@@ -157,7 +157,8 @@
   "language": {
     "select": "Language",
     "en": "English",
-    "tr": "Turkish"
+    "tr": "Turkish",
+    "hint": "Saved in this browser"
   },
   "panels": {
     "resizeHint": "Drag to resize, double-click to reset"

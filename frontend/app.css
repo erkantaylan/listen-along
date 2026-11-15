@@ -112,7 +112,6 @@
     font-size: var(--bs-font-size-sm);
     color: var(--bs-fg-3);
   }
-  .language-selector { width: auto; }
 
   /* ---------------------------------------------------------------- Login */
   .login-card { max-width: 26rem; }
@@ -238,7 +237,7 @@
   .playlist-card.is-playing .playlist-card-title { color: var(--app-accent-text-strong); }
   .playlist-card-meta { display: flex; gap: 0.25rem; align-items: center; min-width: 0; font-size: var(--bs-font-size-xs); color: var(--app-text-muted); }
   .landing-secondary { padding-top: 0.5rem; }
-  /* Header actions: "Music library & requests" (secondary) next to the primary
+  /* Header actions: "Library & Downloads" (secondary) next to the primary
      "New playlist"; the actions wrap under the title rather than squeeze it, and
      the library label folds to its icon when the column is narrow. */
   .landing-header { flex-wrap: wrap; }
@@ -815,8 +814,8 @@
 
   /* ------------------------------------------------------ Playlists sidebar */
   /* sidebar.js. Two rounded panels in one column from 768px, pushing the page
-     right: the places (brand, profile, collapse; Home, Radio, Artists, Music
-     library) over the playlists (sort, new, chips, search, groups). A drawer
+     right: the places (brand, profile, collapse; Home, Radio, Artists, Library
+     & Downloads) over the playlists (sort, new, chips, search, groups). A drawer
      below 768px. Body classes: has-plnav (approved account), plnav-open (drawer
      open), plnav-rail (the 72px icon rail). --app-sidebar-width is the whole
      column: the panels plus the gap at the window's edge. */

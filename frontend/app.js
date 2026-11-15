@@ -130,7 +130,7 @@ function setupEventListeners() {
   if (browseLibBtn) browseLibBtn.addEventListener('click', () => openLibraryPage('library'));
   const landingLibBtn = document.getElementById('landing-library-btn');
   if (landingLibBtn) landingLibBtn.addEventListener('click', () => openLibraryPage('library'));
-  // The "Music library & requests" place, in the sidebar and in the phone row:
+  // The "Library & Downloads" place, in the sidebar and in the phone row:
   // the same as the buttons above (over the playlist on screen, if any). A
   // modified click opens a tab.
   for (const id of ['plnav-nav-library', 'places-library']) {

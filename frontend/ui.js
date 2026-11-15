@@ -237,6 +237,7 @@ export function switchTab(tabName) {
   elements.queueTab.classList.toggle('active', tabName === 'queue');
 }
 
+// The Language field on the profile page (the only language control).
 export function setupLanguageSelector(updateQueue, updateListeners) {
   const selector = document.getElementById('language-selector');
   if (!selector || !window.i18n) return;
