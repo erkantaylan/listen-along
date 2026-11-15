@@ -20,8 +20,7 @@ import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
-import com.erkantaylan.listenalong.ListenAlongApp
-import com.erkantaylan.listenalong.MainActivity
+import com.erkantaylan.listenalong.core.ui.AppEntry
 import com.erkantaylan.listenalong.R
 import com.erkantaylan.listenalong.core.network.Connectivity
 import kotlinx.coroutines.CoroutineScope
@@ -66,9 +65,9 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onCreate() {
         super.onCreate()
-        val graph = (application as ListenAlongApp).graph
-        connectivity = graph.connectivity
-        val dataSource = DefaultDataSource.Factory(this, OkHttpDataSource.Factory(graph.streamHttp))
+        val deps = (application as PlayerHost).playerDependencies
+        connectivity = deps.connectivity
+        val dataSource = DefaultDataSource.Factory(this, OkHttpDataSource.Factory(deps.streamHttp))
         val player = ExoPlayer.Builder(this)
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(dataSource).setLoadErrorHandlingPolicy(OfflineAwareRetries(connectivity)),
@@ -127,18 +126,16 @@ class PlaybackService : MediaLibraryService() {
 
         val openApp = PendingIntent.getActivity(
             this, 0,
-            Intent(this, MainActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                .putExtra(MainActivity.EXTRA_OPEN_PLAYER, true),
+            AppEntry.intent(this).putExtra(AppEntry.EXTRA_OPEN_PLAYER, true),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val library = MediaLibrarySession.Builder(this, player, CarLibrary(graph, scope, packageName))
+        val library = MediaLibrarySession.Builder(this, player, CarLibrary(deps.car, scope, packageName))
             .setSessionActivity(openApp)
             .build()
         session = library
 
         // The car's "On device" list follows downloads and deletions.
-        graph.index.entries.drop(1).onEach {
+        deps.car.index.entries.drop(1).onEach {
             library.notifyChildrenChanged(CarNode.Songs(CarList.Device).id, it.size, null)
         }.launchIn(scope)
 

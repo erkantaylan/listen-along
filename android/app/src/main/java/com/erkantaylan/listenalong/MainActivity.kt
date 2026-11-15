@@ -1,91 +1,99 @@
 package com.erkantaylan.listenalong
 
-import com.erkantaylan.listenalong.app.AppInfo
 import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Intent
-import androidx.browser.customtabs.CustomTabsIntent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
-import android.os.Build
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.activity.viewModels
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import androidx.core.net.toUri
-import androidx.lifecycle.compose.LifecycleResumeEffect
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.lifecycle.viewmodel.initializer
-import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.lifecycle.lifecycleScope
+import com.erkantaylan.listenalong.app.AppContainer
+import com.erkantaylan.listenalong.app.AppInfo
+import com.erkantaylan.listenalong.app.AppUi
+import com.erkantaylan.listenalong.app.AppViewModel
+import com.erkantaylan.listenalong.app.AppViewModels
+import com.erkantaylan.listenalong.app.MusicAccessState
+import com.erkantaylan.listenalong.app.PlatformActions
+import com.erkantaylan.listenalong.core.designsystem.ListenAlongTheme
+import com.erkantaylan.listenalong.core.designsystem.Palette
 import com.erkantaylan.listenalong.core.network.ServerUrl
-import com.erkantaylan.listenalong.core.model.Song
 import com.erkantaylan.listenalong.core.player.ExternalPlayer
-import com.erkantaylan.listenalong.core.player.PlayQueue
-import com.erkantaylan.listenalong.feature.auth.AuthEvent
 import com.erkantaylan.listenalong.core.storage.LocalSong
 import com.erkantaylan.listenalong.core.storage.MediaStoreAudio
-import com.erkantaylan.listenalong.core.ui.LocalMusicAccess
-import com.erkantaylan.listenalong.core.ui.MusicAccessUi
-import com.erkantaylan.listenalong.feature.playlists.AddToPlaylistDialog
-import com.erkantaylan.listenalong.app.AppActions
-import com.erkantaylan.listenalong.app.AppShell
-import com.erkantaylan.listenalong.feature.player.FullPlayer
-import com.erkantaylan.listenalong.feature.library.LibraryScreen
-import com.erkantaylan.listenalong.feature.library.LibraryViewModel
-import com.erkantaylan.listenalong.feature.player.MiniPlayer
-import com.erkantaylan.listenalong.feature.downloads.OnDeviceScreen
-import com.erkantaylan.listenalong.feature.playlists.PlaylistsScreen
-import com.erkantaylan.listenalong.feature.playlists.PlaylistsViewModel
-import com.erkantaylan.listenalong.feature.settings.SettingsScreen
-import com.erkantaylan.listenalong.app.Tab
-import com.erkantaylan.listenalong.core.designsystem.ListenAlongTheme
-import com.erkantaylan.listenalong.core.model.SongReport
-import com.erkantaylan.listenalong.core.data.PlaylistRepository
-import com.erkantaylan.listenalong.core.ui.LocalOnline
-import com.erkantaylan.listenalong.core.ui.LocalReportActions
-import com.erkantaylan.listenalong.core.ui.LocalReports
-import com.erkantaylan.listenalong.core.ui.ReportActions
-import com.erkantaylan.listenalong.core.ui.ReportDetailsDialog
-import com.erkantaylan.listenalong.core.ui.ReportDialog
-import androidx.compose.runtime.CompositionLocalProvider
-import com.erkantaylan.listenalong.core.designsystem.Palette
+import com.erkantaylan.listenalong.core.ui.AppEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/**
+ * The one activity: the intents (the sign-in redirect, the notification's
+ * "open the player", the debug server override), the system prompts
+ * (permissions, delete consent, the browser) and [AppUi]. Everything else
+ * lives in the ViewModels and the [AppContainer].
+ */
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), PlatformActions {
 
-    private val graph get() = (application as ListenAlongApp).graph
+    private val container: AppContainer get() = (application as ListenAlongApp).container
+    private val appVm: AppViewModel by viewModels { AppViewModels.app(container) }
 
     /** Set by the media notification (tap opens the full player). */
     private var openPlayerRequest by mutableStateOf(false)
+
+    private var musicAccess by mutableStateOf(false)
+    private var musicPromptDismissed by mutableStateOf(false)
+    private var askedPermissions = false
+    private var deleteConsentFor: LocalSong? = null
+
+    private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        if (granted[Manifest.permission.WRITE_EXTERNAL_STORAGE] == false) {
+            toast("Without storage access, songs cannot be saved on this Android version")
+        }
+    }
+
+    private val musicPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        musicAccess = granted
+        if (granted) {
+            appVm.musicAccessGranted()
+        } else {
+            container.musicAccessPrefs.edit { putBoolean(PREF_DECLINED, true) }
+            dismissMusicPrompt()
+            toast("Without music access, songs from an earlier install are not recognised, and downloading one again saves a second copy")
+        }
+    }
+
+    private val deleteConsent = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        val song = deleteConsentFor
+        deleteConsentFor = null
+        if (song != null && result.resultCode == RESULT_OK) {
+            container.index.remove(song.songId)
+            toast("Deleted")
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -96,7 +104,9 @@ class MainActivity : ComponentActivity() {
             applyDebugOverride(intent)
             handleSignInRedirect(intent)
         }
-        openPlayerRequest = intent?.getBooleanExtra(EXTRA_OPEN_PLAYER, false) == true
+        openPlayerRequest = intent?.getBooleanExtra(AppEntry.EXTRA_OPEN_PLAYER, false) == true
+        musicAccess = container.sink.canSeeAllFiles
+        musicPromptDismissed = container.musicAccessPrefs.getBoolean(PREF_PROMPT_DISMISSED, false)
 
         setContent {
             ListenAlongTheme {
@@ -108,7 +118,14 @@ class MainActivity : ComponentActivity() {
                     Modifier.fillMaxSize().background(Palette.page).safeDrawingPadding()
                         .semantics { testTagsAsResourceId = true }
                 ) {
-                    Content()
+                    AppUi(
+                        container = container,
+                        appVm = appVm,
+                        platform = this@MainActivity,
+                        music = MusicAccessState(musicAccess, musicPromptDismissed, ::requestMusicAccess, ::dismissMusicPrompt),
+                        openPlayerRequest = openPlayerRequest,
+                        onOpenPlayerHandled = { openPlayerRequest = false },
+                    )
                 }
             }
         }
@@ -119,19 +136,24 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         applyDebugOverride(intent)
         handleSignInRedirect(intent)
-        if (intent.getBooleanExtra(EXTRA_OPEN_PLAYER, false)) openPlayerRequest = true
+        if (intent.getBooleanExtra(AppEntry.EXTRA_OPEN_PLAYER, false)) openPlayerRequest = true
     }
 
     override fun onStart() {
         super.onStart()
-        graph.player.connect()
+        container.player.connect()
     }
 
     override fun onResume() {
         super.onResume()
         // Back from the browser without a redirect (closed, or Back): stop
         // waiting. A redirect arrives in onNewIntent, before this.
-        graph.auth.browserClosed()
+        container.auth.browserClosed()
+        // The permission can change in system settings while we were away.
+        val nowAllowed = container.sink.canSeeAllFiles
+        val justAllowed = nowAllowed && !musicAccess
+        musicAccess = nowAllowed
+        appVm.onResume(musicAccessJustGranted = justAllowed)
     }
 
     /**
@@ -145,352 +167,106 @@ class MainActivity : ComponentActivity() {
         val server = intent?.getStringExtra(EXTRA_DEBUG_SERVER) ?: return
         if (!debuggable) return
         val url = ServerUrl.normalize(server) ?: return
-        graph.settings.overrideForSession(url, intent.getStringExtra(EXTRA_DEBUG_SESSION))
+        container.settings.overrideForSession(url, intent.getStringExtra(EXTRA_DEBUG_SESSION))
     }
 
-    /** The sign-in redirect (custom scheme or App Link) from auth/AuthRedirectActivity. */
+    /** The sign-in redirect (custom scheme or App Link) from feature/auth/AuthRedirectActivity. */
     private fun handleSignInRedirect(intent: Intent?) {
         val data = intent?.dataString ?: return
-        if (graph.auth.handleRedirect(data)) {
+        if (container.auth.handleRedirect(data)) {
             // Used up: never replayed by a later recreate.
             setIntent(Intent(intent).setData(null))
         }
     }
 
+    // --- PlatformActions ----------------------------------------------------
+
     /** The central login's page in a Custom Tab (the browser's cookies: one tap when already signed in there). */
-    private fun openSignIn() {
-        val url = graph.auth.begin()
+    override fun signIn() {
+        val url = container.auth.begin()
         try {
             CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(this, url.toString().toUri())
         } catch (e: ActivityNotFoundException) {
-            graph.auth.cancel()
+            container.auth.cancel()
             toast("No browser to sign in with")
         }
     }
 
-    @androidx.compose.runtime.Composable
-    private fun Content() {
-        val graph = graph
-        val scope = rememberCoroutineScope()
-        val config by graph.settings.config.collectAsStateWithLifecycle()
-        val firstTab = if (config.signedIn) Tab.LIBRARY else Tab.SETTINGS
-        var tab by rememberSaveable { mutableStateOf(firstTab) }
-        var showPlayer by rememberSaveable { mutableStateOf(false) }
-        var addingToPlaylist by remember { mutableStateOf<List<Song>?>(null) }
-        // "Mark as broken": the dialog being shown (song + your report when editing), and the details popup.
-        var reporting by remember { mutableStateOf<Pair<Song, SongReport?>?>(null) }
-        var reportBusy by remember { mutableStateOf(false) }
-        var reportError by remember { mutableStateOf<String?>(null) }
-        var reportDetails by remember { mutableStateOf<Pair<Song, List<SongReport>>?>(null) }
-        val reports by graph.reports.reports.collectAsStateWithLifecycle()
+    override fun openSource() {
+        runCatching { startActivity(Intent(Intent.ACTION_VIEW, AppInfo.SOURCE_URL.toUri())) }
+            .onFailure { toast("No browser to open ${AppInfo.SOURCE_URL}") }
+    }
 
-        val snapshot by graph.downloads.snapshots.collectAsStateWithLifecycle(graph.downloads.snapshot())
-        val nowPlaying by graph.player.state.collectAsStateWithLifecycle()
-        val online by graph.connectivity.online.collectAsStateWithLifecycle()
-        val libraryVm: LibraryViewModel = viewModel(factory = viewModelFactory { initializer { LibraryViewModel(graph) } })
-        val playlistsVm: PlaylistsViewModel =
-            viewModel(factory = viewModelFactory { initializer { PlaylistsViewModel(graph) } })
-
-        LaunchedEffect(openPlayerRequest) {
-            if (openPlayerRequest) {
-                if (!graph.player.state.value.isEmpty) showPlayer = true
-                openPlayerRequest = false
+    override fun openExternal(song: LocalSong) {
+        if (song.reclaimed && !container.sink.canSeeAllFiles) {
+            toast("Needs music access: see Settings")
+            return
+        }
+        lifecycleScope.launch {
+            val present = withContext(Dispatchers.IO) {
+                runCatching { container.sink.exists(song.uri) }.getOrDefault(true)
             }
-        }
-        LaunchedEffect(Unit) { playlistsVm.messages.collect { toast(it) } }
-        LaunchedEffect(Unit) { graph.player.errors.collect { toast(it) } }
-        LaunchedEffect(Unit) {
-            graph.auth.events.collect { event ->
-                when (event) {
-                    is AuthEvent.SignedIn -> {
-                        tab = Tab.LIBRARY
-                        toast(event.name?.let { "Signed in as $it" } ?: "Signed in")
-                    }
-                    AuthEvent.SessionEnded -> toast("Your session ended. Sign in again in Settings.")
-                }
+            if (!present) {
+                container.index.remove(song.songId)
+                toast("That file was deleted outside the app; download it again from Library")
+                return@launch
             }
-        }
-        if (nowPlaying.isEmpty && showPlayer) showPlayer = false
-
-        // Files deleted in a file manager or another player while we were
-        // away disappear from On device on return.
-        // The broken-song list: the saved copy for this server at once, then the server's.
-        LaunchedEffect(config) {
-            graph.reports.loadSaved()
-            if (config.signedIn) runCatching { graph.reports.refresh() }
-            // Another server has another library: compare the folder afresh.
-            if (config.signedIn) foundInFolder(graph.downloads.reclaim(force = true))
-        }
-        LaunchedEffect(online) {
-            if (online && config.signedIn) runCatching { graph.reports.refresh() }
-        }
-
-        var musicAccess by remember { mutableStateOf(graph.sink.canSeeAllFiles) }
-        var musicPromptDismissed by remember {
-            mutableStateOf(graph.musicAccessPrefs.getBoolean(PREF_PROMPT_DISMISSED, false))
-        }
-
-        LifecycleResumeEffect(Unit) {
-            // The permission can change in system settings while we were away.
-            val nowAllowed = graph.sink.canSeeAllFiles
-            val justAllowed = nowAllowed && !musicAccess
-            musicAccess = nowAllowed
-            scope.launch {
-                graph.downloads.reconcile()
-                if (graph.settings.config.value.signedIn) {
-                    foundInFolder(graph.downloads.reclaim(force = justAllowed))
-                }
-            }
-            if (graph.settings.config.value.signedIn) scope.launch { runCatching { graph.reports.refresh() } }
-            onPauseOrDispose { }
-        }
-
-        var askedPermissions by remember { mutableStateOf(false) }
-        val permissionLauncher = rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestMultiplePermissions()
-        ) { granted ->
-            if (granted[Manifest.permission.WRITE_EXTERNAL_STORAGE] == false) {
-                toast("Without storage access, songs cannot be saved on this Android version")
-            }
-        }
-        // Asked the first time a download or playback starts, not at launch:
-        // notifications (download progress, the player's controls), and
-        // storage on Android 9 and older, which has no MediaStore RELATIVE_PATH.
-        val askPermissions: (Boolean) -> Unit = { forDownload ->
-            val wanted = buildList {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
-                if (forDownload && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-            }.filter {
-                ContextCompat.checkSelfPermission(this@MainActivity, it) != PackageManager.PERMISSION_GRANTED
-            }
-            if (wanted.isNotEmpty() && !askedPermissions) {
-                askedPermissions = true
-                permissionLauncher.launch(wanted.toTypedArray())
-            }
-        }
-
-        val dismissMusicPrompt = {
-            musicPromptDismissed = true
-            graph.musicAccessPrefs.edit().putBoolean(PREF_PROMPT_DISMISSED, true).apply()
-        }
-        val musicPermission = rememberLauncherForActivityResult(
-            ActivityResultContracts.RequestPermission()
-        ) { granted ->
-            musicAccess = granted
-            if (granted) {
-                scope.launch { foundInFolder(graph.downloads.reclaim(force = true), announceNone = true) }
-            } else {
-                graph.musicAccessPrefs.edit().putBoolean(PREF_DECLINED, true).apply()
-                dismissMusicPrompt()
-                toast("Without music access, songs from an earlier install are not recognised, and downloading one again saves a second copy")
-            }
-        }
-        val requestMusicAccess = {
-            val declined = graph.musicAccessPrefs.getBoolean(PREF_DECLINED, false)
-            if (declined && !shouldShowRequestPermissionRationale(MediaStoreAudio.READ_PERMISSION)) {
-                // The system no longer shows its dialog: only its settings page can change this.
-                toast("Turn on Music and audio under Permissions")
-                runCatching {
-                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
-                }
-                Unit
-            } else {
-                musicPermission.launch(MediaStoreAudio.READ_PERMISSION)
-            }
-        }
-
-        var deleteConsentFor by remember { mutableStateOf<LocalSong?>(null) }
-        val deleteConsent = rememberLauncherForActivityResult(
-            ActivityResultContracts.StartIntentSenderForResult()
-        ) { result ->
-            val song = deleteConsentFor
-            deleteConsentFor = null
-            if (song != null && result.resultCode == RESULT_OK) {
-                graph.index.remove(song.songId)
-                toast("Deleted")
-            }
-        }
-
-        val openExternal: (LocalSong) -> Unit = open@{ song ->
-            if (song.reclaimed && !graph.sink.canSeeAllFiles) {
-                toast("Needs music access: see Settings")
-                return@open
-            }
-            scope.launch {
-                val present = withContext(Dispatchers.IO) {
-                    runCatching { graph.sink.exists(song.uri) }.getOrDefault(true)
-                }
-                if (!present) {
-                    graph.index.remove(song.songId)
-                    toast("That file was deleted outside the app; download it again from Library")
-                    return@launch
-                }
-                val result = ExternalPlayer.open(this@MainActivity, song)
-                if (result is ExternalPlayer.Result.NoHandler) toast("No app installed that plays ${result.mimeType}")
-            }
-        }
-
-        val actions = remember {
-            AppActions(
-                play = { songs, index, context, shuffle ->
-                    val client = graph.client()
-                    val queue = PlayQueue.build(
-                        songs = songs,
-                        startIndex = index,
-                        downloaded = graph.readableDownloads(),
-                        streamUrl = if (graph.settings.config.value.signedIn) { id -> client.fileUrl(id).toString() } else null,
-                        online = graph.connectivity.online.value,
-                    )
-                    when {
-                        queue.entries.isEmpty() -> toast(
-                            if (!graph.connectivity.online.value) "Offline, and none of these songs are on this device"
-                            else "Nothing to play — sign in first (Settings)"
-                        )
-                        else -> {
-                            askPermissions(false)
-                            graph.player.play(queue, context, shuffle)
-                            if (queue.skipped > 0) {
-                                toast("Offline: playing the ${queue.entries.size} songs on this device, ${queue.skipped} skipped")
-                            }
-                        }
-                    }
-                },
-                addToPlaylist = { songs -> addingToPlaylist = songs },
-                beforeDownload = { askPermissions(true) },
-                queued = { n -> toast(if (n == 1) "1 song queued" else "$n songs queued") },
-                message = ::toast,
-                openSettings = { tab = Tab.SETTINGS },
-                signIn = ::openSignIn,
-                openSource = { openInBrowser(AppInfo.SOURCE_URL) },
-                openExternal = openExternal,
-                deleteWithConsent = { song ->
-                    val request = graph.sink.deleteConsent(song.uri)
-                    if (request == null) {
-                        toast("This app cannot delete that file; use a file manager")
-                    } else {
-                        deleteConsentFor = song
-                        deleteConsent.launch(IntentSenderRequest.Builder(request).build())
-                    }
-                },
-                serverName = { graph.settings.config.value.baseUrl.host },
-            )
-        }
-
-        val reportActions = remember {
-            ReportActions(
-                mark = { song -> reportError = null; reportBusy = false; reporting = song to null },
-                edit = { song, mine -> reportError = null; reportBusy = false; reporting = song to mine },
-                unmark = { song ->
-                    scope.launch {
-                        try {
-                            graph.reports.unmark(song.id)
-                            toast("Unmarked: no longer reported by you")
-                        } catch (c: kotlinx.coroutines.CancellationException) {
-                            throw c
-                        } catch (t: Throwable) {
-                            toast("Could not unmark: ${PlaylistRepository.describe(t)}")
-                        }
-                    }
-                },
-                details = { song, list -> reportDetails = song to list },
-            )
-        }
-
-        BackHandler(enabled = !showPlayer && tab != Tab.LIBRARY) { tab = Tab.LIBRARY }
-
-        CompositionLocalProvider(
-            LocalReports provides reports,
-            LocalOnline provides online,
-            LocalReportActions provides reportActions,
-            LocalMusicAccess provides MusicAccessUi(
-                granted = musicAccess,
-                // Worth asking only when nothing is known to be here and a server can match files.
-                offerPrompt = !musicAccess && !musicPromptDismissed && config.signedIn && snapshot.downloaded.isEmpty(),
-                request = requestMusicAccess,
-                dismiss = dismissMusicPrompt,
-            ),
-        ) {
-        Box(Modifier.fillMaxSize()) {
-            AppShell(
-                selected = tab,
-                onSelect = { tab = it },
-                badge = { t -> if (t == Tab.DEVICE && snapshot.pending.isNotEmpty()) "${snapshot.pending.size}" else null },
-                miniPlayer = if (!nowPlaying.isEmpty) {
-                    { MiniPlayer(nowPlaying, graph.player, onOpen = { showPlayer = true }) }
-                } else null,
-            ) {
-                when (tab) {
-                    Tab.LIBRARY -> LibraryScreen(libraryVm, nowPlaying, actions)
-                    Tab.PLAYLISTS -> PlaylistsScreen(playlistsVm, snapshot, graph.downloads, online, nowPlaying, actions)
-                    Tab.DEVICE -> OnDeviceScreen(snapshot, graph.downloads, nowPlaying, actions, online)
-                    Tab.SETTINGS -> SettingsScreen(graph, snapshot, actions)
-                }
-            }
-
-            AnimatedVisibility(
-                visible = showPlayer && !nowPlaying.isEmpty,
-                enter = slideInVertically { it },
-                exit = slideOutVertically { it },
-            ) {
-                BackHandler { showPlayer = false }
-                FullPlayer(nowPlaying, graph.player, onClose = { showPlayer = false })
-            }
-        }
-
-        addingToPlaylist?.let { songs ->
-            AddToPlaylistDialog(songs, playlistsVm, onDismiss = { addingToPlaylist = null })
-        }
-
-        reporting?.let { (song, current) ->
-            ReportDialog(
-                song = song,
-                current = current,
-                busy = reportBusy,
-                error = reportError,
-                onSubmit = { reason ->
-                    reportBusy = true
-                    reportError = null
-                    scope.launch {
-                        try {
-                            val updated = graph.reports.mark(song.id, reason)
-                            reporting = null
-                            toast(if (updated) "Report updated" else "Marked \u201c${song.title.ifBlank { "song" }}\u201d as broken")
-                        } catch (c: kotlinx.coroutines.CancellationException) {
-                            throw c
-                        } catch (t: Throwable) {
-                            reportError = "Could not mark it: ${PlaylistRepository.describe(t)}"
-                        } finally {
-                            reportBusy = false
-                        }
-                    }
-                },
-                onDismiss = { reporting = null },
-            )
-        }
-        reportDetails?.let { (song, list) ->
-            // Live: if a report is withdrawn while it is open, show what is left.
-            val live = reports[song.id] ?: list
-            ReportDetailsDialog(song, live, onDismiss = { reportDetails = null })
-        }
+            val result = ExternalPlayer.open(this@MainActivity, song)
+            if (result is ExternalPlayer.Result.NoHandler) toast("No app installed that plays ${result.mimeType}")
         }
     }
 
-    private fun foundInFolder(found: Int, announceNone: Boolean = false) {
-        when {
-            found > 0 -> toast(if (found == 1) "1 song found in Music/ListenAlong" else "$found songs found in Music/ListenAlong")
-            announceNone -> toast("No new songs found in the folder")
+    override fun deleteWithConsent(song: LocalSong) {
+        val request = container.sink.deleteConsent(song.uri)
+        if (request == null) {
+            toast("This app cannot delete that file; use a file manager")
+        } else {
+            deleteConsentFor = song
+            deleteConsent.launch(IntentSenderRequest.Builder(request).build())
         }
     }
 
-    private fun openInBrowser(url: String) {
-        runCatching { startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
-            .onFailure { toast("No browser to open $url") }
+    /**
+     * Asked the first time a download or playback starts, not at launch:
+     * notifications (download progress, the player's controls), and storage
+     * on Android 9 and older, which has no MediaStore RELATIVE_PATH.
+     */
+    override fun askPermissions(forDownload: Boolean) {
+        val wanted = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
+            if (forDownload && Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (wanted.isNotEmpty() && !askedPermissions) {
+            askedPermissions = true
+            permissionLauncher.launch(wanted.toTypedArray())
+        }
     }
 
-    private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
+    override fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
+
+    // --- Music access -------------------------------------------------------
+
+    private fun dismissMusicPrompt() {
+        musicPromptDismissed = true
+        container.musicAccessPrefs.edit { putBoolean(PREF_PROMPT_DISMISSED, true) }
+    }
+
+    private fun requestMusicAccess() {
+        val declined = container.musicAccessPrefs.getBoolean(PREF_DECLINED, false)
+        if (declined && !shouldShowRequestPermissionRationale(MediaStoreAudio.READ_PERMISSION)) {
+            // The system no longer shows its dialog: only its settings page can change this.
+            toast("Turn on Music and audio under Permissions")
+            runCatching {
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+            }
+        } else {
+            musicPermission.launch(MediaStoreAudio.READ_PERMISSION)
+        }
+    }
 
     companion object {
-        const val EXTRA_OPEN_PLAYER = "open_player"
         const val EXTRA_DEBUG_SERVER = "server"
         const val EXTRA_DEBUG_SESSION = "session"
         private const val PREF_PROMPT_DISMISSED = "prompt_dismissed"

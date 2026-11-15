@@ -2,12 +2,16 @@ package com.erkantaylan.listenalong.core.data
 
 import com.erkantaylan.listenalong.core.model.AddSongsResult
 import com.erkantaylan.listenalong.core.network.ApiException
-import com.erkantaylan.listenalong.core.network.LibraryClient
+import com.erkantaylan.listenalong.core.network.ApiProvider
+import com.erkantaylan.listenalong.core.network.ListenAlongApi
 import com.erkantaylan.listenalong.core.model.Playlist
 import com.erkantaylan.listenalong.core.model.PlaylistSongs
 import com.erkantaylan.listenalong.core.model.Visibility
 import com.erkantaylan.listenalong.core.storage.TextStore
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.IOException
@@ -87,14 +91,31 @@ data class Loaded<T>(
  * bad token, a playlist that was deleted or made private — and is passed on.
  */
 class PlaylistRepository(
-    private val clientProvider: () -> LibraryClient?,
+    private val clientProvider: ApiProvider,
     private val cache: PlaylistCache,
     private val now: () -> Long = System::currentTimeMillis,
 ) {
 
-    private fun client(): LibraryClient = clientProvider() ?: throw IOException("No server set — see Settings")
+    private fun client(): ListenAlongApi = clientProvider() ?: throw IOException("No server set — see Settings")
 
-    private fun server(client: LibraryClient): String = client.baseUrl.toString()
+    private fun server(client: ListenAlongApi): String = client.baseUrl.toString()
+
+    /** The last list seen for a server (fresh or saved), updated by every read and change made here. */
+    private val observed = MutableStateFlow<Pair<String, List<Playlist>>?>(null)
+
+    /**
+     * The playlists of the server in force, as last seen: every screen reads
+     * the list from here, so a rename on the playlist page shows on the list
+     * at once. Starts with the saved copy.
+     */
+    fun observePlaylists(): Flow<List<Playlist>> = observed.map { seen ->
+        val server = clientProvider()?.let(::server)
+        if (seen != null && seen.first == server) seen.second else cachedPlaylists().orEmpty()
+    }
+
+    private fun publish(server: String) {
+        observed.value = server to cache.playlists(server)?.value.orEmpty()
+    }
 
     suspend fun playlists(): Loaded<List<Playlist>> {
         val client = client()
@@ -102,10 +123,12 @@ class PlaylistRepository(
         return try {
             val fresh = sorted(client.playlists())
             cache.putPlaylists(server, fresh, now())
+            publish(server)
             Loaded(fresh)
         } catch (e: IOException) {
             if (!canFallBack(e)) throw e
             val cached = cache.playlists(server) ?: throw e
+            publish(server)
             Loaded(cached.value, fromCache = true, savedAt = cached.savedAt, error = describe(e))
         }
     }
@@ -124,7 +147,10 @@ class PlaylistRepository(
             cache.putSongs(server, playlistId, fresh, now())
             Loaded(fresh)
         } catch (e: ApiException) {
-            if (e.code == 404) cache.remove(server, playlistId)
+            if (e.code == 404) {
+                cache.remove(server, playlistId)
+                publish(server)
+            }
             if (!canFallBack(e)) throw e
             cached(server, playlistId, e)
         } catch (e: IOException) {
@@ -154,6 +180,7 @@ class PlaylistRepository(
         val client = client()
         client.deletePlaylist(playlistId)
         cache.remove(server(client), playlistId)
+        publish(server(client))
     }
 
     suspend fun add(playlistId: String, libraryIds: List<String>): AddSongsResult {
@@ -166,7 +193,14 @@ class PlaylistRepository(
     }
 
     suspend fun remove(playlistId: String, entryId: String): Loaded<PlaylistSongs> {
-        client().removeFromPlaylist(playlistId, entryId)
+        val client = client()
+        client.removeFromPlaylist(playlistId, entryId)
+        val server = server(client)
+        cache.playlists(server)?.let { cached ->
+            putList(server, cached.value.map {
+                if (it.id == playlistId) it.copy(songCount = (it.songCount - 1).coerceAtLeast(0)) else it
+            })
+        }
         return songs(playlistId)
     }
 
@@ -193,9 +227,12 @@ class PlaylistRepository(
         return playlist
     }
 
-    private fun putList(server: String, list: List<Playlist>) = cache.putPlaylists(server, sorted(list), now())
+    private fun putList(server: String, list: List<Playlist>) {
+        cache.putPlaylists(server, sorted(list), now())
+        publish(server)
+    }
 
-    private suspend fun refreshListQuietly(client: LibraryClient) = runQuietly {
+    private suspend fun refreshListQuietly(client: ListenAlongApi) = runQuietly {
         putList(server(client), client.playlists())
     }
 

@@ -2,15 +2,17 @@ package com.erkantaylan.listenalong.feature.library
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.erkantaylan.listenalong.AppGraph
-import com.erkantaylan.listenalong.core.network.ApiException
-import com.erkantaylan.listenalong.core.network.LibraryClient
-import com.erkantaylan.listenalong.core.model.Song
-import com.erkantaylan.listenalong.core.model.SortOrder
+import com.erkantaylan.listenalong.core.data.LibraryLoad
+import com.erkantaylan.listenalong.core.data.LibraryRepository
+import com.erkantaylan.listenalong.core.data.ReportRepository
+import com.erkantaylan.listenalong.core.data.ServerConfig
 import com.erkantaylan.listenalong.core.download.BulkPlan
 import com.erkantaylan.listenalong.core.download.DownloadSnapshot
-import com.erkantaylan.listenalong.core.data.PlaylistRepository
-import com.erkantaylan.listenalong.core.storage.LocalSong
+import com.erkantaylan.listenalong.core.download.Downloads
+import com.erkantaylan.listenalong.core.model.Song
+import com.erkantaylan.listenalong.core.model.SortOrder
+import com.erkantaylan.listenalong.core.network.ApiException
+import com.erkantaylan.listenalong.core.network.NetworkMonitor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -26,7 +28,6 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.io.IOException
 
 sealed interface BulkUi {
     data object Preparing : BulkUi
@@ -57,48 +58,26 @@ data class LibraryUiState(
     val canLoadMore: Boolean get() = !offline && !loading && !loadingMore && error == null && songs.size < total
 }
 
-/** A downloaded song as a library song, for the offline library and for playing. */
-fun LocalSong.toSong(): Song = Song(
-    id = songId,
-    title = title.ifBlank { displayName.substringBeforeLast('.') },
-    artist = artist,
-    durationRaw = durationSec?.toDouble(),
-)
-
-/** The offline library: what is on the device, searched and sorted like the server would. */
-internal fun offlineLibrary(
-    local: Collection<LocalSong>,
-    query: String,
-    sort: SortOrder,
-    /** Only these song ids (the Broken filter offline: the saved report list). */
-    only: Set<String>? = null,
-): List<Song> {
-    val words = query.lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
-    val hits = local.filter { song -> only == null || song.songId in only }.filter { song ->
-        val hay = "${song.title} ${song.artist} ${song.displayName}".lowercase()
-        words.all { it in hay }
-    }
-    val sorted = when (sort) {
-        SortOrder.RECENT -> hits.sortedByDescending { it.savedAt }
-        SortOrder.TITLE -> hits.sortedWith(compareBy({ it.title.lowercase() }, { it.artist.lowercase() }))
-        SortOrder.ARTIST -> hits.sortedWith(compareBy({ it.artist.lowercase() }, { it.title.lowercase() }))
-    }
-    return sorted.map { it.toSong() }
-}
-
 /**
- * The cloud library: server-side search and sort, fetched a page at a time as
- * you scroll. Download state comes from [AppGraph.downloads], shared with the
- * On device tab and the worker. With no connection it shows the downloaded
- * songs instead, and reloads from the server when the connection is back.
+ * The Library screen: server-side search and sort, fetched a page at a time
+ * as you scroll ([LibraryRepository]). Download state comes from [Downloads],
+ * shared with On device and the worker. With no connection it shows the
+ * downloaded songs instead, and reloads from the server when the connection
+ * is back.
  */
-class LibraryViewModel(private val graph: AppGraph) : ViewModel() {
+class LibraryViewModel(
+    private val config: StateFlow<ServerConfig>,
+    private val network: NetworkMonitor,
+    private val library: LibraryRepository,
+    private val downloads: Downloads,
+    private val reports: ReportRepository,
+) : ViewModel() {
 
-    private val _state = MutableStateFlow(LibraryUiState(signedIn = graph.settings.config.value.signedIn))
+    private val _state = MutableStateFlow(LibraryUiState(signedIn = config.value.signedIn))
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
 
-    val downloads: StateFlow<DownloadSnapshot> =
-        graph.downloads.snapshots.stateIn(viewModelScope, SharingStarted.Eagerly, graph.downloads.snapshot())
+    val downloadState: StateFlow<DownloadSnapshot> =
+        downloads.snapshots.stateIn(viewModelScope, SharingStarted.Eagerly, downloads.snapshot())
 
     private var searchDebounce: Job? = null
     private var loadJob: Job? = null
@@ -109,32 +88,29 @@ class LibraryViewModel(private val graph: AppGraph) : ViewModel() {
     init {
         reload(initial = true)
         // Another server, or signed in / out: start over.
-        graph.settings.config
+        config
             .drop(1)
             .distinctUntilChanged()
-            .onEach { config ->
-                _state.update { it.copy(signedIn = config.signedIn, songs = emptyList(), total = 0) }
+            .onEach { c ->
+                _state.update { it.copy(signedIn = c.signedIn, songs = emptyList(), total = 0) }
                 reload(initial = true)
             }
             .launchIn(viewModelScope)
         // Back online after showing the offline list: fetch the real library.
-        graph.connectivity.online
+        network.online
             .drop(1)
             .filter { it && _state.value.offline }
             .onEach { reload(initial = false) }
             .launchIn(viewModelScope)
         // Offline, the list is the downloads: keep it in step with them.
-        graph.index.entries
+        library.local
             .drop(1)
             .filter { _state.value.offline }
-            .onEach { local -> _state.update { it.copy(songs = offlineLibrary(local.values, it.query, it.sort, brokenIds(it))).withTotal() } }
+            .onEach { _ -> _state.update { it.copy(songs = library.offline(it.query, it.sort, it.brokenOnly)).withTotal() } }
             .launchIn(viewModelScope)
     }
 
     private fun LibraryUiState.withTotal() = copy(total = songs.size)
-
-    private fun brokenIds(state: LibraryUiState): Set<String>? =
-        if (state.brokenOnly) graph.reports.reports.value.keys else null
 
     fun onBrokenOnlyChange(brokenOnly: Boolean) {
         if (brokenOnly == _state.value.brokenOnly) return
@@ -146,7 +122,7 @@ class LibraryViewModel(private val graph: AppGraph) : ViewModel() {
         _state.update { it.copy(query = query) }
         searchDebounce?.cancel()
         searchDebounce = viewModelScope.launch {
-            delay(350)
+            delay(SEARCH_DEBOUNCE_MS)
             reload(initial = true)
         }
     }
@@ -164,14 +140,12 @@ class LibraryViewModel(private val graph: AppGraph) : ViewModel() {
     fun loadMore() {
         val current = _state.value
         if (!current.canLoadMore) return
-        val client = graph.client()
         val gen = generation
         _state.update { it.copy(loadingMore = true) }
         viewModelScope.launch {
             try {
-                val page = client.list(current.query, LibraryClient.PAGE_SIZE, current.songs.size, current.sort, current.brokenOnly)
+                val page = library.nextPage(current.query, current.songs.size, current.sort, current.brokenOnly)
                 if (gen != generation) return@launch
-                graph.reports.absorb(page.songs)
                 _state.update {
                     it.copy(
                         songs = (it.songs + page.songs).distinctBy { s -> s.id },
@@ -187,28 +161,20 @@ class LibraryViewModel(private val graph: AppGraph) : ViewModel() {
         }
     }
 
-    fun download(song: Song) {
-        graph.downloads.enqueue(listOf(song))
-    }
+    /** Queues one song. Returns how many were added (0 when it is already here or queued). */
+    fun download(song: Song): Int = downloads.enqueue(listOf(song))
 
-    fun cancel(song: Song) = graph.downloads.cancel(song.id)
-
-    /**
-     * Every song of the current search, for "play all": the pages loaded so
-     * far are enough to start, the rest of the result is not fetched.
-     */
-    fun currentSongs(): List<Song> = _state.value.songs
+    fun cancel(song: Song) = downloads.cancel(song.id)
 
     /** Works out what "download all shown" would fetch, for the confirm dialog. */
     fun prepareBulk() {
-        val client = graph.client()
         val current = _state.value
         bulkJob?.cancel()
         _state.update { it.copy(bulk = BulkUi.Preparing) }
         bulkJob = viewModelScope.launch {
             try {
-                val all = client.listAll(current.query, current.sort, reported = current.brokenOnly)
-                val plan = BulkPlan.of(all, graph.downloads.snapshot())
+                val all = library.all(current.query, current.sort, current.brokenOnly)
+                val plan = BulkPlan.of(all, downloads.snapshot())
                 _state.update { it.copy(bulk = BulkUi.Ready(plan)) }
             } catch (c: CancellationException) {
                 throw c
@@ -222,7 +188,7 @@ class LibraryViewModel(private val graph: AppGraph) : ViewModel() {
     fun confirmBulk(): Int {
         val plan = (_state.value.bulk as? BulkUi.Ready)?.plan ?: return 0
         _state.update { it.copy(bulk = null) }
-        return graph.downloads.enqueue(plan.toDownload)
+        return downloads.enqueue(plan.toDownload)
     }
 
     fun dismissBulk() {
@@ -234,15 +200,13 @@ class LibraryViewModel(private val graph: AppGraph) : ViewModel() {
         searchDebounce?.takeIf { !initial }?.cancel()
         loadJob?.cancel()
         val gen = ++generation
-        val config = graph.settings.config.value
-        if (!config.signedIn) {
+        if (!config.value.signedIn) {
             _state.update {
                 it.copy(signedIn = false, loading = false, refreshing = false, error = null, offline = false,
                         songs = emptyList(), total = 0)
             }
             return
         }
-        val client = graph.client()
         _state.update {
             it.copy(signedIn = true, loading = initial && it.songs.isEmpty(), refreshing = !initial || it.songs.isNotEmpty(),
                     loadingMore = false, error = null)
@@ -250,39 +214,37 @@ class LibraryViewModel(private val graph: AppGraph) : ViewModel() {
         val (query, sort) = _state.value.let { it.query to it.sort }
         val brokenOnly = _state.value.brokenOnly
         // The broken-song list behind the icons in every tab, refreshed with the library.
-        viewModelScope.launch { runCatching { graph.reports.refresh() } }
+        viewModelScope.launch { runCatching { reports.refresh() } }
         loadJob = viewModelScope.launch {
             try {
-                val page = client.list(query, LibraryClient.PAGE_SIZE, 0, sort, brokenOnly)
+                val load = library.firstPage(query, sort, brokenOnly)
                 if (gen != generation) return@launch
-                graph.reports.absorb(page.songs)
                 _state.update {
-                    it.copy(songs = page.songs, total = page.total, loading = false, refreshing = false, offline = false)
+                    when (load) {
+                        is LibraryLoad.Online -> it.copy(songs = load.page.songs, total = load.page.total, loading = false,
+                                                         refreshing = false, offline = false)
+                        is LibraryLoad.Offline -> it.copy(songs = load.songs, total = load.songs.size, loading = false,
+                                                          refreshing = false, offline = true, error = null)
+                    }
                 }
             } catch (c: CancellationException) {
                 throw c
             } catch (t: Throwable) {
                 if (gen != generation) return@launch
-                if (t is IOException && PlaylistRepository.canFallBack(t)) {
-                    val local = offlineLibrary(graph.index.entries.value.values, query, sort, brokenIds(_state.value))
-                    _state.update {
-                        it.copy(songs = local, total = local.size, loading = false, refreshing = false,
-                                offline = true, error = null)
-                    }
-                } else {
-                    _state.update {
-                        it.copy(loading = false, refreshing = false, error = describe(t), offline = false)
-                    }
-                }
+                _state.update { it.copy(loading = false, refreshing = false, error = describe(t), offline = false) }
             }
         }
     }
 
-    private fun describe(t: Throwable): String = when {
-        t is ApiException && t.sessionEnded -> "Signed out: sign in again in Settings."
-        t is ApiException && t.code == 403 -> t.message ?: "Not allowed (403)"
-        t is ApiException && t.code == 503 -> "The server's library is unavailable (no database)."
-        t is ApiException -> "Server error ${t.code}: ${t.message}"
-        else -> t.message ?: t::class.simpleName ?: "Unknown error"
+    companion object {
+        const val SEARCH_DEBOUNCE_MS = 350L
+
+        fun describe(t: Throwable): String = when {
+            t is ApiException && t.sessionEnded -> "Signed out: sign in again in Settings."
+            t is ApiException && t.code == 403 -> t.message ?: "Not allowed (403)"
+            t is ApiException && t.code == 503 -> "The server's library is unavailable (no database)."
+            t is ApiException -> "Server error ${t.code}: ${t.message}"
+            else -> t.message ?: t::class.simpleName ?: "Unknown error"
+        }
     }
 }

@@ -14,11 +14,10 @@ import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSession.MediaItemsWithStartPosition
 import androidx.media3.session.SessionError
-import com.erkantaylan.listenalong.AppGraph
+import com.erkantaylan.listenalong.core.domain.sortedForDevice
+import com.erkantaylan.listenalong.core.domain.toSong
 import com.erkantaylan.listenalong.core.model.Playlist
 import com.erkantaylan.listenalong.core.model.Song
-import com.erkantaylan.listenalong.feature.downloads.sortedForDevice
-import com.erkantaylan.listenalong.feature.library.toSong
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -41,7 +40,7 @@ import java.io.IOException
  */
 @OptIn(UnstableApi::class)
 class CarLibrary(
-    private val graph: AppGraph,
+    private val graph: CarSources,
     private val scope: CoroutineScope,
     private val ownPackage: String,
 ) : MediaLibrarySession.Callback {
@@ -49,7 +48,7 @@ class CarLibrary(
     /** The last library page, for offline and for resolving a tapped song. */
     @Volatile private var lastLibrary: List<Song>? = null
 
-    private val online: Boolean get() = graph.connectivity.online.value
+    private val online: Boolean get() = graph.network.online.value
 
     // ---- Connection --------------------------------------------------------------------------
 
@@ -255,8 +254,8 @@ class CarLibrary(
     }
 
     private fun streamUrl(): ((String) -> String)? {
-        if (!graph.settings.config.value.signedIn) return null
-        val client = graph.client()
+        if (!graph.config.value.signedIn) return null
+        val client = graph.api()
         return { id -> client.fileUrl(id).toString() }
     }
 
@@ -277,7 +276,7 @@ class CarLibrary(
         CarList.Library -> {
             if (!online) lastLibrary ?: deviceSongs()
             else try {
-                graph.client().list(limit = LIBRARY_SIZE).songs.also { lastLibrary = it }
+                graph.api().list(limit = LIBRARY_SIZE).songs.also { lastLibrary = it }
             } catch (e: IOException) {
                 lastLibrary ?: deviceSongs()
             }
@@ -299,7 +298,7 @@ class CarLibrary(
             if (list.query.isBlank()) deviceSongs()
             else if (!online) offlineHits()
             else try {
-                graph.client().list(query = list.query, limit = SEARCH_SIZE).songs
+                graph.api().list(query = list.query, limit = SEARCH_SIZE).songs
             } catch (e: IOException) {
                 offlineHits()
             }

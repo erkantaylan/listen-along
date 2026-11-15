@@ -9,7 +9,7 @@ import com.erkantaylan.listenalong.core.designsystem.TitleAndMeta
 import com.erkantaylan.listenalong.core.designsystem.dialogEdge
 import com.erkantaylan.listenalong.core.designsystem.dragHandle
 import com.erkantaylan.listenalong.core.designsystem.longPressDrag
-import com.erkantaylan.listenalong.app.AppActions
+import com.erkantaylan.listenalong.core.ui.AppActions
 import com.erkantaylan.listenalong.core.designsystem.Alert
 import com.erkantaylan.listenalong.core.designsystem.AlertKind
 import com.erkantaylan.listenalong.core.designsystem.AppDropdownMenu
@@ -94,35 +94,29 @@ import com.erkantaylan.listenalong.core.download.formatMb
 import com.erkantaylan.listenalong.core.player.NowPlaying
 import com.erkantaylan.listenalong.core.designsystem.Palette
 
+import kotlinx.coroutines.flow.StateFlow
 /** Which playlist dialog is open, if any. */
-private sealed interface PlaylistDialog {
+internal sealed interface PlaylistDialog {
     data class Rename(val playlist: Playlist) : PlaylistDialog
     data class Delete(val playlist: Playlist) : PlaylistDialog
     data class Download(val playlist: Playlist, val plan: BulkPlan) : PlaylistDialog
 }
 
-@OptIn(ExperimentalComposeUiApi::class, ExperimentalMaterial3Api::class)
+/** The Playlists tab: every playlist you can see, yours first; tapping one opens it. */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun PlaylistsScreen(
     viewModel: PlaylistsViewModel,
-    snapshot: DownloadSnapshot,
-    downloads: Downloads,
     online: Boolean,
-    nowPlaying: NowPlaying,
     actions: AppActions,
+    onOpenPlaylist: (String) -> Unit,
 ) {
-    val detail by viewModel.detail.collectAsStateWithLifecycle()
     var dialog by remember { mutableStateOf<PlaylistDialog?>(null) }
     var creating by remember { mutableStateOf(false) }
+    LaunchedEffect(viewModel) { viewModel.opened.collect { onOpenPlaylist(it) } }
 
     Box(Modifier.fillMaxSize().background(Palette.page).semantics { testTagsAsResourceId = true }) {
-        val open = detail
-        if (open == null) {
-            PlaylistList(viewModel, online, actions, onNew = { creating = true }, onDialog = { dialog = it })
-        } else {
-            BackHandler { if (open.editing) viewModel.finishEditing() else viewModel.close() }
-            PlaylistDetail(open, viewModel, snapshot, downloads, online, nowPlaying, actions, onDialog = { dialog = it })
-        }
+        PlaylistList(viewModel, online, actions, onNew = { creating = true }, onOpen = onOpenPlaylist, onDialog = { dialog = it })
     }
 
     if (creating) {
@@ -134,7 +128,24 @@ fun PlaylistsScreen(
             onDismiss = { creating = false },
         )
     }
+    PlaylistDialogHost(
+        dialog,
+        onDismiss = { dialog = null },
+        onRename = viewModel::rename,
+        onDelete = viewModel::delete,
+        onDownload = { _ -> },
+    )
+}
 
+/** Rename, delete and "Download playlist" confirmations, shared by the list and a playlist's page. */
+@Composable
+internal fun PlaylistDialogHost(
+    dialog: PlaylistDialog?,
+    onDismiss: () -> Unit,
+    onRename: (Playlist, String) -> Unit,
+    onDelete: (Playlist) -> Unit,
+    onDownload: (BulkPlan) -> Unit,
+) {
     when (val d = dialog) {
         null -> Unit
         is PlaylistDialog.Rename -> TextPromptDialog(
@@ -142,8 +153,8 @@ fun PlaylistsScreen(
             initial = d.playlist.name.orEmpty(),
             placeholder = "Playlist name",
             confirmLabel = "Rename",
-            onConfirm = { dialog = null; viewModel.rename(d.playlist, it) },
-            onDismiss = { dialog = null },
+            onConfirm = { onDismiss(); onRename(d.playlist, it) },
+            onDismiss = onDismiss,
         )
         is PlaylistDialog.Delete -> ConfirmDialog(
             title = "Delete playlist?",
@@ -151,8 +162,8 @@ fun PlaylistsScreen(
                 "The songs stay in the library, and downloaded files stay on this device.",
             confirmLabel = "Delete",
             destructive = true,
-            onConfirm = { dialog = null; viewModel.delete(d.playlist) },
-            onDismiss = { dialog = null },
+            onConfirm = { onDismiss(); onDelete(d.playlist) },
+            onDismiss = onDismiss,
         )
         is PlaylistDialog.Download -> {
             val plan = d.plan
@@ -160,7 +171,7 @@ fun PlaylistsScreen(
                 ConfirmDialog(
                     title = "Already downloaded",
                     text = "All ${plan.alreadyHave} songs of \"${d.playlist.displayName}\" are on this device or queued.",
-                    confirmLabel = "OK", onConfirm = { dialog = null }, onDismiss = { dialog = null },
+                    confirmLabel = "OK", onConfirm = onDismiss, onDismiss = onDismiss,
                     showCancel = false,
                 )
             } else {
@@ -173,12 +184,8 @@ fun PlaylistsScreen(
                         append("\n\nThey then play with no connection.")
                     },
                     confirmLabel = "Download ${plan.count}",
-                    onConfirm = {
-                        dialog = null
-                        actions.beforeDownload()
-                        actions.queued(downloads.enqueue(plan.toDownload))
-                    },
-                    onDismiss = { dialog = null },
+                    onConfirm = { onDismiss(); onDownload(plan) },
+                    onDismiss = onDismiss,
                 )
             }
         }
@@ -192,9 +199,10 @@ private fun PlaylistList(
     online: Boolean,
     actions: AppActions,
     onNew: () -> Unit,
+    onOpen: (String) -> Unit,
     onDialog: (PlaylistDialog) -> Unit,
 ) {
-    val state by viewModel.list.collectAsStateWithLifecycle()
+    val state by viewModel.state.collectAsStateWithLifecycle()
     val readOnly = state.fromCache || !online
     Column(Modifier.fillMaxSize()) {
         AppTopBar(
@@ -237,7 +245,7 @@ private fun PlaylistList(
                     }
                     itemsIndexed(state.playlists, key = { _, p -> p.id }) { i, playlist ->
                         PlaylistRow(i, state.playlists.size, playlist, readOnly,
-                                    onOpen = { viewModel.open(playlist.id) },
+                                    onOpen = { onOpen(playlist.id) },
                                     onToggleVisibility = { viewModel.toggleVisibility(playlist) },
                                     onDialog = onDialog)
                     }
@@ -285,7 +293,7 @@ private fun PlaylistRow(
 
 /** ⋮ menu: rename, visibility and delete (owner only — the server decides). Nothing to offer: no ⋮. */
 @Composable
-private fun PlaylistMenu(
+internal fun PlaylistMenu(
     playlist: Playlist,
     readOnly: Boolean,
     onToggleVisibility: () -> Unit,
@@ -315,418 +323,12 @@ private fun PlaylistMenu(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PlaylistDetail(
-    state: PlaylistDetailUi,
-    viewModel: PlaylistsViewModel,
-    snapshot: DownloadSnapshot,
-    downloads: Downloads,
-    online: Boolean,
-    nowPlaying: NowPlaying,
-    actions: AppActions,
-    onDialog: (PlaylistDialog) -> Unit,
-) {
-    val playlist = state.playlist
-    val readOnly = state.fromCache || !online
-    val songs = state.songs
-    val label = playlist?.displayName ?: "Playlist"
-    val onDevice = songs.count { snapshot.downloaded.containsKey(it.id) }
-    val canEdit = playlist?.editable == true && !readOnly
-    val editing = state.editing
-    val snackbar = remember { SnackbarHostState() }
-    val listState = rememberLazyListState()
-    val entryIds = remember(state.entries) { state.entries.mapTo(HashSet()) { it.entryId } }
-    val reorder = rememberReorderState(
-        listState,
-        isDraggable = { it is String && it in entryIds },
-        onStart = viewModel::startDrag,
-        onOver = viewModel::dragOver,
-        onEnd = viewModel::endDrag,
-    )
-
-    // Going offline mid-edit: the changes so far are sent (or fail), editing ends.
-    LaunchedEffect(canEdit) { if (!canEdit && editing) viewModel.finishEditing() }
-
-    // Removed: "Undo" for a while, then it is sent to the server.
-    val pending = state.pending
-    LaunchedEffect(pending?.entry?.entryId) {
-        if (pending == null) return@LaunchedEffect
-        val result = snackbar.showSnackbar(
-            message = "Removed \"${pending.entry.cleanTitle.ifBlank { "song" }}\"",
-            actionLabel = "Undo",
-            duration = SnackbarDuration.Long,
-        )
-        if (result == SnackbarResult.ActionPerformed) viewModel.undoRemove()
-        else viewModel.commitPendingRemoval(pending.entry.entryId)
-    }
-
-    Box(Modifier.fillMaxSize()) {
-    Column(Modifier.fillMaxSize()) {
-        AppTopBar(
-            title = playlist?.displayName ?: "Playlist",
-            onBack = if (editing) null else ({ viewModel.close() }),
-            subtitle = if (editing) {
-                { Text("Drag to reorder · ⊖ removes", color = Palette.fg3, fontSize = 12.sp, maxLines = 1) }
-            } else if (playlist != null) {
-                {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (playlist.isPrivate) {
-                            SubtleBadge("Private", AppIcons.Lock)
-                            Spacer(Modifier.width(6.dp))
-                        }
-                        Text(
-                            listOf(playlist.ownerLine,
-                                   if (state.entries.size == 1) "1 song" else "${state.entries.size} songs").joinToString(" · "),
-                            color = Palette.fg3, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-            } else null,
-        ) {
-            if (editing) {
-                PrimaryButton("Done", { viewModel.finishEditing() }, tag = "edit-done", compact = true,
-                              modifier = Modifier.padding(end = 8.dp))
-            } else if (playlist != null) {
-                if (canEdit && state.entries.isNotEmpty()) {
-                    SecondaryButton("Edit", { viewModel.startEditing() }, tag = "edit-playlist", compact = true,
-                                    modifier = Modifier.padding(end = 4.dp))
-                }
-                IconAction(AppIcons.Download, "Download playlist", tag = "download-playlist",
-                           enabled = songs.isNotEmpty() && online) {
-                    onDialog(PlaylistDialog.Download(playlist, BulkPlan.of(songs, snapshot)))
-                }
-                PlaylistMenu(playlist, readOnly, { viewModel.toggleVisibility(playlist) }, onDialog)
-            }
-        }
-
-        if (state.fromCache) {
-            OfflineAlert("Offline — saved copy from ${ago(state.savedAt)}. Changes need a connection.")
-        }
-
-        val list: @Composable () -> Unit = {
-            LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 16.dp)) {
-                if (!editing) {
-                    item(key = "play-all") {
-                        PlayAllBar(
-                            playEnabled = songs.isNotEmpty(),
-                            onPlay = { actions.play(songs, 0, label, false) },
-                            onShuffle = { actions.play(songs, 0, label, true) },
-                        ) {
-                            Text(
-                                if (onDevice == songs.size && songs.isNotEmpty()) "All on device" else "$onDevice of ${songs.size} on device",
-                                color = if (onDevice == songs.size && songs.isNotEmpty()) Palette.success else Palette.fg3,
-                                fontSize = 12.sp, modifier = Modifier.padding(end = 4.dp).testTag("on-device-count"),
-                            )
-                        }
-                    }
-                } else {
-                    item(key = "edit-top") { Spacer(Modifier.height(12.dp)) }
-                }
-                if (state.error != null) {
-                    item(key = "error") {
-                        Alert(state.error, AlertKind.DANGER, Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp))
-                    }
-                }
-                itemsIndexed(state.entries, key = { _, e -> e.entryId }) { i, entry ->
-                    if (editing) {
-                        val dragging = reorder.draggingKey == entry.entryId
-                        EditableEntryRow(
-                            index = i,
-                            count = state.entries.size,
-                            entry = entry,
-                            dragging = dragging,
-                            modifier = Modifier
-                                .then(if (dragging) Modifier.zIndex(1f) else Modifier.animateItem())
-                                .graphicsLayer { translationY = reorder.translationOf(entry.entryId) }
-                                .longPressDrag(reorder, entry.entryId),
-                            handle = Modifier.dragHandle(reorder, entry.entryId),
-                            onMoveUp = if (i > 0) ({ viewModel.moveBy(entry, -1) }) else null,
-                            onMoveDown = if (i < state.entries.size - 1) ({ viewModel.moveBy(entry, +1) }) else null,
-                            onRemove = { viewModel.remove(entry) },
-                        )
-                    } else {
-                        val song = entry.toSong()
-                        val download = song?.let { snapshot.stateOf(it.id) }
-                        val playable = song != null && (online || download is DownloadState.Done)
-                        SongRow(
-                            index = i,
-                            count = state.entries.size,
-                            tag = "entry:${entry.entryId}",
-                            title = entry.cleanTitle,
-                            artist = entry.artist.orEmpty(),
-                            durationSec = entry.durationRaw?.let { Math.round(it).toInt() },
-                            download = download,
-                            current = song != null && nowPlaying.songId == song.id,
-                            enabled = playable,
-                            extraMeta = when {
-                                song == null -> "not in the library"
-                                !playable -> "not on this device"
-                                else -> null
-                            },
-                            onClick = if (playable) {
-                                {
-                                    // Play the playlist from this song. [songs] leaves out entries
-                                    // with no library song, so count only those before this one.
-                                    actions.play(songs, state.entries.take(i).count { it.playable }, label, false)
-                                }
-                            } else null,
-                            onDownload = if (song != null && online) {
-                                { actions.beforeDownload(); downloads.enqueue(listOf(song)) }
-                            } else null,
-                            onCancelDownload = { song?.let { downloads.cancel(it.id) } },
-                            reportSong = song,
-                            reportable = true,
-                        ) { dismiss ->
-                            if (song != null && download is DownloadState.Done) {
-                                MenuEntry("Open in another app", AppIcons.OpenInNew, "menu-open") {
-                                    dismiss(); actions.openExternal(download.local)
-                                }
-                            }
-                            if (song != null) {
-                                MenuEntry("Add to another playlist", AppIcons.PlaylistAdd, "menu-add-to-playlist", enabled = !readOnly) {
-                                    dismiss(); actions.addToPlaylist(listOf(song))
-                                }
-                            }
-                            if (canEdit) {
-                                MenuEntry("Remove from playlist", AppIcons.Delete, "menu-remove", destructive = true) {
-                                    dismiss(); viewModel.remove(entry)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        when {
-            state.gone -> EmptyState(
-                "Playlist not found",
-                "It was deleted, or it is private now.",
-                AppIcons.QueueMusic,
-            ) { SecondaryButton("Back to playlists", { viewModel.close() }) }
-            state.loading -> Centre { CircularProgressIndicator(color = Palette.accentFg) }
-            state.error != null && state.entries.isEmpty() -> EmptyState(
-                "Cannot load this playlist", state.error, AppIcons.CloudOff,
-            ) { SecondaryButton("Retry", { viewModel.refreshDetail() }, tag = "retry") }
-            state.entries.isEmpty() -> EmptyState(
-                "This playlist is empty",
-                "Add songs from the Library tab with ⋮ → Add to playlist.",
-                AppIcons.QueueMusic,
-            )
-            editing -> list()
-            else -> PullToRefreshBox(
-                isRefreshing = state.refreshing,
-                onRefresh = { viewModel.refreshDetail() },
-                modifier = Modifier.fillMaxSize(),
-            ) { list() }
-        }
-    }
-        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(12.dp)) { data ->
-            Snackbar(
-                data,
-                containerColor = Palette.overlay,
-                contentColor = Palette.fg,
-                actionColor = Palette.accentFg,
-                shape = ButtonShape,
-                modifier = Modifier.border(1.dp, Palette.borderStrong, ButtonShape).testTag("snackbar"),
-            )
-        }
-    }
-}
-
-/**
- * A playlist entry in edit mode: drag handle, title, remove button. Rows
- * stay put when tapped; long-press-drag works on the whole row too. TalkBack
- * gets "Move up" / "Move down" actions instead of dragging.
- */
-@Composable
-private fun EditableEntryRow(
-    index: Int,
-    count: Int,
-    entry: com.erkantaylan.listenalong.core.model.PlaylistEntry,
-    dragging: Boolean,
-    modifier: Modifier,
-    handle: Modifier,
-    onMoveUp: (() -> Unit)?,
-    onMoveDown: (() -> Unit)?,
-    onRemove: () -> Unit,
-) {
-    val moves = listOfNotNull(
-        onMoveUp?.let { CustomAccessibilityAction("Move up") { it(); true } },
-        onMoveDown?.let { CustomAccessibilityAction("Move down") { it(); true } },
-    )
-    Box(
-        modifier
-            .shadow(if (dragging) 8.dp else 0.dp, CardShape)
-            .semantics { customActions = moves }
-            .testTag("edit-entry:${entry.entryId}")
-    ) {
-        ListGroupItem(index, count, lifted = dragging) {
-            Box(handle.size(40.dp).testTag("drag:${entry.entryId}"), contentAlignment = Alignment.Center) {
-                Icon(AppIcons.DragHandle, contentDescription = "Drag to reorder", tint = Palette.fg4, modifier = Modifier.size(22.dp))
-            }
-            TitleAndMeta(
-                title = entry.cleanTitle.ifBlank { "Untitled" },
-                meta = listOfNotNull(
-                    entry.artist?.takeIf { it.isNotBlank() && it != "Unknown" },
-                    com.erkantaylan.listenalong.core.model.formatDuration(entry.durationRaw?.let { Math.round(it).toInt() }).takeIf { it.isNotEmpty() },
-                ).joinToString(" · "),
-            )
-            IconAction(AppIcons.RemoveCircle, "Remove ${entry.cleanTitle.ifBlank { "song" }} from playlist",
-                       tag = "remove:${entry.entryId}", tint = Palette.danger, onClick = onRemove)
-        }
-    }
-}
-
-@Composable
-private fun OfflineAlert(text: String) {
+internal fun OfflineAlert(text: String) {
     Alert(text, AlertKind.WARNING, icon = AppIcons.CloudOff,
           modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp))
 }
 
-private fun ago(savedAt: Long?): String =
+internal fun ago(savedAt: Long?): String =
     if (savedAt == null) "earlier"
     else DateUtils.getRelativeTimeSpanString(savedAt, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()
-
-/** New playlist: a name and the web's Public/Private choice with its one-line hint. */
-@Composable
-fun NewPlaylistDialog(onCreate: (String, Visibility) -> Unit, onDismiss: () -> Unit, confirmLabel: String = "Create") {
-    var visibility by remember { mutableStateOf(Visibility.PUBLIC) }
-    TextPromptDialog(
-        title = "New playlist",
-        initial = "",
-        placeholder = "Playlist name",
-        confirmLabel = confirmLabel,
-        onConfirm = { onCreate(it, visibility) },
-        onDismiss = onDismiss,
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                VisibilityChoice("Public", AppIcons.Public, visibility == Visibility.PUBLIC) { visibility = Visibility.PUBLIC }
-                VisibilityChoice("Private", AppIcons.Lock, visibility == Visibility.PRIVATE) { visibility = Visibility.PRIVATE }
-            }
-            Text(
-                if (visibility == Visibility.PUBLIC) "Everyone signed in can see and add to it."
-                else "Only you can see it.",
-                color = Palette.fg3, fontSize = 12.sp,
-            )
-        }
-    }
-}
-
-@Composable
-private fun VisibilityChoice(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector, selected: Boolean, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .clip(ButtonShape)
-            .background(if (selected) Palette.accentSubtle else Palette.field)
-            .border(1.dp, if (selected) Palette.accentBorder else Palette.borderStrong, ButtonShape)
-            .clickable(onClick = onClick)
-            .heightIn(min = 36.dp)
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .testTag("visibility:${text.lowercase()}"),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, contentDescription = null, tint = if (selected) Palette.accentFg else Palette.fg3, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(text, color = if (selected) Palette.accentFg else Palette.fg2, fontSize = 14.sp)
-    }
-}
-
-/**
- * "Add to playlist" from any song: the playlists you can see (anyone who can
- * see a playlist can add to it), plus "New playlist" which creates one with
- * the song already in it.
- */
-@Composable
-fun AddToPlaylistDialog(
-    songs: List<Song>,
-    viewModel: PlaylistsViewModel,
-    onDismiss: () -> Unit,
-) {
-    val state by viewModel.list.collectAsStateWithLifecycle()
-    var creating by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { viewModel.refresh() }
-
-    if (creating) {
-        NewPlaylistDialog(
-            confirmLabel = "Create and add",
-            onCreate = { name, visibility ->
-                viewModel.create(name, visibility, thenAdd = songs, openAfter = false)
-                onDismiss()
-            },
-            onDismiss = { creating = false },
-        )
-        return
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Palette.overlay,
-        shape = CardShape,
-        modifier = Modifier.dialogEdge(),
-        title = {
-            Text(
-                if (songs.size == 1) "Add \"${songs[0].title.ifBlank { "Untitled" }}\" to…" else "Add ${songs.size} songs to…",
-                color = Palette.fg, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        },
-        text = {
-            LazyColumn(Modifier.heightIn(max = 380.dp)) {
-                item(key = "new") {
-                    PickerRow(AppIcons.Add, "New playlist", null, accent = true, tag = "pick:new") { creating = true }
-                }
-                if (state.loading && state.playlists.isEmpty()) {
-                    item(key = "loading") {
-                        Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(color = Palette.accentFg, strokeWidth = 2.dp)
-                        }
-                    }
-                }
-                state.error?.let { error ->
-                    item(key = "error") { Text(error, color = Palette.danger, fontSize = 13.sp, modifier = Modifier.padding(8.dp)) }
-                }
-                itemsIndexed(state.playlists, key = { _, p -> p.id }) { _, playlist ->
-                    PickerRow(
-                        if (playlist.isPrivate) AppIcons.Lock else AppIcons.QueueMusic,
-                        playlist.displayName,
-                        listOf(playlist.ownerLine, "${playlist.songCount} songs").joinToString(" · "),
-                        tag = "pick:${playlist.id}",
-                    ) {
-                        viewModel.addSongs(playlist, songs)
-                        onDismiss()
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = {
-            DialogDismiss(onDismiss)
-        },
-    )
-}
-
-@Composable
-private fun PickerRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    meta: String?,
-    accent: Boolean = false,
-    tag: String,
-    onClick: () -> Unit,
-) {
-    Row(
-        Modifier.fillMaxWidth().clip(ButtonShape).clickable(onClick = onClick).heightIn(min = 52.dp)
-            .padding(horizontal = 8.dp, vertical = 6.dp).testTag(tag),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, contentDescription = null, tint = if (accent) Palette.accentFg else Palette.fg3, modifier = Modifier.size(22.dp))
-        Column(Modifier.weight(1f).padding(start = 12.dp)) {
-            Text(title, color = if (accent) Palette.accentFg else Palette.fg, fontSize = 15.sp, maxLines = 1,
-                 overflow = TextOverflow.Ellipsis)
-            if (meta != null) Text(meta, color = Palette.fg3, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}

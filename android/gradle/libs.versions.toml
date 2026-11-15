@@ -15,6 +15,8 @@ coroutines = "1.11.0"
 media3 = "1.11.1"
 # Custom Tabs: the central login's sign-in page in the browser.
 browser = "1.9.0"
+# Type-safe routes between the screens (one ViewModel per destination).
+navigation = "2.10.2"
 junit = "4.13.2"
 
 [libraries]
@@ -37,6 +39,7 @@ androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplaye
 androidx-media3-session = { group = "androidx.media3", name = "media3-session", version.ref = "media3" }
 androidx-media3-datasource-okhttp = { group = "androidx.media3", name = "media3-datasource-okhttp", version.ref = "media3" }
 androidx-browser = { group = "androidx.browser", name = "browser", version.ref = "browser" }
+androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigation" }
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }

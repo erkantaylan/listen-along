@@ -11,6 +11,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+/** What screens and repositories need to know about the connection; [Connectivity] is the real one. */
+interface NetworkMonitor {
+    /** A validated network and no recent sign that the server is down (see [Connectivity]). */
+    val online: StateFlow<Boolean>
+}
+
 /**
  * Whether the server can be reached right now. Only a hint: the screens still
  * treat a failed request as the real answer, but this lets them say "offline"
@@ -28,13 +34,13 @@ import kotlinx.coroutines.flow.asStateFlow
  *   [Reachability.SERVER_DOWN_MS], or until the phone moves to another
  *   network, or a stream starts again.
  */
-class Connectivity(context: Context) {
+class Connectivity(context: Context) : NetworkMonitor {
 
     private val manager = context.getSystemService(ConnectivityManager::class.java)
     private val handler = Handler(Looper.getMainLooper())
     private val reachability = Reachability(SystemClock::elapsedRealtime)
     private val _online = MutableStateFlow(true)
-    val online: StateFlow<Boolean> = _online.asStateFlow()
+    override val online: StateFlow<Boolean> = _online.asStateFlow()
 
     init {
         reachability.network(currentlyValidated())

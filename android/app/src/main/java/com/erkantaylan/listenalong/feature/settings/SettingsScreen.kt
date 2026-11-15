@@ -10,8 +10,8 @@ import com.erkantaylan.listenalong.core.ui.LocalMusicAccess
 import com.erkantaylan.listenalong.core.designsystem.PrimaryButton
 import com.erkantaylan.listenalong.core.designsystem.SecondaryButton
 import com.erkantaylan.listenalong.core.designsystem.TextInput
-import com.erkantaylan.listenalong.feature.downloads.formatBytes
-import com.erkantaylan.listenalong.app.AppActions
+import com.erkantaylan.listenalong.core.model.formatBytes
+import com.erkantaylan.listenalong.core.ui.AppActions
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -45,13 +45,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.erkantaylan.listenalong.AppGraph
 import com.erkantaylan.listenalong.app.AppInfo
 import com.erkantaylan.listenalong.BuildConfig
 import com.erkantaylan.listenalong.R
 import com.erkantaylan.listenalong.core.network.ApiException
 import com.erkantaylan.listenalong.core.network.ServerUrl
-import com.erkantaylan.listenalong.feature.auth.SignInUi
+import com.erkantaylan.listenalong.core.auth.SignInUi
 import com.erkantaylan.listenalong.core.download.DownloadSnapshot
 import com.erkantaylan.listenalong.core.data.SettingsStore
 import com.erkantaylan.listenalong.core.storage.MediaStoreAudio
@@ -59,68 +58,25 @@ import com.erkantaylan.listenalong.core.designsystem.Palette
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-/** One line of the connection check, good or bad. */
-private data class CheckLine(val ok: Boolean, val text: String)
-
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun SettingsScreen(graph: AppGraph, snapshot: DownloadSnapshot, actions: AppActions) {
-    val config by graph.settings.config.collectAsStateWithLifecycle()
-    val overridden by graph.settings.overridden.collectAsStateWithLifecycle()
-    val signIn by graph.auth.ui.collectAsStateWithLifecycle()
+fun SettingsScreen(viewModel: SettingsViewModel, actions: AppActions) {
+    val config by viewModel.config.collectAsStateWithLifecycle()
+    val overridden by viewModel.overridden.collectAsStateWithLifecycle()
+    val signIn by viewModel.signIn.collectAsStateWithLifecycle()
+    val snapshot by viewModel.storage.collectAsStateWithLifecycle()
+    val connection by viewModel.connection.collectAsStateWithLifecycle()
+    val serverNote by viewModel.serverNote.collectAsStateWithLifecycle()
+    val checking = connection.checking
+    val lines = connection.lines
 
     var url by rememberSaveable { mutableStateOf(ServerUrl.display(config.baseUrl)) }
-    var serverNote by remember { mutableStateOf<CheckLine?>(null) }
-    var checking by remember { mutableStateOf(false) }
-    var lines by remember { mutableStateOf<List<CheckLine>>(emptyList()) }
-    val scope = rememberCoroutineScope()
 
     // The config can change under us (the debug override): show what is in force.
     LaunchedEffect(config.baseUrl) { url = ServerUrl.display(config.baseUrl) }
-    LaunchedEffect(config.signedIn) { lines = emptyList() }
 
     fun saveServer() {
-        val normalized = ServerUrl.normalize(url)
-        if (normalized == null) {
-            serverNote = CheckLine(false, "That is not a usable address.")
-            return
-        }
-        url = ServerUrl.display(normalized)
-        val wasSignedIn = config.signedIn
-        val changed = graph.settings.saveServer(normalized)
-        serverNote = CheckLine(true, if (changed && wasSignedIn) "Saved. Sign in again on this server." else "Saved.")
-    }
-
-    fun testConnection() {
-        val client = graph.client()
-        checking = true
-        lines = emptyList()
-        scope.launch {
-            val result = mutableListOf<CheckLine>()
-            try {
-                val me = client.me()
-                val status = me.user?.status
-                result += CheckLine(status != "pending",
-                    "Signed in as ${me.name.ifBlank { "your account" }}" +
-                        if (status == "pending") " (waiting for approval)" else "")
-            } catch (c: CancellationException) {
-                throw c
-            } catch (t: Throwable) {
-                result += CheckLine(false,
-                    if (t is ApiException && t.sessionEnded) "The session has ended: sign in again"
-                    else "Account check failed: ${describe(t)}")
-            }
-            try {
-                val page = client.list(limit = 1)
-                result += CheckLine(true, "Library reachable · ${page.total} songs")
-            } catch (c: CancellationException) {
-                throw c
-            } catch (t: Throwable) {
-                result += CheckLine(false, "Library: ${describe(t)}")
-            }
-            lines = result
-            checking = false
-        }
+        viewModel.saveServer(url)?.let { url = it }
     }
 
     Column(
@@ -151,9 +107,9 @@ fun SettingsScreen(graph: AppGraph, snapshot: DownloadSnapshot, actions: AppActi
                     }
                     Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
-                        SecondaryButton(if (checking) "Testing…" else "Test connection", ::testConnection,
+                        SecondaryButton(if (checking) "Testing…" else "Test connection", viewModel::testConnection,
                                         enabled = !checking, tag = "test-connection")
-                        SecondaryButton("Sign out", graph.auth::signOut, outlined = true, tag = "sign-out")
+                        SecondaryButton("Sign out", viewModel::signOut, outlined = true, tag = "sign-out")
                     }
                     lines.forEach { line ->
                         Text(
@@ -177,7 +133,7 @@ fun SettingsScreen(graph: AppGraph, snapshot: DownloadSnapshot, actions: AppActi
                         when (signIn) {
                             SignInUi.InBrowser -> {
                                 PrimaryButton("Waiting for the browser…", {}, enabled = false, tag = "sign-in")
-                                SecondaryButton("Cancel", graph.auth::cancel, outlined = true, tag = "sign-in-cancel")
+                                SecondaryButton("Cancel", viewModel::cancelSignIn, outlined = true, tag = "sign-in-cancel")
                             }
                             SignInUi.Exchanging -> PrimaryButton("Signing in…", {}, enabled = false, tag = "sign-in")
                             is SignInUi.Idle -> PrimaryButton("Sign in", actions.signIn, icon = AppIcons.Lock, tag = "sign-in")
@@ -230,20 +186,10 @@ fun SettingsScreen(graph: AppGraph, snapshot: DownloadSnapshot, actions: AppActi
                     }
                 }
                 Box(Modifier.padding(top = 8.dp)) {
-                    SecondaryButton("Find songs already in the folder", {
-                        scope.launch {
-                            val found = graph.downloads.reclaim(force = true)
-                            actions.message(if (found == 0) "No new songs found in the folder" else "$found songs found in the folder")
-                        }
-                    }, tag = "reclaim")
+                    SecondaryButton("Find songs already in the folder", viewModel::findInFolder, tag = "reclaim")
                 }
                 Box(Modifier.padding(top = 8.dp)) {
-                    SecondaryButton("Forget files deleted elsewhere", {
-                        scope.launch {
-                            val gone = graph.downloads.reconcile()
-                            actions.message(if (gone == 0) "Everything is still there" else "$gone forgotten")
-                        }
-                    }, tag = "reconcile")
+                    SecondaryButton("Forget files deleted elsewhere", viewModel::forgetDeleted, tag = "reconcile")
                 }
             }
 
@@ -266,9 +212,4 @@ private fun Field(label: String, value: String) {
         Text(label, color = Palette.fg3, fontSize = 14.sp)
         Text(value, color = Palette.fg, fontSize = 14.sp)
     }
-}
-
-private fun describe(t: Throwable): String = when (t) {
-    is ApiException -> "${t.code} ${t.message}"
-    else -> t.message ?: t::class.simpleName ?: "failed"
 }

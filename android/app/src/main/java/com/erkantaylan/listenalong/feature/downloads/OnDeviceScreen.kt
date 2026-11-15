@@ -1,7 +1,8 @@
 package com.erkantaylan.listenalong.feature.downloads
 
-import com.erkantaylan.listenalong.feature.library.toSong
-import com.erkantaylan.listenalong.app.AppActions
+import com.erkantaylan.listenalong.core.model.formatBytes
+import com.erkantaylan.listenalong.core.domain.toSong
+import com.erkantaylan.listenalong.core.ui.AppActions
 import com.erkantaylan.listenalong.core.designsystem.AppIcons
 import com.erkantaylan.listenalong.core.designsystem.AppTopBar
 import com.erkantaylan.listenalong.core.designsystem.ConfirmDialog
@@ -27,6 +28,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,36 +51,24 @@ import com.erkantaylan.listenalong.core.storage.MediaStoreAudio
 import com.erkantaylan.listenalong.core.designsystem.Palette
 import kotlinx.coroutines.launch
 
-/** Downloaded songs, newest first is not useful for music: artist, then title. */
-internal fun sortedForDevice(songs: Collection<LocalSong>, query: String): List<LocalSong> {
-    val needle = query.trim().lowercase()
-    return songs
-        .filter {
-            needle.isEmpty() || it.title.lowercase().contains(needle) ||
-                it.artist.lowercase().contains(needle) || it.displayName.lowercase().contains(needle)
-        }
-        .sortedWith(compareBy<LocalSong>({ it.artist.lowercase() }, { it.title.lowercase() }))
-}
-
 @OptIn(ExperimentalComposeUiApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun OnDeviceScreen(
-    snapshot: DownloadSnapshot,
-    downloads: Downloads,
+    viewModel: OnDeviceViewModel,
     nowPlaying: NowPlaying,
     actions: AppActions,
     online: Boolean,
 ) {
-    var query by rememberSaveable { mutableStateOf("") }
-    var refreshing by remember { mutableStateOf(false) }
+    val state by viewModel.state.collectAsStateWithLifecycle()
     var deleting by remember { mutableStateOf<LocalSong?>(null) }
-    val scope = rememberCoroutineScope()
+    val snapshot = state.snapshot
+    val query = state.query
 
-    BackHandler(enabled = query.isNotEmpty()) { query = "" }
+    BackHandler(enabled = query.isNotEmpty()) { viewModel.onQueryChange("") }
 
-    val songs = remember(snapshot.downloaded, query) { sortedForDevice(snapshot.downloaded.values, query) }
-    val asSongs = remember(songs) { songs.map { it.toSong() } }
-    val totalBytes = snapshot.downloaded.values.sumOf { it.bytes }
+    val songs = state.songs
+    val asSongs = remember(songs) { state.asSongs }
+    val totalBytes = state.totalBytes
 
     Column(Modifier.fillMaxSize().background(Palette.page).semantics { testTagsAsResourceId = true }) {
         AppTopBar(
@@ -90,7 +80,7 @@ fun OnDeviceScreen(
 
         TextInput(
             value = query,
-            onValueChange = { query = it },
+            onValueChange = viewModel::onQueryChange,
             placeholder = "Filter downloaded songs",
             tag = "filter",
             leadingIcon = AppIcons.Search,
@@ -99,29 +89,20 @@ fun OnDeviceScreen(
 
         MusicAccessPrompt(Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp))
         MusicAccessOffNotice(
-            snapshot.downloaded.values.count { it.reclaimed },
+            state.reclaimedCount,
             Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp),
         )
 
         PullToRefreshBox(
-            isRefreshing = refreshing,
-            onRefresh = {
-                refreshing = true
-                scope.launch {
-                    val gone = downloads.reconcile()
-                    val found = downloads.reclaim(force = true)
-                    refreshing = false
-                    if (gone > 0) actions.message("$gone deleted outside the app — forgotten")
-                    if (found > 0) actions.message("$found songs found in the folder")
-                }
-            },
+            isRefreshing = state.refreshing,
+            onRefresh = viewModel::refresh,
             modifier = Modifier.fillMaxSize(),
         ) {
             LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
                 if (snapshot.pending.isNotEmpty()) {
                     item(key = "downloading-header") {
                         SectionHeading("Downloading — ${snapshot.pending.size}") {
-                            DangerButton("Cancel all", { downloads.cancelAll() }, tag = "cancel-all", compact = true)
+                            DangerButton("Cancel all", viewModel::cancelAll, tag = "cancel-all", compact = true)
                         }
                     }
                     itemsIndexed(snapshot.pending, key = { _, s -> "q-${s.id}" }) { i, song ->
@@ -131,7 +112,7 @@ fun OnDeviceScreen(
                             artist = song.artist, durationSec = song.durationSec,
                             download = snapshot.stateOf(song.id), current = false,
                             onClick = null,
-                            onCancelDownload = { downloads.cancel(song.id) },
+                            onCancelDownload = { viewModel.cancel(song.id) },
                         )
                     }
                     item(key = "saved-header") { SectionHeading("Saved — ${snapshot.downloaded.size}") }
@@ -200,18 +181,9 @@ fun OnDeviceScreen(
             destructive = true,
             onConfirm = {
                 deleting = null
-                scope.launch {
-                    if (downloads.delete(song)) actions.message("Deleted") else actions.deleteWithConsent(song)
-                }
+                viewModel.delete(song, actions.deleteWithConsent)
             },
             onDismiss = { deleting = null },
         )
     }
-}
-
-fun formatBytes(bytes: Long): String = when {
-    bytes < 1024 -> "$bytes B"
-    bytes < 1024 * 1024 -> String.format(java.util.Locale.US, "%.0f KB", bytes / 1024.0)
-    bytes < 1024L * 1024 * 1024 -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1024.0 / 1024.0)
-    else -> String.format(java.util.Locale.US, "%.2f GB", bytes / 1024.0 / 1024.0 / 1024.0)
 }

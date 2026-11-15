@@ -374,22 +374,22 @@ of a fresh database and of a migrated old one.
   Both are open to pending accounts too (`policyFor`: `member`).
 - Android app (`android/`, see its README): Kotlin + Compose + Media3, a
   separate client of the HTTP API (no socket, so no live updates). It signs in
-  through the central login like the web (`auth/`: Custom Tab, PKCE, the
+  through the central login like the web (`core/auth/`: Custom Tab, PKCE, the
   server exchanges the code; `backend/src/auth/mobileAuth.ts`, CENTRAL-LOGIN.md "The
   Android app") and holds only a `lam_` session token (encrypted), sent as
   `Authorization: Bearer`. Only a 401 with `code: SESSION_ENDED` signs it out
   (`SessionEndedInterceptor`, `ApiException.sessionEnded`): a bare 401, offline
   or a 5xx never does. It has no CLI-token UI any more; an old saved
   `la_` token is deleted at start. Library, playlists (edit mode), broken-song
-  reports, background playback (`player/PlaybackService`, a Media3
+  reports, background playback (`core/player/PlaybackService`, a Media3
   `MediaLibraryService`: previous/next only, never seek ±; Android Auto browses
-  `player/CarLibrary` over the `player/CarTree` ids; MediaItems never set a mime
+  `core/player/CarLibrary` over the `core/player/CarTree` ids; MediaItems never set a mime
   type, ExoPlayer sniffs m4a / Ogg Opus), downloads as plain
   files in `Music/ListenAlong` (the server's bytes, extension from the
-  Content-Type, `storage/FileNames`: Opus is saved as `.ogg`;
+  Content-Type, `core/storage/FileNames`: Opus is saved as `.ogg`;
   MediaStore + WorkManager; after a reinstall
-  `storage/FileMatcher` recognises them by name + duration, with the optional
-  music access permission). Offline (`net/Connectivity`: a VALIDATED network
+  `core/storage/FileMatcher` recognises them by name + duration, with the optional
+  music access permission). Offline (`core/network/Connectivity`: a VALIDATED network
   and no failed stream in the last minute): downloaded songs play, streamed
   entries are skipped (`PlayQueue.nextPlayable`); saved playlists and reports
   are read-only. `./dev.sh [--stub]`
@@ -405,7 +405,7 @@ of a fresh database and of a migrated old one.
   transition, `com.etaylan.listen:/oauth2redirect` (older apps, debug builds,
   other servers; removing it from the IdP client ends it, with
   `MOBILE_CUSTOM_SCHEME=off` here; then debug builds cannot sign in against the
-  production IdP). `auth/AuthFlow.redirectFor` picks one; CENTRAL-LOGIN.md "The redirect".
+  production IdP). `core/auth/AuthFlow.redirectFor` picks one; CENTRAL-LOGIN.md "The redirect".
 
 ## Playlists (internally "lobbies")
 

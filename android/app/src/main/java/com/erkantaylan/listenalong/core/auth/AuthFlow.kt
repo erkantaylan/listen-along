@@ -1,4 +1,4 @@
-package com.erkantaylan.listenalong.feature.auth
+package com.erkantaylan.listenalong.core.auth
 
 import com.erkantaylan.listenalong.BuildConfig
 import kotlinx.serialization.Serializable

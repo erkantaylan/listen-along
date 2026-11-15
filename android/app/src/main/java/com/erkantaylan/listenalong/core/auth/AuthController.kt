@@ -1,8 +1,9 @@
-package com.erkantaylan.listenalong.feature.auth
+package com.erkantaylan.listenalong.core.auth
 
 import com.erkantaylan.listenalong.core.network.SessionGrant
 import com.erkantaylan.listenalong.core.network.SignInException
 import com.erkantaylan.listenalong.core.data.ServerConfig
+import com.erkantaylan.listenalong.core.data.SessionHolder
 import com.erkantaylan.listenalong.core.storage.TextStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -17,15 +18,6 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.io.IOException
 import java.security.SecureRandom
-
-/** Where the session lives (SettingsStore; a fake in tests). */
-interface SessionHolder {
-    /** The server in force and its session, if any. */
-    val current: ServerConfig
-    fun signIn(token: String, userName: String?)
-    /** Forgets [token] if it is still the session in force; true when it was. */
-    fun endSession(token: String): Boolean
-}
 
 /** The server calls of a sign-in (api/SignInClient; a fake in tests). */
 interface SignInApi {

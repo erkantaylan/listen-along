@@ -56,18 +56,18 @@ internal val apiJson = Json {
  * has to know whether the server wants one.
  */
 class LibraryClient(
-    val baseUrl: HttpUrl,
+    override val baseUrl: HttpUrl,
     private val token: String?,
     private val http: OkHttpClient = defaultHttpClient,
-) {
+) : ListenAlongApi {
 
-    suspend fun list(
-        query: String = "",
-        limit: Int = PAGE_SIZE,
-        offset: Int = 0,
-        sort: SortOrder = SortOrder.RECENT,
+    override suspend fun list(
+        query: String,
+        limit: Int,
+        offset: Int,
+        sort: SortOrder,
         /** Only songs someone marked as broken (`?reported=1`). */
-        reported: Boolean = false,
+        reported: Boolean,
     ): LibraryPage = withContext(Dispatchers.IO) {
         val url = endpoint("api/library").newBuilder()
             .apply { if (query.isNotBlank()) addQueryParameter("q", query.trim()) }
@@ -84,11 +84,11 @@ class LibraryClient(
      * all shown", which needs the whole result set rather than what has been
      * scrolled into view so far.
      */
-    suspend fun listAll(
-        query: String = "",
-        sort: SortOrder = SortOrder.RECENT,
-        pageSize: Int = MAX_LIMIT,
-        reported: Boolean = false,
+    override suspend fun listAll(
+        query: String,
+        sort: SortOrder,
+        pageSize: Int,
+        reported: Boolean,
     ): List<Song> {
         val all = ArrayList<Song>()
         while (true) {
@@ -99,7 +99,7 @@ class LibraryClient(
     }
 
     /** Who is signed in. Fails with a 401 [ApiException] when the session has ended. */
-    suspend fun me(): Me = withContext(Dispatchers.IO) {
+    override suspend fun me(): Me = withContext(Dispatchers.IO) {
         getJson(endpoint("api/me")) { apiJson.decodeFromString<Me>(it) }
     }
 
@@ -108,13 +108,13 @@ class LibraryClient(
     // reporting again updates the reason. Only your own report can be withdrawn.
 
     /** Marks [songId] as broken, or updates the reason of your report. [reason] may be blank. */
-    suspend fun report(songId: String, reason: String?): ReportResult = withContext(Dispatchers.IO) {
+    override suspend fun report(songId: String, reason: String?): ReportResult = withContext(Dispatchers.IO) {
         val body = buildJsonObject { reason?.trim()?.takeIf { it.isNotEmpty() }?.let { put("reason", it) } }
         sendJson("POST", reportUrl(songId), body) { apiJson.decodeFromString<ReportResult>(it) }
     }
 
     /** Withdraws your own report. A 404 [ApiException] when you had none. */
-    suspend fun unmark(songId: String) = withContext(Dispatchers.IO) {
+    override suspend fun unmark(songId: String) = withContext(Dispatchers.IO) {
         sendJson("DELETE", reportUrl(songId), null) { }
     }
 
@@ -126,16 +126,16 @@ class LibraryClient(
     // caller cannot see answers 404 (never 403); errors are { error, code }.
 
     /** Every public playlist plus the signed-in user's private ones. */
-    suspend fun playlists(): List<Playlist> = withContext(Dispatchers.IO) {
+    override suspend fun playlists(): List<Playlist> = withContext(Dispatchers.IO) {
         getJson(endpoint("api/playlists")) { apiJson.decodeFromString<PlaylistList>(it).playlists }
     }
 
     /** One playlist and its songs, in play order. */
-    suspend fun playlistSongs(id: String): PlaylistSongs = withContext(Dispatchers.IO) {
+    override suspend fun playlistSongs(id: String): PlaylistSongs = withContext(Dispatchers.IO) {
         getJson(playlistUrl(id, "songs")) { apiJson.decodeFromString<PlaylistSongs>(it) }
     }
 
-    suspend fun createPlaylist(name: String, visibility: Visibility): Playlist = withContext(Dispatchers.IO) {
+    override suspend fun createPlaylist(name: String, visibility: Visibility): Playlist = withContext(Dispatchers.IO) {
         val body = buildJsonObject {
             put("name", name.trim())
             put("visibility", visibility.param)
@@ -144,7 +144,7 @@ class LibraryClient(
     }
 
     /** Rename and/or change visibility (owner only). */
-    suspend fun updatePlaylist(id: String, name: String? = null, visibility: Visibility? = null): Playlist =
+    override suspend fun updatePlaylist(id: String, name: String?, visibility: Visibility?): Playlist =
         withContext(Dispatchers.IO) {
             val body = buildJsonObject {
                 if (name != null) put("name", name.trim())
@@ -153,23 +153,23 @@ class LibraryClient(
             sendJson("PATCH", playlistUrl(id), body) { apiJson.decodeFromString<Playlist>(it) }
         }
 
-    suspend fun deletePlaylist(id: String) = withContext(Dispatchers.IO) {
+    override suspend fun deletePlaylist(id: String) = withContext(Dispatchers.IO) {
         sendJson("DELETE", playlistUrl(id), null) { }
     }
 
     /** Adds library songs by id. Songs already in the playlist are skipped by the server. */
-    suspend fun addToPlaylist(id: String, libraryIds: List<String>): AddSongsResult = withContext(Dispatchers.IO) {
+    override suspend fun addToPlaylist(id: String, libraryIds: List<String>): AddSongsResult = withContext(Dispatchers.IO) {
         val body = JsonObject(mapOf("songs" to JsonArray(libraryIds.map(::JsonPrimitive))))
         sendJson("POST", playlistUrl(id, "songs"), body) { apiJson.decodeFromString<AddSongsResult>(it) }
     }
 
     /** Removes one entry (by its entry id) from a playlist. */
-    suspend fun removeFromPlaylist(id: String, entryId: String) = withContext(Dispatchers.IO) {
+    override suspend fun removeFromPlaylist(id: String, entryId: String) = withContext(Dispatchers.IO) {
         sendJson("DELETE", playlistUrl(id, "songs", entryId), null) { }
     }
 
     /** Moves an entry to [position] (1-based) and returns the new order. */
-    suspend fun moveInPlaylist(id: String, entryId: String, position: Int): List<PlaylistEntry> =
+    override suspend fun moveInPlaylist(id: String, entryId: String, position: Int): List<PlaylistEntry> =
         withContext(Dispatchers.IO) {
             val body = buildJsonObject { put("position", position) }
             sendJson("POST", playlistUrl(id, "songs", entryId, "move"), body) {
@@ -184,7 +184,7 @@ class LibraryClient(
             .build()
 
     /** The URL [fileRequest] fetches; what the player streams. */
-    fun fileUrl(songId: String): HttpUrl =
+    override fun fileUrl(songId: String): HttpUrl =
         endpoint("api/library").newBuilder().addPathSegment(songId).addPathSegment("file").build()
 
     fun fileRequest(songId: String): Request =
@@ -199,9 +199,9 @@ class LibraryClient(
      * main thread. When [job] is cancelled the call is cancelled too, so a
      * read stuck on a stalled connection gives up at once.
      */
-    fun <T> streamFile(
+    override fun <T> streamFile(
         songId: String,
-        job: Job? = null,
+        job: Job?,
         block: (contentType: String?, contentLength: Long, body: InputStream) -> T,
     ): T {
         val call = http.newCall(fileRequest(songId))

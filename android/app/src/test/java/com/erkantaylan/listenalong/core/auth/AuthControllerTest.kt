@@ -1,5 +1,6 @@
-package com.erkantaylan.listenalong.feature.auth
+package com.erkantaylan.listenalong.core.auth
 
+import com.erkantaylan.listenalong.core.data.SessionHolder
 import com.erkantaylan.listenalong.core.network.SessionGrant
 import com.erkantaylan.listenalong.core.network.SessionUser
 import com.erkantaylan.listenalong.core.network.SignInException

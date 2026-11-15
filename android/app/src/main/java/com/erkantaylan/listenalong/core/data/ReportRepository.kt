@@ -1,6 +1,7 @@
 package com.erkantaylan.listenalong.core.data
 
-import com.erkantaylan.listenalong.core.network.LibraryClient
+import com.erkantaylan.listenalong.core.network.ApiProvider
+import com.erkantaylan.listenalong.core.network.ListenAlongApi
 import com.erkantaylan.listenalong.core.model.Song
 import com.erkantaylan.listenalong.core.model.SongReport
 import com.erkantaylan.listenalong.core.storage.TextStore
@@ -27,8 +28,8 @@ import java.util.Locale
  * answers to marking / unmarking. The last copy is saved per server, so the
  * icons still show offline; marking needs a connection (the screens disable it).
  */
-class ReportStore(
-    private val clientProvider: () -> LibraryClient?,
+class ReportRepository(
+    private val clientProvider: ApiProvider,
     private val store: TextStore,
 ) {
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
@@ -105,7 +106,7 @@ class ReportStore(
         save(client)
     }
 
-    private fun save(client: LibraryClient) {
+    private fun save(client: ListenAlongApi) {
         runCatching { store.write(json.encodeToString(Record(client.baseUrl.toString(), _reports.value))) }
     }
 }

@@ -23,12 +23,16 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import com.erkantaylan.listenalong.ListenAlongApp
-import com.erkantaylan.listenalong.MainActivity
+import com.erkantaylan.listenalong.core.ui.AppEntry
 import com.erkantaylan.listenalong.R
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/** The Application gives the worker (an Android entry point) the process's download machinery. */
+interface DownloadsHost {
+    val downloads: Downloads
+}
 
 /**
  * Runs the download queue in the background, as a foreground service with a
@@ -39,7 +43,7 @@ import kotlinx.coroutines.launch
  */
 open class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
-    private val downloads get() = (applicationContext as ListenAlongApp).graph.downloads
+    private val downloads get() = (applicationContext as DownloadsHost).downloads
 
     override suspend fun doWork(): Result {
         if (downloads.queue.pending.value.isEmpty()) return Result.success()
@@ -107,7 +111,7 @@ object DownloadScheduler {
 /** The notification's "Cancel all" button. */
 class CancelDownloadsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        (context.applicationContext as ListenAlongApp).graph.downloads.cancelAll()
+        (context.applicationContext as DownloadsHost).downloads.cancelAll()
     }
 }
 
@@ -190,7 +194,7 @@ object DownloadNotifications {
 
     private fun openApp(context: Context): PendingIntent = PendingIntent.getActivity(
         context, 0,
-        Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        AppEntry.intent(context),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
     )
 }

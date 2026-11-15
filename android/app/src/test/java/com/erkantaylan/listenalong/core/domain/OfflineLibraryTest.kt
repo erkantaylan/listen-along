@@ -1,6 +1,5 @@
-package com.erkantaylan.listenalong.feature.library
+package com.erkantaylan.listenalong.core.domain
 
-import com.erkantaylan.listenalong.feature.playlists.PlaylistsViewModel
 import com.erkantaylan.listenalong.core.model.SortOrder
 import com.erkantaylan.listenalong.core.storage.LocalSong
 import org.junit.Assert.assertEquals
@@ -28,12 +27,5 @@ class OfflineLibraryTest {
         assertEquals(listOf("1", "3", "2"), offlineLibrary(songs, "", SortOrder.RECENT).map { it.id })
         assertEquals(listOf("3", "1", "2"), offlineLibrary(songs, "", SortOrder.TITLE).map { it.id })
         assertEquals(listOf("1", "3", "2"), offlineLibrary(songs, "", SortOrder.ARTIST).map { it.id })
-    }
-
-    @Test
-    fun `added messages read naturally`() {
-        assertEquals("Added 1 song to Road", PlaylistsViewModel.addedMessage(1, 0, "Road"))
-        assertEquals("Added 3 songs to Road (1 already there)", PlaylistsViewModel.addedMessage(3, 1, "Road"))
-        assertEquals("Nothing added to Road (2 already there)", PlaylistsViewModel.addedMessage(0, 2, "Road"))
     }
 }

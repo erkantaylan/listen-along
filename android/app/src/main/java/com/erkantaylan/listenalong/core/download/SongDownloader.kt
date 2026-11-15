@@ -1,6 +1,7 @@
 package com.erkantaylan.listenalong.core.download
 
-import com.erkantaylan.listenalong.core.network.LibraryClient
+import com.erkantaylan.listenalong.core.network.ApiProvider
+import com.erkantaylan.listenalong.core.network.ListenAlongApi
 import com.erkantaylan.listenalong.core.storage.AudioFormat
 import com.erkantaylan.listenalong.core.storage.AudioSink
 import com.erkantaylan.listenalong.core.storage.FileNames
@@ -22,7 +23,7 @@ import kotlin.coroutines.coroutineContext
 class SongDownloader(private val sink: AudioSink) {
 
     suspend fun download(
-        client: LibraryClient,
+        client: ListenAlongApi,
         song: QueuedSong,
         onProgress: (bytesRead: Long, total: Long) -> Unit = { _, _ -> },
         now: () -> Long = System::currentTimeMillis,

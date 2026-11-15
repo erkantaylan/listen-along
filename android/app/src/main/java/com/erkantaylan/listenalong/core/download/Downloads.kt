@@ -1,7 +1,8 @@
 package com.erkantaylan.listenalong.core.download
 
 import com.erkantaylan.listenalong.core.network.ApiException
-import com.erkantaylan.listenalong.core.network.LibraryClient
+import com.erkantaylan.listenalong.core.network.ApiProvider
+import com.erkantaylan.listenalong.core.network.ListenAlongApi
 import com.erkantaylan.listenalong.core.model.Song
 import com.erkantaylan.listenalong.core.storage.AudioFormat
 import com.erkantaylan.listenalong.core.storage.AudioSink
@@ -9,6 +10,7 @@ import com.erkantaylan.listenalong.core.storage.DownloadIndex
 import com.erkantaylan.listenalong.core.storage.FileMatcher
 import com.erkantaylan.listenalong.core.storage.LocalSong
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
@@ -46,12 +48,14 @@ class Downloads(
     val index: DownloadIndex,
     private val sink: AudioSink,
     /** The client for the server currently configured, or null when there is none. */
-    private val clientProvider: () -> LibraryClient?,
+    private val clientProvider: ApiProvider,
     /** Makes sure a worker is (or will be) running. */
     private val kick: () -> Unit,
     private val concurrency: Int = DEFAULT_CONCURRENCY,
     private val retryDelaysMs: List<Long> = listOf(2_000, 6_000),
     private val now: () -> Long = System::currentTimeMillis,
+    /** Where file and MediaStore work runs (tests pass their own dispatcher). */
+    private val io: CoroutineDispatcher = Dispatchers.IO,
 ) {
 
     private val downloader = SongDownloader(sink)
@@ -91,7 +95,7 @@ class Downloads(
     }
 
     /** Forgets songs whose files were deleted outside the app. Returns how many. */
-    suspend fun reconcile(): Int = withContext(Dispatchers.IO) {
+    suspend fun reconcile(): Int = withContext(io) {
         index.reconcile { !isGone(it) }.size
     }
 
@@ -106,7 +110,7 @@ class Downloads(
      * [force] compares them again. A failure leaves everything as it was.
      * Returns how many songs came back.
      */
-    suspend fun reclaim(force: Boolean = false): Int = withContext(Dispatchers.IO) {
+    suspend fun reclaim(force: Boolean = false): Int = withContext(io) {
         reclaimLock.withLock {
             if (force) unmatched.clear()
             val known = index.entries.value.values.mapTo(HashSet()) { it.uri }
@@ -151,7 +155,7 @@ class Downloads(
      * install's file needs the user's consent, and forgetting it instead would
      * only have [reclaim] find it again.
      */
-    suspend fun delete(local: LocalSong): Boolean = withContext(Dispatchers.IO) {
+    suspend fun delete(local: LocalSong): Boolean = withContext(io) {
         val removed = runCatching { sink.delete(local.uri) }.getOrDefault(false)
         val gone = removed || runCatching { isGone(local) }.getOrDefault(false)
         if (gone) index.remove(local.songId)
@@ -167,7 +171,7 @@ class Downloads(
         // One drain at a time per process (WorkManager's unique work), and
         // nothing is being written yet: anything pending now is an orphan
         // from a process that died mid-download.
-        if (jobs.isEmpty()) withContext(Dispatchers.IO) { sink.cleanupAbandoned() }
+        if (jobs.isEmpty()) withContext(io) { sink.cleanupAbandoned() }
 
         // A queued song whose file is already in the folder is not fetched
         // again: runOne finds it in the index.
@@ -203,7 +207,7 @@ class Downloads(
         }
     }
 
-    private suspend fun runOne(client: LibraryClient, song: QueuedSong, stats: DrainStats) {
+    private suspend fun runOne(client: ListenAlongApi, song: QueuedSong, stats: DrainStats) {
         val id = song.id
         try {
             if (index.contains(id)) {

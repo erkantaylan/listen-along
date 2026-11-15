@@ -13,7 +13,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import com.erkantaylan.listenalong.feature.auth.SignInApi
+import com.erkantaylan.listenalong.core.auth.SignInApi
 import java.io.IOException
 
 /** `POST /auth/mobile/exchange` → the app's session (backend/src/mobileAuth.js). */

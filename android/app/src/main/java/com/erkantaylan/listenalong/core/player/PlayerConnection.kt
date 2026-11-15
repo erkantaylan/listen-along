@@ -40,6 +40,19 @@ data class NowPlaying(
     val isEmpty: Boolean get() = songId == null
 }
 
+/** The player as the screens see it: what is playing, and the transport controls. */
+interface PlayerControls {
+    val state: StateFlow<NowPlaying>
+    fun togglePlay()
+    fun next()
+    fun previous()
+    fun seekTo(positionMs: Long)
+    fun toggleShuffle()
+    fun cycleRepeat()
+    /** Current position; polled by the screens while they show a seek bar. */
+    fun positionMs(): Long
+}
+
 /**
  * The app's handle on [PlaybackService]: a MediaController, plus the state
  * the screens draw from. One per process (it lives in AppGraph), connected on
@@ -47,14 +60,14 @@ data class NowPlaying(
  * it is.
  */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-class PlayerConnection(private val context: Context) {
+class PlayerConnection(private val context: Context) : PlayerControls {
 
     private var future: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
     private val pending = ArrayList<(MediaController) -> Unit>()
 
     private val _state = MutableStateFlow(NowPlaying())
-    val state: StateFlow<NowPlaying> = _state.asStateFlow()
+    override val state: StateFlow<NowPlaying> = _state.asStateFlow()
 
     private val _errors = MutableSharedFlow<String>(extraBufferCapacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     /** One message per song that failed to play (the service skips it). */
@@ -114,7 +127,7 @@ class PlayerConnection(private val context: Context) {
         }
     }
 
-    fun togglePlay() = withController { c ->
+    override fun togglePlay() = withController { c ->
         if (c.isPlaying) c.pause() else {
             if (c.playbackState == Player.STATE_IDLE) c.prepare()
             if (c.playbackState == Player.STATE_ENDED) c.seekTo(c.currentMediaItemIndex, 0)
@@ -122,17 +135,17 @@ class PlayerConnection(private val context: Context) {
         }
     }
 
-    fun next() = withController { it.seekToNext() }
+    override fun next() = withController { it.seekToNext() }
 
     /** Back to the start of the song, or to the previous one in its first seconds. */
-    fun previous() = withController { it.seekToPrevious() }
+    override fun previous() = withController { it.seekToPrevious() }
 
-    fun seekTo(positionMs: Long) = withController { it.seekTo(positionMs) }
+    override fun seekTo(positionMs: Long) = withController { it.seekTo(positionMs) }
 
-    fun toggleShuffle() = withController { it.shuffleModeEnabled = !it.shuffleModeEnabled }
+    override fun toggleShuffle() = withController { it.shuffleModeEnabled = !it.shuffleModeEnabled }
 
     /** Off → all → one → off, like the web's repeat button. */
-    fun cycleRepeat() = withController {
+    override fun cycleRepeat() = withController {
         it.repeatMode = when (it.repeatMode) {
             Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
             Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
@@ -146,7 +159,7 @@ class PlayerConnection(private val context: Context) {
     }
 
     /** Current position; polled by the screens while they show a seek bar. */
-    fun positionMs(): Long = controller?.currentPosition ?: 0L
+    override fun positionMs(): Long = controller?.currentPosition ?: 0L
 
     fun bufferedMs(): Long = controller?.bufferedPosition ?: 0L
 

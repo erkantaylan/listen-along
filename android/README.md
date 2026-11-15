@@ -70,12 +70,12 @@ The app signs in through the owner's central login the way the web does
 (server side: `backend/src/mobileAuth.js`, CENTRAL-LOGIN.md "The Android
 app"). It never asks for a token and never holds the central login's tokens.
 
-- **Sign in** makes a PKCE verifier, `state` and `nonce` (`auth/AuthFlow`;
+- **Sign in** makes a PKCE verifier, `state` and `nonce` (`core/auth/AuthFlow`;
   kept encrypted until the browser comes back, so it survives the app being
   killed meanwhile) and opens `<server>/auth/mobile/start?…&redirect_uri=…`
   in a Custom Tab. The server sends it on to the central login, which sends
   the browser back to that redirect with `code` and `state`; Android hands it
-  to `auth/AuthRedirectActivity`. Both redirects are handled alike; one with a
+  to `feature/auth/AuthRedirectActivity`. Both redirects are handled alike; one with a
   `state` that is not the app's own is refused. (A server from before App
   Links ignores `redirect_uri` and answers on the scheme; that still works.)
 - **Which redirect** (`AuthFlow.redirectFor`, the one place, unit tested):
@@ -115,10 +115,10 @@ app"). It never asks for a token and never holds the central login's tokens.
   `/auth/mobile/exchange`; the server exchanges the code, checks the
   id_token, finds the account by the same rules as the web, and answers with
   the app's own session token (`lam_…`). It is stored encrypted
-  (EncryptedSharedPreferences, `settings/SettingsStore`) for the server it
+  (EncryptedSharedPreferences, `core/data/SettingsStore`) for the server it
   was made on (another address drops it) and sent as `Authorization: Bearer`.
 - **Signed out** happens only on a **401 with `code: SESSION_ENDED`** from
-  the server (`auth/SessionEndedInterceptor` on every API and streaming call:
+  the server (`core/network/SessionEndedInterceptor` on every API and streaming call:
   the session ended, expired after 30 days, was signed out, or the account was
   disabled centrally or rejected in `/dashboard`). Then the app shows **Sign
   in** again and says why. Offline, a timeout, a 5xx, a 403, a bare 401 or a
@@ -126,8 +126,8 @@ app"). It never asks for a token and never holds the central login's tokens.
 - **Sign out** (Settings → Account) forgets the session at once and tells
   the server when it can be reached. It does not sign you out of the central
   login in the browser, so signing in again is one tap.
-- The state machine (`auth/AuthController`) and the protocol (`AuthFlow`,
-  `api/SignInClient`, the interceptor) are unit tested.
+- The state machine (`core/auth/AuthController`) and the protocol (`AuthFlow`,
+  `core/network/SignInClient`, the interceptor) are unit tested.
 - **Upgrading** from a version that used an API token: the saved token is
   deleted at the first start (it still works for the CLI until you revoke it
   on your profile page: CLI tokens); downloads, saved playlists and settings
@@ -137,9 +137,9 @@ app"). It never asks for a token and never holds the central login's tokens.
 
 ## Player
 
-`player/PlaybackService` is a Media3 `MediaLibraryService` around one
+`core/player/PlaybackService` is a Media3 `MediaLibraryService` around one
 ExoPlayer; the UI only talks to it through a `MediaController`
-(`player/PlayerConnection`, one per process in `AppGraph`), Android Auto
+(`core/player/PlayerConnection`, one per process in `AppContainer`), Android Auto
 through the same session (see [Android Auto](#android-auto)).
 
 - Plays in the background with the media notification, lock-screen and
@@ -151,7 +151,7 @@ through the same session (see [Android Auto](#android-auto)).
   "−15 s / +15 s" where previous and next belong.
 - Audio focus is handled by ExoPlayer (calls and other players pause it);
   unplugging headphones pauses (`setHandleAudioBecomingNoisy`).
-- Each queued song is resolved once (`player/PlayQueue`): a downloaded song
+- Each queued song is resolved once (`core/player/PlayQueue`): a downloaded song
   plays from its MediaStore file, anything else streams from
   `/api/library/:id/file` through an OkHttp client whose interceptor adds the
   session (Bearer), only for the configured server. Range requests make seeking
@@ -167,7 +167,7 @@ through the same session (see [Android Auto](#android-auto)).
 
 ## Offline
 
-- "Offline" (`net/Connectivity`) means no **validated** network (Android
+- "Offline" (`core/network/Connectivity`) means no **validated** network (Android
   has not reached the internet through it: a car hotspot with no uplink, a
   captive portal, mobile data with no signal all count), or a stream failed
   in the last minute because the server could not be reached. It ends early
@@ -184,12 +184,12 @@ through the same session (see [Android Auto](#android-auto)).
 - **Library** falls back to the downloaded songs (searched and sorted
   locally) with an "Offline" notice, and reloads when the connection returns.
 - **Playlists** keeps the last list and the last song list of every playlist
-  you opened (`playlists/PlaylistCache`, JSON files under the app's files
+  you opened (`core/data/PlaylistCache`, JSON files under the app's files
   dir, per server). Offline, or when the server answers 5xx, those are shown
   read-only with "Offline — saved copy from …"; editing actions are disabled.
   A 4xx is not hidden behind the cache: an ended session is shown, and a
   playlist that answers 404 is forgotten.
-- **Broken songs**: the list of reported songs (`reports/ReportStore`) is
+- **Broken songs**: the list of reported songs (`core/data/ReportRepository`) is
   saved per server, so the warning icons and the Broken filter (over the
   downloaded songs) still work offline. Marking, editing and unmarking need
   the server: offline those menu entries are **disabled** ("Needs a
@@ -217,7 +217,7 @@ URI. That is how the app knows what is downloaded and avoids duplicates.
 The index does not survive a reinstall or a data clear, and uninstalling also
 takes away the app's ownership of its files. So when the folder holds a file
 the index does not know, the app compares it with the server's library
-(`storage/FileMatcher`, at start, on resume and before downloads): the file
+(`core/storage/FileMatcher`, at start, on resume and before downloads): the file
 name rebuilt from the song's artist and title (any audio extension the app knows,
 `.ogg` and a copied-in `.opus` included), and the duration within 3
 seconds. Anything that fits more than one way stays unmatched.
@@ -245,7 +245,7 @@ The app is an Android Auto media app: `PlaybackService` is a
 `MediaLibraryService`, the manifest declares
 `com.google.android.gms.car.application` (`res/xml/automotive_app_desc.xml`,
 `<uses name="media"/>`) and the `android.media.browse.MediaBrowserService`
-action. `player/CarLibrary` is the session callback, `player/CarTree` the
+action. `core/player/CarLibrary` is the session callback, `core/player/CarTree` the
 media ids (pure, tested). In the car:
 
 - **Playlists** → a playlist → *Shuffle*, then its songs.
@@ -393,31 +393,78 @@ Compose test tags are exposed as resource ids (`tab:playlists`,
 `song:<id>`, `playlist:<id>`, `mini-player`, `player:toggle`, …), so
 `uiautomator dump` can find and tap them from scripts.
 
-## Layout
+## Architecture
+
+One Gradle module (`:app`), packaged by feature, following Android's
+recommended app architecture: a UI layer (Compose screens, one ViewModel
+per screen exposing immutable state as `StateFlow`, events going up as
+function calls), a data layer (repositories over the API, the saved copies
+and the download store) and a thin domain layer for rules several screens
+share.
 
 ```
 app/src/main/java/com/erkantaylan/listenalong/
-├── api/         LibraryClient (OkHttp): library, /api/me, playlists; models;
-│                SignInClient (exchange, sign-out)
-├── auth/        AuthFlow (PKCE, redirect), AuthController (the sign-in state
-│                machine), SessionEndedInterceptor, AuthRedirectActivity
-├── settings/    server URL (default music.etaylan.com) + encrypted session
-├── playlists/   PlaylistRepository + PlaylistCache (offline copies),
-│                PlaylistEdits (edit mode: drag reorder, remove + Undo)
-├── reports/     ReportStore (broken-song reports, saved per server), ReportReasons
-├── player/      PlaybackService (Media3 MediaLibraryService), PlayerConnection,
-│                PlayQueue, MediaItems, CarLibrary + CarTree (Android Auto)
-├── net/         Connectivity (validated network + server reachability)
-├── storage/     MediaStore sink, filenames, the song-id → URI index
-├── download/    queue, state, the drain loop, WorkManager worker + notification
-├── open/        hand-off to an external player
-└── ui/          Library, Playlists, On device, Settings, player bars, theme
+├── MainActivity, ListenAlongApp   the activity (intents, system prompts) and the Application
+├── app/           AppContainer (manual DI), AppViewModels (the factories), AppUi (NavHost
+│                  + shell), Routes (type-safe), AppViewModel (shell state, report dialogs)
+├── feature/
+│   ├── library/   LibraryScreen + LibraryViewModel
+│   ├── playlists/ PlaylistsScreen/ViewModel (list), PlaylistScreen/ViewModel (one
+│   │              playlist, edit mode: PlaylistEdits), AddToPlaylist, dialogs
+│   ├── downloads/ OnDeviceScreen + OnDeviceViewModel
+│   ├── player/    MiniPlayer, FullPlayer (read core/player's PlayerControls)
+│   ├── settings/  SettingsScreen + SettingsViewModel
+│   ├── reports/   the "Mark as broken" dialogs
+│   └── auth/      AuthRedirectActivity (the sign-in redirect)
+└── core/
+    ├── model/     Song, Playlist, PlaylistEntry, … (the server's JSON), formatting
+    ├── network/   ListenAlongApi + LibraryClient (every path and field name on the wire),
+    │              SignInClient, SessionEndedInterceptor, Connectivity (NetworkMonitor)
+    ├── auth/      AuthController (the sign-in state machine), AuthFlow (PKCE, redirect)
+    ├── data/      repositories: Library, Playlist (+ PlaylistCache), Report, Account;
+    │              SettingsStore (server + encrypted session)
+    ├── download/  Downloads (queue, drain, delete, reclaim), DownloadWorker, BulkPlan
+    ├── storage/   MediaStore sink, FileNames, FileMatcher, DownloadIndex, TextStore
+    ├── domain/    shared rules: the offline library (search and sort on the phone)
+    ├── player/    PlaybackService, PlayerConnection, PlayQueue, PlayLauncher, Android Auto
+    ├── designsystem/ Palette and theme, components, icons, playlist covers
+    └── ui/        composables that know the models (SongRow, song menu), AppActions
 ```
 
-`Downloads` and `PlaylistRepository` hold the logic and depend on interfaces
-(`AudioSink`, `TextStore`, a client provider), so downloads, playlist
-caching/fallback, the API parsing and queue building all run in JVM unit
-tests against MockWebServer.
+Rules:
+
+- **Where state lives.** Screen state is in the screen's ViewModel
+  (`StateFlow<…Ui>`); composables only draw it and call the ViewModel. Data
+  that outlives a screen is in a repository, which is its single source of
+  truth: the playlists list is `PlaylistRepository.observePlaylists()`, so a
+  rename on a playlist's page shows on the list at once; the downloads are
+  `Downloads.snapshots`. Only throwaway UI state (an open menu, a text field
+  being typed) stays in the composable.
+- **What may depend on what.** `feature/*` → `core/*`, never another
+  feature; `app/` wires features together (navigation, the shell);
+  `core/*` never imports `app/` or `feature/*`. The Android entry points in
+  core (the player service, the download worker) get their dependencies from
+  the Application through small interfaces (`PlayerHost`, `DownloadsHost`)
+  and open the app through `core/ui/AppEntry`, so core does not know the
+  activity.
+- **Dependency injection** is a hand-written `AppContainer`, one per process:
+  a dozen objects with one lifetime do not need Hilt or Koin.
+  `AppViewModels` is the one place that knows which pieces each ViewModel
+  gets; a ViewModel never sees the container, so its tests pass fakes.
+- **Navigation** is Navigation Compose with type-safe `@Serializable`
+  routes (`app/Routes.kt`). Each destination gets its own ViewModel scoped to
+  its back stack entry; a playlist's id travels in its route. The bottom tabs
+  keep their own back stacks (a playlist stays open when you come back to
+  Playlists); Back from any tab returns to the Library. The full player is an
+  overlay, not a destination.
+- **The network is one interface**: everything the app asks the server is a
+  method of `core/network/ListenAlongApi`, and every path, query parameter and
+  JSON field name is in `LibraryClient` and `core/model`, so renaming one on
+  the wire is a change there.
+- **Testing**: repositories and ViewModels take interfaces (`ListenAlongApi`,
+  `NetworkMonitor`, `AudioSink`, `TextStore`, `ServerSettings`) and run in
+  JVM unit tests with fakes (`src/test/.../testing/Fakes.kt`); the HTTP
+  parsing runs against MockWebServer.
 
 ## Known limits
 

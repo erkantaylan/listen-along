@@ -20,7 +20,7 @@ import com.erkantaylan.listenalong.core.designsystem.SecondaryButton
 import com.erkantaylan.listenalong.core.ui.SongRow
 import com.erkantaylan.listenalong.core.designsystem.SubtleBadge
 import com.erkantaylan.listenalong.core.designsystem.TextInput
-import com.erkantaylan.listenalong.app.AppActions
+import com.erkantaylan.listenalong.core.ui.AppActions
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -77,7 +77,7 @@ fun LibraryScreen(
     actions: AppActions,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val downloads by viewModel.downloads.collectAsStateWithLifecycle()
+    val downloads by viewModel.downloadState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
 
     // Back clears the search before it leaves the tab.

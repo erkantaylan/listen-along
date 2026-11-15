@@ -7,7 +7,6 @@ import androidx.core.content.edit
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.erkantaylan.listenalong.core.network.ServerUrl
-import com.erkantaylan.listenalong.feature.auth.SessionHolder
 import com.erkantaylan.listenalong.core.storage.TextStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,12 +23,29 @@ data class ServerConfig(val baseUrl: HttpUrl, val token: String?, val userName: 
     val signedIn: Boolean get() = !token.isNullOrBlank()
 }
 
+/** Where the session lives (SettingsStore; a fake in tests). */
+interface SessionHolder {
+    /** The server in force and its session, if any. */
+    val current: ServerConfig
+    fun signIn(token: String, userName: String?)
+    /** Forgets [token] if it is still the session in force; true when it was. */
+    fun endSession(token: String): Boolean
+}
+
+/** The server address and whether a debug override is in force (Settings reads and saves it). */
+interface ServerSettings {
+    val config: StateFlow<ServerConfig>
+    val overridden: StateFlow<Boolean>
+    /** A new server address. Returns false when it is the same one (the session is kept). */
+    fun saveServer(baseUrl: HttpUrl): Boolean
+}
+
 /**
  * The server URL in plain preferences; the session token encrypted at rest
  * under a Keystore-backed key (as kitaplik keeps its Drive credentials). A
  * session belongs to the server it was made on: another address drops it.
  */
-class SettingsStore(context: Context) : SessionHolder {
+class SettingsStore(context: Context) : SessionHolder, ServerSettings {
 
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
@@ -67,11 +83,11 @@ class SettingsStore(context: Context) : SessionHolder {
 
     private val _config = MutableStateFlow(load())
     /** Never null: with nothing saved it is [DEFAULT_SERVER], signed out. */
-    val config: StateFlow<ServerConfig> = _config.asStateFlow()
+    override val config: StateFlow<ServerConfig> = _config.asStateFlow()
 
     /** True while a debug-only, in-memory server override is in force (see [overrideForSession]). */
     private val _overridden = MutableStateFlow(false)
-    val overridden: StateFlow<Boolean> = _overridden.asStateFlow()
+    override val overridden: StateFlow<Boolean> = _overridden.asStateFlow()
 
     override val current: ServerConfig get() = _config.value
 
@@ -84,7 +100,7 @@ class SettingsStore(context: Context) : SessionHolder {
     }
 
     /** A new server address. Returns false when it is the same one (the session is kept). */
-    fun saveServer(baseUrl: HttpUrl): Boolean {
+    override fun saveServer(baseUrl: HttpUrl): Boolean {
         val changed = baseUrl != _config.value.baseUrl || _overridden.value
         prefs.edit { putString(KEY_URL, baseUrl.toString()) }
         _overridden.value = false

@@ -115,13 +115,13 @@ class ReportApiTest {
         }
     }
 
-    // --- ReportStore ----------------------------------------------------------
+    // --- ReportRepository ----------------------------------------------------------
 
     @Test
     fun `store refresh, absorb, mark and unmark keep the map in step`() = runTest {
         val saved = MemoryTextStore()
         val client = client()
-        val store = ReportStore({ client }, saved)
+        val store = ReportRepository({ client }, saved)
         server.enqueue(json(reportedPage))
 
         store.refresh()
@@ -151,17 +151,17 @@ class ReportApiTest {
         assertEquals(listOf("20"), store.reportsFor("s3").map { it.id })
 
         // Saved per server: a new store for the same server starts from it.
-        val again = ReportStore({ client }, saved)
+        val again = ReportRepository({ client }, saved)
         assertEquals(store.reports.value, again.reports.value)
         // ... and another server's copy is not shown.
         val other = LibraryClient(ServerUrl.normalize("https://elsewhere.example")!!, "t")
-        assertTrue(ReportStore({ other }, saved).reports.value.isEmpty())
+        assertTrue(ReportRepository({ other }, saved).reports.value.isEmpty())
     }
 
     @Test
     fun `mark reports an update when I already had a report`() = runTest {
         val client = client()
-        val store = ReportStore({ client }, MemoryTextStore())
+        val store = ReportRepository({ client }, MemoryTextStore())
         server.enqueue(json(reportedPage))
         store.refresh()
         server.enqueue(json("""{"report":{"id":"7","reason":"wrong song","mine":true},"song":null}"""))
@@ -174,7 +174,7 @@ class ReportApiTest {
     @Test
     fun `a failed refresh keeps the old copy`() = runTest {
         val client = client()
-        val store = ReportStore({ client }, MemoryTextStore())
+        val store = ReportRepository({ client }, MemoryTextStore())
         server.enqueue(json(reportedPage))
         store.refresh()
         server.enqueue(json("""{"error":"down"}""", code = 503))

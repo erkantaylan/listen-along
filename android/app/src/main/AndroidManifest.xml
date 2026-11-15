@@ -64,9 +64,9 @@
              com.etaylan.listen:/oauth2redirect?code&state (the redirect
              registered for listen-along; scheme from build.gradle.kts). A path
              in a filter needs a host, which this URI has not, so the filter is
-             the scheme alone and feature/auth/AuthFlow checks the path and the state.
+             the scheme alone and core/auth/AuthFlow checks the path and the state.
              Release builds also take the https App Link from the production
-             server (src/release/AndroidManifest.xml); feature/auth/AuthFlow.redirectFor
+             server (src/release/AndroidManifest.xml); core/auth/AuthFlow.redirectFor
              picks one per sign-in.
              This activity only hands the URI to MainActivity and closes the
              Custom Tab. Anyone can send it a URI: a code is useless without

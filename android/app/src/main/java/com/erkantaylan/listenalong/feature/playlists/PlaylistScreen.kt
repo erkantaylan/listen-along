@@ -1,0 +1,389 @@
+package com.erkantaylan.listenalong.feature.playlists
+
+import com.erkantaylan.listenalong.core.designsystem.ButtonShape
+import com.erkantaylan.listenalong.core.designsystem.CardShape
+import com.erkantaylan.listenalong.core.designsystem.DialogDismiss
+import com.erkantaylan.listenalong.core.ui.PlayAllBar
+import com.erkantaylan.listenalong.core.ui.SongRow
+import com.erkantaylan.listenalong.core.designsystem.TitleAndMeta
+import com.erkantaylan.listenalong.core.designsystem.dialogEdge
+import com.erkantaylan.listenalong.core.designsystem.dragHandle
+import com.erkantaylan.listenalong.core.designsystem.longPressDrag
+import com.erkantaylan.listenalong.core.ui.AppActions
+import com.erkantaylan.listenalong.core.designsystem.Alert
+import com.erkantaylan.listenalong.core.designsystem.AlertKind
+import com.erkantaylan.listenalong.core.designsystem.AppDropdownMenu
+import com.erkantaylan.listenalong.core.designsystem.AppIcons
+import com.erkantaylan.listenalong.core.designsystem.AppTopBar
+import com.erkantaylan.listenalong.core.designsystem.Centre
+import com.erkantaylan.listenalong.core.designsystem.ConfirmDialog
+import com.erkantaylan.listenalong.core.designsystem.EmptyState
+import com.erkantaylan.listenalong.core.designsystem.IconAction
+import com.erkantaylan.listenalong.core.designsystem.ListGroupItem
+import com.erkantaylan.listenalong.core.designsystem.PrimaryButton
+import com.erkantaylan.listenalong.core.designsystem.SecondaryButton
+import com.erkantaylan.listenalong.core.designsystem.SubtleBadge
+import com.erkantaylan.listenalong.core.designsystem.TextPromptDialog
+import com.erkantaylan.listenalong.core.designsystem.rememberReorderState
+import com.erkantaylan.listenalong.core.ui.MenuEntry
+import com.erkantaylan.listenalong.feature.library.SignInNeeded
+import android.text.format.DateUtils
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.zIndex
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.erkantaylan.listenalong.core.model.Playlist
+import com.erkantaylan.listenalong.core.model.Song
+import com.erkantaylan.listenalong.core.model.Visibility
+import com.erkantaylan.listenalong.core.download.BulkPlan
+import com.erkantaylan.listenalong.core.download.DownloadSnapshot
+import com.erkantaylan.listenalong.core.download.DownloadState
+import com.erkantaylan.listenalong.core.download.Downloads
+import com.erkantaylan.listenalong.core.download.formatMb
+import com.erkantaylan.listenalong.core.player.NowPlaying
+import com.erkantaylan.listenalong.core.designsystem.Palette
+
+import kotlinx.coroutines.flow.StateFlow
+/** One playlist's page: its songs, Play / Shuffle, edit mode, and the owner's actions. */
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+fun PlaylistScreen(
+    viewModel: PlaylistViewModel,
+    online: Boolean,
+    nowPlaying: NowPlaying,
+    actions: AppActions,
+    onBack: () -> Unit,
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val snapshot by viewModel.downloadState.collectAsStateWithLifecycle()
+    var dialog by remember { mutableStateOf<PlaylistDialog?>(null) }
+    LaunchedEffect(viewModel) { viewModel.closed.collect { onBack() } }
+    // Back in edit mode leaves edit mode; otherwise it leaves the page.
+    BackHandler(enabled = state.editing) { viewModel.finishEditing() }
+
+    Box(Modifier.fillMaxSize().background(Palette.page).semantics { testTagsAsResourceId = true }) {
+        PlaylistDetail(state, viewModel, snapshot, online, nowPlaying, actions, onBack, onDialog = { dialog = it })
+    }
+    PlaylistDialogHost(
+        dialog,
+        onDismiss = { dialog = null },
+        onRename = { _, name -> viewModel.rename(name) },
+        onDelete = { viewModel.delete() },
+        onDownload = { plan -> actions.beforeDownload(); actions.queued(viewModel.download(plan)) },
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlaylistDetail(
+    state: PlaylistDetailUi,
+    viewModel: PlaylistViewModel,
+    snapshot: DownloadSnapshot,
+    online: Boolean,
+    nowPlaying: NowPlaying,
+    actions: AppActions,
+    onBack: () -> Unit,
+    onDialog: (PlaylistDialog) -> Unit,
+) {
+    val playlist = state.playlist
+    val readOnly = state.fromCache || !online
+    val songs = state.songs
+    val label = playlist?.displayName ?: "Playlist"
+    val onDevice = songs.count { snapshot.downloaded.containsKey(it.id) }
+    val canEdit = playlist?.editable == true && !readOnly
+    val editing = state.editing
+    val snackbar = remember { SnackbarHostState() }
+    val listState = rememberLazyListState()
+    val entryIds = remember(state.entries) { state.entries.mapTo(HashSet()) { it.entryId } }
+    val reorder = rememberReorderState(
+        listState,
+        isDraggable = { it is String && it in entryIds },
+        onStart = viewModel::startDrag,
+        onOver = viewModel::dragOver,
+        onEnd = viewModel::endDrag,
+    )
+
+    // Going offline mid-edit: the changes so far are sent (or fail), editing ends.
+    LaunchedEffect(canEdit) { if (!canEdit && editing) viewModel.finishEditing() }
+
+    // Removed: "Undo" for a while, then it is sent to the server.
+    val pending = state.pending
+    LaunchedEffect(pending?.entry?.entryId) {
+        if (pending == null) return@LaunchedEffect
+        val result = snackbar.showSnackbar(
+            message = "Removed \"${pending.entry.cleanTitle.ifBlank { "song" }}\"",
+            actionLabel = "Undo",
+            duration = SnackbarDuration.Long,
+        )
+        if (result == SnackbarResult.ActionPerformed) viewModel.undoRemove()
+        else viewModel.commitPendingRemoval(pending.entry.entryId)
+    }
+
+    Box(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize()) {
+        AppTopBar(
+            title = playlist?.displayName ?: "Playlist",
+            onBack = if (editing) null else onBack,
+            subtitle = if (editing) {
+                { Text("Drag to reorder · ⊖ removes", color = Palette.fg3, fontSize = 12.sp, maxLines = 1) }
+            } else if (playlist != null) {
+                {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (playlist.isPrivate) {
+                            SubtleBadge("Private", AppIcons.Lock)
+                            Spacer(Modifier.width(6.dp))
+                        }
+                        Text(
+                            listOf(playlist.ownerLine,
+                                   if (state.entries.size == 1) "1 song" else "${state.entries.size} songs").joinToString(" · "),
+                            color = Palette.fg3, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            } else null,
+        ) {
+            if (editing) {
+                PrimaryButton("Done", { viewModel.finishEditing() }, tag = "edit-done", compact = true,
+                              modifier = Modifier.padding(end = 8.dp))
+            } else if (playlist != null) {
+                if (canEdit && state.entries.isNotEmpty()) {
+                    SecondaryButton("Edit", { viewModel.startEditing() }, tag = "edit-playlist", compact = true,
+                                    modifier = Modifier.padding(end = 4.dp))
+                }
+                IconAction(AppIcons.Download, "Download playlist", tag = "download-playlist",
+                           enabled = songs.isNotEmpty() && online) {
+                    onDialog(PlaylistDialog.Download(playlist, viewModel.downloadPlan()))
+                }
+                PlaylistMenu(playlist, readOnly, { viewModel.toggleVisibility() }, onDialog)
+            }
+        }
+
+        if (state.fromCache) {
+            OfflineAlert("Offline — saved copy from ${ago(state.savedAt)}. Changes need a connection.")
+        }
+
+        val list: @Composable () -> Unit = {
+            LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 16.dp)) {
+                if (!editing) {
+                    item(key = "play-all") {
+                        PlayAllBar(
+                            playEnabled = songs.isNotEmpty(),
+                            onPlay = { actions.play(songs, 0, label, false) },
+                            onShuffle = { actions.play(songs, 0, label, true) },
+                        ) {
+                            Text(
+                                if (onDevice == songs.size && songs.isNotEmpty()) "All on device" else "$onDevice of ${songs.size} on device",
+                                color = if (onDevice == songs.size && songs.isNotEmpty()) Palette.success else Palette.fg3,
+                                fontSize = 12.sp, modifier = Modifier.padding(end = 4.dp).testTag("on-device-count"),
+                            )
+                        }
+                    }
+                } else {
+                    item(key = "edit-top") { Spacer(Modifier.height(12.dp)) }
+                }
+                if (state.error != null) {
+                    item(key = "error") {
+                        Alert(state.error, AlertKind.DANGER, Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp))
+                    }
+                }
+                itemsIndexed(state.entries, key = { _, e -> e.entryId }) { i, entry ->
+                    if (editing) {
+                        val dragging = reorder.draggingKey == entry.entryId
+                        EditableEntryRow(
+                            index = i,
+                            count = state.entries.size,
+                            entry = entry,
+                            dragging = dragging,
+                            modifier = Modifier
+                                .then(if (dragging) Modifier.zIndex(1f) else Modifier.animateItem())
+                                .graphicsLayer { translationY = reorder.translationOf(entry.entryId) }
+                                .longPressDrag(reorder, entry.entryId),
+                            handle = Modifier.dragHandle(reorder, entry.entryId),
+                            onMoveUp = if (i > 0) ({ viewModel.moveBy(entry, -1) }) else null,
+                            onMoveDown = if (i < state.entries.size - 1) ({ viewModel.moveBy(entry, +1) }) else null,
+                            onRemove = { viewModel.remove(entry) },
+                        )
+                    } else {
+                        val song = entry.toSong()
+                        val download = song?.let { snapshot.stateOf(it.id) }
+                        val playable = song != null && (online || download is DownloadState.Done)
+                        SongRow(
+                            index = i,
+                            count = state.entries.size,
+                            tag = "entry:${entry.entryId}",
+                            title = entry.cleanTitle,
+                            artist = entry.artist.orEmpty(),
+                            durationSec = entry.durationRaw?.let { Math.round(it).toInt() },
+                            download = download,
+                            current = song != null && nowPlaying.songId == song.id,
+                            enabled = playable,
+                            extraMeta = when {
+                                song == null -> "not in the library"
+                                !playable -> "not on this device"
+                                else -> null
+                            },
+                            onClick = if (playable) {
+                                {
+                                    // Play the playlist from this song. [songs] leaves out entries
+                                    // with no library song, so count only those before this one.
+                                    actions.play(songs, state.entries.take(i).count { it.playable }, label, false)
+                                }
+                            } else null,
+                            onDownload = if (song != null && online) {
+                                { actions.beforeDownload(); viewModel.downloadSong(song) }
+                            } else null,
+                            onCancelDownload = { song?.let { viewModel.cancelDownload(it) } },
+                            reportSong = song,
+                            reportable = true,
+                        ) { dismiss ->
+                            if (song != null && download is DownloadState.Done) {
+                                MenuEntry("Open in another app", AppIcons.OpenInNew, "menu-open") {
+                                    dismiss(); actions.openExternal(download.local)
+                                }
+                            }
+                            if (song != null) {
+                                MenuEntry("Add to another playlist", AppIcons.PlaylistAdd, "menu-add-to-playlist", enabled = !readOnly) {
+                                    dismiss(); actions.addToPlaylist(listOf(song))
+                                }
+                            }
+                            if (canEdit) {
+                                MenuEntry("Remove from playlist", AppIcons.Delete, "menu-remove", destructive = true) {
+                                    dismiss(); viewModel.remove(entry)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        when {
+            state.gone -> EmptyState(
+                "Playlist not found",
+                "It was deleted, or it is private now.",
+                AppIcons.QueueMusic,
+            ) { SecondaryButton("Back to playlists", onBack) }
+            state.loading -> Centre { CircularProgressIndicator(color = Palette.accentFg) }
+            state.error != null && state.entries.isEmpty() -> EmptyState(
+                "Cannot load this playlist", state.error, AppIcons.CloudOff,
+            ) { SecondaryButton("Retry", { viewModel.refresh() }, tag = "retry") }
+            state.entries.isEmpty() -> EmptyState(
+                "This playlist is empty",
+                "Add songs from the Library tab with ⋮ → Add to playlist.",
+                AppIcons.QueueMusic,
+            )
+            editing -> list()
+            else -> PullToRefreshBox(
+                isRefreshing = state.refreshing,
+                onRefresh = { viewModel.refresh() },
+                modifier = Modifier.fillMaxSize(),
+            ) { list() }
+        }
+    }
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(12.dp)) { data ->
+            Snackbar(
+                data,
+                containerColor = Palette.overlay,
+                contentColor = Palette.fg,
+                actionColor = Palette.accentFg,
+                shape = ButtonShape,
+                modifier = Modifier.border(1.dp, Palette.borderStrong, ButtonShape).testTag("snackbar"),
+            )
+        }
+    }
+}
+
+/**
+ * A playlist entry in edit mode: drag handle, title, remove button. Rows
+ * stay put when tapped; long-press-drag works on the whole row too. TalkBack
+ * gets "Move up" / "Move down" actions instead of dragging.
+ */
+@Composable
+private fun EditableEntryRow(
+    index: Int,
+    count: Int,
+    entry: com.erkantaylan.listenalong.core.model.PlaylistEntry,
+    dragging: Boolean,
+    modifier: Modifier,
+    handle: Modifier,
+    onMoveUp: (() -> Unit)?,
+    onMoveDown: (() -> Unit)?,
+    onRemove: () -> Unit,
+) {
+    val moves = listOfNotNull(
+        onMoveUp?.let { CustomAccessibilityAction("Move up") { it(); true } },
+        onMoveDown?.let { CustomAccessibilityAction("Move down") { it(); true } },
+    )
+    Box(
+        modifier
+            .shadow(if (dragging) 8.dp else 0.dp, CardShape)
+            .semantics { customActions = moves }
+            .testTag("edit-entry:${entry.entryId}")
+    ) {
+        ListGroupItem(index, count, lifted = dragging) {
+            Box(handle.size(40.dp).testTag("drag:${entry.entryId}"), contentAlignment = Alignment.Center) {
+                Icon(AppIcons.DragHandle, contentDescription = "Drag to reorder", tint = Palette.fg4, modifier = Modifier.size(22.dp))
+            }
+            TitleAndMeta(
+                title = entry.cleanTitle.ifBlank { "Untitled" },
+                meta = listOfNotNull(
+                    entry.artist?.takeIf { it.isNotBlank() && it != "Unknown" },
+                    com.erkantaylan.listenalong.core.model.formatDuration(entry.durationRaw?.let { Math.round(it).toInt() }).takeIf { it.isNotEmpty() },
+                ).joinToString(" · "),
+            )
+            IconAction(AppIcons.RemoveCircle, "Remove ${entry.cleanTitle.ifBlank { "song" }} from playlist",
+                       tag = "remove:${entry.entryId}", tint = Palette.danger, onClick = onRemove)
+        }
+    }
+}

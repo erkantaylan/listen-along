@@ -63,13 +63,13 @@ import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
 import com.erkantaylan.listenalong.core.model.formatDuration
 import com.erkantaylan.listenalong.core.player.NowPlaying
-import com.erkantaylan.listenalong.core.player.PlayerConnection
+import com.erkantaylan.listenalong.core.player.PlayerControls
 import com.erkantaylan.listenalong.core.designsystem.Palette
 import kotlinx.coroutines.delay
 
 /** The player's position, refreshed twice a second while [visible]. */
 @Composable
-private fun rememberPosition(player: PlayerConnection, now: NowPlaying): Long {
+private fun rememberPosition(player: PlayerControls, now: NowPlaying): Long {
     var position by remember { mutableLongStateOf(player.positionMs()) }
     LaunchedEffect(now.songId, now.isPlaying) {
         while (true) {
@@ -129,7 +129,7 @@ private fun PlayPill(now: NowPlaying, size: Dp, onClick: () -> Unit) {
  * play/pause and next. Tapping it opens the full player.
  */
 @Composable
-fun MiniPlayer(now: NowPlaying, player: PlayerConnection, onOpen: () -> Unit) {
+fun MiniPlayer(now: NowPlaying, player: PlayerControls, onOpen: () -> Unit) {
     val position = rememberPosition(player, now)
     Column(Modifier.fillMaxWidth().background(Palette.raised).testTag("mini-player")) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.border))
@@ -158,7 +158,7 @@ fun MiniPlayer(now: NowPlaying, player: PlayerConnection, onOpen: () -> Unit) {
 /** Full-screen player: big cover, title, seek bar with times, and every control. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FullPlayer(now: NowPlaying, player: PlayerConnection, onClose: () -> Unit) {
+fun FullPlayer(now: NowPlaying, player: PlayerControls, onClose: () -> Unit) {
     val position = rememberPosition(player, now)
     var dragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableFloatStateOf(0f) }
