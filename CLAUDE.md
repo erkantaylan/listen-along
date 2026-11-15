@@ -86,7 +86,7 @@ where lobby persistence broke entirely on deployed instances.
   `library:updated { replaced }` (players reload the new file). Audio
   responses are `no-cache` unless the url has `?v=<file_version>`: never mark
   song urls immutable again, a song's file can change under the same url.
-- Editing a song is one dialog ("Replace with…", `frontend/replace-dialog.js`,
+- Editing a song is one dialog ("Replace with…", `frontend/src/features/library/replace-dialog.ts`,
   DESIGN.md). Details only: `PATCH /api/library/:id` (`library.updateDetails`;
   same access as replace, audit row kind `details`, recomputes `meta_key`, no
   duplicate_metadata refusal, as on replace; queues rewritten, `library:updated
@@ -209,7 +209,7 @@ where lobby persistence broke entirely on deployed instances.
   `activity:progress { id, stage, percent }` when nothing else on the row changed,
   at most one per job per 1.5s (`ACTIVITY_PROGRESS_MS`), the latest when the wait
   ends. No DB writes, no new table. `jobs:update` keeps its shape and stays the
-  requester's. Frontend: `activity.js` (rows keep their element, a tick writes one
+  requester's. Frontend: `activity.ts` (rows keep their element, a tick writes one
   text node; refetches on reconnect and on `playlists:changed`, only the latest
   load applies, and a row older by `updated_at` never replaces a newer one), pure
   rules in `activity-rules.ts` (tested), the card shown by `social.js`
@@ -237,7 +237,7 @@ where lobby persistence broke entirely on deployed instances.
   `already_in_playlist` (additive) and adds them only with the opt-in `allow_duplicates: true`; without it, as before,
   they are skipped. Socket `queue:add` is unchanged (the web no longer uses it to add: the playlist page has no add-song box
   or button; the global search started on that page adds to it).
-- **Pick the video** (web only, before a job or request exists): `frontend/pick-dialog.js`
+- **Pick the video** (web only, before a job or request exists): `frontend/src/features/picker/pick-dialog.ts`
   (rules in `pick-rules.ts`, tested; DESIGN.md "Pick the video") asks
   `POST /api/jobs/picks` (jobRoutes.js -> `backend/src/features/picker/`; approved accounts, no tokens,
   `pickLimiter` 30/min per `req.clientIp`, answers cached 10 min, library marking
@@ -291,7 +291,7 @@ where lobby persistence broke entirely on deployed instances.
   `{ type: 'artist', key, name }`; presence keeps a checked key and the name.
 - Android releases: a tag `android-vX.Y.Z` runs `.github/workflows/android-release.yml`
   (signed APK on a GitHub Release; version from the tag; key and backup rules in
-  `android/README.md`). The web page `/app` (`frontend/app-page.js`) offers the latest
+  `android/README.md`). The web page `/app` (`frontend/src/features/account/app-page.ts`) offers the latest
   through `GET /api/app/latest` (`backend/src/features/app-release/`: GitHub Releases API, no token, 10 min
   cache + ETag, always 200; only `android-v*` tags count, the repo has old `v2.x` ones).
   Both are open to pending accounts too (`policyFor`: `member`).
@@ -362,7 +362,7 @@ where lobby persistence broke entirely on deployed instances.
   playlist. The older shared `lobbies.pinned` (socket `lobby:pin`, field `pinned`)
   still exists on the server but the web no longer sets or shows it; the playlist
   page's pin button is the personal pin.
-- The web sidebar (`frontend/sidebar.js`, list in `playlist-store.js`, search in
+- The web sidebar (`frontend/sidebar.js`, list in `playlist-store.ts`, search in
   `playlist-filter.ts`) refetches `/api/playlists` on socket `playlists:changed`
   (`notifyPlaylistsChanged` in reactions.js). The signal carries no data; a private
   playlist's changes go only to its owner's `userRoom`. Emit it from anything that
@@ -381,7 +381,7 @@ where lobby persistence broke entirely on deployed instances.
   viewer cannot see.
 - **Listen along** = follow a user (not a playlist): `backend/src/features/listen-along/`
   (graph + socket events `listen:*`, attached per connection in socketServer.js) and
-  `frontend/listen-along.js` (drives `player.ts` as its driver). Everyone hears
+  `frontend/src/features/social/listen-along.ts` (drives `player.ts` as its driver). Everyone hears
   the root of their chain (chains collapse); the follow lives in one socket;
   followers get only the song + `/api/library/:id/file`, never the playlist.
   A root going offline (after the presence grace) ends it after the current
@@ -492,7 +492,7 @@ where lobby persistence broke entirely on deployed instances.
   (`ADMIN_PASSWORD`, `adminAuth.js`), not a user account. The page itself is the
   data-free SPA shell with its own login form (404 without `ADMIN_PASSWORD`);
   all admin data comes from APIs behind `adminAuth.requireAdmin`.
-  Frontend: `dashboard.js` + `dashboard-admin.js`.
+  Frontend: `dashboard.ts` + `dashboard-admin.ts`.
 - Client IP (rate limits): `clientIp.js` trusts only private / loopback proxy
   hops (Traefik) and believes `CF-Connecting-IP` only from Cloudflare's ranges;
   use `req.clientIp`, not `req.ip`. Overrides: `TRUST_PROXY`, `CLOUDFLARE_IPS`.

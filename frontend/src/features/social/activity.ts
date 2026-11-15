@@ -7,13 +7,29 @@
 //
 // Data: GET /api/activity/downloads, then socket activity:job (a row is new or
 // changed) and activity:progress (a running row's progress line). The rules
-// are in activity-rules.js; the wording and badges are jobs.js's.
-import { jobStatusText, thumbHtml, BADGES } from './jobs.js';
-import { MAX_ROWS, mergeJob, applyLoad, applyProgress, progressOf, failureKey, activeCount, isActive, rowTitle, rowTime } from './features/social/activity-rules.js';
-import { formatLastSeen, escapeText } from './features/social/chat-format.js';
-import { navigateTo, t } from './shared/ui.js';
+// are in activity-rules.ts; the wording and badges are jobs.ts's.
+import { jobStatusText, thumbHtml, BADGES } from '../library/jobs.ts';
+import { MAX_ROWS, mergeJob, applyLoad, applyProgress, progressOf, failureKey, activeCount, isActive, rowTitle, rowTime } from './activity-rules.ts';
+import { formatLastSeen, escapeText } from './chat-format.ts';
+import { navigateTo, t } from '../../shared/ui.ts';
+import { maybeById } from '../../shared/dom.ts';
+import type { WorkerCounts } from '../library/jobs.ts';
+import type { ActivityJobPayload, ActivityListResponse, ActivityRow } from '../../shared/types.ts';
 
-const A = {
+/** A row's <li>; _meta is the meta line's last HTML, so an unchanged one is not rewritten. */
+type RowElement = HTMLLIElement & { _meta?: string };
+
+const A: {
+  jobs: ActivityRow[];
+  workers: WorkerCounts;
+  loaded: boolean;
+  failed: boolean;
+  loadSeq: number;
+  buffer: ActivityRow[] | null;
+  visible: boolean;
+  rows: Map<string, RowElement>;
+  reloadTimer: ReturnType<typeof setTimeout> | null;
+} = {
   jobs: [],
   workers: { online: 0, idle: 0, busy: 0 },
   loaded: false,
@@ -25,11 +41,10 @@ const A = {
   reloadTimer: null,
 };
 
-const $ = (id) => document.getElementById(id);
-const tf = (key, fallback, vars) => t(key, fallback, vars).replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
+const tf = (key: string, fallback: string, vars: Record<string, string | number>): string => t(key, fallback, vars).replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m));
 
 // English fallbacks of the failure sentences (activity.fail.* in the locales).
-const FAILURE_TEXT = {
+const FAILURE_TEXT: Readonly<Record<string, string>> = {
   unavailable: 'The video is unavailable',
   private: 'The video is private',
   signIn: 'The video needs a sign-in',
@@ -55,7 +70,7 @@ const FAILURE_TEXT = {
 // The row as jobStatusText words it: the server sends a failed job's code and a
 // running job's stage and percent, never the downloader's own text, so the
 // sentences are made here.
-function worded(job) {
+function worded(job: ActivityRow): ActivityRow & { error_message?: string } {
   if (job.status === 'failed') {
     const key = failureKey(job.error_code);
     return { ...job, error_message: t(`activity.fail.${key}`, FAILURE_TEXT[key]) };
@@ -68,13 +83,13 @@ function worded(job) {
   return { ...job, progress };
 }
 
-function titleOf(job) {
+function titleOf(job: ActivityRow): string {
   return rowTitle(job) || (job.kind === 'playlist' ? t('activity.aPlaylist', 'YouTube playlist') : t('activity.aVideo', 'YouTube video'));
 }
 
 // "Asked by Ada · for Road trip · 5m ago". The playlist is there only when the
 // server put it on the row, which it does only for someone who can see it.
-function metaHtml(job) {
+function metaHtml(job: ActivityRow): string {
   const parts = [escapeText(job.requested_by ? tf('activity.askedBy', 'Asked by {name}', { name: job.requested_by }) : t('activity.askedBySomeone', 'Asked by someone'))];
   if (job.replace) parts.push(escapeText(t('activity.replacing', 'replacing a song')));
   if (job.playlist_id) {
@@ -86,8 +101,8 @@ function metaHtml(job) {
   return parts.join(' · ');
 }
 
-function createRow(job) {
-  const li = document.createElement('li');
+function createRow(job: ActivityRow): RowElement {
+  const li: RowElement = document.createElement('li');
   li.className = 'list-group-item activity-row';
   li.dataset.job = job.id;
   li.innerHTML = `${thumbHtml(job, 'activity-thumb')}<div class="min-w-0 flex-grow-1">`
@@ -98,37 +113,38 @@ function createRow(job) {
 
 // Only what changed is written, so a progress tick touches one text node:
 // no flicker, the thumbnail does not reload and a text selection survives.
-function setText(el, text) { if (el.textContent !== text) el.textContent = text; }
+function setText(el: Element, text: string) { if (el.textContent !== text) el.textContent = text; }
 
-function updateRow(li, job) {
+// The elements are createRow's.
+function updateRow(li: RowElement, job: ActivityRow) {
   li.classList.toggle('is-active', isActive(job));
   const title = titleOf(job);
-  const titleEl = li.querySelector('.activity-title');
+  const titleEl = li.querySelector('.activity-title') as HTMLElement;
   setText(titleEl, title);
   if (titleEl.title !== title) titleEl.title = title;
   const [theme, label] = BADGES[job.status] || ['theme-secondary', job.status];
-  const badge = li.querySelector('.activity-badge');
+  const badge = li.querySelector('.activity-badge') as HTMLElement;
   const badgeClass = `badge badge-subtle ms-auto flex-shrink-0 activity-badge ${theme}`;
   if (badge.className !== badgeClass) badge.className = badgeClass;
   setText(badge, label);
   const status = jobStatusText(worded(job), A.workers);
-  const statusEl = li.querySelector('.activity-status');
+  const statusEl = li.querySelector('.activity-status') as HTMLElement;
   setText(statusEl, status);
   if (statusEl.title !== status) statusEl.title = status;
   const meta = metaHtml(job);
-  if (li._meta !== meta) { li._meta = meta; li.querySelector('.activity-meta').innerHTML = meta; }
+  if (li._meta !== meta) { li._meta = meta; (li.querySelector('.activity-meta') as HTMLElement).innerHTML = meta; }
 }
 
 // What is in progress: a count on the rail button, "2 in progress" on the card's head.
 function renderCount() {
   const n = activeCount(A.jobs);
-  // Not [data-activity-count]: those are the profile's own count badges (profile-activity.js).
-  for (const el of document.querySelectorAll('[data-activity-active-count]')) {
+  // Not [data-activity-count]: those are the profile's own count badges (profile-activity.ts).
+  for (const el of document.querySelectorAll<HTMLElement>('[data-activity-active-count]')) {
     el.textContent = n > 99 ? '99+' : String(n);
     el.hidden = n === 0;
   }
   const text = n === 1 ? t('activity.oneActive', '1 in progress') : tf('activity.nActive', '{count} in progress', { count: n });
-  for (const el of document.querySelectorAll('[data-activity-progress]')) {
+  for (const el of document.querySelectorAll<HTMLElement>('[data-activity-progress]')) {
     el.textContent = n ? text : '';
     el.hidden = n === 0;
   }
@@ -136,8 +152,8 @@ function renderCount() {
 
 function render() {
   renderCount();
-  const list = $('activity-list');
-  const empty = $('activity-empty');
+  const list = maybeById('activity-list');
+  const empty = maybeById('activity-empty');
   if (!list || !empty) return;
   empty.hidden = A.jobs.length > 0;
   if (!A.jobs.length) {
@@ -164,15 +180,15 @@ async function load() {
   // kept until it has applied, since they are newer than any list on its way.
   const seq = ++A.loadSeq;
   if (!A.buffer) A.buffer = [];
-  let data = null;
+  let data: ActivityListResponse | null = null;
   try {
     const res = await fetch('/api/activity/downloads', { credentials: 'same-origin' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    data = await res.json();
+    data = await res.json() as ActivityListResponse;
   } catch { /* keep what is shown */ }
   if (seq !== A.loadSeq) return;
   if (data) {
-    A.jobs = applyLoad(data.jobs, A.buffer, MAX_ROWS);
+    A.jobs = applyLoad(data.jobs, A.buffer as ActivityRow[], MAX_ROWS); // set above; only the latest load clears it
     if (data.workers) A.workers = data.workers;
   }
   A.failed = !data && !A.loaded;
@@ -189,17 +205,17 @@ function reloadSoon() {
 }
 
 /** The card came on screen or left it (social.js: the panel opened, closed or went to the background). */
-export function setActivityVisible(visible) {
+export function setActivityVisible(visible: boolean): void {
   if (A.visible === visible) return;
   A.visible = visible;
   if (visible) render(); // relative times have aged
 }
 
 /** Start the log on the panel's socket. Call only for an approved account. */
-export function setupActivity(socket) {
+export function setupActivity(socket: AppSocket): void {
   socket.on('connect', load); // also after a reconnect: events were missed
   if (socket.connected) load();
-  socket.on('activity:job', ({ job } = {}) => {
+  socket.on('activity:job', ({ job }: Partial<ActivityJobPayload> = {}) => {
     if (!job) return;
     if (A.buffer) A.buffer.push(job);
     if (!A.loaded) return;
@@ -221,12 +237,12 @@ export function setupActivity(socket) {
     if (A.jobs.some((j) => j.status === 'queued')) render();
   });
   socket.on('playlists:changed', reloadSoon);
-  $('activity-list')?.addEventListener('click', (e) => {
-    const link = e.target.closest('[data-activity-playlist]');
+  maybeById('activity-list')?.addEventListener('click', (e) => {
+    const link = (e.target as Element).closest<HTMLElement>('[data-activity-playlist]');
     // /dashboard is not the app: there the link is a plain one.
     if (!link || e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || window.location.pathname.startsWith('/dashboard')) return;
     e.preventDefault();
-    navigateTo(`/playlist/${encodeURIComponent(link.dataset.activityPlaylist)}`);
+    navigateTo(`/playlist/${encodeURIComponent(link.dataset.activityPlaylist as string)}`);
   });
   setInterval(() => { if (A.visible) render(); }, 60_000);
   render();

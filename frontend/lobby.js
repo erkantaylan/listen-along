@@ -8,11 +8,11 @@ import { player } from './player/player.js';
 import { playViewedFromTop } from './playback.js';
 import { desiredMembership, membershipActions } from './player/player-queue.js';
 import { isEditMode, setEditMode } from './features/queue/queue-edit.js';
-import { isNewPlaylistPending, newPlaylistCreated, newPlaylistFailed } from './new-playlist.js';
-import { playlistMenuItems, privateBadgeHtml, LOCK_SVG } from './playlist-actions.js';
+import { isNewPlaylistPending, newPlaylistCreated, newPlaylistFailed } from './features/playlists/new-playlist.js';
+import { playlistMenuItems, privateBadgeHtml, LOCK_SVG } from './features/playlists/playlist-actions.js';
 import { openContextMenu, closeContextMenu, bindContextMenu } from './shared/context-menu.js';
-import { loadPlaylists, onPlaylists, isPinned, togglePlaylistPin, getPlaylists, isLoaded } from './playlist-store.js';
-import { closePickDialog } from './pick-dialog.js';
+import { loadPlaylists, onPlaylists, isPinned, togglePlaylistPin, getPlaylists, isLoaded } from './features/playlists/playlist-store.js';
+import { closePickDialog } from './features/picker/pick-dialog.js';
 import { playlistCoverIndex, playlistInitials } from './features/playlists/playlist-filter.js';
 import { syncPlaylistMeta } from './queue.js';
 

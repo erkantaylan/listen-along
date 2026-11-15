@@ -2,17 +2,17 @@
 // and download jobs, songs marked as broken, CLI tokens, song requests, library
 // management. Markup: #dashboard-view in index.html; everything here comes from
 // admin APIs (or the admin-cookie reads of /api/library and /api/requests).
-import { escapeHtml as esc, showToast } from './shared/ui.js';
+import { escapeHtml as esc, showToast } from '../../shared/ui.ts';
+import { byId } from '../../shared/dom.ts';
+import type { AdminJobsResponse, AdminTokensResponse, AdminWorkersResponse, ApiError, ApiToken, JobStatus, LibraryListResponse, RequestListResponse } from '../../shared/types.ts';
 
-const $ = (id) => document.getElementById(id);
-
-function when(value) {
+function when(value: string | null | undefined): string {
   if (!value) return '';
   const d = new Date(value);
-  return isNaN(d) ? '' : d.toLocaleString();
+  return isNaN(d.getTime()) ? '' : d.toLocaleString();
 }
 
-function ago(value) {
+function ago(value: string | null | undefined): string {
   if (!value) return 'never';
   const s = Math.max(0, (Date.now() - new Date(value).getTime()) / 1000);
   if (s < 60) return 'just now';
@@ -21,27 +21,28 @@ function ago(value) {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-let onUnauthorized = () => {};
-let refreshTimer = null;
+let onUnauthorized: () => void = () => {};
+let refreshTimer: ReturnType<typeof setInterval> | null = null;
 
-async function api(method, url) {
+/** The JSON answer, typed by the caller (T); an error status throws `{ message, status }`. */
+async function api<T>(method: string, url: string): Promise<T> {
   const res = await fetch(url, { method, credentials: 'same-origin' });
-  let data = {};
+  let data: unknown = {};
   try { data = await res.json(); } catch {}
   if (res.status === 401) onUnauthorized();
-  if (!res.ok) throw Object.assign(new Error(data.error || `HTTP ${res.status}`), { status: res.status });
-  return data;
+  if (!res.ok) throw Object.assign(new Error((data as Partial<ApiError>).error || `HTTP ${res.status}`), { status: res.status });
+  return data as T;
 }
 
-const emptyRow = (text) => `<li class="list-group-item app-empty adm-empty">${esc(text)}</li>`;
-const failToast = (prefix) => (err) => showToast(`${prefix}: ${err.message}`, 'error');
+const emptyRow = (text: string) => `<li class="list-group-item app-empty adm-empty">${esc(text)}</li>`;
+const failToast = (prefix: string) => (err: Error) => showToast(`${prefix}: ${err.message}`, 'error');
 
 // --- downloaders + jobs -----------------------------------------------------
-async function loadWorkers() {
-  const list = $('adm-workers');
+async function loadWorkers(): Promise<void> {
+  const list = byId('adm-workers');
   try {
-    const { workers, online, busy, cli_latest: cliLatest } = await api('GET', '/api/admin/workers');
-    $('adm-workers-summary').textContent = `(${online} online${busy ? `, ${busy} busy` : ''})`;
+    const { workers, online, busy, cli_latest: cliLatest } = await api<AdminWorkersResponse>('GET', '/api/admin/workers');
+    byId('adm-workers-summary').textContent = `(${online} online${busy ? `, ${busy} busy` : ''})`;
     if (!workers.length) { list.innerHTML = emptyRow('No downloader has connected yet.'); return; }
     list.innerHTML = workers.map((w) => {
       const state = w.online ? (w.busy ? '<span class="badge badge-subtle theme-primary">busy</span>' : '<span class="badge badge-subtle theme-success">online</span>') : '<span class="badge badge-subtle theme-secondary">offline</span>';
@@ -62,18 +63,18 @@ async function loadWorkers() {
       </li>`;
     }).join('');
   } catch (err) {
-    list.innerHTML = emptyRow(err.message);
+    list.innerHTML = emptyRow((err as Error).message);
   }
 }
 
-const JOB_THEMES = { queued: 'theme-warning', assigned: 'theme-primary', done: 'theme-success', failed: 'theme-danger', cancelled: 'theme-secondary' };
+const JOB_THEMES: Record<JobStatus, string> = { queued: 'theme-warning', assigned: 'theme-primary', done: 'theme-success', failed: 'theme-danger', cancelled: 'theme-secondary' };
 
-async function loadJobs() {
-  const list = $('adm-jobs');
-  const status = $('adm-job-status').value;
+async function loadJobs(): Promise<void> {
+  const list = byId('adm-jobs');
+  const status = byId<HTMLSelectElement>('adm-job-status').value;
   try {
-    const { jobs, counts } = await api('GET', `/api/admin/jobs?status=${encodeURIComponent(status)}`);
-    $('adm-jobs-counts').textContent = `${counts.queued} waiting · ${counts.assigned} running · ${counts.done} done · ${counts.failed} failed`;
+    const { jobs, counts } = await api<AdminJobsResponse>('GET', `/api/admin/jobs?status=${encodeURIComponent(status)}`);
+    byId('adm-jobs-counts').textContent = `${counts.queued} waiting · ${counts.assigned} running · ${counts.done} done · ${counts.failed} failed`;
     if (!jobs.length) { list.innerHTML = emptyRow('Nothing here.'); return; }
     list.innerHTML = jobs.map((j) => {
       const where = j.worker ? `${j.status === 'assigned' ? 'on' : 'by'} ${esc(j.worker.name)}${j.worker.owner ? ` (${esc(j.worker.owner)})` : ''}` : '';
@@ -92,20 +93,20 @@ async function loadJobs() {
       </li>`;
     }).join('');
   } catch (err) {
-    list.innerHTML = emptyRow(err.message);
+    list.innerHTML = emptyRow((err as Error).message);
   }
 }
 
 // --- tokens: created by users on their profile page; the admin only revokes --
-function ownerLabel(t) {
+function ownerLabel(t: ApiToken): string {
   if (!t.owner) return '<span class="badge badge-subtle theme-warning">legacy, no owner</span>';
   return `<span class="fg-2">${esc(t.owner.name || t.owner.id)}</span>`;
 }
 
-async function loadTokens() {
-  const list = $('adm-tokens');
+async function loadTokens(): Promise<void> {
+  const list = byId('adm-tokens');
   try {
-    const { tokens } = await api('GET', '/api/admin/tokens');
+    const { tokens } = await api<AdminTokensResponse>('GET', '/api/admin/tokens');
     if (!tokens.length) { list.innerHTML = emptyRow('No tokens yet.'); return; }
     list.innerHTML = tokens.map((t) => `
       <li class="list-group-item d-flex align-items-center gap-3 adm-item adm-token${t.active ? '' : ' revoked fg-3'}">
@@ -116,16 +117,16 @@ async function loadTokens() {
         ${t.active ? `<button class="btn-outline theme-danger btn-sm" type="button" data-revoke="${esc(t.id)}" data-name="${esc(t.label)}" data-owner="${esc(t.owner ? t.owner.name || '' : '')}">Revoke</button>` : ''}
       </li>`).join('');
   } catch (err) {
-    list.innerHTML = emptyRow(err.message);
+    list.innerHTML = emptyRow((err as Error).message);
   }
 }
 
 // --- requests ---------------------------------------------------------------
-async function loadRequests() {
-  const list = $('adm-requests');
-  const status = $('adm-request-status').value;
+async function loadRequests(): Promise<void> {
+  const list = byId('adm-requests');
+  const status = byId<HTMLSelectElement>('adm-request-status').value;
   try {
-    const { requests } = await api('GET', `/api/requests?status=${encodeURIComponent(status)}`);
+    const { requests } = await api<RequestListResponse>('GET', `/api/requests?status=${encodeURIComponent(status)}`);
     if (!requests.length) { list.innerHTML = emptyRow('Nothing here.'); return; }
     list.innerHTML = requests.map((r) => {
       const title = r.title || r.youtube_id || r.url || 'Unknown';
@@ -140,22 +141,22 @@ async function loadRequests() {
       </li>`;
     }).join('');
   } catch (err) {
-    list.innerHTML = emptyRow(err.message);
+    list.innerHTML = emptyRow((err as Error).message);
   }
 }
 
 // --- preview: this page has no app-wide player (DESIGN.md "Dashboard") -------
 const previewAudio = new Audio();
 previewAudio.preload = 'none';
-let previewId = null;
-const playLabel = (id) => (previewId === id && !previewAudio.paused ? 'Pause' : 'Play');
+let previewId: string | null = null;
+const playLabel = (id: string | undefined) => (previewId === id && !previewAudio.paused ? 'Pause' : 'Play');
 
-function updatePlayButtons() {
-  document.querySelectorAll('#dashboard-view [data-play]').forEach((btn) => { btn.textContent = playLabel(btn.dataset.play); });
+function updatePlayButtons(): void {
+  document.querySelectorAll<HTMLElement>('#dashboard-view [data-play]').forEach((btn) => { btn.textContent = playLabel(btn.dataset.play); });
 }
 ['play', 'pause', 'ended'].forEach((ev) => previewAudio.addEventListener(ev, updatePlayButtons));
 
-function togglePreview(id) {
+function togglePreview(id: string): void {
   if (previewId === id) {
     if (previewAudio.paused) previewAudio.play().catch(() => {});
     else previewAudio.pause();
@@ -168,14 +169,14 @@ function togglePreview(id) {
 }
 
 // --- broken songs -----------------------------------------------------------
-async function loadReports() {
-  const list = $('adm-reports');
+async function loadReports(): Promise<void> {
+  const list = byId('adm-reports');
   try {
-    const { songs, total } = await api('GET', '/api/library?reported=1&limit=500');
+    const { songs, total } = await api<LibraryListResponse>('GET', '/api/library?reported=1&limit=500');
     const reports = songs.reduce((n, s) => n + (s.report_count || 0), 0);
-    $('adm-reports-summary').textContent = total ? `(${total} song${total === 1 ? '' : 's'}, ${reports} report${reports === 1 ? '' : 's'})` : '';
+    byId('adm-reports-summary').textContent = total ? `(${total} song${total === 1 ? '' : 's'}, ${reports} report${reports === 1 ? '' : 's'})` : '';
     const automatic = songs.reduce((n, s) => n + (s.reports || []).filter((r) => r.auto).length, 0);
-    const dismissAuto = $('adm-reports-dismiss-auto');
+    const dismissAuto = byId<HTMLButtonElement>('adm-reports-dismiss-auto');
     dismissAuto.hidden = !automatic;
     dismissAuto.disabled = false;
     dismissAuto.textContent = `Dismiss automatic (${automatic})`;
@@ -185,7 +186,7 @@ async function loadReports() {
         <div class="d-flex align-items-start gap-3 adm-item">
           <div class="min-w-0 flex-grow-1 adm-item-main">
             <div class="fw-medium text-break adm-item-title">${esc(s.title)} <span class="fg-3 fw-normal">— ${esc(s.artist)}</span>
-              <span class="badge badge-subtle theme-warning">Broken${s.report_count > 1 ? ` · ${s.report_count}` : ''}</span></div>
+              <span class="badge badge-subtle theme-warning">Broken${(s.report_count ?? 0) > 1 ? ` · ${s.report_count}` : ''}</span></div>
             <div class="fs-xs fg-3 text-break adm-item-sub">${s.youtube_id ? 'YouTube ' + esc(s.youtube_id) + ' · ' : ''}id ${esc(s.id)}</div>
           </div>
           <button class="btn btn-sm" data-play="${esc(s.id)}" type="button">${playLabel(s.id)}</button>
@@ -201,17 +202,17 @@ async function loadReports() {
         </ul>
       </li>`).join('');
   } catch (err) {
-    list.innerHTML = emptyRow(err.message);
+    list.innerHTML = emptyRow((err as Error).message);
   }
 }
 
 // --- library ----------------------------------------------------------------
-async function loadLibrary() {
-  const list = $('adm-library');
-  const q = $('adm-library-search').value.trim();
+async function loadLibrary(): Promise<void> {
+  const list = byId('adm-library');
+  const q = byId<HTMLInputElement>('adm-library-search').value.trim();
   try {
-    const { songs, total } = await api('GET', `/api/library?limit=500&q=${encodeURIComponent(q)}`);
-    $('adm-library-total').textContent = `(${total})`;
+    const { songs, total } = await api<LibraryListResponse>('GET', `/api/library?limit=500&q=${encodeURIComponent(q)}`);
+    byId('adm-library-total').textContent = `(${total})`;
     if (!songs.length) { list.innerHTML = emptyRow('No songs.'); return; }
     list.innerHTML = songs.map((s) => `
       <li class="list-group-item d-flex align-items-center gap-3 adm-item">
@@ -223,78 +224,78 @@ async function loadLibrary() {
         <button class="btn-outline theme-danger btn-sm" data-delete="${esc(s.id)}" data-title="${esc(s.title)}" type="button">Delete</button>
       </li>`).join('');
   } catch (err) {
-    list.innerHTML = emptyRow(err.message);
+    list.innerHTML = emptyRow((err as Error).message);
   }
 }
 
 // --- wiring -----------------------------------------------------------------
 let bound = false;
-function bindEvents() {
+function bindEvents(): void {
   if (bound) return;
   bound = true;
-  $('adm-workers-refresh').addEventListener('click', () => { loadWorkers(); loadJobs(); });
-  $('adm-job-status').addEventListener('change', loadJobs);
-  $('adm-jobs').addEventListener('click', async (e) => {
-    const btn = e.target.closest('[data-job-cancel], [data-job-retry]');
+  byId('adm-workers-refresh').addEventListener('click', () => { loadWorkers(); loadJobs(); });
+  byId('adm-job-status').addEventListener('change', loadJobs);
+  byId('adm-jobs').addEventListener('click', async (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-job-cancel], [data-job-retry]');
     if (!btn) return;
     btn.disabled = true;
-    const id = btn.dataset.jobCancel || btn.dataset.jobRetry;
+    const id = (btn.dataset.jobCancel || btn.dataset.jobRetry) as string;
     await api('POST', `/api/admin/jobs/${encodeURIComponent(id)}/${btn.dataset.jobCancel ? 'cancel' : 'retry'}`).catch(failToast('Could not update the job'));
     loadJobs();
   });
-  $('adm-tokens').addEventListener('click', async (e) => {
-    const btn = e.target.closest('[data-revoke]');
+  byId('adm-tokens').addEventListener('click', async (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-revoke]');
     if (!btn) return;
     const whose = btn.dataset.owner ? ` (${btn.dataset.owner})` : '';
     if (!confirm(`Revoke the token "${btn.dataset.name}"${whose}? The CLI using it stops working.`)) return;
-    await api('POST', `/api/admin/tokens/${encodeURIComponent(btn.dataset.revoke)}/revoke`).catch(failToast('Could not revoke'));
+    await api('POST', `/api/admin/tokens/${encodeURIComponent(btn.dataset.revoke as string)}/revoke`).catch(failToast('Could not revoke'));
     loadTokens();
   });
-  $('adm-request-status').addEventListener('change', loadRequests);
-  $('adm-requests').addEventListener('click', async (e) => {
-    const btn = e.target.closest('[data-dismiss]');
+  byId('adm-request-status').addEventListener('change', loadRequests);
+  byId('adm-requests').addEventListener('click', async (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-dismiss]');
     if (!btn) return;
     btn.disabled = true;
-    await api('POST', `/api/requests/${encodeURIComponent(btn.dataset.dismiss)}/dismiss`).catch(failToast('Could not dismiss'));
+    await api('POST', `/api/requests/${encodeURIComponent(btn.dataset.dismiss as string)}/dismiss`).catch(failToast('Could not dismiss'));
     loadRequests();
   });
-  $('adm-reports-refresh').addEventListener('click', loadReports);
-  $('adm-reports-dismiss-auto').addEventListener('click', async (e) => {
-    e.currentTarget.disabled = true;
+  byId('adm-reports-refresh').addEventListener('click', loadReports);
+  byId('adm-reports-dismiss-auto').addEventListener('click', async (e) => {
+    (e.currentTarget as HTMLButtonElement).disabled = true;
     await api('POST', '/api/admin/library/reports/dismiss-automatic').catch(failToast('Could not dismiss'));
     loadReports();
   });
-  $('adm-reports').addEventListener('click', async (e) => {
-    const play = e.target.closest('[data-play]');
-    if (play) { togglePreview(play.dataset.play); return; }
-    const one = e.target.closest('[data-dismiss-report]');
-    const all = e.target.closest('[data-dismiss-song]');
+  byId('adm-reports').addEventListener('click', async (e) => {
+    const play = (e.target as HTMLElement).closest<HTMLElement>('[data-play]');
+    if (play) { togglePreview(play.dataset.play as string); return; }
+    const one = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-dismiss-report]');
+    const all = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-dismiss-song]');
     if (!one && !all) return;
-    (one || all).disabled = true;
+    (one || all as HTMLButtonElement).disabled = true;
     const url = one
-      ? `/api/admin/library/reports/${encodeURIComponent(one.dataset.dismissReport)}/dismiss`
-      : `/api/admin/library/${encodeURIComponent(all.dataset.dismissSong)}/reports/dismiss`;
+      ? `/api/admin/library/reports/${encodeURIComponent(one.dataset.dismissReport as string)}/dismiss`
+      : `/api/admin/library/${encodeURIComponent((all as HTMLButtonElement).dataset.dismissSong as string)}/reports/dismiss`;
     await api('POST', url).catch(failToast('Could not dismiss'));
     loadReports();
   });
-  let searchTimer = null;
-  $('adm-library-search').addEventListener('input', () => {
+  let searchTimer: ReturnType<typeof setTimeout> | undefined;
+  byId('adm-library-search').addEventListener('input', () => {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(loadLibrary, 250);
   });
-  $('adm-library').addEventListener('click', async (e) => {
-    const play = e.target.closest('[data-play]');
-    if (play) { togglePreview(play.dataset.play); return; }
-    const btn = e.target.closest('[data-delete]');
+  byId('adm-library').addEventListener('click', async (e) => {
+    const play = (e.target as HTMLElement).closest<HTMLElement>('[data-play]');
+    if (play) { togglePreview(play.dataset.play as string); return; }
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-delete]');
     if (!btn) return;
     if (!confirm(`Delete "${btn.dataset.title}" from the library? The file is removed from the server.`)) return;
-    await api('DELETE', `/api/admin/library/${encodeURIComponent(btn.dataset.delete)}`).catch(failToast('Could not delete'));
+    await api('DELETE', `/api/admin/library/${encodeURIComponent(btn.dataset.delete as string)}`).catch(failToast('Could not delete'));
     loadLibrary();
     loadReports();
   });
 }
 
-export function startAdminSections({ unauthorized }) {
+export function startAdminSections({ unauthorized }: { unauthorized: () => void }): void {
   onUnauthorized = unauthorized;
   bindEvents();
   loadWorkers();
@@ -303,12 +304,12 @@ export function startAdminSections({ unauthorized }) {
   loadTokens();
   loadRequests();
   loadLibrary();
-  clearInterval(refreshTimer);
+  clearInterval(refreshTimer ?? undefined);
   refreshTimer = setInterval(() => { if (!document.hidden) { loadWorkers(); loadJobs(); loadReports(); } }, 10000);
 }
 
-export function stopAdminSections() {
-  clearInterval(refreshTimer);
+export function stopAdminSections(): void {
+  clearInterval(refreshTimer ?? undefined);
   refreshTimer = null;
   previewAudio.pause();
 }

@@ -115,13 +115,13 @@ describe('activity-rules: wording from codes, not from the downloader\'s text', 
     assert.equal(m.progressOf({ status: 'done', stage: 'uploading', percent: 99 }), null);
   });
   it('the in-progress count never writes to the profile\'s count badges', () => {
-    // profile-activity.js owns [data-activity-count="<tab>"]; activity.js once
+    // profile-activity.ts owns [data-activity-count="<tab>"]; activity.ts once
     // wrote (and hid) every [data-activity-count], profile tabs included.
     const read = (f: string) => fs.readFileSync(path.join(FRONTEND, f), 'utf8');
     const html = read('index.html');
     const bare = html.match(/data-activity-count(?!=)/g) || [];
     assert.equal(bare.length, 0, 'every data-activity-count names its profile tab');
     assert.match(html, /data-activity-active-count/);
-    assert.doesNotMatch(read('activity.js'), /querySelectorAll\(['"]\[data-activity-count\]/);
+    assert.doesNotMatch(read('src/features/social/activity.ts'), /querySelectorAll\(['"]\[data-activity-count\]/);
   });
 });

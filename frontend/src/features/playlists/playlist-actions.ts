@@ -1,12 +1,56 @@
 // Playlist actions shared by the landing rows and the playlist page header:
-// the ⋮ menu items (context-menu.js) and the Rename / Delete dialogs
+// the ⋮ menu items (context-menu.ts) and the Rename / Delete dialogs
 // (.app-modal, DESIGN.md "Modal dialogs"). Owner-only actions (Rename, Make
 // private / public, Delete) only appear for the owner (`canManage`); the
 // server enforces the same rule.
 //
 // pl = { id, name, visibility, canManage, songCount, pinnedByMe }
-import { escapeHtml, showToast, t, trapFocus, copyToClipboard } from './shared/ui.js';
-import { playlistPath } from './router.js';
+import { escapeHtml, showToast, t, trapFocus, copyToClipboard } from '../../shared/ui.ts';
+import { playlistPath } from '../../router.ts';
+import type { MenuItem } from '../../shared/context-menu.ts';
+import type { PlaylistSummary, Visibility } from '../../shared/types.ts';
+
+// A playlist as the menu and dialogs read it: a /api/playlists item, or the
+// playlist page's own { id, name, visibility, canManage } (lobby.js).
+export type PlaylistMenuTarget = Pick<PlaylistSummary, 'id' | 'name' | 'visibility' | 'canManage'>
+  & Partial<Pick<PlaylistSummary, 'songCount' | 'pinnedByMe'>>;
+
+// Where focus goes when a dialog closes: an element, or a function finding it
+// then (rows re-render).
+export type ReturnFocus = HTMLElement | null | (() => HTMLElement | null);
+
+export interface PlaylistMenuHooks {
+  onPlay?: () => void;
+  onTogglePin?: () => void;
+  /** PATCH /api/playlists/:id answer (index.js playlistInfo). */
+  onChanged?: (info: PlaylistSummary) => void;
+  onDeleted?: () => void;
+  returnFocus?: ReturnFocus;
+}
+
+// An api() failure: the server's `error` as message, plus the HTTP status.
+type ApiError = Error & { status?: number };
+
+interface DialogControl {
+  d: HTMLDivElement;
+  close(opts?: { restore?: boolean }): void;
+  error(msg: string | null | undefined): void;
+  busy(on: boolean): void;
+}
+
+interface DialogOptions {
+  id: string;
+  title: string;
+  body: string;
+  submitLabel: string;
+  submitClass: string;
+  busyLabel: string;
+  returnFocus?: ReturnFocus;
+  onSubmit: (c: DialogControl) => void | Promise<void>;
+  /** Selector of what gets focus first (else the submit button). */
+  focus?: string;
+  onClose?: (() => void) | null;
+}
 
 const MAX_NAME = 50;
 const CLOSE_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
@@ -19,19 +63,19 @@ const PIN_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"
 const PLAY_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
 
 /** The current visibility as a badge: "Private" (lock) only; public shows nothing. */
-export function privateBadgeHtml(extraClass = '') {
+export function privateBadgeHtml(extraClass = ''): string {
   return `<span class="badge badge-subtle theme-secondary playlist-private-badge ${extraClass}">${LOCK_SVG.replace('<svg ', '<svg class="icon-sm" ')}${escapeHtml(t('landing.private', 'Private'))}</span>`;
 }
 
-const api = (id, init) => fetch(`/api/playlists/${encodeURIComponent(id)}`, { credentials: 'same-origin', ...init })
+const api = <T = unknown>(id: string, init: RequestInit): Promise<T> => fetch(`/api/playlists/${encodeURIComponent(id)}`, { credentials: 'same-origin', ...init })
   .then(async (res) => {
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) { const err = new Error(body.error || 'Request failed'); err.status = res.status; throw err; }
+    const body = await res.json().catch(() => ({})) as T & { error?: string };
+    if (!res.ok) { const err: ApiError = new Error(body.error || 'Request failed'); err.status = res.status; throw err; }
     return body;
   });
 
-export function setPlaylistVisibility(id, visibility) {
-  return api(id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ visibility }) })
+export function setPlaylistVisibility(id: string, visibility: Visibility): Promise<PlaylistSummary | null> {
+  return api<PlaylistSummary>(id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ visibility }) })
     .catch(() => { showToast(t('lobbyVisibilityError', 'Failed to update visibility'), 'error'); return null; });
 }
 
@@ -39,9 +83,9 @@ export function setPlaylistVisibility(id, visibility) {
  * ⋮ menu items for a playlist.
  * hooks: { onPlay?, onTogglePin?, onChanged(info), onDeleted(), returnFocus }
  */
-export function playlistMenuItems(pl, hooks = {}) {
-  const items = [];
-  if (hooks.onPlay && pl.songCount > 0) items.push({ label: t('playlistMenu.play', 'Play'), icon: PLAY_SVG, onSelect: hooks.onPlay });
+export function playlistMenuItems(pl: PlaylistMenuTarget, hooks: PlaylistMenuHooks = {}): MenuItem[] {
+  const items: MenuItem[] = [];
+  if (hooks.onPlay && (pl.songCount as number) > 0) items.push({ label: t('playlistMenu.play', 'Play'), icon: PLAY_SVG, onSelect: hooks.onPlay });
   if (hooks.onTogglePin) {
     items.push({ label: pl.pinnedByMe ? t('sidebar.unpin', 'Unpin playlist') : t('lobby.pinPlaylist', 'Pin playlist'), icon: PIN_SVG, onSelect: hooks.onTogglePin });
   }
@@ -70,7 +114,7 @@ export function playlistMenuItems(pl, hooks = {}) {
 
 // ------------------------------------------------------------- dialogs
 
-function openDialog({ id, title, body, submitLabel, submitClass, busyLabel, returnFocus, onSubmit, focus, onClose = null }) {
+function openDialog({ id, title, body, submitLabel, submitClass, busyLabel, returnFocus, onSubmit, focus, onClose = null }: DialogOptions): DialogControl {
   document.getElementById(id)?.remove();
   const d = document.createElement('div');
   d.id = id;
@@ -78,7 +122,7 @@ function openDialog({ id, title, body, submitLabel, submitClass, busyLabel, retu
   d.setAttribute('role', 'dialog');
   d.setAttribute('aria-modal', 'true');
   d.setAttribute('aria-labelledby', `${id}-title`);
-  const back = returnFocus || document.activeElement;
+  const back = returnFocus || document.activeElement as HTMLElement | null;
   d.innerHTML = `<form class="card app-modal-card" novalidate>
     <div class="card-header d-flex flex-row align-items-center justify-content-between gap-2">
       <h2 id="${id}-title" class="h6 mb-0">${escapeHtml(title)}</h2>
@@ -91,17 +135,17 @@ function openDialog({ id, title, body, submitLabel, submitClass, busyLabel, retu
     </div>
   </form>`;
   document.body.appendChild(d);
-  const close = ({ restore = true } = {}) => {
+  const close = ({ restore = true }: { restore?: boolean } = {}) => {
     if (!d.isConnected) return;
     d.remove();
     const target = typeof back === 'function' ? back() : back;
     if (restore && target && document.contains(target)) target.focus({ preventScroll: true });
     if (onClose) onClose();
   };
-  const form = d.querySelector('form');
-  const submit = d.querySelector('[data-dialog-submit]');
-  const errEl = d.querySelector('[data-dialog-error]');
-  const ctl = {
+  const form = d.querySelector('form') as HTMLFormElement;
+  const submit = d.querySelector('[data-dialog-submit]') as HTMLButtonElement;
+  const errEl = d.querySelector('[data-dialog-error]') as HTMLElement;
+  const ctl: DialogControl = {
     d, close,
     error(msg) { errEl.textContent = msg || ''; errEl.hidden = !msg; },
     busy(on) { submit.disabled = on; submit.textContent = on ? busyLabel : submitLabel; form.setAttribute('aria-busy', String(on)); },
@@ -113,11 +157,11 @@ function openDialog({ id, title, body, submitLabel, submitClass, busyLabel, retu
     trapFocus(d, e);
   });
   form.addEventListener('submit', (e) => { e.preventDefault(); if (!submit.disabled) onSubmit(ctl); });
-  (focus ? d.querySelector(focus) : submit).focus();
+  (focus ? d.querySelector(focus) as HTMLElement : submit).focus();
   return ctl;
 }
 
-export function openRenameDialog(pl, hooks = {}) {
+export function openRenameDialog(pl: PlaylistMenuTarget, hooks: PlaylistMenuHooks = {}): void {
   const ctl = openDialog({
     id: 'rename-playlist-dialog',
     title: t('lobby.renamePlaylist', 'Rename playlist'),
@@ -130,28 +174,29 @@ export function openRenameDialog(pl, hooks = {}) {
     returnFocus: hooks.returnFocus,
     focus: '#rename-playlist-name',
     onSubmit: async (c) => {
-      const input = c.d.querySelector('#rename-playlist-name');
-      const fieldErr = c.d.querySelector('#rename-playlist-error');
-      const fail = (msg) => { fieldErr.textContent = msg; input.classList.add('is-invalid'); input.setAttribute('aria-invalid', 'true'); input.focus(); };
+      const input = c.d.querySelector('#rename-playlist-name') as HTMLInputElement;
+      const fieldErr = c.d.querySelector('#rename-playlist-error') as HTMLElement;
+      const fail = (msg: string) => { fieldErr.textContent = msg; input.classList.add('is-invalid'); input.setAttribute('aria-invalid', 'true'); input.focus(); };
       const name = input.value.trim();
       if (!name) return fail(t('landing.nameRequired', 'Give the playlist a name.'));
       if (name === pl.name) return c.close();
       c.busy(true);
       try {
-        const info = await api(pl.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+        const info = await api<PlaylistSummary>(pl.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
         c.close();
         if (hooks.onChanged) hooks.onChanged(info);
-      } catch (err) {
+      } catch (e) {
+        const err = e as ApiError;
         c.busy(false);
         if (err.status === 400 || err.status === 409) fail(err.message);
         else c.error(err.message || t('error.generic', 'Something went wrong'));
       }
     },
   });
-  ctl.d.querySelector('#rename-playlist-name').select();
+  (ctl.d.querySelector('#rename-playlist-name') as HTMLInputElement).select();
 }
 
-export function openDeleteDialog(pl, hooks = {}) {
+export function openDeleteDialog(pl: PlaylistMenuTarget, hooks: PlaylistMenuHooks = {}): void {
   const name = pl.name || pl.id;
   openDialog({
     id: 'delete-playlist-dialog',
@@ -172,7 +217,7 @@ export function openDeleteDialog(pl, hooks = {}) {
         if (hooks.onDeleted) hooks.onDeleted();
       } catch (err) {
         c.busy(false);
-        c.error(err.message || t('lobbyDeleteError', 'Failed to delete playlist'));
+        c.error((err as Error).message || t('lobbyDeleteError', 'Failed to delete playlist'));
       }
     },
   });
@@ -182,7 +227,7 @@ export function openDeleteDialog(pl, hooks = {}) {
  * A yes / no question in the usual dialog: resolves true when confirmed, false
  * on Cancel, ×, Escape or a click outside. Cancel has focus first (the safe choice).
  */
-export function confirmDialog({ title, message, confirmLabel, returnFocus = null }) {
+export function confirmDialog({ title, message, confirmLabel, returnFocus = null }: { title: string; message: string; confirmLabel: string; returnFocus?: ReturnFocus }): Promise<boolean> {
   return new Promise((resolve) => {
     let answer = false;
     openDialog({

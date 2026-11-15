@@ -4,41 +4,57 @@
 // how it went (newPlaylistCreated / newPlaylistFailed). options.create replaces
 // that: it is awaited and the dialog closes without opening the new playlist
 // ("Add to playlist" in the song menu, which must not leave the page).
-import { state, socket } from './shared/state.js';
-import { escapeHtml, t, trapFocus } from './shared/ui.js';
-import { player } from './player/player.js';
+import { state, socket } from '../../shared/state.ts';
+import { escapeHtml, t, trapFocus } from '../../shared/ui.ts';
+import { player } from '../../player/player.ts';
+import { maybeById } from '../../shared/dom.ts';
+import type { Visibility } from '../../shared/types.ts';
+
+/** options.create: called with the form's fields instead of lobby:create. */
+export type CreatePlaylistFn = (fields: { name: string; visibility: Visibility }) => Promise<unknown>;
+
+export interface NewPlaylistOptions {
+  create?: CreatePlaylistFn | null;
+  submitLabel?: string | null;
+}
+
+// The overlay keeps where focus goes back to and its submit label on itself.
+type NewPlaylistDialog = HTMLDivElement & {
+  _returnFocus?: HTMLElement | null;
+  _submitLabel?: string | null;
+};
 
 const MAX_NAME = 50;
 let pending = false;
 
-const dialogEl = () => document.getElementById('new-playlist-dialog');
+const dialogEl = () => maybeById<NewPlaylistDialog>('new-playlist-dialog');
 
-export function isNewPlaylistPending() {
+export function isNewPlaylistPending(): boolean {
   return pending && !!dialogEl();
 }
 
-export function closeNewPlaylistDialog() {
+export function closeNewPlaylistDialog(): void {
   const d = dialogEl();
   pending = false;
   if (!d) return;
   const back = d._returnFocus;
   d.remove();
   // The empty-state button may have been re-rendered meanwhile.
-  const target = back && document.contains(back) ? back : (back ? document.getElementById('new-playlist-btn') : null);
+  const target = back && document.contains(back) ? back : (back ? maybeById('new-playlist-btn') : null);
   if (target) target.focus({ preventScroll: true });
 }
 
-export function openNewPlaylistDialog(returnFocus = null, { create = null, submitLabel = null } = {}) {
+export function openNewPlaylistDialog(returnFocus: HTMLElement | null = null, { create = null, submitLabel = null }: NewPlaylistOptions = {}): void {
   closeNewPlaylistDialog();
-  const d = document.createElement('div');
+  const d = document.createElement('div') as NewPlaylistDialog;
   d.id = 'new-playlist-dialog';
   d.className = 'app-modal new-playlist-overlay';
   d.setAttribute('role', 'dialog');
   d.setAttribute('aria-modal', 'true');
   d.setAttribute('aria-labelledby', 'new-playlist-title');
-  d._returnFocus = returnFocus || document.activeElement;
+  d._returnFocus = returnFocus || document.activeElement as HTMLElement | null;
   d._submitLabel = submitLabel;
-  const radio = (value, label, hint, checked) => `<label class="d-flex gap-3 align-items-start new-playlist-choice">
+  const radio = (value: Visibility, label: string, hint: string, checked: boolean) => `<label class="d-flex gap-3 align-items-start new-playlist-choice">
           <input type="radio" class="radio" name="new-playlist-visibility" value="${value}"${checked ? ' checked' : ''}>
           <span><span class="d-block fw-medium">${escapeHtml(label)}</span><span class="d-block fs-sm fg-3">${escapeHtml(hint)}</span></span>
         </label>`;
@@ -70,11 +86,11 @@ export function openNewPlaylistDialog(returnFocus = null, { create = null, submi
   </form>`;
   document.body.appendChild(d);
 
-  const form = d.querySelector('form');
-  const input = d.querySelector('#new-playlist-name');
-  const count = d.querySelector('#new-playlist-count');
-  const fieldErr = d.querySelector('#new-playlist-name-error');
-  const showFieldError = (msg) => {
+  const form = d.querySelector('form') as HTMLFormElement;
+  const input = d.querySelector('#new-playlist-name') as HTMLInputElement;
+  const count = d.querySelector('#new-playlist-count') as HTMLElement;
+  const fieldErr = d.querySelector('#new-playlist-name-error') as HTMLElement;
+  const showFieldError = (msg: string) => {
     fieldErr.textContent = msg || '';
     input.classList.toggle('is-invalid', !!msg);
     input.setAttribute('aria-invalid', msg ? 'true' : 'false');
@@ -83,8 +99,8 @@ export function openNewPlaylistDialog(returnFocus = null, { create = null, submi
     count.textContent = `${input.value.length}/${MAX_NAME}`;
     if (input.value.trim()) showFieldError('');
   });
-  d.querySelector('.new-playlist-close').addEventListener('click', closeNewPlaylistDialog);
-  d.querySelector('.new-playlist-cancel').addEventListener('click', closeNewPlaylistDialog);
+  (d.querySelector('.new-playlist-close') as HTMLElement).addEventListener('click', closeNewPlaylistDialog);
+  (d.querySelector('.new-playlist-cancel') as HTMLElement).addEventListener('click', closeNewPlaylistDialog);
   d.addEventListener('click', (e) => { if (e.target === d) closeNewPlaylistDialog(); });
   d.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { e.stopPropagation(); closeNewPlaylistDialog(); return; }
@@ -96,10 +112,10 @@ export function openNewPlaylistDialog(returnFocus = null, { create = null, submi
     const name = input.value.trim();
     if (!name) { showFieldError(t('landing.nameRequired', 'Give the playlist a name.')); input.focus(); return; }
     if (name.length > MAX_NAME) { showFieldError(t('error.nameTooLong', `Name must be ${MAX_NAME} characters or less`)); input.focus(); return; }
-    const visibility = form.elements['new-playlist-visibility'].value === 'private' ? 'private' : 'public';
+    const visibility = (form.elements.namedItem('new-playlist-visibility') as RadioNodeList).value === 'private' ? 'private' : 'public';
     setBusy(true);
     if (create) {
-      create({ name, visibility }).then(closeNewPlaylistDialog, (err) => newPlaylistFailed(err.message));
+      create({ name, visibility }).then(closeNewPlaylistDialog, (err: Error) => newPlaylistFailed(err.message));
       return;
     }
     socket.emit('lobby:create', { username: state.username, emoji: state.emoji, name, visibility, userId: state.userId, asViewer: !!player.context });
@@ -107,20 +123,20 @@ export function openNewPlaylistDialog(returnFocus = null, { create = null, submi
   input.focus();
 }
 
-function setBusy(busy) {
+function setBusy(busy: boolean): void {
   pending = busy;
   const d = dialogEl();
   if (!d) return;
-  const submit = d.querySelector('.new-playlist-submit');
+  const submit = d.querySelector('.new-playlist-submit') as HTMLButtonElement;
   submit.disabled = busy;
   submit.textContent = busy ? t('landing.creating', 'Creating…') : (d._submitLabel || t('landing.createPlaylist', 'Create playlist'));
-  d.querySelector('form').setAttribute('aria-busy', String(busy));
-  if (busy) d.querySelector('.new-playlist-error').hidden = true;
+  (d.querySelector('form') as HTMLFormElement).setAttribute('aria-busy', String(busy));
+  if (busy) (d.querySelector('.new-playlist-error') as HTMLElement).hidden = true;
 }
 
 // lobby:created arrived: the caller navigates; just close (no focus return,
 // the view changes).
-export function newPlaylistCreated() {
+export function newPlaylistCreated(): void {
   const d = dialogEl();
   if (d) d._returnFocus = null;
   closeNewPlaylistDialog();
@@ -128,19 +144,19 @@ export function newPlaylistCreated() {
 
 // lobby:error while creating: show it in the dialog. A name clash goes under
 // the name field, anything else in the alert.
-export function newPlaylistFailed(message) {
+export function newPlaylistFailed(message: string | null | undefined): void {
   setBusy(false);
   const d = dialogEl();
   if (!d) return;
-  const input = d.querySelector('#new-playlist-name');
+  const input = d.querySelector('#new-playlist-name') as HTMLInputElement;
   if (/name/i.test(message || '')) {
-    d.querySelector('#new-playlist-name-error').textContent = message;
+    (d.querySelector('#new-playlist-name-error') as HTMLElement).textContent = message as string;
     input.classList.add('is-invalid');
     input.setAttribute('aria-invalid', 'true');
     input.focus();
     input.select();
   } else {
-    const err = d.querySelector('.new-playlist-error');
+    const err = d.querySelector('.new-playlist-error') as HTMLElement;
     err.textContent = message || t('error.generic', 'Something went wrong');
     err.hidden = false;
   }

@@ -8,8 +8,36 @@
 //   title, artist, album   "Save"               saved now; the audio is untouched
 //   nothing                disabled
 // The server enforces every rule again (backend/src/jobRoutes.js, libraryRoutes.js).
-import { showToast, trapFocus, formatDuration, t } from './shared/ui.js';
-import { jobStatusText, onJobChange, handleJobUpdate } from './jobs.js';
+import { showToast, trapFocus, formatDuration, t } from '../../shared/ui.ts';
+import { jobStatusText, onJobChange, handleJobUpdate } from './jobs.ts';
+import type { WorkerCounts } from './jobs.ts';
+import type {
+  ApiError, DownloadJob, JobStatus, LibrarySong, LibrarySongResponse, ReplaceJobState, ReplacePreviewResponse, WorkerStats,
+} from '../../shared/types.ts';
+
+/** GET /api/jobs/replace/:songId, or the start value before (or without) it. */
+type ReplaceJobInfo = Omit<ReplaceJobState, 'workers'> & { workers: WorkerStats | null };
+
+/** What the fields hold now. */
+interface Values {
+  title: string;
+  artist: string;
+  album: string;
+  link: string;
+  file: File | null;
+}
+
+/** What the primary button does (the top of the file). */
+type Mode = 'file' | 'link' | 'details' | 'none';
+
+/** The preview of a new link (POST /api/jobs/replace/preview), or "could not look it up". */
+type LinkPreview = ReplacePreviewResponse | { resolved: false; problem: null };
+
+type LinkLookup =
+  | { state: 'idle'; link: null; data: null }
+  | { state: 'pending'; link: string; data: null }
+  | { state: 'done'; link: string; data: LinkPreview }
+  | { state: 'bad'; link: string; data: null; message: string };
 
 const CLOSE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
 const OPEN_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>';
@@ -17,81 +45,81 @@ const OPEN_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="tru
 const LOOKUP_DELAY_MS = 400;
 const FAILED_JOB_SHOWN_MS = 24 * 3600 * 1000;
 
-function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function escapeHtml(value: unknown): string {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c]);
 }
 
-const squeeze = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+const squeeze = (value: unknown): string => String(value ?? '').replace(/\s+/g, ' ').trim();
 
-function youtubeIdFromUrl(url) {
+function youtubeIdFromUrl(url: string): string | null {
   const m = /(?:[?&]v=|youtu\.be\/|\/shorts\/|\/embed\/)([A-Za-z0-9_-]{11})/.exec(String(url || ''));
   return m ? m[1] : (/^[A-Za-z0-9_-]{11}$/.test(String(url || '')) ? url : null);
 }
 
-function currentLink(song) {
+function currentLink(song: LibrarySong): string {
   return song.source_url || (song.youtube_id ? `https://www.youtube.com/watch?v=${song.youtube_id}` : '');
 }
 
 /** The real, openable link, or null (only http(s) ever becomes an href). */
-function safeHref(url) {
+function safeHref(url: string): string | null {
   try {
     const u = new URL(url);
     return u.protocol === 'https:' || u.protocol === 'http:' ? u.href : null;
   } catch { return null; }
 }
 
-function percentOf(job) {
+function percentOf(job: DownloadJob): number | null {
   const m = /(\d{1,3})%\s*$/.exec(job.progress || '');
   return job.status === 'assigned' && m ? Math.min(100, Number(m[1])) : null;
 }
 
-const JOB_THEME = { queued: 'theme-warning', assigned: 'theme-primary', done: 'theme-success', failed: 'theme-danger', cancelled: 'theme-secondary' };
+const JOB_THEME: Readonly<Record<JobStatus, string>> = { queued: 'theme-warning', assigned: 'theme-primary', done: 'theme-success', failed: 'theme-danger', cancelled: 'theme-secondary' };
 
-function showableJob(job) {
+function showableJob(job: DownloadJob | null | undefined): DownloadJob | null {
   if (!job) return null;
   if (job.status === 'queued' || job.status === 'assigned') return job;
   if (job.status === 'failed' && Date.now() - Date.parse(job.finished_at || job.created_at) < FAILED_JOB_SHOWN_MS) return job;
   return null;
 }
 
-let closeOpen = null;
+let closeOpen: (() => void) | null = null;
 
-export function closeReplaceDialog() {
+export function closeReplaceDialog(): void {
   if (closeOpen) closeOpen();
 }
 
 /** Open the dialog for a library song. returnFocus gets focus back on close. */
-export async function openReplaceDialog({ songId, returnFocus = null }) {
+export async function openReplaceDialog({ songId, returnFocus = null }: { songId: string; returnFocus?: HTMLElement | null }): Promise<void> {
   closeReplaceDialog();
-  const back = returnFocus || document.activeElement;
-  let song;
-  let jobInfo = { job: null, active: false, workers: null };
+  const back = (returnFocus || document.activeElement) as HTMLElement | null;
+  let song: LibrarySong;
+  let jobInfo: ReplaceJobInfo = { job: null, active: false, workers: null };
   try {
     const [songRes, jobRes] = await Promise.all([
       fetch(`/api/library/${encodeURIComponent(songId)}`, { credentials: 'same-origin' }),
       fetch(`/api/jobs/replace/${encodeURIComponent(songId)}`, { credentials: 'same-origin' }).catch(() => null),
     ]);
-    const data = await songRes.json().catch(() => ({}));
+    const data = await songRes.json().catch(() => ({})) as Partial<LibrarySongResponse & ApiError>;
     if (!songRes.ok || !data.song) throw new Error(data.error || `HTTP ${songRes.status}`);
     song = data.song;
-    if (jobRes && jobRes.ok) jobInfo = await jobRes.json();
+    if (jobRes && jobRes.ok) jobInfo = await jobRes.json() as ReplaceJobState;
   } catch (err) {
-    showToast(`Could not open the song: ${err.message}`, 'error');
+    showToast(`Could not open the song: ${(err as Error).message}`, 'error');
     return;
   }
   renderDialog(song, jobInfo, back);
 }
 
-function renderDialog(initial, jobInfo, back) {
+function renderDialog(initial: LibrarySong, jobInfo: ReplaceJobInfo, back: HTMLElement | null): void {
   let song = initial;
   let job = showableJob(jobInfo.job);
   let someoneElseActive = !!jobInfo.active && !(job && (job.status === 'queued' || job.status === 'assigned'));
-  let finishedNote = null;
-  let workers = jobInfo.workers;
+  let finishedNote: string | null = null;
+  let workers: WorkerCounts | null = jobInfo.workers;
   let baseline = { title: squeeze(song.title), artist: squeeze(song.artist), album: squeeze(song.album), link: currentLink(song) };
-  let busy = false;
-  let lookup = { state: 'idle', link: null, data: null }; // idle | pending | done | bad
-  let lookupTimer = null;
+  let busy: string | false = false;
+  let lookup: LinkLookup = { state: 'idle', link: null, data: null }; // idle | pending | done | bad
+  let lookupTimer: ReturnType<typeof setTimeout> | undefined = undefined;
   let lookupSeq = 0;
 
   const reports = song.reports || [];
@@ -137,11 +165,12 @@ function renderDialog(initial, jobInfo, back) {
   </form>`;
   document.body.appendChild(dialog);
 
-  const $ = (sel) => dialog.querySelector(sel);
-  const fields = { title: $('#replace-song-title'), artist: $('#replace-artist'), album: $('#replace-album'), link: $('#replace-source'), file: $('#replace-file') };
-  const submit = $('.replace-submit');
+  // The dialog's own markup above: every lookup finds its element.
+  const $ = <T extends HTMLElement = HTMLElement>(sel: string): T => dialog.querySelector<T>(sel) as T;
+  const fields = { title: $<HTMLInputElement>('#replace-song-title'), artist: $<HTMLInputElement>('#replace-artist'), album: $<HTMLInputElement>('#replace-album'), link: $<HTMLInputElement>('#replace-source'), file: $<HTMLInputElement>('#replace-file') };
+  const submit = $<HTMLButtonElement>('.replace-submit');
   const err = $('.replace-error');
-  const showError = (msg) => { err.textContent = msg; err.hidden = !msg; };
+  const showError = (msg: string) => { err.textContent = msg; err.hidden = !msg; };
 
   function fill() {
     $('.replace-song-name').textContent = `${song.title}${song.artist ? ` — ${song.artist}` : ''}`;
@@ -149,29 +178,29 @@ function renderDialog(initial, jobInfo, back) {
     fields.artist.value = song.artist || '';
     fields.album.value = song.album || '';
     fields.link.value = currentLink(song);
-    const open = $('.replace-open');
+    const open = $<HTMLAnchorElement>('.replace-open');
     const href = safeHref(currentLink(song));
     open.hidden = !href;
     if (href) open.href = href; else open.removeAttribute('href');
   }
 
-  function values() {
+  function values(): Values {
     return {
       title: squeeze(fields.title.value),
       artist: squeeze(fields.artist.value),
       album: squeeze(fields.album.value),
       link: fields.link.value.trim(),
-      file: fields.file.files[0] || null,
+      file: (fields.file.files as FileList)[0] || null,
     };
   }
 
-  const linkId = (link) => youtubeIdFromUrl(link);
+  const linkId = (link: string) => youtubeIdFromUrl(link);
   // The same video in other words (a youtu.be link, an added &t=) is no change.
-  const linkChanged = (v) => !!v.link && v.link !== baseline.link && !(linkId(v.link) && linkId(v.link) === (song.youtube_id || linkId(baseline.link)));
-  const sameVideoTyped = (v) => !!v.link && v.link !== baseline.link && !linkChanged(v);
-  const detailsChanged = (v) => v.title !== baseline.title || v.artist !== baseline.artist || v.album !== baseline.album;
+  const linkChanged = (v: Values) => !!v.link && v.link !== baseline.link && !(linkId(v.link) && linkId(v.link) === (song.youtube_id || linkId(baseline.link)));
+  const sameVideoTyped = (v: Values) => !!v.link && v.link !== baseline.link && !linkChanged(v);
+  const detailsChanged = (v: Values) => v.title !== baseline.title || v.artist !== baseline.artist || v.album !== baseline.album;
 
-  function mode(v) {
+  function mode(v: Values): Mode {
     if (v.file) return 'file';
     if (linkChanged(v)) return 'link';
     if (detailsChanged(v)) return 'details';
@@ -181,7 +210,7 @@ function renderDialog(initial, jobInfo, back) {
   const hasActiveJob = () => !!(job && (job.status === 'queued' || job.status === 'assigned'));
 
   /** What stops the button, as a message for the link note (or '' when only disabled). */
-  function linkProblem(v) {
+  function linkProblem(v: Values): string | null {
     if (lookup.link !== v.link) return null;
     if (lookup.state === 'bad') return lookup.message;
     if (lookup.state === 'done' && lookup.data.problem) return lookup.data.problem.message;
@@ -197,14 +226,14 @@ function renderDialog(initial, jobInfo, back) {
       || (m === 'link' && (hasActiveJob() || someoneElseActive || !!linkProblem(v)))
       || (m === 'file' && job && job.status === 'assigned');
     submit.disabled = !!busy || !!blocked;
-    for (const [el, value] of [[fields.title, v.title], [fields.artist, v.artist]]) {
+    for (const [el, value] of [[fields.title, v.title], [fields.artist, v.artist]] as [HTMLInputElement, string][]) {
       if (value) el.removeAttribute('aria-invalid'); else el.setAttribute('aria-invalid', 'true');
     }
     renderLinkNote(v, m);
     renderJob();
   }
 
-  function renderLinkNote(v, m) {
+  function renderLinkNote(v: Values, m: Mode) {
     const note = $('.replace-link-note');
     const warning = $('.replace-link-warning');
     let text = '';
@@ -286,7 +315,8 @@ function renderDialog(initial, jobInfo, back) {
           method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ song_id: song.id, input: v.link }),
         });
-        const data = await res.json().catch(() => ({}));
+        // The preview when ok, an ApiError when not.
+        const data = await res.json().catch(() => ({})) as ReplacePreviewResponse & Partial<ApiError>;
         if (seq !== lookupSeq) return;
         if (res.ok) {
           if (data.problem && data.problem.code === 'BAD_INPUT') data.problem.message = 'Only a YouTube video can be downloaded. To keep this link as a label, choose a file.';
@@ -310,7 +340,7 @@ function renderDialog(initial, jobInfo, back) {
     try {
       const res = await fetch(`/api/library/${encodeURIComponent(song.id)}`, { credentials: 'same-origin' });
       if (!res.ok) return;
-      const data = await res.json();
+      const data = await res.json() as LibrarySongResponse;
       song = data.song;
       baseline = { title: squeeze(song.title), artist: squeeze(song.artist), album: squeeze(song.album), link: currentLink(song) };
       fill();
@@ -355,43 +385,46 @@ function renderDialog(initial, jobInfo, back) {
   $('.replace-cancel').addEventListener('click', close);
   dialog.addEventListener('click', (e) => {
     if (e.target === dialog) close();
-    if (e.target.closest('.replace-job-cancel')) cancelJob(e.target.closest('.replace-job-cancel'));
+    if ((e.target as Element).closest('.replace-job-cancel')) cancelJob((e.target as Element).closest('.replace-job-cancel') as HTMLButtonElement);
   });
   dialog.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { e.stopPropagation(); close(); return; }
     trapFocus(dialog, e);
   });
 
-  async function cancelJob(btn) {
+  async function cancelJob(btn: HTMLButtonElement) {
     btn.disabled = true;
     try {
-      const res = await fetch(`/api/jobs/${encodeURIComponent(job.id)}/cancel`, { method: 'POST', credentials: 'same-origin' });
-      const data = await res.json().catch(() => ({}));
+      // The button is there only while the job waits.
+      const res = await fetch(`/api/jobs/${encodeURIComponent((job as DownloadJob).id)}/cancel`, { method: 'POST', credentials: 'same-origin' });
+      const data = await res.json().catch(() => ({})) as Partial<{ job: DownloadJob } & ApiError>;
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       handleJobUpdate({ job: data.job });
     } catch (ex) {
-      showError(ex.message);
+      showError((ex as Error).message);
       btn.disabled = false;
     }
   }
 
-  async function saveDetails(v) {
+  async function saveDetails(v: Values) {
     const res = await fetch(`/api/library/${encodeURIComponent(song.id)}`, {
       method: 'PATCH', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title: v.title, artist: v.artist, album: v.album }),
     });
-    const data = await res.json().catch(() => ({}));
+    // The song when ok, an ApiError when not.
+    const data = await res.json().catch(() => ({})) as LibrarySongResponse & Partial<ApiError>;
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     close();
     showToast(`Saved “${data.song.title}”`, 'success');
   }
 
-  async function replaceFromLink(v) {
+  async function replaceFromLink(v: Values) {
     const res = await fetch('/api/jobs/replace', {
       method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ song_id: song.id, input: v.link, title: v.title, artist: v.artist, album: v.album }),
     });
-    const data = await res.json().catch(() => ({}));
+    // { job, workers } when ok (jobRoutes POST /api/jobs/replace), an ApiError when not.
+    const data = await res.json().catch(() => ({})) as { job: DownloadJob; workers: WorkerStats } & Partial<ApiError>;
     if (!res.ok) {
       if (data.code === 'replace_job_active') someoneElseActive = !hasActiveJob();
       throw new Error(data.error || `HTTP ${res.status}`);
@@ -404,7 +437,7 @@ function renderDialog(initial, jobInfo, back) {
     handleJobUpdate({ job: data.job, workers: data.workers });
   }
 
-  async function uploadFile(v) {
+  async function uploadFile(v: Values & { file: File }) {
     if (!/\.(m4a|opus)$/i.test(v.file.name)) throw new Error('Only .m4a (AAC) and .opus (Opus) files are accepted.');
     if (v.link && !/^https?:\/\//i.test(v.link)) throw new Error('The source link must start with http:// or https://');
     const fd = new FormData();
@@ -418,7 +451,8 @@ function renderDialog(initial, jobInfo, back) {
       if (yt) fd.append('youtube_id', yt);
     }
     const res = await fetch(`/api/library/${encodeURIComponent(song.id)}/replace`, { method: 'POST', body: fd, credentials: 'same-origin' });
-    const data = await res.json().catch(() => ({}));
+    // The song when ok; an ApiError when not, with the other song on a duplicate.
+    const data = await res.json().catch(() => ({})) as LibrarySongResponse & Partial<ApiError>;
     if (!res.ok) {
       const other = data.song && data.song.id !== song.id ? ` (“${data.song.title}”${data.song.artist ? ` by ${data.song.artist}` : ''})` : '';
       throw new Error((data.error || `HTTP ${res.status}`) + other);
@@ -427,7 +461,7 @@ function renderDialog(initial, jobInfo, back) {
     showToast(`Replaced the audio of “${data.song.title}”`, 'success');
   }
 
-  $('form').addEventListener('submit', async (e) => {
+  $<HTMLFormElement>('form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const v = values();
     const m = mode(v);
@@ -436,11 +470,11 @@ function renderDialog(initial, jobInfo, back) {
     busy = { file: 'Uploading…', link: 'Queuing…', details: 'Saving…' }[m];
     refresh();
     try {
-      if (m === 'file') await uploadFile(v);
+      if (m === 'file') await uploadFile(v as Values & { file: File }); // mode 'file': a file is chosen
       else if (m === 'link') await replaceFromLink(v);
       else await saveDetails(v);
     } catch (ex) {
-      showError(`Could not ${m === 'details' ? 'save' : 'replace'}: ${ex.message}`);
+      showError(`Could not ${m === 'details' ? 'save' : 'replace'}: ${(ex as Error).message}`);
     }
     busy = false;
     if (closeOpen === close) refresh();

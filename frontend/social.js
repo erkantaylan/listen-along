@@ -20,7 +20,7 @@ import { player } from './player/player.js';
 import { storageGet, storageSet } from './shared/state.js';
 import { navigateTo, showToast, t } from './shared/ui.js';
 import { openContextMenu, closeContextMenu, updateContextMenu } from './shared/context-menu.js';
-import { setupActivity, setActivityVisible } from './activity.js';
+import { setupActivity, setActivityVisible } from './features/social/activity.js';
 
 const DESKTOP = `(min-width: ${DOCK_MIN}px)`;
 const COLLAPSED_KEY = 'listen-socialCollapsed';

@@ -5,11 +5,11 @@ import { state } from './shared/state.js';
 import { showToast, formatDuration, notifyViewChange } from './shared/ui.js';
 import { libraryPath, basePath } from './router.js';
 import { player } from './player/player.js';
-import { setupDownloads, showDownloads, hideDownloads } from './jobs.js';
+import { setupDownloads, showDownloads, hideDownloads } from './features/library/jobs.js';
 import { clearReplacedFailure } from './playback-failures.js';
 import { bindSongMenu, songMenuButtonHtml, reportIconHtml, reportLines, reportsFor, onReportsChange, reportedCount, reportsLoaded, handleReportsUpdated, isReportDialogOpen } from './song-reports.js';
 import { isContextMenuOpen } from './shared/context-menu.js';
-import { openReplaceDialog } from './replace-dialog.js';
+import { openReplaceDialog } from './features/library/replace-dialog.js';
 import { addSongToPlaylist } from './add-to-playlist.js';
 
 // Escapes for both text and attribute contexts (ui.js escapeHtml leaves quotes).

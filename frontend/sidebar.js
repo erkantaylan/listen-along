@@ -13,11 +13,11 @@ import { PLAYLIST_FILTERS, PLAYLIST_SORTS, arrangePlaylists, playlistCoverIndex,
 import { player } from './player/player.js';
 import { applyColumns, isSidebarRail, setupPanelWidths, toggleSidebarRail } from './shared/panel-widths.js';
 import { storageGet, storageSet } from './shared/state.js';
-import { getPlaylist, getPlaylists, isLoaded, loadPlaylists, onPlaylists, togglePlaylistPin } from './playlist-store.js';
-import { LOCK_SVG, playlistMenuItems } from './playlist-actions.js';
+import { getPlaylist, getPlaylists, isLoaded, loadPlaylists, onPlaylists, togglePlaylistPin } from './features/playlists/playlist-store.js';
+import { LOCK_SVG, playlistMenuItems } from './features/playlists/playlist-actions.js';
 import { bindContextMenu, closeContextMenu, isContextMenuOpen, openContextMenu } from './shared/context-menu.js';
 import { ownerText, playlistTitle, quickPlayLobby } from './lobby.js';
-import { openNewPlaylistDialog } from './new-playlist.js';
+import { openNewPlaylistDialog } from './features/playlists/new-playlist.js';
 
 const PIN_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>';
 const MORE_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>';

@@ -378,13 +378,13 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   plays). Each has a ghost **quick play** button (tile: at the end; card: round, on the cover's corner) when the
   playlist has songs, shown on hover / focus and always on touch: it opens the playlist and starts it from the
   first song in the app-wide player, or resumes it; on the playlist that is playing it is **Pause**. And a ⋮
-  menu (`playlist-actions.js` items in `context-menu.ts`; also right-click / long-press): Play, Copy link for
+  menu (`playlist-actions.ts` items in `context-menu.ts`; also right-click / long-press): Play, Copy link for
   everyone, plus — owner only — Rename (dialog), Make private / Make public (with a one-line hint) and a danger
   Delete that opens a confirm dialog (grey Cancel focused first, `.btn-solid.theme-danger` Delete). The playlist
   playing now is the accent tint with an accent title and the equaliser, never an edge.
   Below the sections: the "Have a link?" hint; no footer (the language setting is on the profile). On load, a "Back to your last playlist?"
   prompt names the last playlist you opened (looked up first; not shown if it is gone or no longer visible to you).
-  **New playlist dialog** (`new-playlist.js`, an `.app-modal`, see "Modal dialogs"): Playlist
+  **New playlist dialog** (`new-playlist.ts`, an `.app-modal`, see "Modal dialogs"): Playlist
   name (required, 50 chars, live `n/50` counter), Visibility as two `.radio` choices with a
   one-line hint each (Public default), a danger alert for other errors, footer grey Cancel +
   primary "Create playlist" ("Creating…" while busy). Empty name or a server refusal about
@@ -424,7 +424,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   "‹ Page n of m ›" pager above the list and the full numbered pagination + range below it
   (both follow `?page=`, both hidden when there is one page).
   "Replace with…" opens the song dialog, see "Replace with…" under "Context menu".
-  Third tab **Download** (`jobs.js`, `?tab=downloads`; badge = your waiting + running jobs):
+  Third tab **Download** (`jobs.ts`, `?tab=downloads`; badge = your waiting + running jobs):
   a card with the Download box — text input (YouTube video / playlist link, Spotify track
   link or a search) with a one-line muted hint, "Add it to" `select.form-control` (the
   library only, or a playlist you can see; defaults to the playlist the library was opened
@@ -450,7 +450,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   button (the display-name Save stays the one primary), a success alert that shows a new
   token once (read-only input + Copy, a `pre` "how to use" snippet that scrolls sideways,
   Done), and a list group of active tokens (label, prefix, created, last used, danger
-  Revoke). Then **Your activity** (`profile-activity.js`, approved accounts, only ever
+  Revoke). Then **Your activity** (`profile-activity.ts`, approved accounts, only ever
   your own; "Only you can see this" in the header): a one-line `fg-2` summary of counts,
   tabs (segmented control) with count badges, on one line that scrolls sideways inside its outline when the column is too narrow — Uploaded (also by your downloaders), Asked for (song
   requests + Download-box jobs, with status badge and "uploaded by <worker> (<owner>)"),
@@ -458,7 +458,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   busy / offline badge; never host, OS or IP) — and one list group below them.
 - **Social** (`/social`): below 1010px the chat-and-people cards as a full-screen view on the page colour (over the
   playlists sidebar too); from 1010px the URL just opens the chat column beside the current page. See below.
-- **Dashboard** (`dashboard.js`, `dashboard-admin.js`; `/admin` 301s here): navbar (hamburger below 1024px),
+- **Dashboard** (`dashboard.ts`, `dashboard-admin.ts`; `/admin` 301s here): navbar (hamburger below 1024px),
   15rem section list (sticky, a drawer below 1024px; `#section` in the URL), main area up to 64rem. Until the admin login
   it shows only a centred login card (`#adm-gate`, no player bar, no sections); Log out is under the section list. Sections, one at a time, each `h2.h5` + a
   muted hint + a list group: **Overview** (stat cards, below); **Playlists** (public ones; private ones are only
@@ -476,7 +476,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   "12 unregistered (1.2 GB)". Longer facts get a `.stat-meta` line, not a wider value.
 - **Radio** (`/radio`, `radio.js`, approved accounts): see "Radio" below.
 - **Artists** (`/artists`, `/artist/<key>`, the landing shelf; approved accounts): see "Artists" below.
-- **Android app** (`/app`, `app-page.js`; `a[data-spa-link]` is its in-app link, so playback continues): navbar (☰, back, `h1.h6`), `.app-narrow` column, no art, three cards.
+- **Android app** (`/app`, `app-page.ts`; `a[data-spa-link]` is its in-app link, so playback continues): navbar (☰, back, `h1.h6`), `.app-narrow` column, no art, three cards.
   **Download**: the view's primary "Download APK" (GitHub's asset URL, new tab), a line of version · size · date, the SHA-256 with a grey Copy, a ghost link to all releases and "Needs Android 8 or newer". While checking, or when GitHub cannot be reached, a muted line replaces the button and the releases link stays.
   **Install**: numbered steps (`.app-steps`), then short notes with a bold lead-in: Play Protect, Updates, Developer builds. **Connect your account**: numbered steps quoting the app's Settings labels exactly (the app is English only, so the Turkish text keeps them in English; keep them in step with `SettingsScreen.kt`), the Address step showing this site's origin, a grey link to `/profile#tokens` and a Revoking note.
   A pending account gets the page too, from a link on its pending card: a warning alert says tokens need approval, and the tokens link is hidden. No sidebar or player there. iOS has no section.
@@ -485,7 +485,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
 
 ### Playlists sidebar
 
-One `nav#app-sidebar` in `index.html`, driven by `sidebar.js` (list in `playlist-store.js`, search
+One `nav#app-sidebar` in `index.html`, driven by `sidebar.js` (list in `playlist-store.ts`, search
 in `playlist-filter.ts`, styles "Playlists sidebar" in `app.css`, hooks prefixed `plnav-` because
 the dashboard already owns `.sidebar-*`). Shown by body classes, never `[hidden]`: `has-plnav`
 (approved account), `plnav-open` (drawer open). Present on landing, playlist, library overlay,
@@ -664,7 +664,7 @@ in `backend/src/songSearch.js`).
   muted "Spotify track: Artist - Title". An unsupported link is a warning alert with the server's reason in the page's language
   ("Only Spotify track links are supported…"). A **YouTube playlist** is an import card (`.card`, a cover with a list icon, the
   playlist's name, "17 videos · 2 already in the library", "The first 100 of …" over 100) with one primary **Import…**.
-- **Import…** opens the pick dialog's checklist (`importPlaylist` in `pick-dialog.js`) with **Add to** at the top: a
+- **Import…** opens the pick dialog's checklist (`importPlaylist` in `pick-dialog.ts`) with **Add to** at the top: a
   `select.form-control`, "New playlist named “<YouTube title>”" (the default; the usual create path, public) or one of the user's
   editable playlists, and a muted line under it ("Checking what is already in it…", "1 is already in it and is left unticked.").
   Rows say "In library, added now" or "Will be requested"; a row already in the chosen playlist (the same video or library song)
@@ -854,16 +854,16 @@ Bootstrap 6 `.menu` / `.menu-item` / `.menu-header` / `.menu-divider` markup, no
   `queue:remove`, the 6s **Undo** toast sending `queue:restore`, which puts it back at the same position); no confirm. The
   server checks the right to edit again.
 - **Add to playlist** (`add-to-playlist.js`, a submenu): search with `matchesQuery` (Turkish-aware), groups Pinned /
-  Your playlists / Public playlists from `playlist-store.js`, only `canEdit` playlists, and a fixed **New playlist** at the bottom (the usual
+  Your playlists / Public playlists from `playlist-store.ts`, only `canEdit` playlists, and a fixed **New playlist** at the bottom (the usual
   dialog, "Create and add"; it stays on the page). Rows say "by … · Private", and "Already added" for the playlist on screen and the
   one playing, whose queues the page holds; such a row is still choosable. Goes through `addSongToPlaylist` (`add-to-playlist.js`), the
   one way the web adds a library song to a playlist (this menu, the library's Add, the search page): `POST /api/playlists/:id/songs`;
   when the server answers `already_in_playlist` (the same library song / YouTube video is in it; another video of the same song is
-  not a duplicate) the **duplicate question** opens (`confirmDialog` in `playlist-actions.js`: "Already in “X”", "Already in this
+  not a duplicate) the **duplicate question** opens (`confirmDialog` in `playlist-actions.ts`: "Already in “X”", "Already in this
   playlist. Add again?", Cancel focused first, primary "Add again"), and only a yes sends it again with `allow_duplicates`. A toast
   names the playlist. Nothing here touches playback or navigates.
 
-**Replace with…** (`replace-dialog.js`, an `.app-modal`, any approved user, on every library song: playlist
+**Replace with…** (`replace-dialog.ts`, an `.app-modal`, any approved user, on every library song: playlist
 rows, library rows, the Broken tab, the player bar; also the library row's swap button). One dialog, whatever is being
 changed. Fields, top to bottom: a muted line naming the song, a warning alert with the song's report reasons (if any), the job
 status, Title, Artist, Album, "YouTube or source link" with an icon link that opens the current one in a new tab (a real
@@ -885,7 +885,7 @@ while it waits ("Waiting for a downloader", with Stop waiting; the file field st
 (nothing changed), success when it is done. Only the requester sees the job; others see "Someone is already replacing this song".
 Replace jobs also show on the Download tab, under "Asked for" on the profile, and in the dashboard's Download jobs.
 
-**Pick the video** (`pick-dialog.js`, rules in `pick-rules.ts`; an `.app-modal` with a 36rem card whose body scrolls).
+**Pick the video** (`pick-dialog.ts`, rules in `pick-rules.ts`; an `.app-modal` with a 36rem card whose body scrolls).
 It opens from the Download box before anything is queued, and only if there is
 something to choose: a song the library already has is added without it, and an answer that arrives within 300ms
 never flashes a dialog. The text stays in the input until the choice is made.
@@ -1032,7 +1032,7 @@ can move focus there).
   yourself, offline / idle people and unapproved accounts. Escape closes and focus returns
   to the row; Tab stays inside; it re-renders live while open. A private playlist's name
   or id is never sent to anyone but its owner, so the card shows only the song.
-- **Activity** (`activity.js`, rules in `activity-rules.ts`): a list of rounded rows (no dividers), one row per download job of
+- **Activity** (`activity.ts`, rules in `activity-rules.ts`): a list of rounded rows (no dividers), one row per download job of
   anyone, newest first by when it was asked for, so a row never moves while its state changes. Row: a 2.25rem
   thumbnail (the video's, else the music placeholder); the title on one line with an ellipsis and the status
   badge at its right (the Download tab's badges: waiting, downloading, done, failed, cancelled); the status

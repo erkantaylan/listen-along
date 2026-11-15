@@ -3,8 +3,8 @@ import { state, elements, socket, auth, STORAGE_KEYS, AVATAR_EMOJIS, storageSet 
 import { showView, showToast, navigateTo, t } from './shared/ui.js';
 import { announceProfile } from './social.js';
 import { resetPlaybackFailures } from './playback-failures.js';
-import { setupProfileTokens, loadProfileTokens } from './profile-tokens.js';
-import { setupProfileActivity, loadProfileActivity } from './profile-activity.js';
+import { setupProfileTokens, loadProfileTokens } from './features/account/profile-tokens.js';
+import { setupProfileActivity, loadProfileActivity } from './features/account/profile-activity.js';
 
 // The logged-in account's status (approved / pending / denied / rejected),
 // as the server sees it.

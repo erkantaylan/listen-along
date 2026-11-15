@@ -17,13 +17,16 @@
 // already looked up, with a destination chooser at the top (a new playlist
 // named after it, or one of the user's editable playlists): rows already in the
 // destination start unticked. It resolves { picks, destination } or null.
-// The rules (selection, swap, payloads, destinations) are in pick-rules.js.
-import { formatDuration, t, trapFocus } from './shared/ui.js';
-import { createVirtualList } from './shared/virtual-list.js';
+// The rules (selection, swap, payloads, destinations) are in pick-rules.ts.
+import { formatDuration, t, trapFocus } from '../../shared/ui.ts';
+import { createVirtualList } from '../../shared/virtual-list.ts';
+import type { VirtualList } from '../../shared/virtual-list.ts';
+import type { LibrarySong, PickVideo } from '../../shared/types.ts';
 import {
   allChecked, chosenIds, counts, destinationKeys, importCounts, isSwapped, lookupOutcome, moveIndex, playlistItems,
   swapChoices, swapped, swapQuery, thumbUrl, toggled, watchUrl, withDestination,
-} from './features/picker/pick-rules.js';
+} from './pick-rules.ts';
+import type { DestinationSong, PickItem, PicksAnswer } from './pick-rules.ts';
 
 const CLOSE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
 const OPEN_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>';
@@ -31,15 +34,15 @@ const OPEN_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="tru
 // A quick answer (the library has it, bad input) never flashes a dialog.
 const SHOW_AFTER_MS = 300;
 
-function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function escapeHtml(value: unknown): string {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c]);
 }
 
 // t() with {placeholders} filled in the fallback too (t returns it raw).
-const tf = (key, fallback, vars = {}) => t(key, fallback, vars).replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
+const tf = (key: string, fallback: string, vars: Record<string, string | number> = {}): string => t(key, fallback, vars).replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m));
 
-async function post(body) {
-  let res;
+async function post(body: { input: string } | { query: string }): Promise<{ status: number; body: PicksAnswer | null }> {
+  let res: Response;
   try {
     res = await fetch('/api/jobs/picks', {
       method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -47,17 +50,17 @@ async function post(body) {
   } catch {
     return { status: 0, body: null };
   }
-  return { status: res.status, body: await res.json().catch(() => null) };
+  return { status: res.status, body: await res.json().catch(() => null) as PicksAnswer | null };
 }
 
-function metaLine(v) {
+function metaLine(v: PickVideo): string {
   return [v.channel, v.duration_sec ? formatDuration(v.duration_sec) : null].filter(Boolean).join(' · ');
 }
 
 // clamp: the title may take two lines (a result); a playlist row has one.
 // status (an import row): what confirming does with it, before the meta line;
 // already: a badge instead of "In library".
-function videoHtml(v, clamp = false, { status = null, already = false } = {}) {
+function videoHtml(v: PickVideo, clamp = false, { status = null, already = false }: { status?: string | null; already?: boolean } = {}): string {
   const title = v.title || tf('pick.unknownVideo', 'YouTube video {id}', { id: v.youtube_id });
   const meta = [status, v.title ? metaLine(v) : tf('pick.notLookedUp', 'Could not look it up. You can still download it.')].filter(Boolean).join(' · ');
   const badge = already
@@ -72,64 +75,120 @@ function videoHtml(v, clamp = false, { status = null, already = false } = {}) {
 }
 
 // The import's primary button: what confirming does.
-function importLabel(c) {
+function importLabel(c: { now: number; request: number }): string {
   if (c.now && c.request) return tf('pick.importBoth', 'Add {now} now, request {request}', { now: c.now, request: c.request });
   if (c.now) return tf('pick.importNow', 'Add {now} now', { now: c.now });
   if (c.request) return tf('pick.importRequest', 'Request {request}', { request: c.request });
   return tf('pick.importNothing', 'Add');
 }
 
-let closeOpen = null;
+/** What pickSongs resolves with (null: cancelled); see the top of the file. */
+export interface PickSongsResult {
+  picks?: string[];
+  library?: LibrarySong;
+  passthrough?: true;
+}
 
-export function closePickDialog() {
+/** Where an import goes; checked: what the destination holds was read. */
+export type ImportDestination =
+  | { kind: 'new'; name: string; checked: boolean }
+  | { kind: 'existing'; id: string; name: string; checked: boolean };
+
+/** What importPlaylist resolves with (null: cancelled). */
+export interface ImportResult {
+  picks: string[];
+  destination: ImportDestination;
+}
+
+/** importPlaylist's options. */
+export interface ImportOptions {
+  /** What POST /api/jobs/picks said. */
+  playlist: { title: string | null; total: number; videos: PickVideo[] };
+  /** The user's editable playlists. */
+  destinations?: { id: string; name: string }[] | null;
+  /** A playlist's songs (GET /api/playlists/:id/songs). */
+  loadSongs: (id: string) => Promise<readonly DestinationSong[]>;
+  /** The new playlist's name (the YouTube playlist's). */
+  newName: string;
+  /** A playlist id to start on, else the new playlist. */
+  initial?: string | null;
+  returnFocus?: HTMLElement | null;
+}
+
+/** An import as openPick holds it. */
+interface ImportState {
+  playlist: ImportOptions['playlist'];
+  destinations: { id: string; name: string }[];
+  loadSongs: ImportOptions['loadSongs'];
+  newName: string;
+  initial: string | null;
+}
+
+type View = 'loading' | 'error' | 'single' | 'list' | 'swap';
+
+/** The videos to pick one of: a search or a video link (single), or a swap. */
+interface Options {
+  videos: PickVideo[];
+  selected: number;
+}
+
+type Swap = Options & { pos: number } & (
+  | { state: 'loading' | 'ready' }
+  | { state: 'error'; message: string; final?: boolean }
+);
+
+/** The import's destination: 'new' or a playlist id; keys = what it holds. */
+interface Destination {
+  value: string;
+  state: 'ready' | 'loading' | 'error';
+  keys: Set<string>;
+  seq: number;
+}
+
+let closeOpen: (() => void) | null = null;
+
+export function closePickDialog(): void {
   if (closeOpen) closeOpen();
 }
 
 /**
- * @param {object} o
- * @param {string} o.input - what was typed or pasted
- * @param {Element} [o.returnFocus] - gets focus back when the dialog closes
+ * input: what was typed or pasted; returnFocus gets focus back when the dialog closes.
  */
-export function pickSongs({ input, returnFocus = null }) {
+export function pickSongs({ input, returnFocus = null }: { input: string; returnFocus?: HTMLElement | null }): Promise<PickSongsResult | null> {
   return openPick({ input, returnFocus });
 }
 
 /**
- * The checklist for a YouTube playlist already looked up (search.js).
- * @param {object} o
- * @param {{title, total, videos}} o.playlist - what POST /api/jobs/picks said
- * @param {Array<{id, name}>} o.destinations - the user's editable playlists
- * @param {(id) => Promise<object[]>} o.loadSongs - a playlist's songs (GET /api/playlists/:id/songs)
- * @param {string} o.newName - the new playlist's name (the YouTube playlist's)
- * @param {string|null} [o.initial] - a playlist id to start on, else the new playlist
- * @param {Element} [o.returnFocus]
- * @returns {Promise<{picks, destination: {kind: 'new', name, checked} | {kind: 'existing', id, name, checked}} | null>}
+ * The checklist for a YouTube playlist already looked up (search.js); see ImportOptions.
  */
-export function importPlaylist({ playlist, destinations, loadSongs, newName, initial = null, returnFocus = null }) {
-  return openPick({ returnFocus, imported: { playlist, destinations: destinations || [], loadSongs, newName, initial } });
+export function importPlaylist({ playlist, destinations, loadSongs, newName, initial = null, returnFocus = null }: ImportOptions): Promise<ImportResult | null> {
+  // With `imported`, openPick resolves only { picks, destination } or null (confirm).
+  return openPick({ returnFocus, imported: { playlist, destinations: destinations || [], loadSongs, newName, initial } }) as Promise<ImportResult | null>;
 }
 
-function openPick({ input = '', returnFocus = null, imported = null }) {
+function openPick({ input = '', returnFocus = null, imported = null }: { input?: string; returnFocus?: HTMLElement | null; imported?: ImportState | null }): Promise<PickSongsResult | ImportResult | null> {
   closePickDialog();
   return new Promise((resolve) => {
-    const back = returnFocus || document.activeElement;
-    let dialog = null;
+    const back = (returnFocus || document.activeElement) as HTMLElement | null;
+    let dialog: HTMLDivElement | null = null;
     let done = false;
     let seq = 0;
-    let view = 'loading'; // loading | error | single | list | swap
+    let view: View = 'loading'; // loading | error | single | list | swap
     let error = '';
-    let lookup = null;
-    let single = { videos: [], selected: 0 };
-    let items = [];
-    let list = null; // the playlist's virtual list
+    // TODO type: null until load() sets it, read only by the views that come after (single, list); a view union carrying its data (a refactor) would say so.
+    let lookup = null as unknown as PicksAnswer;
+    let single: Options = { videos: [], selected: 0 };
+    let items: PickItem[] = [];
+    let list: VirtualList | null = null; // the playlist's virtual list
     let listScroll = 0;
-    let swap = null; // { pos, state: 'loading' | 'ready' | 'error', videos, selected, message }
-    const swapResults = new Map(); // item key -> search results
+    // TODO type: set while view is 'swap', null otherwise; a view union carrying its data (a refactor) would say so.
+    let swap = null as unknown as Swap; // { pos, state: 'loading' | 'ready' | 'error', videos, selected, message }
+    const swapResults = new Map<number, PickVideo[]>(); // item key -> search results
     // The import's destination: 'new' or a playlist id; keys = what it holds.
     let builtAt = 0;
-    let dest = imported ? { value: 'new', state: 'ready', keys: new Set(), seq: 0 } : null;
+    const dest: Destination | null = imported ? { value: 'new', state: 'ready', keys: new Set(), seq: 0 } : null;
 
-    function finish(result) {
+    function finish(result: PickSongsResult | ImportResult | null) {
       if (done) return;
       done = true;
       seq++;
@@ -142,10 +201,12 @@ function openPick({ input = '', returnFocus = null, imported = null }) {
       resolve(result);
     }
     closeOpen = () => finish(null);
-    const showTimer = imported ? null : setTimeout(show, SHOW_AFTER_MS);
+    const showTimer = imported ? undefined : setTimeout(show, SHOW_AFTER_MS);
 
-    const $ = (sel) => dialog.querySelector(sel);
-    const options = () => (view === 'swap' ? swap : single);
+    // The dialog's own markup, once it is built. Typed as found: a lookup a view
+    // may lack (#pick-dest, .pick-options, .pick-count…) is checked by its caller.
+    const $ = <T extends HTMLElement = HTMLElement>(sel: string): T => (dialog as HTMLDivElement).querySelector<T>(sel) as T;
+    const options = (): Options => (view === 'swap' ? swap : single);
 
     async function load() {
       if (imported) {
@@ -163,18 +224,18 @@ function openPick({ input = '', returnFocus = null, imported = null }) {
       const r = await post({ input });
       if (done || my !== seq) return;
       const outcome = lookupOutcome(r.status, r.body);
-      if (outcome === 'library') return finish({ library: r.body.song });
+      if (outcome === 'library') return finish({ library: (r.body as PicksAnswer).song as LibrarySong });
       if (outcome === 'passthrough') return finish({ passthrough: true });
       if (outcome === 'error') {
         view = 'error';
         error = (r.body && r.body.error) || tf('pick.failed', 'The search did not work. Check your connection and try again.');
       } else {
-        lookup = r.body;
+        lookup = r.body as PicksAnswer;
         if (lookup.kind === 'playlist') {
           items = playlistItems(lookup.results);
           view = 'list';
         } else {
-          single = { videos: lookup.results, selected: 0 };
+          single = { videos: lookup.results as PickVideo[], selected: 0 };
           view = 'single';
         }
       }
@@ -215,9 +276,9 @@ function openPick({ input = '', returnFocus = null, imported = null }) {
 
       $('.pick-close').addEventListener('click', () => finish(null));
       $('.pick-cancel').addEventListener('click', goBack);
-      $('form').addEventListener('submit', (e) => { e.preventDefault(); confirm(); });
+      $<HTMLFormElement>('form').addEventListener('submit', (e) => { e.preventDefault(); confirm(); });
       dialog.addEventListener('click', onClick);
-      dialog.addEventListener('dblclick', (e) => { if (e.target.closest('.pick-option') && !e.target.closest('a')) confirm(); });
+      dialog.addEventListener('dblclick', (e) => { if ((e.target as Element).closest('.pick-option') && !(e.target as Element).closest('a')) confirm(); });
       dialog.addEventListener('change', onChange);
       dialog.addEventListener('keydown', onKeydown);
     }
@@ -228,32 +289,34 @@ function openPick({ input = '', returnFocus = null, imported = null }) {
       else finish(null);
     }
 
-    function onClick(e) {
+    function onClick(e: MouseEvent) {
+      const target = e.target as Element;
       // The second click of a double-click that opened it is not a click outside.
-      if (e.target === dialog) { if (Date.now() - builtAt > 500) finish(null); return; }
-      if (e.target.closest('.pick-retry')) return view === 'swap' ? openSwap(swap.pos) : load();
-      if (e.target.closest('.pick-first')) return finish({ passthrough: true });
-      if (e.target.closest('.pick-all')) {
+      if (target === dialog) { if (Date.now() - builtAt > 500) finish(null); return; }
+      if (target.closest('.pick-retry')) return view === 'swap' ? openSwap(swap.pos) : load();
+      if (target.closest('.pick-first')) return finish({ passthrough: true });
+      if (target.closest('.pick-all')) {
         items = allChecked(items, counts(items).ticked !== items.length);
         renderList();
         renderFooter();
         $('.pick-all').focus();
         return;
       }
-      const swapBtn = e.target.closest('.pick-swap');
-      if (swapBtn) return openSwap(list.positionOf(swapBtn.closest('.pick-row')));
-      const option = e.target.closest('.pick-option');
-      if (option && !e.target.closest('a')) {
+      const swapBtn = target.closest('.pick-swap');
+      if (swapBtn) return openSwap((list as VirtualList).positionOf(swapBtn.closest('.pick-row') as HTMLElement));
+      const option = target.closest<HTMLElement>('.pick-option');
+      if (option && !target.closest('a')) {
         select(Number(option.dataset.pos));
         $('.pick-options').focus();
       }
     }
 
-    // A new destination: what it already holds starts unticked (pick-rules.js withDestination).
-    async function setDestination(value) {
+    // A new destination: what it already holds starts unticked (pick-rules.ts withDestination).
+    async function setDestination(value: string) {
+      if (!dest || !imported) return; // only an import has one (else this threw)
       const my = ++dest.seq;
       dest.value = value;
-      const select = $('#pick-dest');
+      const select = $<HTMLSelectElement>('#pick-dest');
       if (select && select.value !== value) select.value = value;
       if (value === 'new') {
         dest.state = 'ready';
@@ -262,7 +325,7 @@ function openPick({ input = '', returnFocus = null, imported = null }) {
         dest.state = 'loading';
         renderDestStatus();
         renderFooter();
-        let keys = null;
+        let keys: Set<string> | null = null;
         try { keys = destinationKeys(await imported.loadSongs(value)); } catch { keys = null; }
         if (done || my !== dest.seq) return;
         dest.state = keys ? 'ready' : 'error';
@@ -276,7 +339,7 @@ function openPick({ input = '', returnFocus = null, imported = null }) {
 
     function renderDestStatus() {
       const el = dialog && $('.pick-dest-status');
-      if (!el) return;
+      if (!el || !dest) return;
       const already = items.filter((it) => it.already).length;
       let text = '';
       if (dest.state === 'loading') text = tf('pick.destChecking', 'Checking what is already in it…');
@@ -288,32 +351,34 @@ function openPick({ input = '', returnFocus = null, imported = null }) {
       el.textContent = text;
     }
 
-    function onChange(e) {
-      if (e.target.id === 'pick-dest') { setDestination(e.target.value); return; }
-      const box = e.target.closest('.pick-check');
+    function onChange(e: Event) {
+      const target = e.target as HTMLElement;
+      if (target.id === 'pick-dest') { setDestination((target as HTMLSelectElement).value); return; }
+      const box = target.closest('.pick-check');
       if (!box) return;
-      const row = box.closest('.pick-row');
-      const pos = list.positionOf(row);
+      const row = box.closest('.pick-row') as HTMLElement;
+      const pos = (list as VirtualList).positionOf(row);
       items = toggled(items, pos);
       row.classList.toggle('pick-off', !items[pos].checked);
       renderFooter();
     }
 
-    function onKeydown(e) {
+    function onKeydown(e: KeyboardEvent) {
+      const target = e.target as Element;
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
         goBack();
         return;
       }
-      trapFocus(dialog, e);
-      if (e.key === 'Enter' && !e.target.closest('button, a')) {
+      trapFocus(dialog as HTMLDivElement, e);
+      if (e.key === 'Enter' && !target.closest('button, a')) {
         e.preventDefault();
         // A held Enter (the one that opened the dialog) confirms nothing.
         if (!e.repeat) confirm();
         return;
       }
-      if (e.target.closest('.pick-options')) {
+      if (target.closest('.pick-options')) {
         const o = options();
         const next = moveIndex(o.selected, e.key, o.videos.length);
         if (next === null) return;
@@ -321,10 +386,10 @@ function openPick({ input = '', returnFocus = null, imported = null }) {
         select(next);
         return;
       }
-      const row = e.target.closest('.pick-row');
+      const row = target.closest<HTMLElement>('.pick-row');
       if (!row || !list) return;
       const pos = list.positionOf(row);
-      if (e.key === 'ArrowRight' && !e.target.closest('.pick-swap')) {
+      if (e.key === 'ArrowRight' && !target.closest('.pick-swap')) {
         e.preventDefault();
         openSwap(pos);
         return;
@@ -332,20 +397,20 @@ function openPick({ input = '', returnFocus = null, imported = null }) {
       const next = moveIndex(pos, e.key, items.length, list.pageSize);
       if (next === null) return;
       e.preventDefault();
-      focusRow(next, e.target.closest('.pick-swap') ? '.pick-swap' : '.pick-check');
+      focusRow(next, target.closest('.pick-swap') ? '.pick-swap' : '.pick-check');
     }
 
-    function focusRow(pos, control = '.pick-check') {
+    function focusRow(pos: number, control = '.pick-check') {
       const el = list && list.scrollToIndex(pos);
-      const target = el && el.querySelector(control);
+      const target = el && el.querySelector<HTMLElement>(control);
       if (target) target.focus({ preventScroll: true });
     }
 
-    function select(pos) {
+    function select(pos: number) {
       const o = options();
       if (!o.videos[pos]) return;
       o.selected = pos;
-      dialog.querySelectorAll('.pick-option').forEach((el) => {
+      (dialog as HTMLDivElement).querySelectorAll<HTMLElement>('.pick-option').forEach((el) => {
         const on = Number(el.dataset.pos) === pos;
         el.setAttribute('aria-selected', on ? 'true' : 'false');
         if (on) el.scrollIntoView({ block: 'nearest' });
@@ -362,10 +427,10 @@ function openPick({ input = '', returnFocus = null, imported = null }) {
         const ids = chosenIds(items);
         if (!ids.length || (dest && dest.state === 'loading')) return;
         if (!dest) { finish({ picks: ids }); return; }
-        const target = dest.value === 'new' ? null : imported.destinations.find((p) => p.id === dest.value);
+        const target = dest.value === 'new' ? null : (imported as ImportState).destinations.find((p) => p.id === dest.value);
         // checked: what the destination holds was read, so a ticked row is wanted as it is.
         const checked = dest.state === 'ready';
-        finish({ picks: ids, destination: target ? { kind: 'existing', id: target.id, name: target.name, checked } : { kind: 'new', name: imported.newName, checked } });
+        finish({ picks: ids, destination: target ? { kind: 'existing', id: target.id, name: target.name, checked } : { kind: 'new', name: (imported as ImportState).newName, checked } });
       } else if (view === 'swap' && swap.state === 'ready') {
         const v = swap.videos[swap.selected];
         if (v) items = swapped(items, swap.pos, v);
@@ -376,11 +441,11 @@ function openPick({ input = '', returnFocus = null, imported = null }) {
     }
 
     // Other versions of one playlist item: searched only now, once per item.
-    async function openSwap(pos) {
+    async function openSwap(pos: number) {
       const item = items[pos];
       if (!item) return;
       if (view === 'list') listScroll = $('.pick-scroll').scrollTop;
-      const ready = (results) => ({ pos, state: 'ready', ...swapChoices(item, results) });
+      const ready = (results: PickVideo[] | undefined): Swap => ({ pos, state: 'ready', ...swapChoices(item, results) });
       view = 'swap';
       const query = swapQuery(item);
       if (swapResults.has(item.key)) {
@@ -408,14 +473,14 @@ function openPick({ input = '', returnFocus = null, imported = null }) {
     function closeSwap() {
       const pos = swap.pos;
       seq++;
-      swap = null;
+      swap = null as unknown as Swap; // see its TODO type
       view = 'list';
       render();
       $('.pick-scroll').scrollTop = listScroll;
       focusRow(pos, '.pick-swap');
     }
 
-    function optionsHtml(o, label) {
+    function optionsHtml(o: Options, label: string): string {
       return `<ul class="list-group pick-options" role="listbox" tabindex="0" aria-label="${escapeHtml(label)}" aria-describedby="pick-note" aria-activedescendant="pick-option-${o.selected}">
         ${o.videos.map((v, i) => `<li class="list-group-item pick-item pick-option" role="option" id="pick-option-${i}" data-pos="${i}" aria-selected="${i === o.selected}">
           ${videoHtml(v, true)}
@@ -424,14 +489,14 @@ function openPick({ input = '', returnFocus = null, imported = null }) {
       </ul>`;
     }
 
-    const statusHtml = (text) => `<div class="app-empty pick-status" role="status">${escapeHtml(text)}</div>`;
-    const errorHtml = (message, { first = false, retry = true } = {}) => `<div class="alert theme-danger fs-sm mb-3" role="alert">${escapeHtml(message)}</div>
+    const statusHtml = (text: string): string => `<div class="app-empty pick-status" role="status">${escapeHtml(text)}</div>`;
+    const errorHtml = (message: string, { first = false, retry = true }: { first?: boolean; retry?: boolean } = {}): string => `<div class="alert theme-danger fs-sm mb-3" role="alert">${escapeHtml(message)}</div>
       <div class="d-flex flex-wrap gap-2">
         ${retry ? `<button class="btn btn-sm pick-retry" type="button">${escapeHtml(tf('pick.retry', 'Try again'))}</button>` : ''}
         ${first ? `<button class="btn btn-sm pick-first" type="button">${escapeHtml(tf('pick.firstMatch', 'Take the first match without asking'))}</button>` : ''}
       </div>`;
 
-    function rowHtml(pos) {
+    function rowHtml(pos: number): string {
       const it = items[pos];
       const title = it.video.title || it.video.youtube_id;
       const status = !dest || it.already ? null
@@ -445,7 +510,7 @@ function openPick({ input = '', returnFocus = null, imported = null }) {
     }
 
     function renderList() {
-      list.setSource({
+      (list as VirtualList).setSource({
         count: items.length,
         keyOf: (pos) => items[pos].key,
         indexOfKey: (key) => items.findIndex((it) => it.key === key),
@@ -470,16 +535,16 @@ function openPick({ input = '', returnFocus = null, imported = null }) {
           body.innerHTML = optionsHtml(single, title);
         } else if (!single.videos.length) {
           // As before the dialog: it can still be asked for by its name.
-          body.innerHTML = statusHtml(tf('pick.noResults', 'No videos found for “{query}”. Try other words.', { query: lookup.query }))
+          body.innerHTML = statusHtml(tf('pick.noResults', 'No videos found for “{query}”. Try other words.', { query: lookup.query as string }))
             + `<div class="d-flex justify-content-center"><button class="btn btn-sm pick-first" type="button">${escapeHtml(tf('pick.anyway', 'Request it anyway'))}</button></div>`;
         } else {
-          noteText = tf('pick.searchNote', 'Results for “{query}”. Pick the right version.', { query: lookup.query });
+          noteText = tf('pick.searchNote', 'Results for “{query}”. Pick the right version.', { query: lookup.query as string });
           body.innerHTML = optionsHtml(single, title);
         }
       } else if (view === 'list') {
-        title = dest && lookup.title ? tf('pick.titleImport', 'Import “{title}”', { title: lookup.title }) : tf('pick.titlePlaylist', 'Playlist: {count} videos', { count: lookup.total });
+        title = dest && lookup.title ? tf('pick.titleImport', 'Import “{title}”', { title: lookup.title }) : tf('pick.titlePlaylist', 'Playlist: {count} videos', { count: lookup.total as number });
         noteText = tf('pick.playlistNote', 'Untick what you do not want. Swap replaces a video with another version.')
-          + (lookup.total > items.length ? ` ${tf('pick.playlistCapped', 'Only the first {shown} of {total} are listed.', { shown: items.length, total: lookup.total })}` : '');
+          + ((lookup.total as number) > items.length ? ` ${tf('pick.playlistCapped', 'Only the first {shown} of {total} are listed.', { shown: items.length, total: lookup.total as number })}` : '');
         body.innerHTML = (dest ? destHtml() : '') + (items.length
           ? `<div class="d-flex align-items-center justify-content-between gap-2 mb-2">
               <span class="fs-sm fg-2 pick-count" role="status"></span>
@@ -509,8 +574,9 @@ function openPick({ input = '', returnFocus = null, imported = null }) {
     }
 
     // The destination chooser at the top of an import.
-    function destHtml() {
-      const option = (value, label) => `<option value="${escapeHtml(value)}"${dest.value === value ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+    function destHtml(): string {
+      if (!dest || !imported) return ''; // only an import has one (else this threw)
+      const option = (value: string, label: string): string => `<option value="${escapeHtml(value)}"${dest.value === value ? ' selected' : ''}>${escapeHtml(label)}</option>`;
       return `<div class="mb-4 pick-dest-field">
         <label for="pick-dest" class="form-label fw-medium">${escapeHtml(tf('pick.destLabel', 'Add to'))}</label>
         <select id="pick-dest" class="form-control" aria-describedby="pick-dest-status">
@@ -522,7 +588,7 @@ function openPick({ input = '', returnFocus = null, imported = null }) {
     }
 
     function renderFooter() {
-      const submit = $('.pick-submit');
+      const submit = $<HTMLButtonElement>('.pick-submit');
       $('.pick-cancel').textContent = view === 'swap' ? tf('pick.back', 'Back') : tf('pick.cancel', 'Cancel');
       let label = tf('pick.download', 'Download');
       let enabled = false;

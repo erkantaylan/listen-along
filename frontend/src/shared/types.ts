@@ -960,6 +960,13 @@ export interface DashboardUser {
   updated_at: string | null;
   /** Linked to the central login (oidc_sub set). */
   central: boolean;
+  /**
+   * NOT sent: the SELECT in index.js GET /api/dashboard/users does not include
+   * users.name. The dashboard's user list (features/admin/dashboard.ts) reads it
+   * anyway (search + display name, falling back to username), so it is typed
+   * optional to keep that code as it is.
+   */
+  name?: string | null;
 }
 
 // index.js GET /api/dashboard/users
@@ -972,6 +979,45 @@ export interface DashboardUserStatusResponse {
   success: true;
   user: { user_id: string | null; username: string | null; status: AccountStatus };
 }
+
+// libraryRoutes GET /api/admin/tokens (tokens.listTokens: every token)
+export interface AdminTokensResponse {
+  tokens: ApiToken[];
+}
+
+// libraryRoutes GET /api/requests (requests.listRequests)
+export interface RequestListResponse {
+  requests: SongRequest[];
+}
+
+// ------------------------------------------------------------------ tokens / app
+
+// tokenRoutes GET /api/tokens (tokens.listUserTokens: the caller's active tokens)
+export interface TokenListResponse {
+  tokens: ApiToken[];
+}
+
+// tokenRoutes POST /api/tokens (201; the plaintext token is shown once)
+export interface TokenCreatedResponse {
+  token: string;
+  record: ApiToken;
+}
+
+// appRelease.js pickLatest view — a release of GET /api/app/latest
+export interface AppRelease {
+  version: string;
+  tag: string;
+  /** ISO string from GitHub (published_at), or null. */
+  publishedAt: string | null;
+  releaseUrl: string;
+  apk: { name: string; url: string; size: number | null };
+  sha256: string | null;
+}
+
+// appRelease.js latest() — GET /api/app/latest (always 200)
+export type AppLatestResponse =
+  | ({ available: true; releasesUrl: string; stale: boolean } & AppRelease)
+  | { available: false; reason: 'none' | 'unavailable'; releasesUrl: string };
 
 // ------------------------------------------------------------------ socket events
 

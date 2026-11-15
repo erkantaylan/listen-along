@@ -9,7 +9,7 @@ import { state, elements } from './shared/state.js';
 import { navigateTo, t } from './shared/ui.js';
 import { player } from './player/player.js';
 import { artistPath, playlistPath, searchPath } from './router.js';
-import { listenState, onListenChange, followersText, stopListenAlong } from './listen-along.js';
+import { listenState, onListenChange, followersText, stopListenAlong } from './features/social/listen-along.js';
 import { bindSongMenu, bindReportIcons, reportIconHtml, reportsFor, onReportsChange } from './song-reports.js';
 
 // The current song as the song menu / reports see it.

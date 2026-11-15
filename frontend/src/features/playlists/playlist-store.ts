@@ -2,32 +2,35 @@
 // pins. One copy for the sidebar, the landing rows and the playlist page's pin
 // button. It stays fresh from the playlists:changed socket signal (app.js),
 // queue updates and a slow poll for song counts changed elsewhere.
-import { showToast, t } from './shared/ui.js';
+import { showToast, t } from '../../shared/ui.ts';
+import type { PlaylistListResponse, PlaylistSummary } from '../../shared/types.ts';
 
-let playlists = [];
+export type PlaylistsListener = (playlists: PlaylistSummary[]) => void;
+
+let playlists: PlaylistSummary[] = [];
 let loaded = false;
-const listeners = new Set();
-let reloadTimer = null;
+const listeners = new Set<PlaylistsListener>();
+let reloadTimer: ReturnType<typeof setTimeout> | null = null;
 let loadSeq = 0;
 let writes = 0; // pin requests in flight: a list fetched meanwhile may predate them
 
 const emit = () => listeners.forEach(fn => fn(playlists));
 
-export const getPlaylists = () => playlists;
-export const isLoaded = () => loaded;
-export const getPlaylist = (id) => playlists.find(p => p.id === id) || null;
-export const isPinned = (id) => !!getPlaylist(id)?.pinnedByMe;
+export const getPlaylists = (): PlaylistSummary[] => playlists;
+export const isLoaded = (): boolean => loaded;
+export const getPlaylist = (id: string): PlaylistSummary | null => playlists.find(p => p.id === id) || null;
+export const isPinned = (id: string): boolean => !!getPlaylist(id)?.pinnedByMe;
 
-export function onPlaylists(fn) {
+export function onPlaylists(fn: PlaylistsListener): void {
   listeners.add(fn);
 }
 
-export async function loadPlaylists() {
+export async function loadPlaylists(): Promise<void> {
   const seq = ++loadSeq;
   try {
     const res = await fetch('/api/playlists', { credentials: 'same-origin' });
     if (!res.ok) return;
-    const data = await res.json();
+    const data = await res.json() as PlaylistListResponse;
     if (seq !== loadSeq || writes > 0) return; // a newer load, or a pin settling, wins
     playlists = data.playlists || [];
     loaded = true;
@@ -38,17 +41,17 @@ export async function loadPlaylists() {
 }
 
 // Bursts of signals (a queue being reordered) become one request.
-export function scheduleReload(delay = 400) {
-  clearTimeout(reloadTimer);
+export function scheduleReload(delay = 400): void {
+  clearTimeout(reloadTimer ?? undefined);
   reloadTimer = setTimeout(loadPlaylists, delay);
 }
 
-export async function togglePlaylistPin(id, { toast = false } = {}) {
+export async function togglePlaylistPin(id: string, { toast = false }: { toast?: boolean } = {}): Promise<void> {
   const pl = getPlaylist(id);
   if (!pl) return;
   const next = !pl.pinnedByMe;
   const undo = { pinnedByMe: pl.pinnedByMe, pinnedAt: pl.pinnedAt };
-  const patch = (fields) => { playlists = playlists.map(p => p.id === id ? { ...p, ...fields } : p); emit(); };
+  const patch = (fields: Partial<PlaylistSummary>): void => { playlists = playlists.map(p => p.id === id ? { ...p, ...fields } : p); emit(); };
   patch({ pinnedByMe: next, pinnedAt: next ? Date.now() : null });
   writes++;
   try {

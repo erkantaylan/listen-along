@@ -13,10 +13,10 @@ import { state } from './shared/state.js';
 import { showToast, t } from './shared/ui.js';
 import { player } from './player/player.js';
 import { openContextMenu, refreshSubmenu } from './shared/context-menu.js';
-import { getPlaylists, loadPlaylists, onPlaylists, scheduleReload } from './playlist-store.js';
+import { getPlaylists, loadPlaylists, onPlaylists, scheduleReload } from './features/playlists/playlist-store.js';
 import { groupPlaylists } from './features/playlists/playlist-filter.js';
-import { openNewPlaylistDialog } from './new-playlist.js';
-import { confirmDialog } from './playlist-actions.js';
+import { openNewPlaylistDialog } from './features/playlists/new-playlist.js';
+import { confirmDialog } from './features/playlists/playlist-actions.js';
 import { addOutcome } from './features/search/search-rules.js';
 
 const ADD_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 10H3v2h11v-2zm0-4H3v2h11V6zm4 8v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zM3 16h7v-2H3v2z"/></svg>';
