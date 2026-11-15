@@ -106,3 +106,21 @@ describe('sidebar filter and sort', () => {
     assert.deepEqual(ids(arrangePlaylists(same)), ['a', 'b', 'c']);
   });
 });
+
+describe('placeholder cover colour', () => {
+  let playlistCoverIndex, COVER_COLOURS;
+  before(async () => {
+    ({ playlistCoverIndex, COVER_COLOURS } = await import(pathToFileURL(path.join(__dirname, '..', '..', 'frontend', 'playlist-filter.js')).href));
+  });
+  it('is one of the cover colours, the same for the same id', () => {
+    for (const id of ['abc', 'Z9-x', '', null, 'çğü', '7f3c']) {
+      const n = playlistCoverIndex(id);
+      assert.ok(Number.isInteger(n) && n >= 1 && n <= COVER_COLOURS, `${id} -> ${n}`);
+      assert.equal(playlistCoverIndex(id), n);
+    }
+  });
+  it('spreads ids over the colours', () => {
+    const seen = new Set(Array.from({ length: 60 }, (_, i) => playlistCoverIndex(`pl-${i}`)));
+    assert.equal(seen.size, COVER_COLOURS);
+  });
+});

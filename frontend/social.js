@@ -5,9 +5,11 @@
 //   narrower (phones, tablets, small windows): a full-screen "Social" view at
 //     /social (router.js), never beside the page, which would squeeze it;
 //     opened from the chat button in the player bar (or on the pending card).
-// #social-rail, from 1010px while the column is not on screen, is the labelled
-// way back: Chat and People, each opening that tab. The player bar's chat button
-// toggles the panel too. Both carry the unread badge.
+// Inside, three stacked cards, all on screen together: People, Chat and (for
+// approved accounts) Activity. #social-rail, from 1010px while the column is
+// not on screen, is the labelled way back: Chat, People and Activity, each
+// opening the panel at that card. The player bar's chat button toggles the
+// panel too. Both carry the unread badge.
 //
 // This module also reports what this browser plays (player.js events) as
 // presence:now-playing; the server keeps one entry per user.
@@ -34,8 +36,8 @@ const S = {
   hasMore: false,
   loadingOlder: false,
   historyLoaded: false,
-  tab: 'chat',
-  activity: false, // the Activity tab (downloads): approved accounts only
+  card: 'chat', // the card the rail opened last (focus returns to its rail button)
+  activity: false, // the Activity card (downloads): approved accounts only
   route: false,
   unread: 0,
   cameFromApp: false,
@@ -57,7 +59,7 @@ function panelVisible() {
 }
 
 function chatVisible() {
-  return panelVisible() && S.tab === 'chat' && document.visibilityState === 'visible';
+  return panelVisible() && document.visibilityState === 'visible';
 }
 
 function setUnread(n) {
@@ -77,10 +79,10 @@ function setUnread(n) {
 function refreshVisibility() {
   const toggle = $('social-toggle');
   if (toggle) toggle.classList.toggle('active', panelVisible());
-  setActivityVisible(S.tab === 'activity' && panelVisible() && document.visibilityState === 'visible');
+  setActivityVisible(S.activity && panelVisible() && document.visibilityState === 'visible');
   if (chatVisible()) {
     if (S.unread) setUnread(0);
-    if (S.tab === 'chat') scrollChatToBottom(false);
+    scrollChatToBottom(false);
   }
 }
 
@@ -93,20 +95,15 @@ function setCollapsed(value) {
   document.dispatchEvent(new CustomEvent('app:viewchange'));
 }
 
-const focusActiveTab = () => document.querySelector('[data-social-tab].active')?.focus();
+const CARD_IDS = { chat: 'social-chat', people: 'social-people', activity: 'social-activity' };
 
-function selectTab(tab) {
-  S.tab = tab === 'people' || (tab === 'activity' && S.activity) ? tab : 'chat';
-  for (const b of document.querySelectorAll('[data-social-tab]')) {
-    const on = b.dataset.socialTab === S.tab;
-    b.classList.toggle('active', on);
-    b.setAttribute('aria-selected', String(on));
-  }
-  $('social-chat').hidden = S.tab !== 'chat';
-  $('social-people').hidden = S.tab !== 'people';
-  $('social-activity').hidden = S.tab !== 'activity';
-  refreshVisibility();
-  if (S.tab === 'chat') scrollChatToBottom(false);
+// The card the rail asked for: scrolled into view in the column and focused.
+function showCard(card) {
+  S.card = card === 'people' || (card === 'activity' && S.activity) ? card : 'chat';
+  const el = $(CARD_IDS[S.card]);
+  if (!el) return;
+  el.scrollIntoView({ block: 'nearest' });
+  el.focus({ preventScroll: true });
 }
 
 // The /social route (router.js). Below 1010px it is the full-screen Social
@@ -132,12 +129,11 @@ export function toggleSocial() {
   else { S.cameFromApp = true; navigateTo('/social'); }
 }
 
-// The rail: open the panel on a given tab, wherever the panel lives at this width.
-function openSocial(tab) {
-  selectTab(tab);
+// The rail: open the panel at a given card, wherever the panel lives at this width.
+function openSocial(card) {
   if (isDesktop()) setCollapsed(false);
   else if (!S.route) { S.cameFromApp = true; navigateTo('/social'); }
-  focusActiveTab();
+  showCard(card);
 }
 
 // ------------------------------------------------------------------ chat
@@ -505,9 +501,9 @@ export function setupSocial(socket, opts = {}) {
   S.hooks.noListenHint = opts.noListenHint || null;
   setupPanelWidths();
   document.body.classList.add('has-social');
-  // The downloads log (activity.js): its tab and rail button stay hidden without it.
+  // The downloads log (activity.js): its card and rail button stay hidden without it.
   S.activity = !!opts.activity;
-  for (const el of document.querySelectorAll('[data-social-tab="activity"], [data-social-open="activity"]')) el.hidden = !S.activity;
+  for (const el of document.querySelectorAll('#social-activity, [data-social-open="activity"]')) el.hidden = !S.activity;
   if (S.activity) setupActivity(socket);
   const toggle = $('social-toggle');
   if (toggle) toggle.hidden = false;
@@ -550,10 +546,9 @@ export function setupSocial(socket, opts = {}) {
   }
 
   // DOM wiring
-  for (const b of document.querySelectorAll('[data-social-tab]')) b.addEventListener('click', () => selectTab(b.dataset.socialTab));
   $('social-collapse')?.addEventListener('click', () => {
     setCollapsed(true);
-    document.querySelector(`[data-social-open="${S.tab}"]`)?.focus();
+    document.querySelector(`[data-social-open="${S.card}"]`)?.focus();
   });
   for (const b of document.querySelectorAll('[data-social-open]')) b.addEventListener('click', () => openSocial(b.dataset.socialOpen));
   $('social-back')?.addEventListener('click', leaveRoute);
@@ -584,9 +579,8 @@ export function setupSocial(socket, opts = {}) {
   });
   document.addEventListener('visibilitychange', refreshVisibility);
   // Relative "last seen" times age.
-  setInterval(() => { if (S.tab === 'people' && panelVisible()) renderPeople(); }, 60_000);
+  setInterval(() => { if (panelVisible()) renderPeople(); }, 60_000);
 
-  selectTab('chat');
   renderMessages();
   renderPeople();
   refreshVisibility();

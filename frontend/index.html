@@ -74,9 +74,33 @@
     </footer>
   </div>
 
+  <!-- Phone places (sidebar.js): below 768px, the sidebar's four places as a row
+       above the page; the ☰ drawer keeps them too. Current = aria-current="page",
+       a tint, never an edge. Labels show from 576px; below that they stay the name. -->
+  <nav id="app-places" class="app-places" aria-label="Main" data-i18n-aria-label="sidebar.mainNav">
+    <ul class="app-places-list" role="list">
+      <li><a id="places-home" class="app-place" href="/" data-spa-link title="Home" data-i18n-title="sidebar.home">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+        <span class="app-place-label" data-i18n="sidebar.home">Home</span>
+      </a></li>
+      <li><a id="places-radio" class="app-place" href="/radio" data-spa-link title="Radio" data-i18n-title="radio.title">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.24 6.15C2.51 6.43 2 7.17 2 8v12c0 1.1.89 2 2 2h16c1.11 0 2-.9 2-2V8c0-1.11-.89-2-2-2H8.3l8.26-3.34L15.88 1 3.24 6.15zM7 20c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm13-8h-2v-2h-2v2H4V8h16v4z"/></svg>
+        <span class="app-place-label" data-i18n="radio.title">Radio</span>
+      </a></li>
+      <li><a id="places-artists" class="app-place" href="/artists" data-spa-link title="Artists" data-i18n-title="artists.title">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+        <span class="app-place-label" data-i18n="artists.title">Artists</span>
+      </a></li>
+      <li><a id="places-library" class="app-place" href="/library" title="Music library &amp; requests" data-i18n-title="landing.library">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 5h-3v5.5a2.5 2.5 0 1 1-1-2V5h4v2z"/></svg>
+        <span class="app-place-label" data-i18n="landing.library">Music library &amp; requests</span>
+      </a></li>
+    </ul>
+  </nav>
+
   <!-- Landing View -->
   <div id="landing-view" class="view">
-    <nav class="navbar app-navbar">
+    <nav class="navbar app-navbar landing-navbar">
       <div class="container app-narrow">
         <button class="btn-text theme-secondary btn-icon plnav-open-btn" type="button" data-plnav-open aria-controls="app-sidebar" aria-expanded="false" aria-label="Open playlists" title="Open playlists" data-i18n-aria-label="sidebar.open" data-i18n-title="sidebar.open">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
@@ -89,8 +113,8 @@
         </div>
       </div>
     </nav>
-    <main class="app-main container app-narrow">
-      <div class="d-flex align-items-center gap-3 mb-5 landing-header">
+    <main class="app-main container landing-main">
+      <div class="d-flex align-items-center gap-3 mb-6 landing-header">
         <div class="min-w-0 me-auto landing-title">
           <h1 class="h4 mb-1" data-i18n="landing.playlists">Playlists</h1>
           <p class="fs-sm fg-3 mb-0 tagline" data-i18n="app.tagline">Your playlists and everyone's public ones.</p>
@@ -107,18 +131,18 @@
         </div>
       </div>
 
-      <!-- Your playlists (public + private), then other people's public ones -->
-      <p id="landing-home-hint" class="fs-sm fg-3 mb-5 landing-home-hint" data-i18n="sidebar.homeHint" hidden>Pick a playlist on the left, or start a new one.</p>
-      <section id="my-playlists-section" class="card mb-5 my-playlists-section" aria-labelledby="my-playlists-title">
-        <div class="card-header"><h2 id="my-playlists-title" class="h6 mb-0" data-i18n="landing.yourPlaylists">Your playlists</h2></div>
-        <ul id="my-playlists-list" class="list-group list-group-flush lobbies-list" aria-busy="true">
-          <li class="list-group-item app-empty fg-3" data-i18n="landing.loading">Loading…</li>
+      <!-- Your playlists (public + private) as tiles, then shelves of artists and of
+           other people's public playlists (lobby.js, artists.js). -->
+      <section id="my-playlists-section" class="landing-section my-playlists-section" aria-labelledby="my-playlists-title">
+        <div class="landing-section-head"><h2 id="my-playlists-title" class="landing-section-title me-auto" data-i18n="landing.yourPlaylists">Your playlists</h2></div>
+        <ul id="my-playlists-list" class="landing-tiles lobbies-list" aria-busy="true">
+          <li class="app-empty landing-tiles-empty fg-3" data-i18n="landing.loading">Loading…</li>
         </ul>
       </section>
       <!-- Artists: a shelf of the library's artists, read-only (artists.js) -->
-      <section id="artists-section" class="card mb-5 artists-section" aria-labelledby="artists-title" hidden>
-        <div class="card-header flex-row d-flex align-items-center gap-2">
-          <h2 id="artists-title" class="h6 mb-0 me-auto" data-i18n="artists.title">Artists</h2>
+      <section id="artists-section" class="landing-section artists-section" aria-labelledby="artists-title" hidden>
+        <div class="landing-section-head">
+          <h2 id="artists-title" class="landing-section-title me-auto" data-i18n="artists.title">Artists</h2>
           <button id="artists-shelf-prev" class="btn-text theme-secondary btn-icon btn-sm artists-shelf-nav" type="button" aria-label="Scroll back" title="Scroll back" data-i18n-aria-label="artists.scrollBack" data-i18n-title="artists.scrollBack" disabled>
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
           </button>
@@ -129,9 +153,17 @@
         </div>
         <ul id="artists-shelf" class="artist-shelf" role="list" aria-labelledby="artists-title"></ul>
       </section>
-      <section id="lobbies-section" class="card mb-5 lobbies-section" aria-labelledby="public-playlists-title" hidden>
-        <div class="card-header"><h2 id="public-playlists-title" class="h6 mb-0" data-i18n="landing.publicPlaylists">Public playlists</h2></div>
-        <ul id="lobbies-list" class="list-group list-group-flush lobbies-list"></ul>
+      <section id="lobbies-section" class="landing-section lobbies-section" aria-labelledby="public-playlists-title" hidden>
+        <div class="landing-section-head">
+          <h2 id="public-playlists-title" class="landing-section-title me-auto" data-i18n="landing.publicPlaylists">Public playlists</h2>
+          <button id="lobbies-shelf-prev" class="btn-text theme-secondary btn-icon btn-sm artists-shelf-nav" type="button" aria-label="Scroll back" title="Scroll back" data-i18n-aria-label="artists.scrollBack" data-i18n-title="artists.scrollBack" disabled>
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+          </button>
+          <button id="lobbies-shelf-next" class="btn-text theme-secondary btn-icon btn-sm artists-shelf-nav" type="button" aria-label="Scroll on" title="Scroll on" data-i18n-aria-label="artists.scrollOn" data-i18n-title="artists.scrollOn">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+          </button>
+        </div>
+        <ul id="lobbies-list" class="playlist-shelf lobbies-list" role="list" aria-labelledby="public-playlists-title"></ul>
       </section>
 
       <div class="d-flex flex-column align-items-center gap-3 landing-secondary">
@@ -156,6 +188,7 @@
         <button id="back-btn" class="btn-text theme-secondary btn-icon" type="button" aria-label="Back" title="Back">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
         </button>
+        <span id="lobby-avatar" class="playlist-avatar view-avatar" aria-hidden="true"></span>
         <div class="lobby-info min-w-0 me-auto">
           <div class="d-flex align-items-center gap-1 min-w-0">
             <h1 id="lobby-name" class="lobby-name h6 mb-0 text-truncate">Playlist</h1>
@@ -251,8 +284,10 @@
         <button id="radio-back" class="btn-text theme-secondary btn-icon radio-back" type="button" aria-label="Back" title="Back">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
         </button>
+        <span class="playlist-avatar view-avatar cover-radio" aria-hidden="true"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.24 6.15C2.51 6.43 2 7.17 2 8v12c0 1.1.89 2 2 2h16c1.11 0 2-.9 2-2V8c0-1.11-.89-2-2-2H8.3l8.26-3.34L15.88 1 3.24 6.15zM7 20c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm13-8h-2v-2h-2v2H4V8h16v4z"/></svg></span>
         <div class="lobby-info min-w-0 me-auto">
           <h1 class="h6 mb-0 text-truncate" data-i18n="radio.title">Radio</h1>
+          <span class="d-block fs-xs fg-3 text-truncate" data-i18n="radio.subtitleLoading">All songs, shuffled</span>
         </div>
         <div class="d-flex align-items-center gap-2 flex-shrink-0">
           <button id="radio-reshuffle" class="btn-text theme-secondary btn-icon" type="button" aria-label="Reshuffle" title="Reshuffle" data-i18n-aria-label="radio.reshuffle" data-i18n-title="radio.reshuffle" disabled>
@@ -754,6 +789,8 @@
        below that. Shown only for approved accounts (body.has-plnav). -->
   <div id="plnav-backdrop" class="plnav-backdrop" hidden></div>
   <nav id="app-sidebar" class="app-sidebar" aria-labelledby="plnav-title">
+    <!-- Upper panel: brand, profile, collapse; then the main places. -->
+    <div class="plnav-panel plnav-nav-panel">
     <div class="d-flex align-items-center gap-1 plnav-head">
       <a id="plnav-home" class="app-brand plnav-home" href="/" aria-label="Home" data-i18n-aria-label="sidebar.home"><img src="/icon-192.png" alt=""><span class="plnav-brand-name">listen-along</span></a>
       <button id="plnav-profile" class="btn-text theme-secondary btn-icon" type="button" aria-label="Profile" title="Profile">
@@ -767,14 +804,32 @@
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
       </button>
     </div>
-    <a id="plnav-radio" class="plnav-radio" href="/radio">
-      <span class="plnav-radio-icon"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.24 6.15C2.51 6.43 2 7.17 2 8v12c0 1.1.89 2 2 2h16c1.11 0 2-.9 2-2V8c0-1.11-.89-2-2-2H8.3l8.26-3.34L15.88 1 3.24 6.15zM7 20c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm13-8h-2v-2h-2v2H4V8h16v4z"/></svg></span>
-      <span class="plnav-radio-text">
-        <span class="plnav-radio-name" data-i18n="radio.title">Radio</span>
-        <span id="plnav-radio-meta" class="plnav-radio-meta">All songs, shuffled</span>
-      </span>
-      <span class="person-eq plnav-radio-eq" aria-hidden="true"><i></i><i></i><i></i></span>
-    </a>
+    <!-- The current place is aria-current="page" (sidebar.js; Radio: radio.js): a tint, never an edge. -->
+    <ul class="plnav-nav" role="list">
+      <li><a id="plnav-nav-home" class="plnav-nav-item" href="/" data-spa-link title="Home" data-i18n-title="sidebar.home">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+        <span class="plnav-nav-label" data-i18n="sidebar.home">Home</span>
+      </a></li>
+      <li><a id="plnav-radio" class="plnav-radio" href="/radio">
+        <span class="plnav-radio-icon"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.24 6.15C2.51 6.43 2 7.17 2 8v12c0 1.1.89 2 2 2h16c1.11 0 2-.9 2-2V8c0-1.11-.89-2-2-2H8.3l8.26-3.34L15.88 1 3.24 6.15zM7 20c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm13-8h-2v-2h-2v2H4V8h16v4z"/></svg></span>
+        <span class="plnav-radio-text">
+          <span class="plnav-radio-name" data-i18n="radio.title">Radio</span>
+          <span id="plnav-radio-meta" class="plnav-radio-meta">All songs, shuffled</span>
+        </span>
+        <span class="person-eq plnav-radio-eq" aria-hidden="true"><i></i><i></i><i></i></span>
+      </a></li>
+      <li><a id="plnav-nav-artists" class="plnav-nav-item" href="/artists" data-spa-link title="Artists" data-i18n-title="artists.title">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+        <span class="plnav-nav-label" data-i18n="artists.title">Artists</span>
+      </a></li>
+      <li><a id="plnav-nav-library" class="plnav-nav-item" href="/library" title="Music library &amp; requests" data-i18n-title="landing.library">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 5h-3v5.5a2.5 2.5 0 1 1-1-2V5h4v2z"/></svg>
+        <span class="plnav-nav-label" data-i18n="landing.library">Music library &amp; requests</span>
+      </a></li>
+    </ul>
+    </div>
+    <!-- Lower panel: the playlists (sort, new, filter chips, search, groups). -->
+    <div class="plnav-panel plnav-list-panel">
     <div class="d-flex align-items-center gap-2 plnav-title-row">
       <h2 id="plnav-title" class="h6 mb-0 min-w-0 text-truncate" data-i18n="landing.playlists">Playlists</h2>
       <button id="plnav-sort" class="btn-text theme-secondary btn-sm plnav-sort" type="button" aria-haspopup="menu" aria-expanded="false">
@@ -799,6 +854,7 @@
     </div>
     <div id="plnav-status" class="visually-hidden" role="status"></div>
     <div id="plnav-list" class="plnav-scroll"></div>
+    </div>
     <div id="plnav-resizer" class="panel-resizer plnav-resizer" role="separator" aria-orientation="vertical" tabindex="0" aria-controls="app-sidebar" aria-label="Resize playlists" title="Drag to resize, double-click to reset" data-i18n-aria-label="sidebar.resize" data-i18n-title="panels.resizeHint"></div>
   </nav>
 
@@ -820,54 +876,62 @@
     <button class="btn-text theme-secondary social-rail-btn" type="button" data-social-open="activity" aria-controls="social-panel" title="Open the download activity" aria-label="Open the download activity" data-i18n-title="social.openActivity" data-i18n-aria-label="social.openActivity" hidden>
       <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
       <span class="social-rail-label" data-i18n="social.activity">Activity</span>
-      <span class="badge social-toggle-badge" data-activity-count hidden></span>
+      <span class="badge social-toggle-badge" data-activity-active-count hidden></span>
     </button>
   </nav>
 
   <aside id="social-panel" class="social-panel" aria-label="Chat and people">
     <div id="social-resizer" class="panel-resizer social-resizer" role="separator" aria-orientation="vertical" tabindex="0" aria-controls="social-panel" aria-label="Resize chat and people" title="Drag to resize, double-click to reset" data-i18n-aria-label="social.resize" data-i18n-title="panels.resizeHint"></div>
-    <div class="social-header">
-      <button id="social-back" class="btn-text theme-secondary btn-icon social-back" type="button" aria-label="Back" title="Back">
-        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-      </button>
-      <nav class="nav nav-underline social-tabs" role="tablist" aria-label="Chat and people">
-        <button class="nav-link social-tab active" type="button" role="tab" aria-selected="true" aria-controls="social-chat" data-social-tab="chat">
-          <span data-i18n="social.chat">Chat</span> <span class="badge badge-subtle theme-primary" data-social-unread hidden></span>
-        </button>
-        <button class="nav-link social-tab" type="button" role="tab" aria-selected="false" aria-controls="social-people" data-social-tab="people">
-          <span data-i18n="social.people">People</span> <span class="badge badge-subtle theme-secondary" data-online-count title="Online">0</span>
-        </button>
-        <button class="nav-link social-tab" type="button" role="tab" aria-selected="false" aria-controls="social-activity" data-social-tab="activity" title="Download activity" aria-label="Download activity" hidden>
-          <svg class="social-tab-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
-          <span class="social-tab-word" data-i18n="social.activity">Activity</span> <span class="activity-dot" data-activity-dot aria-hidden="true" hidden></span>
-        </button>
-      </nav>
-      <button id="social-collapse" class="btn-text theme-secondary btn-icon social-collapse" type="button" aria-label="Hide chat and people" title="Hide chat and people" aria-controls="social-panel">
-        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
-      </button>
+    <!-- Stacked cards, all on screen at once (social.js): People, Chat, Activity. -->
+    <div class="social-scroll">
+      <section id="social-people" class="social-card social-people" aria-labelledby="social-people-title" tabindex="-1">
+        <div class="social-card-head">
+          <button id="social-back" class="btn-text theme-secondary btn-icon btn-sm social-back" type="button" aria-label="Back" title="Back">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+          </button>
+          <svg class="icon social-card-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+          <h2 id="social-people-title" class="social-card-title" data-i18n="social.people">People</h2>
+          <span class="badge badge-subtle theme-secondary" data-online-count title="Online" data-i18n-title="social.online">0</span>
+          <button id="social-collapse" class="btn-text theme-secondary btn-icon btn-sm social-collapse ms-auto" type="button" aria-label="Hide chat and people" title="Hide chat and people" aria-controls="social-panel">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+          </button>
+        </div>
+        <div class="social-card-scroll people-scroll">
+          <h3 class="fs-xs fw-semibold fg-3 text-uppercase people-heading">Online — <span id="people-online-count">0</span></h3>
+          <ul id="people-online" class="list-group list-group-flush people-list"></ul>
+          <h3 class="fs-xs fw-semibold fg-3 text-uppercase people-heading">Offline — <span id="people-offline-count">0</span></h3>
+          <ul id="people-offline" class="list-group list-group-flush people-list"></ul>
+        </div>
+      </section>
+      <section id="social-chat" class="social-card social-chat" aria-labelledby="social-chat-title" tabindex="-1">
+        <div class="social-card-head">
+          <svg class="icon social-card-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/></svg>
+          <h2 id="social-chat-title" class="social-card-title" data-i18n="social.chat">Chat</h2>
+          <span class="badge badge-subtle theme-primary" data-social-unread hidden></span>
+        </div>
+        <div id="chat-scroll" class="chat-scroll" tabindex="0" aria-label="Messages">
+          <div id="chat-older" class="fs-xs fg-4 text-center chat-older" hidden></div>
+          <ul id="chat-list" class="list-unstyled mb-0 chat-list" aria-live="polite"></ul>
+        </div>
+        <form id="chat-form" class="input-group chat-form" autocomplete="off">
+          <input id="chat-input" class="form-control" type="text" maxlength="1000" placeholder="Message everyone" aria-label="Message everyone" enterkeyhint="send">
+          <button id="chat-send" class="btn-solid theme-primary btn-icon" type="submit" aria-label="Send" title="Send">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+          </button>
+        </form>
+      </section>
+      <section id="social-activity" class="social-card social-activity" aria-labelledby="social-activity-title" tabindex="-1" hidden>
+        <div class="social-card-head">
+          <svg class="icon social-card-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+          <h2 id="social-activity-title" class="social-card-title" title="Download activity" data-i18n="social.activity" data-i18n-title="social.activityLong">Activity</h2>
+          <span class="badge badge-subtle theme-primary text-truncate" data-activity-progress hidden></span>
+        </div>
+        <div class="social-card-scroll activity-scroll">
+          <p id="activity-empty" class="app-empty fs-sm mb-0"></p>
+          <ul id="activity-list" class="list-group list-group-flush activity-list"></ul>
+        </div>
+      </section>
     </div>
-    <section id="social-chat" class="social-chat" role="tabpanel" aria-label="Chat">
-      <div id="chat-scroll" class="chat-scroll" tabindex="0" aria-label="Messages">
-        <div id="chat-older" class="fs-xs fg-4 text-center chat-older" hidden></div>
-        <ul id="chat-list" class="list-unstyled mb-0 chat-list" aria-live="polite"></ul>
-      </div>
-      <form id="chat-form" class="input-group chat-form" autocomplete="off">
-        <input id="chat-input" class="form-control" type="text" maxlength="1000" placeholder="Message everyone" aria-label="Message everyone" enterkeyhint="send">
-        <button id="chat-send" class="btn-solid theme-primary btn-icon" type="submit" aria-label="Send" title="Send">
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-        </button>
-      </form>
-    </section>
-    <section id="social-people" class="social-people" role="tabpanel" aria-label="People" hidden>
-      <h2 class="fs-xs fw-semibold fg-3 text-uppercase people-heading">Online — <span id="people-online-count">0</span></h2>
-      <ul id="people-online" class="list-group list-group-flush people-list"></ul>
-      <h2 class="fs-xs fw-semibold fg-3 text-uppercase people-heading">Offline — <span id="people-offline-count">0</span></h2>
-      <ul id="people-offline" class="list-group list-group-flush people-list"></ul>
-    </section>
-    <section id="social-activity" class="social-activity" role="tabpanel" aria-label="Download activity" data-i18n-aria-label="social.activityLong" hidden>
-      <p id="activity-empty" class="app-empty fs-sm mb-0"></p>
-      <ul id="activity-list" class="list-group list-group-flush activity-list"></ul>
-    </section>
   </aside>
 
   <!-- Toast Container -->

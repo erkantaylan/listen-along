@@ -35,6 +35,9 @@
     "creating": "Oluşturuluyor…",
     "cancel": "Vazgeç",
     "play": "{name} çal",
+    "pause": "{name} duraklat",
+    "libraryTileMeta": "Şarkılar, istekler ve indirmeler",
+    "artistsTileMeta": "Kitaplıktaki tüm sanatçılar",
     "emptyPlaylist": "Bu çalma listesinde henüz şarkı yok"
   },
   "lobby": {
@@ -234,6 +237,7 @@
     "open": "Çalma listelerini aç",
     "close": "Çalma listelerini kapat",
     "home": "Ana sayfa",
+    "mainNav": "Ana menü",
     "search": "Çalma listelerinde ara",
     "clearSearch": "Aramayı temizle",
     "noMatches": "“{query}” ile eşleşen çalma listesi yok",
@@ -247,7 +251,6 @@
     "unpinNamed": "{name} sabitlemesini kaldır",
     "oneSong": "1 şarkı",
     "songs": "{count} şarkı",
-    "homeHint": "Soldan bir çalma listesi seç ya da yeni bir tane başlat.",
     "expand": "Çalma listelerini genişlet",
     "collapse": "Çalma listelerini daralt",
     "resize": "Çalma listelerini yeniden boyutlandır",

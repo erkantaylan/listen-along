@@ -3,6 +3,7 @@
 
 export const DRAWER_MAX = 768; // below this the sidebar is a drawer
 export const DOCK_MIN = 1010; // from here the chat panel sits beside the page
+export const RAIL_MAX = 1100; // up to here an automatic sidebar is the rail, chat docked or not
 
 export const SIDEBAR_RAIL = 72;
 export const SIDEBAR_MIN = 200; // dragged below this, the sidebar snaps to its rail
@@ -25,8 +26,10 @@ const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 //     the sidebar at its smallest for this pref.
 //   - Rail by choice: 72. Expanded by choice: the wish, shrunk to MAIN_FLOOR but
 //     never under SIDEBAR_MIN.
-//   - Automatic: keeps the page at COMFORTABLE_MAIN. An undragged sidebar is all
-//     or nothing (264 fits or it is a rail); a dragged one shrinks first.
+//   - Automatic: the rail up to RAIL_MAX; above that it keeps the page at
+//     COMFORTABLE_MAIN (so with the chat docked the rail reaches further). An
+//     undragged sidebar is all or nothing (264 fits or it is a rail); a dragged
+//     one shrinks first.
 // left / right are null where that column does not sit beside the page.
 export function resolveColumns({ width, pref = null, chatDocked = false, hasSidebar = true, left = null, right = null }) {
   const docked = chatDocked && width >= DOCK_MIN;
@@ -47,8 +50,9 @@ export function resolveColumns({ width, pref = null, chatDocked = false, hasSide
   const fallback = defaultSidebarWidth(width);
   if (pref === 'expanded') return result(false, clamp(left ?? fallback, SIDEBAR_MIN, Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, width - inset - MAIN_FLOOR))));
   const room = width - inset - COMFORTABLE_MAIN;
-  if (left == null) return room < 264 ? result(true, SIDEBAR_RAIL) : result(false, fallback);
-  return room < SIDEBAR_MIN ? result(true, SIDEBAR_RAIL) : result(false, clamp(left, SIDEBAR_MIN, Math.min(SIDEBAR_MAX, room)));
+  const narrow = width <= RAIL_MAX;
+  if (left == null) return narrow || room < 264 ? result(true, SIDEBAR_RAIL) : result(false, fallback);
+  return narrow || room < SIDEBAR_MIN ? result(true, SIDEBAR_RAIL) : result(false, clamp(left, SIDEBAR_MIN, Math.min(SIDEBAR_MAX, room)));
 }
 
 export const sidebarRail = (args) => resolveColumns(args).rail;

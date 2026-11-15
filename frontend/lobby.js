@@ -11,8 +11,9 @@ import { isEditMode, setEditMode } from './queue-edit.js';
 import { isNewPlaylistPending, newPlaylistCreated, newPlaylistFailed } from './new-playlist.js';
 import { playlistMenuItems, privateBadgeHtml, LOCK_SVG } from './playlist-actions.js';
 import { openContextMenu, closeContextMenu, bindContextMenu } from './context-menu.js';
-import { loadPlaylists, onPlaylists, isPinned, togglePlaylistPin } from './playlist-store.js';
+import { loadPlaylists, onPlaylists, isPinned, togglePlaylistPin, getPlaylists, isLoaded } from './playlist-store.js';
 import { closePickDialog } from './pick-dialog.js';
+import { playlistCoverIndex, playlistInitials } from './playlist-filter.js';
 
 // Register landing view activator
 viewActivators.landing = () => {
@@ -36,6 +37,12 @@ export function ownerText({ isOwner, ownerId, ownerName }) {
 // Delete).
 function renderPlaylistHeader() {
   elements.lobbyName.textContent = playlistTitle(state.lobbyName, state.lobbyId);
+  // The cover of initials, as in the sidebar and on the landing tiles.
+  const avatar = document.getElementById('lobby-avatar');
+  if (avatar) {
+    avatar.className = `playlist-avatar view-avatar cover-${playlistCoverIndex(state.lobbyId)}`;
+    avatar.textContent = playlistInitials(playlistTitle(state.lobbyName, state.lobbyId));
+  }
   document.title = `${playlistTitle(state.lobbyName, state.lobbyId)} · listen-along`;
   const priv = state.visibility === 'private';
   if (elements.visibilityBadge) {
@@ -385,11 +392,24 @@ const PLAY_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="tru
 const MORE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>';
 const PLUS_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>';
 
-// The landing page: "Your playlists" (everything you own, public and
-// private) first, then other people's public playlists (and ownerless
-// shared ones). The server only sends what you may see. Your pins first, then
-// newest. From 768px the sidebar lists your playlists, so CSS hides the first
-// card there and this page is for browsing other people's. Owner controls (visibility, delete) only on your own playlists.
+const PAUSE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
+const PIN_ICON = '<svg class="pin-indicator" viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>';
+const EQ_HTML = '<span class="person-eq playlist-eq" aria-hidden="true"><i></i><i></i><i></i></span>';
+const RADIO_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3.24 6.15C2.51 6.43 2 7.17 2 8v12c0 1.1.89 2 2 2h16c1.11 0 2-.9 2-2V8c0-1.11-.89-2-2-2H8.3l8.26-3.34L15.88 1 3.24 6.15zM7 20c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm13-8h-2v-2h-2v2H4V8h16v4z"/></svg>';
+const LIBRARY_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 5h-3v5.5a2.5 2.5 0 1 1-1-2V5h4v2z"/></svg>';
+const ARTIST_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>';
+
+// The playlist the player is playing from right now, or null.
+const playingLobbyId = () => (player.isPlaying && player.track && player.context && player.context.type === 'lobby' ? player.context.lobbyId : null);
+
+// The landing page ("Home"): "Your playlists" (everything you own, public and
+// private) as tiles, followed by tiles for Radio, the music library and Artists;
+// then the Artists shelf (artists.js) and a shelf of cards for other people's
+// public playlists (and ownerless shared ones). The server only sends what you
+// may see. Your pins first, then newest. Owner controls (visibility, delete)
+// only on your own playlists. Tiles and cards are .lobby-card (role="link"):
+// click / Enter / Space opens, ⋮ / right-click / long-press is the menu, a
+// double-click plays (row-double-click.js).
 function renderLobbies(lobbies) {
   if (!elements.lobbiesSection || !elements.lobbiesList || !elements.myPlaylistsList) return;
   lobbyCache.clear();
@@ -397,43 +417,123 @@ function renderLobbies(lobbies) {
   const sorted = [...lobbies].sort((a, b) => (b.pinnedByMe - a.pinnedByMe) || (b.createdAt - a.createdAt));
   const mine = sorted.filter(l => l.isOwner);
   const others = sorted.filter(l => !l.isOwner);
+  const nowId = playingLobbyId();
   elements.myPlaylistsList.removeAttribute('aria-busy');
-  elements.myPlaylistsList.innerHTML = mine.length ? mine.map(lobbyRowHtml).join('') : myPlaylistsEmptyHtml();
+  setListHtml(elements.myPlaylistsList, (mine.length ? mine.map(l => tileHtml(l, nowId)).join('') : myPlaylistsEmptyHtml()) + shortcutTilesHtml());
   elements.lobbiesSection.hidden = others.length === 0;
-  elements.lobbiesList.innerHTML = others.map(lobbyRowHtml).join('');
-  const hint = document.getElementById('landing-home-hint');
-  if (hint) hint.hidden = others.length > 0;
+  setListHtml(elements.lobbiesList, others.map(l => cardHtml(l, nowId)).join(''));
+  updateLobbiesShelfNav();
+}
+
+// Re-render only when the markup changed (the list is polled), and keep
+// keyboard focus on the same control of the same playlist.
+function setListHtml(list, html) {
+  if (list.dataset.html === html) return;
+  const active = document.activeElement;
+  const row = list.contains(active) ? active.closest('[data-playlist-id]') : null;
+  const id = row && row.dataset.playlistId;
+  const part = !row ? null : active === row ? '' : ['lobby-quick-play', 'lobby-menu-btn'].find(c => active.classList.contains(c));
+  list.innerHTML = html;
+  list.dataset.html = html;
+  if (id && part != null) {
+    const again = list.querySelector(`[data-playlist-id="${CSS.escape(id)}"]`);
+    const target = again && (part ? again.querySelector(`.${part}`) || again : again);
+    if (target) target.focus({ preventScroll: true });
+  }
 }
 
 function myPlaylistsEmptyHtml() {
-  return `<li class="list-group-item app-empty lobbies-empty"><p class="fw-medium fg-1 mb-1">${escapeHtml(t('landing.noPlaylists', 'No playlists yet'))}</p>`
+  return `<li class="app-empty lobbies-empty"><p class="fw-medium fg-1 mb-1">${escapeHtml(t('landing.noPlaylists', 'No playlists yet'))}</p>`
     + `<p class="fs-sm fg-3 mb-4">${escapeHtml(t('landing.emptyHint', 'Make one, add songs, and share the link to listen together.'))}</p>`
     + `<button type="button" class="btn lobbies-empty-new" aria-haspopup="dialog" onclick="window.app.newPlaylist(this)">${PLUS_ICON}${escapeHtml(t('landing.newPlaylist', 'New playlist'))}</button></li>`;
 }
 
-function lobbyRowHtml(l) {
-  const age = formatAge(l.createdAt);
+const songsText = (n) => (n === 1 ? t('sidebar.oneSong', '1 song') : t('sidebar.songs', `${n} songs`, { count: n }));
+const listenersText = (n) => `${n} ${n === 1 ? t('lobby.listener', 'listener') : t('lobby.listeners', 'listeners')}`;
+
+// What a tile or card says about a playlist, and its buttons.
+function playlistParts(l, nowId) {
   const title = playlistTitle(l.name, l.id);
-  const displayName = escapeHtml(title);
+  const priv = l.visibility === 'private';
+  const playing = l.id === nowId;
+  const owner = ownerText(l);
+  const songs = songsText(l.songCount);
+  const listeners = l.userCount ? listenersText(l.userCount) : '';
   // JS string inside an HTML attribute: JSON-encode, then HTML-escape.
   const idArg = escapeHtml(JSON.stringify(l.id));
-  const priv = l.visibility === 'private';
-  const pinIcon = l.pinnedByMe ? '<svg class="pin-indicator" viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>' : '';
-  const privateBadge = priv ? privateBadgeHtml('lobby-visibility-badge') : '';
-  const owner = ownerText(l);
-  const playLabel = t('landing.play', `Play ${title}`, { name: title });
+  const label = [title, priv ? t('landing.private', 'Private') : '', owner, songs, listeners, playing ? t('radio.nowPlaying', 'playing') : ''].filter(Boolean).join(', ');
+  const playLabel = playing ? t('landing.pause', `Pause ${title}`, { name: title }) : t('landing.play', `Play ${title}`, { name: title });
   const menuLabel = t('playlistMenu.labelFor', `Actions for ${title}`, { name: title });
-  const playBtn = l.songCount > 0
-    ? `<button type="button" class="btn-text theme-secondary btn-icon btn-sm lobby-quick-play" title="${escapeHtml(playLabel)}" aria-label="${escapeHtml(playLabel)}" onclick="event.stopPropagation();window.app.quickPlayLobby(${idArg})">${PLAY_ICON}</button>` : '';
+  const playBtn = (cls) => (l.songCount > 0 || playing
+    ? `<button type="button" class="${cls} lobby-quick-play" title="${escapeHtml(playLabel)}" aria-label="${escapeHtml(playLabel)}" onclick="event.stopPropagation();window.app.toggleLobbyPlayback(${idArg})">${playing ? PAUSE_ICON : PLAY_ICON}</button>` : '');
   const menuBtn = `<button type="button" class="btn-text theme-secondary btn-icon btn-sm lobby-menu-btn" aria-haspopup="menu" aria-expanded="false" title="${escapeHtml(menuLabel)}" aria-label="${escapeHtml(menuLabel)}">${MORE_ICON}</button>`;
-  const controls = `<div class="d-flex gap-1 ms-auto flex-shrink-0 lobby-owner-controls">${playBtn}${menuBtn}</div>`;
-  return `<li class="list-group-item list-group-item-action lobby-card${priv ? ' is-private' : ''}" data-playlist-id="${escapeHtml(l.id)}" tabindex="0" role="link" onclick="if(!event.target.closest('.lobby-menu-btn'))window.app.joinLobbyFromCard(${idArg})" onkeydown="if((event.key==='Enter'||event.key===' ')&&event.target===this){event.preventDefault();window.app.joinLobbyFromCard(${idArg})}">`
-    + `<div class="d-flex align-items-center gap-2 lobby-card-header"><span class="d-flex align-items-center gap-2 min-w-0 fw-medium lobby-card-id"><span class="text-truncate">${pinIcon}${displayName}</span>${privateBadge}</span>${controls}</div>`
-    + `<div class="d-flex flex-wrap align-items-center column-gap-3 fs-sm fg-3 mt-1 lobby-card-stats">`
-    + (owner ? `<span class="text-truncate lobby-card-owner">${escapeHtml(owner)}</span>` : '')
-    + `<span class="lobby-card-stat" title="Songs"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>${l.songCount}<span class="visually-hidden"> songs</span></span>`
-    + `<span class="lobby-card-stat" title="Listeners"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>${l.userCount}<span class="visually-hidden"> listening</span></span>`
-    + `<span class="lobby-card-age">${age}</span></div></li>`;
+  const open = `data-playlist-id="${escapeHtml(l.id)}" tabindex="0" role="link" aria-label="${escapeHtml(label)}"`
+    + ` onclick="if(!event.target.closest('.lobby-menu-btn'))window.app.joinLobbyFromCard(${idArg})"`
+    + ` onkeydown="if((event.key==='Enter'||event.key===' ')&&event.target===this){event.preventDefault();window.app.joinLobbyFromCard(${idArg})}"`;
+  const avatar = (cls = '') => `<span class="playlist-avatar ${cls} cover-${playlistCoverIndex(l.id)}" aria-hidden="true">${escapeHtml(playlistInitials(title))}</span>`;
+  const name = `${l.pinnedByMe ? PIN_ICON : ''}${escapeHtml(title)}`;
+  return { title, priv, playing, owner, songs, listeners, playBtn, menuBtn, open, avatar, name };
+}
+
+// "Your playlists": a wide, short tile (cover of initials, name, songs and listeners).
+function tileHtml(l, nowId) {
+  const p = playlistParts(l, nowId);
+  const meta = [p.songs, p.listeners].filter(Boolean).join(' · ');
+  return `<li class="landing-tile lobby-card${p.priv ? ' is-private' : ''}${p.playing ? ' is-playing' : ''}" ${p.open}>`
+    + p.avatar()
+    + `<span class="landing-tile-text"><span class="landing-tile-name">${p.name}</span>`
+    + `<span class="landing-tile-meta">${p.playing ? EQ_HTML : ''}${p.priv ? privateBadgeHtml('lobby-visibility-badge') : ''}<span class="text-truncate">${escapeHtml(meta)}</span></span></span>`
+    + p.playBtn('btn-text theme-secondary btn-icon btn-sm') + p.menuBtn
+    + `</li>`;
+}
+
+// Other people's public playlists: a card on the shelf.
+function cardHtml(l, nowId) {
+  const p = playlistParts(l, nowId);
+  const meta = [p.owner, p.songs, p.listeners].filter(Boolean).join(' · ');
+  return `<li class="playlist-card lobby-card${p.priv ? ' is-private' : ''}${p.playing ? ' is-playing' : ''}" ${p.open}>`
+    + `<span class="playlist-card-media">${p.avatar('playlist-card-art')}${p.playBtn('btn btn-icon')}${p.menuBtn}</span>`
+    + `<span class="playlist-card-title" title="${escapeHtml(p.title)}">${p.name}</span>`
+    + `<span class="playlist-card-meta">${p.playing ? EQ_HTML : ''}<span class="text-truncate">${escapeHtml(meta)}</span></span>`
+    + `</li>`;
+}
+
+// After your playlists: Radio, the music library and Artists, as tiles too.
+function shortcutTilesHtml() {
+  const tile = (href, cover, icon, name, meta, extra = '') => `<li class="landing-tile landing-shortcut">`
+    + `<a class="landing-tile-link" href="${href}" data-spa-link><span class="playlist-avatar ${cover}" aria-hidden="true">${icon}</span>`
+    + `<span class="landing-tile-text"><span class="landing-tile-name">${escapeHtml(name)}</span><span class="landing-tile-meta"><span class="text-truncate">${escapeHtml(meta)}</span></span></span></a>${extra}</li>`;
+  const radio = t('radio.title', 'Radio');
+  const playRadio = t('landing.play', `Play ${radio}`, { name: radio });
+  return tile('/radio', 'cover-radio', RADIO_ICON, radio, t('radio.subtitleLoading', 'All songs, shuffled'),
+    `<button type="button" class="btn-text theme-secondary btn-icon btn-sm landing-shortcut-play" title="${escapeHtml(playRadio)}" aria-label="${escapeHtml(playRadio)}" onclick="window.app.playRadio()">${PLAY_ICON}</button>`)
+    + tile('/library', 'cover-library', LIBRARY_ICON, t('landing.library', 'Music library & requests'), t('landing.libraryTileMeta', 'Songs, requests and downloads'))
+    + tile('/artists', 'cover-artists', ARTIST_ICON, t('artists.title', 'Artists'), t('landing.artistsTileMeta', 'Every artist in the library'));
+}
+
+// The public playlists shelf's ‹ ›: only with a mouse and only while the row overflows (CSS + this).
+function updateLobbiesShelfNav() {
+  const shelf = elements.lobbiesList;
+  const prev = document.getElementById('lobbies-shelf-prev');
+  const next = document.getElementById('lobbies-shelf-next');
+  if (!shelf || !prev || !next) return;
+  const overflow = shelf.scrollWidth - shelf.clientWidth > 1;
+  prev.hidden = !overflow;
+  next.hidden = !overflow;
+  prev.disabled = shelf.scrollLeft <= 1;
+  next.disabled = shelf.scrollLeft >= shelf.scrollWidth - shelf.clientWidth - 1;
+}
+
+function scrollLobbiesShelf(direction) {
+  const shelf = elements.lobbiesList;
+  const rtl = getComputedStyle(shelf).direction === 'rtl' ? -1 : 1;
+  shelf.scrollBy({ left: direction * rtl * Math.max(shelf.clientWidth * 0.8, 160), behavior: 'smooth' });
+}
+
+// The tile / card button: pause the playlist playing now, else quick play.
+export function toggleLobbyPlayback(lobbyId) {
+  if (playingLobbyId() === lobbyId) { player.pause(); return; }
+  quickPlayLobby(lobbyId);
 }
 
 // Quick play (landing row, ⋮ Play, double-click on a row): the playlist already
@@ -458,6 +558,17 @@ export function quickPlayLobby(lobbyId) {
 // link for everyone; Rename, Make private / public, Delete for the owner.
 export function setupLandingMenus() {
   onPlaylists(renderLobbies);
+  // The playlist playing now: equaliser, accent title, Pause on its button.
+  const rerender = () => { if (isLoaded()) renderLobbies(getPlaylists()); };
+  for (const event of ['state', 'context', 'track']) player.on(event, rerender);
+  window.addEventListener('languageChanged', rerender);
+  const shelf = elements.lobbiesList;
+  if (shelf) {
+    shelf.addEventListener('scroll', updateLobbiesShelfNav, { passive: true });
+    if (window.ResizeObserver) new ResizeObserver(updateLobbiesShelfNav).observe(shelf);
+  }
+  document.getElementById('lobbies-shelf-prev')?.addEventListener('click', () => scrollLobbiesShelf(-1));
+  document.getElementById('lobbies-shelf-next')?.addEventListener('click', () => scrollLobbiesShelf(1));
   onPlaylists(updatePinButton);
   window.addEventListener('languageChanged', updatePinButton);
   for (const list of [elements.myPlaylistsList, elements.lobbiesList]) {

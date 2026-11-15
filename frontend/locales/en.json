@@ -35,6 +35,9 @@
     "creating": "Creating…",
     "cancel": "Cancel",
     "play": "Play {name}",
+    "pause": "Pause {name}",
+    "libraryTileMeta": "Songs, requests and downloads",
+    "artistsTileMeta": "Every artist in the library",
     "emptyPlaylist": "This playlist has no songs yet"
   },
   "lobby": {
@@ -234,6 +237,7 @@
     "open": "Open playlists",
     "close": "Close playlists",
     "home": "Home",
+    "mainNav": "Main",
     "search": "Search playlists",
     "clearSearch": "Clear search",
     "noMatches": "No playlists match “{query}”",
@@ -247,7 +251,6 @@
     "unpinNamed": "Unpin {name}",
     "oneSong": "1 song",
     "songs": "{count} songs",
-    "homeHint": "Pick a playlist on the left, or start a new one.",
     "expand": "Expand playlists",
     "collapse": "Collapse playlists",
     "resize": "Resize playlists",

@@ -24,6 +24,22 @@
   --app-overlay:  #3b4046; /* menus, popovers, modals, toasts */
   --app-field-bg: #222528; /* inputs and selects: a slightly sunken well */
   --app-backdrop: rgb(10 11 12 / 0.6); /* behind modals and drawers */
+  --app-hover:    #32363b; /* hover fill of rows, tiles, cards, nav items (= --bs-bg-1) */
+  --app-pressed:  #3a3e44; /* pressed fill; neutral selected (= --bs-bg-2) */
+
+  /* App shell: the rounded panels (sidebar, page, chat column, player bar) float on
+     the page colour with this gap between them and around the edge. */
+  --app-gap: 0.5rem;
+  --app-panel-radius: 0.75rem;
+
+  /* Placeholder covers: a playlist's initials on one of these (playlistCoverIndex
+     in playlist-filter.js picks it from the id). Each keeps --app-text >= 4.6:1. */
+  --app-cover-1: #49699a;
+  --app-cover-2: #795b9a;
+  --app-cover-3: #34716e;
+  --app-cover-4: #895e41;
+  --app-cover-5: #8a4d6b;
+  --app-cover-6: #4e713f;
 
   /* Text */
   --app-text:           #e8eaed; /* primary text */
@@ -74,8 +90,8 @@
   /* --bs-bg-body is the *surface*: everything Bootstrap paints "body
      coloured" (cards, inputs, list groups, navbars, toasts) starts there. */
   --bs-bg-body: var(--app-surface);
-  --bs-bg-1:    #32363b; /* hover fill */
-  --bs-bg-2:    #3a3e44; /* pressed / neutral selected fill */
+  --bs-bg-1:    var(--app-hover);   /* hover fill */
+  --bs-bg-2:    var(--app-pressed); /* pressed / neutral selected fill */
   --bs-bg-3:    #444950;
   --bs-bg-4:    #52575e;
 
@@ -167,6 +183,8 @@
 /* Unlayered, because Bootstrap's own :root is. Its scrollbar-gutter: stable keeps
    an empty strip beside anything fixed to the right edge (chat, player bar). */
 :root { scrollbar-gutter: auto; }
+/* Phones: a slightly tighter shell gap. */
+@media (width < 768px) { :root { --app-gap: 0.375rem; } }
 
 /* 2. Shared rules -------------------------------------------------------------- */
 @layer custom {
@@ -355,13 +373,30 @@
     --bs-badge-border-color: var(--bs-bg-4);
   }
 
-  /* Tabs: muted until hovered; the current one is bright with an accent bar. */
+  /* Tabs (.nav-underline markup): pill chips, like the sidebar's filter chips.
+     The current one is the accent tint with an accent outline and text, never a
+     bar under or beside it. */
   .nav-underline {
-    --bs-nav-link-color: var(--app-text-muted);
+    --bs-nav-gap: 0.375rem;
+    --bs-nav-link-color: var(--app-text-secondary);
     --bs-nav-link-hover-color: var(--app-text);
   }
-  .nav-underline .nav-link:hover { border-block-end-color: var(--app-border-strong); }
-  .nav-underline .nav-link.active { color: var(--app-text); border-block-end-color: var(--app-accent); }
+  .nav-underline .nav-link {
+    min-height: 2rem;
+    padding: 0.125rem 0.75rem;
+    font-size: var(--bs-font-size-sm);
+    border: var(--bs-border-width) solid var(--app-border-strong);
+    border-radius: var(--bs-radius-pill);
+  }
+  .nav-underline .nav-link:hover,
+  .nav-underline .nav-link:focus { background-color: var(--app-hover); border-color: var(--app-border-hover); }
+  .nav-underline .nav-link:active { background-color: var(--app-pressed); }
+  .nav-underline .nav-link.active {
+    font-weight: var(--bs-font-weight-semibold);
+    color: var(--app-accent-text-strong);
+    background-color: var(--app-accent-subtle);
+    border-color: var(--app-accent-border);
+  }
 
   .pagination {
     --bs-pagination-color: var(--app-text);

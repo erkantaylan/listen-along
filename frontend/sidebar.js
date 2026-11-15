@@ -1,12 +1,16 @@
 // The playlists sidebar ("Your Library"): a fixed left column from 768px, a
-// drawer opened from the navbars below that (DESIGN.md "Playlists sidebar").
+// drawer opened from the navbars below that, plus the row of places above the
+// page there (#app-places; DESIGN.md "Playlists sidebar").
+// Two panels: the places (Home, Radio, Artists, Music library; links handled by
+// app-page.js's data-spa-link, the library by app.js) over the playlists.
 // The column is expanded or a 72px rail of avatars: the user's choice, else
 // automatic by the room left for the page (panel-widths.js, layout-rules.js).
 // The list comes from playlist-store.js, so everything here only navigates,
 // pins and filters; the server decides what may be seen.
 import { escapeHtml, navigateTo, t, trapFocus } from './ui.js';
 import { parseRoute, playlistPath } from './router.js';
-import { PLAYLIST_FILTERS, PLAYLIST_SORTS, arrangePlaylists, playlistInitials } from './playlist-filter.js';
+import { PLAYLIST_FILTERS, PLAYLIST_SORTS, arrangePlaylists, playlistCoverIndex, playlistInitials } from './playlist-filter.js';
+import { player } from './player.js';
 import { applyColumns, isSidebarRail, setupPanelWidths, toggleSidebarRail } from './panel-widths.js';
 import { storageGet, storageSet } from './state.js';
 import { getPlaylist, getPlaylists, isLoaded, loadPlaylists, onPlaylists, togglePlaylistPin } from './playlist-store.js';
@@ -24,16 +28,21 @@ const DRAWER_MQ = '(width < 768px)';
 const FILTER_KEY = 'listen-sidebarFilter';
 const SORT_KEY = 'listen-sidebarSort';
 
+const EQ_HTML = '<span class="person-eq playlist-eq" aria-hidden="true"><i></i><i></i><i></i></span>';
+
 const $ = (id) => document.getElementById(id);
+// The playlist the player is playing from right now (equaliser + accent name), or null.
+const playingId = () => (player.isPlaying && player.track && player.context && player.context.type === 'lobby' ? player.context.lobbyId : null);
 let query = '';
 let filter = 'all';
 let sort = 'date';
 let lastHtml = null;
 let drawerReturnFocus = null;
 
-function rowHtml(p, currentId) {
+function rowHtml(p, currentId, nowId) {
   const title = playlistTitle(p.name, p.id);
   const current = p.id === currentId;
+  const playing = p.id === nowId;
   const pinLabel = p.pinnedByMe
     ? t('sidebar.unpinNamed', `Unpin ${title}`, { name: title })
     : t('sidebar.pinNamed', `Pin ${title}`, { name: title });
@@ -44,11 +53,12 @@ function rowHtml(p, currentId) {
   const meta = [ownerText(p), songs].filter(Boolean).join(' · ');
   const privateMark = p.visibility === 'private'
     ? `${LOCK_SVG.replace('<svg ', `<svg class="icon-sm flex-shrink-0" `)}<span class="visually-hidden">${escapeHtml(t('landing.private', 'Private'))}: </span>` : '';
-  return `<li class="list-group-item plnav-row${current ? ' is-current' : ''}${p.pinnedByMe ? ' is-pinned' : ''}" data-playlist-id="${escapeHtml(p.id)}">`
-    + `<div class="plnav-link" role="link" tabindex="0" title="${escapeHtml(title)}" aria-label="${escapeHtml([title, p.visibility === 'private' ? t('landing.private', 'Private') : '', meta].filter(Boolean).join(', '))}"${current ? ' aria-current="page"' : ''}>`
-    + `<span class="plnav-avatar" aria-hidden="true">${escapeHtml(playlistInitials(title))}</span>`
+  const label = [title, p.visibility === 'private' ? t('landing.private', 'Private') : '', meta, playing ? t('radio.nowPlaying', 'playing') : ''].filter(Boolean).join(', ');
+  return `<li class="list-group-item plnav-row${current ? ' is-current' : ''}${playing ? ' is-playing' : ''}${p.pinnedByMe ? ' is-pinned' : ''}" data-playlist-id="${escapeHtml(p.id)}">`
+    + `<div class="plnav-link" role="link" tabindex="0" title="${escapeHtml(title)}" aria-label="${escapeHtml(label)}"${current ? ' aria-current="page"' : ''}>`
+    + `<span class="playlist-avatar plnav-avatar cover-${playlistCoverIndex(p.id)}" aria-hidden="true">${escapeHtml(playlistInitials(title))}</span>`
     + `<span class="text-truncate plnav-name">${escapeHtml(title)}</span>`
-    + `<span class="fs-xs fg-3 plnav-meta">${privateMark}<span class="text-truncate">${escapeHtml(meta)}</span></span>`
+    + `<span class="fs-xs fg-3 plnav-meta">${playing ? EQ_HTML : ''}${privateMark}<span class="text-truncate">${escapeHtml(meta)}</span></span>`
     + `</div>`
     + `<button type="button" class="btn-text theme-secondary btn-icon btn-sm plnav-pin${p.pinnedByMe ? ' active' : ''}" aria-pressed="${p.pinnedByMe ? 'true' : 'false'}" aria-label="${escapeHtml(pinLabel)}" title="${escapeHtml(pinLabel)}">${PIN_SVG}</button>`
     + `<button type="button" class="btn-text theme-secondary btn-icon btn-sm plnav-menu-btn" aria-haspopup="menu" aria-expanded="false" aria-label="${escapeHtml(menuLabel)}" title="${escapeHtml(menuLabel)}">${MORE_SVG}</button>`
@@ -61,8 +71,10 @@ function groupHtml(key, heading, rows, currentId) {
     + listGroupHtml(`aria-labelledby="${id}"`, rows, currentId);
 }
 
-const listGroupHtml = (label, rows, currentId) =>
-  `<ul class="list-group list-group-flush plnav-list" ${label}>${rows.map(p => rowHtml(p, currentId)).join('')}</ul>`;
+const listGroupHtml = (label, rows, currentId) => {
+  const nowId = playingId();
+  return `<ul class="list-group list-group-flush plnav-list" ${label}>${rows.map(p => rowHtml(p, currentId, nowId)).join('')}</ul>`;
+};
 
 // The rail has no chips to show or reset a filter, so it lists everything.
 const activeFilter = () => (document.body.classList.contains('plnav-rail') ? 'all' : filter);
@@ -138,6 +150,36 @@ function render() {
     const n = arranged().count;
     status.textContent = query || activeFilter() !== 'all' ? t('sidebar.resultCount', `Playlists found: ${n}`, { count: n }) : '';
   }
+}
+
+// The places in the upper panel and in the phone row (#app-places): the one on
+// screen is aria-current="page" (CSS tints it). The sidebar's Radio marks itself
+// (radio.js), as it also shows what is playing; the phone row's only follows the page.
+function syncPlaces() {
+  const route = parseRoute(window.location.pathname, window.location.search);
+  const library = !!route.library || document.body.classList.contains('libpage-open');
+  const home = !library && route.view === 'landing';
+  const artists = !library && (route.view === 'artists' || route.view === 'artist');
+  const current = {
+    'plnav-nav-home': home,
+    'plnav-nav-artists': artists,
+    'plnav-nav-library': library,
+    'places-home': home,
+    'places-radio': !library && route.view === 'radio',
+    'places-artists': artists,
+    'places-library': library,
+  };
+  for (const [id, on] of Object.entries(current)) {
+    const el = $(id);
+    if (!el) continue;
+    if (on) el.setAttribute('aria-current', 'page');
+    else el.removeAttribute('aria-current');
+  }
+}
+
+function refresh() {
+  syncPlaces();
+  render();
 }
 
 // Where focus goes when its row is gone; the rail has no search box.
@@ -360,8 +402,11 @@ export function setupSidebar() {
   });
   window.matchMedia(DRAWER_MQ).addEventListener('change', () => closeDrawer());
 
-  // The current row follows the address bar; any navigation closes the drawer.
-  window.addEventListener('popstate', () => { closeDrawer(); render(); });
-  document.addEventListener('app:viewchange', render);
+  // The current row and place follow the address bar; any navigation closes the drawer.
+  window.addEventListener('popstate', () => { closeDrawer(); refresh(); });
+  document.addEventListener('app:viewchange', refresh);
   window.addEventListener('languageChanged', () => { lastHtml = null; render(); });
+  // The playlist playing right now has the equaliser.
+  for (const event of ['state', 'context', 'track']) player.on(event, render);
+  syncPlaces();
 }

@@ -128,8 +128,17 @@ function refreshListenStrip() {
 export function setupPlayerBar() {
   const bar = $('player-bar');
   if (!bar) return;
-  // Keep page content clear of the bar whatever its height (phone/desktop).
-  const measure = () => document.body.style.setProperty('--app-player-height', `${bar.hidden ? 0 : bar.offsetHeight}px`);
+  // Keep page content clear of the bar whatever its height (phone/desktop). The
+  // bar floats: its room is its height plus the gap under it (bottom) and the
+  // gap above it (margin-top, app.css), so everything above stops a gap short.
+  const measure = () => {
+    let room = 0;
+    if (!bar.hidden) {
+      const cs = getComputedStyle(bar);
+      room = Math.ceil(bar.offsetHeight + (parseFloat(cs.bottom) || 0) + (parseFloat(cs.marginTop) || 0));
+    }
+    document.body.style.setProperty('--app-player-height', `${room}px`);
+  };
   if (window.ResizeObserver) new ResizeObserver(measure).observe(bar);
   window.addEventListener('resize', measure);
   document.addEventListener('app:viewchange', () => { refreshVisibility(); measure(); });

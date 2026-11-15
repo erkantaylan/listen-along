@@ -14,14 +14,14 @@ import { handleJobUpdate, handleWorkersUpdate } from './jobs.js';
 import { loadReports } from './song-reports.js';
 import { parseRoute, legacyRedirect } from './router.js';
 import { openNewPlaylistDialog } from './new-playlist.js';
-import { setupSidebar } from './sidebar.js';
+import { setupSidebar, closeDrawer } from './sidebar.js';
 import { setupAppPage } from './app-page.js';
 import { setupRadio, openRadioPage, closeRadioPage, handleRadioLibraryUpdated, refreshRadio, playRadioFromTop } from './radio.js';
 import { setupArtists, openArtistsPage, closeArtistsPage, handleArtistsLibraryUpdated } from './artists.js';
 import { setupArtistPage, openArtistPage, closeArtistPage, handleArtistLibraryUpdated, playArtistFromTop } from './artist-page.js';
 import { setupRowDoubleClick } from './row-double-click.js';
 import { scheduleReload } from './playlist-store.js';
-import { shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyUpdated, openPlaylistHeaderMenu, setupLandingMenus, handleUserJoined, handleUserLeft, handleLobbyClosed, checkForLastLobby, joinLobbyFromCard, updatePinButton, togglePin, quickPlayLobby, openLobbyPage, closeLobbyPage, syncMembership, resyncMembership, reportNowPlaying } from './lobby.js';
+import { shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyUpdated, openPlaylistHeaderMenu, setupLandingMenus, handleUserJoined, handleUserLeft, handleLobbyClosed, checkForLastLobby, joinLobbyFromCard, updatePinButton, togglePin, quickPlayLobby, toggleLobbyPlayback, openLobbyPage, closeLobbyPage, syncMembership, resyncMembership, reportNowPlaying } from './lobby.js';
 import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, updatePlayButton, updatePlaybackModeUI, updateNowPlaying, _setQueueFns } from './playback.js';
 import { closePickDialog } from './pick-dialog.js';
 import { handleQueueUpdated, handleSongAdded, addSong, removeSong, clearQueue, downloadPlaylist, cancelPlaylistDownload, moveSongUp, moveSongDown, playSongAt, setupQueueInteractions, setupQueueSearch, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './queue.js';
@@ -130,6 +130,18 @@ function setupEventListeners() {
   if (browseLibBtn) browseLibBtn.addEventListener('click', () => openLibraryPage('library'));
   const landingLibBtn = document.getElementById('landing-library-btn');
   if (landingLibBtn) landingLibBtn.addEventListener('click', () => openLibraryPage('library'));
+  // The "Music library & requests" place, in the sidebar and in the phone row:
+  // the same as the buttons above (over the playlist on screen, if any). A
+  // modified click opens a tab.
+  for (const id of ['plnav-nav-library', 'places-library']) {
+    const navLibrary = document.getElementById(id);
+    if (navLibrary) navLibrary.addEventListener('click', (e) => {
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      closeDrawer();
+      if (!isLibraryOpen()) openLibraryPage('library');
+    });
+  }
   setupLibraryPage();
 
   setupQueueInteractions();
@@ -303,7 +315,8 @@ function initAuthenticatedApp() {
 window.app = {
   removeSong, moveSongUp, moveSongDown, playSongAt,
   openSource, copySourceUrl, joinLobbyFromCard,
-  quickPlayLobby,
+  quickPlayLobby, toggleLobbyPlayback,
+  playRadio: () => playRadioFromTop(),
   newPlaylist: (btn) => openNewPlaylistDialog(btn)
 };
 window.dashboardJoinLobby = dashboardJoinLobby;

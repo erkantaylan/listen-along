@@ -74,7 +74,8 @@ function renderSidebarRow() {
       ? t('radio.subtitleEmpty', 'No songs yet')
       : tf('radio.subtitle', 'All {count} songs, shuffled', { count: count.toLocaleString(language()) });
   if (meta.textContent !== text) meta.textContent = text;
-  const here = window.location.pathname.replace(/\/+$/, '') === '/radio';
+  // The library overlay over this page is the place on screen then (sidebar.js).
+  const here = window.location.pathname.replace(/\/+$/, '') === '/radio' && !document.body.classList.contains('libpage-open');
   const active = isRadioActive();
   row.classList.toggle('is-current', here || active);
   row.classList.toggle('is-playing', active && player.isPlaying);
@@ -409,6 +410,9 @@ export function setupRadio() {
     if (page.open && !sameList) render();
   });
   window.addEventListener('popstate', renderSidebarRow);
+  // The library opening over this page changes the address without a popstate:
+  // the sidebar's current place moves to the library.
+  document.addEventListener('app:viewchange', renderSidebarRow);
   // The player bar's song, while this page is already open.
   document.addEventListener('app:reveal-playing', () => { if (page.open) scrollToCurrent(); });
   window.addEventListener('languageChanged', () => {

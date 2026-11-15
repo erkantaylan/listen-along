@@ -1,9 +1,9 @@
-// The download activity log: the Activity tab of the chat and people panel
-// (#social-activity; social.js switches the tabs). Every download job of
+// The download activity log: the Activity card of the chat and people panel
+// (#social-activity; social.js shows or hides it). Every download job of
 // everyone, live: who asked for what, where it is now, and how it ended.
 // Watching only, no actions. Approved accounts only: the server sends a
 // pending account neither the list nor the events, and social.js leaves the
-// tab hidden for it.
+// card hidden for it.
 //
 // Data: GET /api/activity/downloads, then socket activity:job (a row is new or
 // changed) and activity:progress (a running row's progress line). The rules
@@ -119,19 +119,19 @@ function updateRow(li, job) {
   if (li._meta !== meta) { li._meta = meta; li.querySelector('.activity-meta').innerHTML = meta; }
 }
 
-// What is in progress: a count on the rail button, a dot on the tab (which
-// says the number in its label, like the chat button does for unread).
+// What is in progress: a count on the rail button, "2 in progress" on the card's head.
 function renderCount() {
   const n = activeCount(A.jobs);
-  for (const el of document.querySelectorAll('[data-activity-count]')) {
+  // Not [data-activity-count]: those are the profile's own count badges (profile-activity.js).
+  for (const el of document.querySelectorAll('[data-activity-active-count]')) {
     el.textContent = n > 99 ? '99+' : String(n);
     el.hidden = n === 0;
   }
-  for (const el of document.querySelectorAll('[data-activity-dot]')) el.hidden = n === 0;
-  const base = t('social.activityLong', 'Download activity');
-  const label = !n ? base : `${base} (${n === 1 ? t('activity.oneActive', '1 in progress') : tf('activity.nActive', '{count} in progress', { count: n })})`;
-  const tab = document.querySelector('[data-social-tab="activity"]');
-  if (tab) { tab.title = label; tab.setAttribute('aria-label', label); }
+  const text = n === 1 ? t('activity.oneActive', '1 in progress') : tf('activity.nActive', '{count} in progress', { count: n });
+  for (const el of document.querySelectorAll('[data-activity-progress]')) {
+    el.textContent = n ? text : '';
+    el.hidden = n === 0;
+  }
 }
 
 function render() {
@@ -188,7 +188,7 @@ function reloadSoon() {
   A.reloadTimer = setTimeout(() => { A.reloadTimer = null; load(); }, 500);
 }
 
-/** The tab came on screen or left it (social.js). */
+/** The card came on screen or left it (social.js: the panel opened, closed or went to the background). */
 export function setActivityVisible(visible) {
   if (A.visible === visible) return;
   A.visible = visible;

@@ -28,7 +28,7 @@ where lobby persistence broke entirely on deployed instances.
 - Backend: Node.js + Express + Socket.IO (`backend/src/`)
 - Frontend: Vanilla JS, single-page (`frontend/`)
 - UI is stock Bootstrap 6 (vendored in `frontend/vendor/`) with light theming; read `DESIGN.md` before changing any page or CSS
-- Column widths: `frontend/layout-rules.js` (pure, tested) decides when the sidebar is a rail and from where the chat docks; keep its numbers in step with `app.css` (DESIGN.md "Columns and breakpoints"). Queue entries' `artistName` is derived from the library on load (`Queue._loadArtists`), not a column; `title` stays "Title - Artist" for the CLI and Android
+- Column widths: `frontend/layout-rules.js` (pure, tested) decides when the sidebar is a rail (automatically up to 1100px, `RAIL_MAX`, and above that while expanding it would leave the page column under 616px) and from where the chat docks (1010px); keep its numbers in step with `app.css` (DESIGN.md "Columns and breakpoints"). Queue entries' `artistName` is derived from the library on load (`Queue._loadArtists`), not a column; `title` stays "Title - Artist" for the CLI and Android
 - `index.js` is the main server (~1700 lines, handles all HTTP routes + socket events)
 - Domain modules: lobby.js, playlistAccess.js, queue.js, covers.js, db.js,
   workerHub.js / downloadJobs.js / jobRoutes.js (downloaders + jobs, see below),
@@ -165,7 +165,7 @@ where lobby persistence broke entirely on deployed instances.
   socket `jobs:update` to the requester's `userRoom`, `workers:update` to
   `APP_ROOM`. Upload percent is plain text in `job:progress.message`, throttled
   by the worker to about 1/s (each one is a DB write + `jobs:update`).
-- **Activity log** (the panel's third tab: every download job, for every approved
+- **Activity log** (the panel's third card: every download job, for every approved
   account; watching only). Row = `downloadJobs.toActivity(row, playlist)`: toPublic's
   field names where they mean the same, but no ids, `input` only for a video link,
   and NOTHING a worker wrote as free text (errors and progress lines hold paths of
@@ -188,7 +188,7 @@ where lobby persistence broke entirely on deployed instances.
   requester's. Frontend: `activity.js` (rows keep their element, a tick writes one
   text node; refetches on reconnect and on `playlists:changed`, only the latest
   load applies, and a row older by `updated_at` never replaces a newer one), pure
-  rules in `activity-rules.js` (tested), tab switching in `social.js`
+  rules in `activity-rules.js` (tested), the card shown by `social.js`
   (`opts.activity`: approved only).
 - **Pick the video** (web only, before a job or request exists): `frontend/pick-dialog.js`
   (rules in `pick-rules.js`, tested; DESIGN.md "Pick the video") asks

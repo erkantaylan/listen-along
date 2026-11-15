@@ -76,3 +76,13 @@ export function playlistInitials(name, locale = 'tr') {
   const letters = words.slice(0, 2).map(w => Array.from(w)[0]).join('');
   return letters.toLocaleUpperCase(locale) || '?';
 }
+
+// Which placeholder cover colour (1..COVER_COLOURS, --app-cover-N in theme.css)
+// a playlist gets: a hash of its id, so it stays the same everywhere and across
+// renames.
+export const COVER_COLOURS = 6;
+export function playlistCoverIndex(id) {
+  let h = 0;
+  for (const ch of String(id ?? '')) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+  return (h % COVER_COLOURS) + 1;
+}

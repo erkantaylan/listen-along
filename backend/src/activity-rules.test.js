@@ -115,6 +115,17 @@ describe('activity-rules: wording from codes, not from the downloader\'s text', 
     assert.equal(m.progressOf({ status: 'assigned', stage: 'downloading' }), null);
     assert.equal(m.progressOf({ status: 'done', stage: 'uploading', percent: 99 }), null);
   });
+  it('the in-progress count never writes to the profile\'s count badges', () => {
+    // profile-activity.js owns [data-activity-count="<tab>"]; activity.js once
+    // wrote (and hid) every [data-activity-count], profile tabs included.
+    const fs = require('fs');
+    const read = (f) => fs.readFileSync(path.join(__dirname, '..', '..', 'frontend', f), 'utf8');
+    const html = read('index.html');
+    const bare = html.match(/data-activity-count(?!=)/g) || [];
+    assert.equal(bare.length, 0, 'every data-activity-count names its profile tab');
+    assert.match(html, /data-activity-active-count/);
+    assert.doesNotMatch(read('activity.js'), /querySelectorAll\(['"]\[data-activity-count\]/);
+  });
 });
 
 // Free text a worker may send, with what must never reach anyone but the requester.
