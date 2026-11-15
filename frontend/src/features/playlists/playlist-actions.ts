@@ -26,19 +26,21 @@ export interface PlaylistMenuHooks {
   onChanged?: (info: PlaylistSummary) => void;
   onDeleted?: () => void;
   returnFocus?: ReturnFocus;
+  /** "Move to folder ▸" (folder-actions.ts), after Pin: where the menu offers the user's folders. */
+  folderItem?: MenuItem | null;
 }
 
 // An api() failure: the server's `error` as message, plus the HTTP status.
 type ApiError = Error & { status?: number };
 
-interface DialogControl {
+export interface DialogControl {
   d: HTMLDivElement;
   close(opts?: { restore?: boolean }): void;
   error(msg: string | null | undefined): void;
   busy(on: boolean): void;
 }
 
-interface DialogOptions {
+export interface DialogOptions {
   id: string;
   title: string;
   body: string;
@@ -89,6 +91,7 @@ export function playlistMenuItems(pl: PlaylistMenuTarget, hooks: PlaylistMenuHoo
   if (hooks.onTogglePin) {
     items.push({ label: pl.pinnedByMe ? t('sidebar.unpin', 'Unpin playlist') : t('lobby.pinPlaylist', 'Pin playlist'), icon: PIN_SVG, onSelect: hooks.onTogglePin });
   }
+  if (hooks.folderItem) items.push(hooks.folderItem);
   items.push({
     label: t('playlistMenu.copyLink', 'Copy link'), icon: LINK_SVG,
     onSelect: () => copyToClipboard(`${window.location.origin}${playlistPath(pl.id)}`),
@@ -114,7 +117,8 @@ export function playlistMenuItems(pl: PlaylistMenuTarget, hooks: PlaylistMenuHoo
 
 // ------------------------------------------------------------- dialogs
 
-function openDialog({ id, title, body, submitLabel, submitClass, busyLabel, returnFocus, onSubmit, focus, onClose = null }: DialogOptions): DialogControl {
+// The usual dialog (DESIGN.md "Modal dialogs"); also the folder dialogs (folder-actions.ts).
+export function openDialog({ id, title, body, submitLabel, submitClass, busyLabel, returnFocus, onSubmit, focus, onClose = null }: DialogOptions): DialogControl {
   document.getElementById(id)?.remove();
   const d = document.createElement('div');
   d.id = id;

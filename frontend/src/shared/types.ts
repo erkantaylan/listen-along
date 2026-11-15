@@ -223,6 +223,23 @@ export interface PlaylistListResponse {
   lobbies: PlaylistSummary[];
 }
 
+// core/playlists/folders.ts FolderView — the caller's own sidebar folder (GET /api/playlist-folders;
+// `folder` of POST / PATCH). playlistIds: only playlists the caller can see now, in filing order.
+export interface PlaylistFolder {
+  id: string;
+  name: string;
+  position: number;
+  /** ms */
+  createdAt: number;
+  playlistIds: string[];
+}
+
+// core/playlists/folders.ts GET /api/playlist-folders
+export interface PlaylistFolderList {
+  folders: PlaylistFolder[];
+  limits?: { folders: number; nameLength: number };
+}
+
 // playlistRoutes.js POST /api/playlists (201)
 export interface PlaylistCreated extends PlaylistSummary {
   link: string;

@@ -68,6 +68,11 @@ const byName = <P extends FilterablePlaylist>(titleOf: (p: P) => string) => (a: 
   || byDate(a, b);
 const byDate = (a: FilterablePlaylist, b: FilterablePlaylist): number => byNewest(a, b) || String(a.id).localeCompare(String(b.id));
 
+/** A copy of the list in the sidebar's sort (the order inside a group, and inside a folder). */
+export function sortPlaylists<P extends FilterablePlaylist>(playlists: readonly P[], sort: PlaylistSort = 'date', titleOf: (p: P) => string = (p: P) => p.name || p.id || ''): P[] {
+  return playlists.slice().sort(sort === 'name' ? byName(titleOf) : byDate);
+}
+
 // What the sidebar draws: [{ key, rows }], empty groups gone, plus the count.
 // Pinned is always on top and takes the chosen sort too. By date the rest stays
 // in Your / Public groups; by name it is one list, as groups would break A-Z.

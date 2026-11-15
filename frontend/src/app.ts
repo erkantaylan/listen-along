@@ -22,6 +22,7 @@ import { setupArtists, openArtistsPage, closeArtistsPage, handleArtistsLibraryUp
 import { setupArtistPage, openArtistPage, closeArtistPage, handleArtistLibraryUpdated, playArtistFromTop } from './features/artists/artist-page.ts';
 import { setupRowDoubleClick } from './shared/row-double-click.ts';
 import { scheduleReload } from './features/playlists/playlist-store.ts';
+import { scheduleFolderReload } from './features/playlists/folder-store.ts';
 import { sharePlaylist, handlePlaylistCreated, handlePlaylistJoined, handlePlaylistNotFound, handlePlaylistError, handlePlaylistRenamed, handlePlaylistUpdated, openPlaylistHeaderMenu, setupLandingMenus, handleUserJoined, handleUserLeft, handlePlaylistClosed, checkForLastPlaylist, joinPlaylistFromCard, updatePinButton, togglePin, quickPlayPlaylist, togglePlaylistPlayback, openPlaylistPage, closePlaylistPage, syncMembership, resyncMembership, reportNowPlaying } from './features/playlists/playlist.ts';
 import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, updatePlayButton, updatePlaybackModeUI, updateNowPlaying, _setQueueFns } from './player/playback.ts';
 import { closePickDialog } from './features/picker/pick-dialog.ts';
@@ -61,7 +62,7 @@ function setupSocket(): void {
     let connectedBefore = false;
     s.on('connect', () => {
       console.log('Connected to server');
-      if (connectedBefore) { showToast(t('toast.reconnected', 'Reconnected!'), 'success'); resyncMembership(); loadReports(); scheduleReload(0); refreshRadio(); handleArtistsLibraryUpdated(); handleArtistLibraryUpdated(); }
+      if (connectedBefore) { showToast(t('toast.reconnected', 'Reconnected!'), 'success'); resyncMembership(); loadReports(); scheduleReload(0); scheduleFolderReload(0); refreshRadio(); handleArtistsLibraryUpdated(); handleArtistLibraryUpdated(); }
       connectedBefore = true;
     });
     s.on('disconnect', () => { console.log('Disconnected from server'); showToast(t('toast.connectionLost', 'Connection lost. Reconnecting...'), 'error'); });
@@ -77,7 +78,7 @@ function setupSocket(): void {
     s.on('lobby:renamed', handlePlaylistRenamed);
     s.on('lobby:updated', handlePlaylistUpdated);
     // The list changed somewhere: refetch it (sidebar, landing rows, pin button).
-    s.on('playlists:changed', () => scheduleReload());
+    s.on('playlists:changed', () => { scheduleReload(); scheduleFolderReload(); });
 
     // Queue Events
     s.on('queue:update', (data) => { handleQueueUpdated(data); scheduleReload(1000); });

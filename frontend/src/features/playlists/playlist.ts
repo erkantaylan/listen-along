@@ -13,6 +13,7 @@ import type { Membership, MembershipAction } from '../../player/player-queue.ts'
 import { isEditMode, setEditMode } from '../queue/queue-edit.ts';
 import { isNewPlaylistPending, newPlaylistCreated, newPlaylistFailed } from './new-playlist.ts';
 import { playlistMenuItems, privateBadgeHtml, LOCK_SVG } from './playlist-actions.ts';
+import { moveToFolderItem } from './folder-actions.ts';
 import { openContextMenu, closeContextMenu, bindContextMenu } from '../../shared/context-menu.ts';
 import { loadPlaylists, onPlaylists, isPinned, togglePlaylistPin, getPlaylists, isLoaded } from './playlist-store.ts';
 import { closePickDialog } from '../picker/pick-dialog.ts';
@@ -620,6 +621,7 @@ export function setupLandingMenus(): void {
           returnFocus,
           onPlay: () => quickPlayPlaylist(id),
           onTogglePin: () => togglePlaylistPin(id),
+          folderItem: moveToFolderItem(id, { returnFocus }),
           onChanged: () => loadPlaylists(),
           onDeleted: () => loadPlaylists(),
         });
