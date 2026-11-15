@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- change(web): **tabs look like one joined control** instead of separate pills, since only one can be on at a time: the sidebar's All / Mine / Public / Private (now four equal buttons across the panel, a long label such as "Herkese açık" on two lines), the library's Songs / Requested / Download / Broken and the profile's activity tabs. The current one is tinted; the library's four fit a phone screen
 - change(web): "Music library & requests" is now **Library & Downloads** (Turkish "Kütüphane ve İndirmeler") in the sidebar, the row of icons on phones, Home's header button and its shortcut tile, so the Download tab is easier to find
 - change(web): the **language setting** moved from the bottom of Home to the profile page, as a labelled "Language" field. The choice is still kept in this browser and applies at once
 - change(web): **a new app shell.** The sidebar, the page, the chat and people panel and the player bar are now separate rounded panels with gaps between them, and the player bar floats at the bottom. The sidebar has two panels: Home, Radio, Artists and Music library & requests on top, the playlists below, each row with a coloured cover; the place you are in is tinted, and the playlist that is playing shows an equaliser. Home shows your playlists as tiles and artists and public playlists as shelves of cards. Chat, People and Activity are stacked cards instead of tabs, and tabs elsewhere are pill chips

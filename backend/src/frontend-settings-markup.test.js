@@ -1,5 +1,6 @@
 // Static checks on frontend/index.html and the locales: the library place's
-// label, and the language setting living on the profile page only.
+// label, the language setting living on the profile page only, and the tab sets
+// sharing one segmented-control style.
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
@@ -41,5 +42,25 @@ describe('frontend: language setting', () => {
   it('both locales have the same language keys', () => {
     assert.deepEqual(Object.keys(locale('tr').language).sort(), Object.keys(locale('en').language).sort());
     assert.ok(locale('en').language.hint && locale('tr').language.hint);
+  });
+});
+
+describe('frontend: tabs', () => {
+  it('every tab set is the shared segmented control, with its switching hooks', () => {
+    assert.match(html, /<div id="plnav-chips" class="app-seg app-seg-fill plnav-chips" role="group"/);
+    assert.equal((html.match(/<button type="button" data-plnav-filter="(all|mine|public|private)" aria-pressed="(true|false)"/g) || []).length, 4);
+    assert.match(html, /<nav class="app-seg[^"]*libpage-tabs"/);
+    assert.equal((html.match(/<button class="libpage-tab( active)?" data-libtab="(library|requests|downloads|broken)"/g) || []).length, 4);
+    assert.match(html, /<nav class="app-seg[^"]*profile-activity-tabs"/);
+    assert.equal((html.match(/data-activity-tab="(uploaded|asked|fulfilled|workers)"/g) || []).length, 4);
+    assert.doesNotMatch(html, /nav-underline|plnav-chip"|class="btn btn-sm plnav-chip/);
+  });
+  it('the current tab is a tint, never an edge', () => {
+    const css = read('theme.css');
+    const rule = css.match(/\.app-seg > :is\(\.active, \[aria-pressed="true"\]\)[^{]*\{([^}]*)\}/);
+    assert.ok(rule, 'current-tab rule');
+    assert.match(rule[1], /background-color: var\(--app-accent-subtle\)/);
+    assert.doesNotMatch(rule[1], /border|box-shadow|outline/);
+    assert.doesNotMatch(css, /\.app-seg[^{]*::?(before|after)/);
   });
 });

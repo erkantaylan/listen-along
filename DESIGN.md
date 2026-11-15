@@ -86,7 +86,7 @@ held to 3:1.
 | Overlay: menus, popovers, modals, toasts | `--app-overlay` | `#3b4046` | 1.32 vs surface |
 | Input well (inputs, selects, checkboxes) | `--app-field-bg` | `#222528` | — |
 | Secondary (tonal) button fill / hover | `--app-btn-tonal` / `-hover` | `#41464d` / `#4b5158` | text 7.89 |
-| Hover / pressed fill (rows, tiles, cards, places, chips) | `--app-hover` = `--bs-bg-1` / `--app-pressed` = `--bs-bg-2` | `#32363b` / `#3a3e44` | — |
+| Hover / pressed fill (rows, tiles, cards, places, tabs) | `--app-hover` = `--bs-bg-1` / `--app-pressed` = `--bs-bg-2` | `#32363b` / `#3a3e44` | — |
 | Tonal button pressed; outline and ghost pressed | `--bs-bg-3` | `#444950` | text 7.53 |
 | Danger button pressed | `--bs-danger-bg-muted` | `#5c3131` | text 6.50 |
 | Backdrop | `--app-backdrop` | `rgb(10 11 12 / .6)` | — |
@@ -154,7 +154,7 @@ still the **only** brand colour.
   not for selected, current, playing, pinned, hover or status, not on cards, rows, callouts, toasts, panels, tables
   or menus, and not by way of `border-left`, an inset `box-shadow`, a `::before` bar, an outline trick or a gradient.
   **Selection is a background tint**; status is a tinted fill. Allowed: uniform full outlines, the plain dividers
-  between rows and panels, and the focus ring. Tabs are pill chips (below), not underlines.
+  between rows and panels, and the focus ring. Tabs are a segmented control (below), the current one a tint, never an underline.
 - Focus: every focusable thing shows a 2px `--app-focus` ring with a 2px gap
   (inset `-2px` in list rows and menu items, so it is not clipped). Never remove it.
 
@@ -212,7 +212,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Buttons | See "Button hierarchy" above: primary `.btn-solid.theme-primary` (one per view), secondary `.btn` / `.btn-outline.theme-secondary`, tertiary `.btn-text.theme-secondary(.btn-icon)`, danger `.btn-outline.theme-danger` / `.btn-text.theme-danger.btn-icon`. |
 | Icon-only action | `.btn-text.theme-secondary.btn-icon` with `aria-label` + `title`; toggled state = `.active` (accent tint + accent border). |
 | Inputs | `.form-control` (also on `<select>`), `.input-group` to attach buttons, `.form-label` or `aria-label`. |
-| Tabs | `nav.nav.nav-underline` with `button.nav-link` (`.active` for the current one). `theme.css` draws them as 32px pill chips with a `--app-border-strong` outline, like the sidebar's filter chips; the current one is the accent tint with an accent outline and text. Never an underline. |
+| Tabs | Views that exclude each other (a real filter you could combine would be chips, not tabs): a segmented control, `.app-seg` (`theme.css`) holding plain `button`s, the current one `.active` (or `aria-pressed="true"` where it is a pressed button). One `--app-border-strong` outline with `--bs-radius-5` corners; the buttons touch, a 1px divider of the same colour between them; 32px tall (40px on touch), `fs-sm`, `--app-text-secondary`. Hover = `--app-hover`, pressed = `--app-pressed`, current = `--app-accent-subtle` tint + semibold `--app-accent-text-strong` text, no outline or bar of its own. Too wide for its column, it scrolls sideways inside its outline (hidden scrollbar), and the focus ring is inset (-2px) so that never clips it; in a page column under 30rem the buttons are tighter (`app.css`). `.app-seg-fill` = equal buttons across the whole width, `fs-xs`, a label may wrap to two lines and no button gets narrower than its longest word (the sidebar's filter). Never an underline, never separate pills. |
 | Status / counts | `.badge.badge-subtle.theme-*`. The stats strip (`.playlist-stats`) is a row of neutral pills. |
 | Playlist cover | `.playlist-avatar.cover-N` (2.5rem rounded square of initials, `playlistInitials` + `playlistCoverIndex`): sidebar rows and rail, landing tiles and cards, the playlist page's head. Never an image. |
 | Pagination | `ul.pagination.pagination-sm > li.page-item > button.page-link` (`.active`, `.disabled`). |
@@ -374,7 +374,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   A playlist you cannot see (missing, deleted, someone else's private one) shows a
   "Playlist not found" toast and returns to the landing page.
 - **Music library**: a panel over landing or a playlist, in the page panel's place (see "App shell"): navbar (back, title, "adding
-  to" context), tabs (pill chips) Songs/Requested/Download/Broken with count badges, search + sort toolbar, list group of
+  to" context), tabs (segmented control; tighter on phones, so all four fit at 360px) Songs/Requested/Download/Broken with count badges, search + sort toolbar, list group of
   songs (when the page column is below 576px the row's buttons go on their own line under the text; clicking / tapping the row, or Enter / Space on it, plays it — the song already playing is
   resumed, never restarted —; play button — plays in the app-wide player, shows pause on the song that is playing —, a grey
   icon button "Replace with…" (swap arrows), Add / disabled "Added" button, ⋮ song menu), 20 per page: a compact
@@ -409,7 +409,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   Done), and a list group of active tokens (label, prefix, created, last used, danger
   Revoke). Then **Your activity** (`profile-activity.js`, approved accounts, only ever
   your own; "Only you can see this" in the header): a one-line `fg-2` summary of counts,
-  tabs (pill chips) with count badges, on one line that scrolls sideways when the column is too narrow — Uploaded (also by your downloaders), Asked for (song
+  tabs (segmented control) with count badges, on one line that scrolls sideways inside its outline when the column is too narrow — Uploaded (also by your downloaders), Asked for (song
   requests + Download-box jobs, with status badge and "uploaded by <worker> (<owner>)"),
   Fulfilled (what your downloaders fulfilled, with "asked by"), Downloaders (yours: name, jobs done, online /
   busy / offline badge; never host, OS or IP) — and one list group below them.
@@ -457,7 +457,7 @@ Two rounded panels, a gap apart (see "App shell"):
   `fs-sm` label, 2.75rem tall. The place on screen is `aria-current="page"` (`syncPlaces` in sidebar.js: Home on the
   landing page, Artists on `/artists` and `/artist/<key>`, the library while its overlay is open; Radio marks
   itself in radio.js): the accent tint and accent text, never an edge. Home and Artists are `data-spa-link`s.
-- **Lower panel, the playlists**: the title row, chips, search and the list below; it fills the rest of the column
+- **Lower panel, the playlists**: the title row, the filter, search and the list below; it fills the rest of the column
   and only the list scrolls.
 
 - **From 768px**: fixed left column, `--app-sidebar-width` (16.5rem, 19rem from 1440px; 4.5rem as the rail),
@@ -470,7 +470,7 @@ Two rounded panels, a gap apart (see "App shell"):
   playlist and one 2.5rem cover of initials per playlist, the same order with a divider between groups instead of
   headings. Tooltip = `title`, and `aria-label` has name, Private, owner and song count. Current = a solid accent
   avatar; pinned = tinted avatar with accent initials; otherwise its cover colour. Click and Enter navigate;
-  right-click and long-press open the same menu. No search, chips, sort control or pin / ⋮
+  right-click and long-press open the same menu. No search, filter, sort control or pin / ⋮
   buttons: a running search is cleared on collapsing. The rail follows the sort but lists everything, since nothing there would show or
   reset a filter; expanding brings the remembered filter back. A display utility on anything the rail hides would beat
   `@layer custom`, so those parts carry none. Rail rules live inside `@media (width >= 768px)`: phones always get the full drawer.
@@ -489,11 +489,13 @@ Two rounded panels, a gap apart (see "App shell"):
   Radio only on `/radio`, not while merely playing): the selection tint and accent text, never an edge; focus is
   the usual 2px ring, inset. Not shown from 768px.
 - Lower panel head: "Playlists" (bold) + the sort control + a ghost New playlist
-  icon button (not primary: the view's primary stays in the view), then the filter chips and the search box.
-- **Filter chips** (`#plnav-chips`, `role="group"`): All (default), Mine, Public, Private, one at a time, `aria-pressed`,
-  `.btn.btn-sm` outlined pills 32px tall (transparent at rest), on one line that scrolls sideways (hidden scrollbar; the wheel moves it too). Pressed = accent
-  tint, border and text. Tapping the pressed chip, or All, resets. Mine is the server's `isOwner` and Public / Private its `visibility`, never a
-  client guess. On coarse pointers they keep their 32px look with a 40px hit area.
+  icon button (not primary: the view's primary stays in the view), then the filter and the search box.
+- **Filter** (`#plnav-chips`, `role="group"`): All (default), Mine, Public, Private, one at a time, `aria-pressed`: a full-width segmented
+  control (`.app-seg.app-seg-fill`, see "Tabs" under "Components"), four equal buttons, `fs-xs`, 32px (40px on touch). A label may take two
+  lines, and does in Turkish ("Herkese açık"), which makes the whole control 37px; a button never gets narrower than its longest word.
+  Its side margins are 1rem, in step with the search box, shrinking to 0.5rem in a sidebar dragged towards 200px, so both languages fit
+  every sidebar width and the drawer without scrolling or cut words. Pressed = the accent tint and semibold accent text. Tapping the
+  pressed one, or All, resets. Mine is the server's `isOwner` and Public / Private its `visibility`, never a client guess.
 - **Sort** (`#plnav-sort`): the current choice + icon, `context-menu.js` with `menuitemradio` rows (208px wide, 40px rows): **Name (A–Z)**,
   `localeCompare('tr', { numeric: true })`, and **Date created**, newest first, the default. Only what the data supports: there is
   no "recently played", and `lobbies.last_activity` means someone joined or left, is not in the API, so no Recents.
@@ -527,7 +529,7 @@ Two rounded panels, a gap apart (see "App shell"):
 
 Every song in the listener's own shuffled order, separate from the library, which stays as it is.
 
-- **Sidebar row** (`#plnav-radio`, a real link): one of the places in the sidebar's upper panel, between Home and Artists, outside `#plnav-list`, so search, chips, sort and scrolling
+- **Sidebar row** (`#plnav-radio`, a real link): one of the places in the sidebar's upper panel, between Home and Artists, outside `#plnav-list`, so search, the filter, sort and scrolling
   never touch it. Rounded box, 3.5rem tall, full `--app-info-border` outline on `--app-info-subtle`, radio icon, "Radio" over a live
   "All 2,108 songs, shuffled". At rest the info tint, so it never reads as the selected row. While on `/radio` or while Radio is the player's source
   it is `.is-current`: the selection tint (`--app-accent-subtle`, `--app-accent-border`, accent title); `.is-playing` adds the equaliser. No covers, no edge.

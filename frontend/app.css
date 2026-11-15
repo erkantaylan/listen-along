@@ -608,10 +608,9 @@
   .queue-item-meta > :empty { display: none; }
   .user-count { white-space: nowrap; }
 
-  /* Your activity and library tabs: one line, sideways scroll when the column is too narrow. */
-  .profile-activity-tabs, .libpage-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
-  .profile-activity-tabs .nav-link, .libpage-tabs .nav-link { flex-shrink: 0; }
-  .profile-activity-tabs .nav-link:focus-visible, .libpage-tabs .nav-link:focus-visible { outline-offset: -2px; }
+  /* Tabs (.app-seg, theme.css) in a narrow page column: tighter buttons, so the
+     library's four fit a phone; Your activity's still scroll inside their outline. */
+  @container page (width < 30rem) { .app-seg > button { gap: 0.25rem; padding-inline: 0.375rem; } }
 
   /* Avatar emoji picker (profile page) */
   .profile-page-emoji-btn {
@@ -909,30 +908,10 @@
   .plnav-sort svg { width: 1rem; height: 1rem; }
   .plnav-sort-menu { width: 13rem; }
   .plnav-sort-menu .menu-item { min-height: 2.5rem; align-items: center; }
-  /* Filter chips: one 32px line that scrolls sideways when the words do not fit. */
-  .plnav-chips { display: flex; flex-shrink: 0; gap: 0.375rem; padding: 0.25rem 1rem; overflow-x: auto; scrollbar-width: none; }
-  .plnav-chips::-webkit-scrollbar { display: none; }
-  .plnav-chip {
-    --bs-btn-bg: transparent;
-    --bs-btn-color: var(--app-text-secondary);
-    --bs-btn-hover-bg: var(--app-hover);
-    position: relative;
-    flex-shrink: 0;
-    padding-inline: 0.75rem;
-    border-radius: var(--bs-radius-pill);
-    white-space: nowrap;
-  }
-  .plnav-chip[aria-pressed="true"] {
-    --bs-btn-bg: var(--app-accent-subtle);
-    --bs-btn-hover-bg: var(--app-accent-subtle);
-    --bs-btn-color: var(--app-accent-text-strong);
-    --bs-btn-hover-color: var(--app-accent-text-strong);
-    --bs-btn-border-color: var(--app-accent-border);
-    --bs-btn-hover-border-color: var(--app-accent-border);
-    color: var(--app-accent-text-strong);
-    background-color: var(--app-accent-subtle);
-    border-color: var(--app-accent-border);
-  }
+  /* Filter: a full-width segmented control (.app-seg-fill, theme.css), lined up
+     with the search box; in a sidebar dragged down to 200px the side margins
+     shrink to 0.5rem, so four Turkish labels still fit without scrolling. */
+  .plnav-chips { flex-shrink: 0; margin: 0.25rem clamp(0.5rem, calc((100% - 12rem) / 2), 1rem); }
   .plnav-search-wrap { position: relative; flex-shrink: 0; padding: 0.375rem 1rem 0.5rem; }
   .plnav-search { padding-right: 2rem; }
   .plnav-search::-webkit-search-cancel-button { display: none; }
@@ -1114,8 +1093,7 @@
   @media (pointer: coarse) {
     .plnav-pin, .plnav-menu-btn, .plnav-sort, #plnav-new { --bs-btn-min-height: 2.5rem; }
     #plnav-new { --bs-btn-min-width: 2.5rem; }
-    /* These keep their look; an invisible 40px hit area, inside the row's padding. */
-    .plnav-chip::after { content: ""; position: absolute; inset: -0.3125rem 0; }
+    /* It keeps its look; an invisible 40px hit area. */
     .plnav-search-clear::after { content: ""; position: absolute; inset: -0.5rem; }
   }
 
@@ -1245,7 +1223,6 @@
   .libpage-body { flex: 1; min-height: 0; overflow-y: auto; }
   .libpage-container { max-width: 56rem; padding-block: 0.75rem 2rem; }
   .libpage-context:not(.muted) { color: var(--bs-primary-fg); }
-  .libpage-tab .badge { margin-left: 0.25rem; }
   .libpage-search { flex: 1 1 14rem; width: auto; }
   .libpage-item { display: flex; gap: 0.75rem; align-items: center; }
   .libpage-info { flex: 1; }

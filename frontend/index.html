@@ -683,11 +683,11 @@
         </div>
         <div class="card-body vstack gap-4">
           <p id="profile-activity-summary" class="fs-sm fg-2 mb-0"></p>
-          <nav class="nav nav-underline profile-activity-tabs" aria-label="Activity">
-            <button class="nav-link active" type="button" data-activity-tab="uploaded">Uploaded <span class="badge badge-subtle theme-secondary" data-activity-count="uploaded"></span></button>
-            <button class="nav-link" type="button" data-activity-tab="asked">Asked for <span class="badge badge-subtle theme-secondary" data-activity-count="asked"></span></button>
-            <button class="nav-link" type="button" data-activity-tab="fulfilled" title="Requests your downloaders fulfilled">Fulfilled <span class="badge badge-subtle theme-secondary" data-activity-count="fulfilled"></span></button>
-            <button class="nav-link" type="button" data-activity-tab="workers" title="Your downloaders (la worker)">Downloaders <span class="badge badge-subtle theme-secondary" data-activity-count="workers"></span></button>
+          <nav class="app-seg profile-activity-tabs" aria-label="Activity">
+            <button class="active" type="button" data-activity-tab="uploaded">Uploaded <span class="badge badge-subtle theme-secondary" data-activity-count="uploaded"></span></button>
+            <button type="button" data-activity-tab="asked">Asked for <span class="badge badge-subtle theme-secondary" data-activity-count="asked"></span></button>
+            <button type="button" data-activity-tab="fulfilled" title="Requests your downloaders fulfilled">Fulfilled <span class="badge badge-subtle theme-secondary" data-activity-count="fulfilled"></span></button>
+            <button type="button" data-activity-tab="workers" title="Your downloaders (la worker)">Downloaders <span class="badge badge-subtle theme-secondary" data-activity-count="workers"></span></button>
           </nav>
           <ul id="profile-activity-list" class="list-group profile-activity-list">
             <li class="list-group-item app-empty">Loading...</li>
@@ -845,11 +845,11 @@
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
       </button>
     </div>
-    <div id="plnav-chips" class="plnav-chips" role="group" aria-label="Filter playlists" data-i18n-aria-label="sidebar.filterLabel">
-      <button type="button" class="btn btn-sm plnav-chip" data-plnav-filter="all" aria-pressed="true" data-i18n="sidebar.filterAll">All</button>
-      <button type="button" class="btn btn-sm plnav-chip" data-plnav-filter="mine" aria-pressed="false" data-i18n="sidebar.filterMine">Mine</button>
-      <button type="button" class="btn btn-sm plnav-chip" data-plnav-filter="public" aria-pressed="false" data-i18n="landing.public">Public</button>
-      <button type="button" class="btn btn-sm plnav-chip" data-plnav-filter="private" aria-pressed="false" data-i18n="landing.private">Private</button>
+    <div id="plnav-chips" class="app-seg app-seg-fill plnav-chips" role="group" aria-label="Filter playlists" data-i18n-aria-label="sidebar.filterLabel">
+      <button type="button" data-plnav-filter="all" aria-pressed="true" data-i18n="sidebar.filterAll">All</button>
+      <button type="button" data-plnav-filter="mine" aria-pressed="false" data-i18n="sidebar.filterMine">Mine</button>
+      <button type="button" data-plnav-filter="public" aria-pressed="false" data-i18n="landing.public">Public</button>
+      <button type="button" data-plnav-filter="private" aria-pressed="false" data-i18n="landing.private">Private</button>
     </div>
     <div class="plnav-search-wrap" role="search">
       <input type="search" id="plnav-search" class="form-control form-control-sm plnav-search" placeholder="Search playlists" aria-label="Search playlists" autocomplete="off" spellcheck="false" data-i18n-placeholder="sidebar.search" data-i18n-aria-label="sidebar.search">
@@ -1036,11 +1036,11 @@
     </nav>
     <div class="libpage-body">
       <div class="container libpage-container">
-        <nav class="nav nav-underline mb-4 libpage-tabs" aria-label="Library sections">
-          <button class="nav-link libpage-tab active" data-libtab="library" type="button">Songs <span id="libpage-count" class="badge libpage-tab-count"></span></button>
-          <button class="nav-link libpage-tab" data-libtab="requests" type="button">Requested <span id="libpage-requests-count" class="badge badge-subtle theme-primary libpage-tab-badge" hidden></span></button>
-          <button class="nav-link libpage-tab" data-libtab="downloads" type="button">Download <span id="libpage-downloads-count" class="badge badge-subtle theme-primary libpage-tab-badge" hidden></span></button>
-          <button class="nav-link libpage-tab" data-libtab="broken" type="button">Broken <span id="libpage-broken-count" class="badge badge-subtle theme-warning libpage-tab-badge" hidden></span></button>
+        <nav class="app-seg mb-4 libpage-tabs" aria-label="Library sections">
+          <button class="libpage-tab active" data-libtab="library" type="button">Songs <span id="libpage-count" class="badge libpage-tab-count"></span></button>
+          <button class="libpage-tab" data-libtab="requests" type="button">Requested <span id="libpage-requests-count" class="badge badge-subtle theme-primary libpage-tab-badge" hidden></span></button>
+          <button class="libpage-tab" data-libtab="downloads" type="button">Download <span id="libpage-downloads-count" class="badge badge-subtle theme-primary libpage-tab-badge" hidden></span></button>
+          <button class="libpage-tab" data-libtab="broken" type="button">Broken <span id="libpage-broken-count" class="badge badge-subtle theme-warning libpage-tab-badge" hidden></span></button>
         </nav>
         <section id="libpage-songs-panel" class="libpage-panel">
           <p id="libpage-broken-hint" class="fs-sm fg-3 mb-4 libpage-hint" hidden>Songs someone marked as broken (needs replacement). Click a song's warning icon for the reasons. Replacing a song's audio (the swap button, or <code>la upload --replace</code>) clears its reports.</p>
