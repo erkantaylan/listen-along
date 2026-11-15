@@ -1,0 +1,4 @@
+{
+  "description": "Scopes \"type\": \"module\" to the converted folders while the rest of backend/src is still CommonJS (CLAUDE.md, TypeScript). Not a package: no name, no dependencies. Goes away when backend/package.json becomes \"type\": \"module\".",
+  "type": "module"
+}

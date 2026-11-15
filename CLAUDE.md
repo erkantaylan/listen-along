@@ -4,18 +4,33 @@
 
 **CRITICAL: `CREATE TABLE IF NOT EXISTS` does NOT modify existing tables.**
 
-When adding a new column to an existing table, you MUST add an explicit migration
-in `backend/src/shared/db.ts` in the migrations section (after `createTables()`):
+The schema lives with the area that owns each table, in a `schema.ts` exporting `{ tables, migrations }`:
+`backend/src/shared/schema.ts` (`app_settings`), `auth/schema.ts` (`users`, `user_providers`, `api_tokens`,
+`user_sessions`), `core/playlists/schema.ts` (`lobbies`, `playlist_pins`), `core/queue/schema.ts` (`queue_songs`),
+`core/library/schema.ts` (`songs`, `library_songs`, `library_song_replacements`, `library_song_reports`),
+`core/requests/schema.ts` (`song_requests`), `core/jobs/schema.ts` (`download_workers`, `download_jobs`),
+`features/social/schema.ts` (`global_chat_messages`). `backend/src/shared/db.ts` runs them from ONE ordered list
+(`SCHEMA`, foreign-key order): every area's `tables`, then every area's `migrations`. A new area's file goes into
+that list after the areas whose tables it references.
 
-```js
-await pool.query(`
-  ALTER TABLE <table> ADD COLUMN IF NOT EXISTS <column> <type> <default>
-`).catch(() => {});
+- `tables`: `CREATE TABLE IF NOT EXISTS` only, each must succeed. Nothing else.
+- `migrations`: everything else, in the order it must run (indexes, backfills, drops, column changes). A plain
+  string's error is ignored (`.catch(() => {})` as before); `{ sql, mustSucceed: true }` stops the database
+  start on failure; a function `(db) => …` for a conditional backfill, parameters or its own error handling.
+
+When adding a new column to an existing table, you MUST put it in the `CREATE TABLE` AND append an explicit
+migration at the END of that table's ALTERs in the owning `schema.ts` (append, never reorder: an ALTER's position
+decides where the column lands on existing databases):
+
+```ts
+`ALTER TABLE <table> ADD COLUMN IF NOT EXISTS <column> <type> <default>`,
 ```
 
 Without this, the column will exist for fresh installs but NOT for existing deployments,
 causing silent failures like "column X of relation Y does not exist". This caused #63
-where lobby persistence broke entirely on deployed instances.
+where lobby persistence broke entirely on deployed instances. `backend/src/shared/db.test.ts` checks the list
+(foreign-key order, no `chat_messages`, no status rewrites); a schema change is proven by `pg_dump --schema-only`
+of a fresh database and of a migrated old one.
 
 ## Deployment
 
@@ -53,7 +68,7 @@ where lobby persistence broke entirely on deployed instances.
   `reactions.js`: the cross-area functions (`emitJob`, `queueRequestJob`, `notifyPlaylistsChanged`, `destroyLobby`,
   `accountStatusChanged`, `addLibrarySongToLobby`, `handleLibrarySong{Added,Replaced,DetailsChanged}`,
   `rewriteQueueEntries`, …). Areas get them through their deps and never require each other
-- Domain modules: lobby.js, playlistAccess.js, queue.js, covers.js, shared/db.ts,
+- Domain modules: lobby.js, playlistAccess.js, queue.js, covers.js, shared/db.ts (pool + schema runner),
   workerHub.js / downloadJobs.js / jobRoutes.js (downloaders + jobs, see below),
   library.js (music library + upload validation (m4a / Ogg Opus) + legacy cache migration +
   duplicate checks + replace), songMatch.js (normalized "artist|title" key for
@@ -389,8 +404,8 @@ where lobby persistence broke entirely on deployed instances.
   A root going offline (after the presence grace) ends it after the current
   song. Any own playback action of the follower ends it (`player.ts`
   play/pause/seek take `{ keepDriver }` for the driver). The old per-playlist
-  follow (`follow:*`) is gone. Do not name a table `chat_messages`: shared/db.ts drops that
-  (old per-playlist chat) on every boot.
+  follow (`follow:*`) is gone. Do not name a table `chat_messages`: `features/social/schema.ts`
+  drops that (old per-playlist chat) on every boot.
 
 ## User Identity
 
@@ -433,7 +448,7 @@ where lobby persistence broke entirely on deployed instances.
   user=<id> ...` / `central-login: refused ...` log line per sign-in. A denied /
   rejected user is refused at sign-in. `DATABASE_URL` set but no pool = sign-in
   and sessions fail closed (memory only without any database). Accounts created
-  by central login have provider `oidc`; the shared/db.ts user_providers backfill must
+  by central login have provider `oidc`; the `auth/schema.ts` user_providers backfill must
   skip them.
   Half / broken / missing config stops the boot; an unreachable IdP does not.
   Rollback is redeploying the previous commit (no env switch back to Google /
@@ -481,7 +496,7 @@ where lobby persistence broke entirely on deployed instances.
 - `users.status` decides access: `approved` = everything; `pending` = chat /
   people panel and own profile only; `denied` / `rejected` = nothing (sockets
   refused). The auth guard (`authRoutes.js`) is deny-by-default (`policyFor()` in
-  userAuth.js). Only an admin changes a status — shared/db.ts must never rewrite
+  userAuth.js). Only an admin changes a status — no `schema.ts` may ever rewrite
   statuses on boot (a restart once promoted every pending user). Blocking an
   account (`accountStatusChanged`) disconnects its sockets and, with central
   login, deletes all its sessions; its CLI tokens stop by themselves. The
@@ -580,9 +595,9 @@ TypeScript one area at a time; until an area is converted its files stay
 - **Backend, while CommonJS and ES modules mix** (Node 22.18+ type stripping, no build):
   - A converted area is a folder of ES-module `.ts` (`backend/src/features/<name>/`), moved with `git mv` so
     history follows, its tests next to it as `*.test.ts` (plain `node --test` finds them). The folder holding
-    converted areas has a `package.json` that is only `{"type": "module"}` (`backend/src/features/`, `shared/`;
-    add the same to `auth/`, `core/` when they start). Everything under them is ES modules, so a file moves
-    there only once converted (never a CommonJS `.js`). Without it Node guesses the format of each `.ts`
+    converted areas has a `package.json` that is only `{"type": "module"}` (`backend/src/features/`, `shared/`,
+    `auth/`, `core/`; the last two hold only their `schema.ts` files so far). Everything under them is ES modules,
+    so a file moves there only once converted (never a CommonJS `.js`). Without it Node guesses the format of each `.ts`
     and prints `MODULE_TYPELESS_PACKAGE_JSON` at boot and in tests; with it there is no warning and no flag. It
     goes away when `backend/package.json` becomes `"type": "module"`.
   - Still-CommonJS files `require('./features/<name>/index.ts')` (extension spelled out, always the folder's
@@ -604,8 +619,8 @@ TypeScript one area at a time; until an area is converted its files stay
   - Each area's `index.ts` exports its `create…({ deps })` factory with a typed deps interface (what the area needs
     from the composition root) and the types of what it sends to clients. Rows and objects used by more than one
     area (users, library songs, playlists, jobs, the Socket.IO server) are in `backend/src/shared/types.ts`
-    (which also re-exports `Db` / `Queryable` from `shared/db.ts`), type-only and written from the SQL in
-    `shared/db.ts` (pg's parsing: BIGINT is a
+    (which also re-exports `Db` / `Queryable` from `shared/db.ts`), type-only and written from the SQL in the
+    areas' `schema.ts` files (pg's parsing: BIGINT is a
     string, TIMESTAMPTZ a Date); change them with the schema. A dependency still in CommonJS gets a small
     structural interface of what the area uses, not `any`; a CommonJS helper imported by `.ts` (e.g.
     `testServer.js`) may get JSDoc `@param` / `@returns` instead. index.js is not typechecked, so a test checks
@@ -621,6 +636,12 @@ TypeScript one area at a time; until an area is converted its files stay
     re-export (`backend/src/chat/`, `presence/`, `db/` for `queue-rows.test.js`), so the move stays a rename in
     git history. A unit test of a moved module that sits inside a bigger test file moves out next to the module
     (the secret box and settings tests left `central-login.test.js`).
+  - Schema: an area's tables and migrations go in its folder's `schema.ts` (`{ tables, migrations }`, typed by
+    `AreaSchema` / `Migration` from `shared/db.ts` with `import type`, so there is no import cycle at run time),
+    listed once in `SCHEMA` in `shared/db.ts`; rules in "Database Migrations" above. An area that has not moved
+    yet still owns its `schema.ts` in its target folder (`core/library/`, `auth/`, …), and the code joins it later.
+    Moving schema is proven by a byte-identical `pg_dump --schema-only --no-owner` of a fresh database before and
+    after, and of an old database migrated by the old and the new code.
   - Preloads stay CommonJS until the final step: `telemetry.js` (+ `telemetryRules.js`) is loaded with `--require`
     before any module is set up. A CommonJS package imported from an ES-module `.ts` (`pg` from `shared/db.ts`)
     is still patched by that preload (checked: pg spans arrive); an ES-module package or file would not be.

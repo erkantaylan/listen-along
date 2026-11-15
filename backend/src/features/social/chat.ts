@@ -4,7 +4,7 @@
  * with keyset pagination on the message id (never OFFSET).
  *
  * Two stores with the same async interface: Postgres (global_chat_messages,
- * see shared/db.ts) and an in-memory fallback used when there is no database, like
+ * see schema.ts) and an in-memory fallback used when there is no database, like
  * the other modules. Message text is stored as plain text; clients render it
  * escaped (frontend/chat-format.js), so nothing here produces HTML.
  *

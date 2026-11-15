@@ -1,6 +1,6 @@
 /**
  * Per-user playlist pins (the sidebar's "Pinned" group): Postgres
- * `playlist_pins` (see shared/db.ts), or memory when there is no database.
+ * `playlist_pins` (see core/playlists/schema.ts), or memory when there is no database.
  *
  * A pin belongs to one user and is never visible to anyone else. It says
  * nothing about access: callers check playlistAccess first, and the list view

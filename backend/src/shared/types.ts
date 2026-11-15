@@ -1,7 +1,7 @@
 // Domain types shared by more than one area. Type-only: nothing here exists at
 // run time, so import it with `import type`.
 //
-// Row types are written from the SQL in db.ts (CREATE TABLE
+// Row types are written from the SQL in each area's schema.ts (CREATE TABLE
 // plus the ALTER migrations after it), with node-postgres' default parsing: BIGINT and
 // NUMERIC arrive as strings, REAL / INTEGER / SMALLINT as numbers,
 // TIMESTAMPTZ as Date, JSONB parsed, and a nullable column as `| null`.

@@ -1,6 +1,6 @@
 /**
  * "Mark as broken — needs replacement" reports on library songs
- * (Postgres `library_song_reports`, see shared/db.ts).
+ * (Postgres `library_song_reports`, see core/library/schema.ts).
  *
  * - Any approved user (web session or a token with an owner) can report a
  *   song with an optional short reason; one OPEN report per user per song,
