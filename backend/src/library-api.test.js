@@ -72,7 +72,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
     assert.ok(await db.init());
     library = require('./library');
     requests = require('./requests');
-    const tokens = require('./tokens');
+    const { tokens } = require('./auth/index.ts');
     ({ token, record: tokenRecord } = await tokens.createToken('Alice'));
 
     fx.a = makeAudio('a.m4a', 440, ['-c:a', 'aac']);
@@ -125,7 +125,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
     });
 
     it('a revoked token stops working', async () => {
-      const tokens = require('./tokens');
+      const { tokens } = require('./auth/index.ts');
       const { token: t2, record } = await tokens.createToken('Bob');
       assert.equal((await getJson('/api/me', auth(t2))).status, 200);
       await tokens.revokeToken(record.id);
@@ -312,7 +312,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
          VALUES ('github', 'owner-1', 'Real Name', 'Deejay', 'approved', 1) RETURNING id`
       );
       owner = r.rows[0].id;
-      ({ token: ownerToken } = await require('./tokens').createToken('Desktop', { userId: owner }));
+      ({ token: ownerToken } = await require('./auth/index.ts').tokens.createToken('Desktop', { userId: owner }));
     });
 
     it('/api/me names the owning account', async () => {
@@ -451,7 +451,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       // Creating tokens moved to the profile page.
       assert.equal((await post('/api/admin/tokens', { name: 'Hana' }, cookie)).status, 404);
 
-      const tokens = require('./tokens');
+      const { tokens } = require('./auth/index.ts');
       const u = (await db.query(
         `INSERT INTO users (provider, provider_id, name, status, created_at) VALUES ('google', 'hana', 'Hana', 'approved', 1) RETURNING id`
       )).rows[0].id;

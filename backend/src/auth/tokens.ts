@@ -9,36 +9,57 @@
  * once at creation.
  */
 
-const crypto = require('crypto');
-const db = require('./shared/db.ts');
-const { isMobileToken } = require('./auth/mobileTokens.ts');
+import crypto from 'crypto';
+import type { NextFunction, Request, Response } from 'express';
+import db from '../shared/db.ts';
+import { isMobileToken } from './mobileTokens.ts';
+import type { ApiTokenRow, ApiUser, PublicToken } from './types.ts';
+
+// What requireToken sets on a request.
+declare module 'express-serve-static-core' {
+  interface Request {
+    /** the CLI token's account (requireToken / optionalToken) */
+    apiUser?: ApiUser;
+  }
+}
+
+/** What reading the Authorization header needs of a request. */
+export interface AuthHeaderRequest {
+  headers: { authorization?: string };
+}
 
 const TOKEN_PREFIX = 'la_';
 /** Most active tokens one user may hold at a time. */
-const MAX_ACTIVE_PER_USER = 20;
+export const MAX_ACTIVE_PER_USER = 20;
 
-class TokenError extends Error {
-  constructor(status, message) {
+export class TokenError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
     super(message);
     this.status = status;
   }
 }
 
-function hashToken(token) {
+export function hashToken(token: unknown): string {
   return crypto.createHash('sha256').update(String(token)).digest('hex');
 }
 
-function generateToken() {
+export function generateToken(): string {
   return TOKEN_PREFIX + crypto.randomBytes(32).toString('base64url');
 }
 
-function cleanLabel(name) {
+function cleanLabel(name: unknown): string {
   return String(name || '').replace(/\s+/g, ' ').trim().slice(0, 100);
 }
 
-const ownerName = (row) => row.owner_display_name || row.owner_name || row.owner_username || null;
+/** An api_tokens row with its owner's names (SELECT_WITH_OWNER, verifyToken). */
+type OwnerNames = { owner_display_name: string | null; owner_name: string | null; owner_username: string | null };
+type TokenWithOwner = ApiTokenRow & OwnerNames;
 
-function toPublic(row) {
+const ownerName = (row: OwnerNames): string | null => row.owner_display_name || row.owner_name || row.owner_username || null;
+
+function toPublic(row: TokenWithOwner): PublicToken {
   return {
     id: row.id,
     name: row.name,
@@ -57,15 +78,15 @@ const SELECT_WITH_OWNER = `
   FROM api_tokens t LEFT JOIN users u ON u.id = t.user_id`;
 
 /**
- * @param {string} name - the label ("Desktop"), or a person's name for an ownerless token
- * @param {{userId?: string}} [opts] - owner (users.id)
- * @returns {Promise<{token: string, record: object}>} plaintext token + public record
+ * @param name - the label ("Desktop"), or a person's name for an ownerless token
+ * @param opts - owner (users.id)
+ * @returns plaintext token + public record
  */
-async function createToken(name, { userId = null } = {}) {
+export async function createToken(name: string, { userId = null }: { userId?: string | null } = {}): Promise<{ token: string; record: PublicToken | null }> {
   const clean = cleanLabel(name);
   if (!clean) throw new TokenError(400, 'A label is required');
   if (userId) {
-    const r = await db.query(
+    const r = await db.query<{ n: number }>(
       'SELECT count(*)::int AS n FROM api_tokens WHERE user_id = $1 AND revoked_at IS NULL',
       [userId]
     );
@@ -74,27 +95,27 @@ async function createToken(name, { userId = null } = {}) {
     }
   }
   const token = generateToken();
-  const ins = await db.query(
+  const ins = await db.query<{ id: string }>(
     'INSERT INTO api_tokens (name, token_hash, token_prefix, user_id) VALUES ($1, $2, $3, $4) RETURNING id',
     [clean, hashToken(token), token.slice(0, 10), userId]
   );
   return { token, record: await getToken(ins.rows[0].id) };
 }
 
-async function getToken(id) {
-  const r = await db.query(`${SELECT_WITH_OWNER} WHERE t.id = $1`, [id]);
+export async function getToken(id: string): Promise<PublicToken | null> {
+  const r = await db.query<TokenWithOwner>(`${SELECT_WITH_OWNER} WHERE t.id = $1`, [id]);
   return r.rows[0] ? toPublic(r.rows[0]) : null;
 }
 
 /** Every token (admin page), active first, newest first. */
-async function listTokens() {
-  const r = await db.query(`${SELECT_WITH_OWNER} ORDER BY t.revoked_at IS NOT NULL, t.created_at DESC`);
+export async function listTokens(): Promise<PublicToken[]> {
+  const r = await db.query<TokenWithOwner>(`${SELECT_WITH_OWNER} ORDER BY t.revoked_at IS NOT NULL, t.created_at DESC`);
   return r.rows.map(toPublic);
 }
 
 /** One user's active tokens, newest first. */
-async function listUserTokens(userId) {
-  const r = await db.query(
+export async function listUserTokens(userId: string): Promise<PublicToken[]> {
+  const r = await db.query<TokenWithOwner>(
     `${SELECT_WITH_OWNER} WHERE t.user_id = $1 AND t.revoked_at IS NULL ORDER BY t.created_at DESC`,
     [userId]
   );
@@ -104,13 +125,13 @@ async function listUserTokens(userId) {
 /**
  * Revoke a token. With `userId`, only that user's own token: anyone else's
  * (or a legacy one) is "not found".
- * @returns {Promise<object|null>} the public record, or null when not found
+ * @returns the public record, or null when not found
  */
-async function revokeToken(id, { userId } = {}) {
-  const params = [id];
+export async function revokeToken(id: string, { userId }: { userId?: string } = {}): Promise<PublicToken | null> {
+  const params: unknown[] = [id];
   let where = 'id = $1';
   if (userId !== undefined) { params.push(userId); where += ' AND user_id = $2'; }
-  const r = await db.query(
+  const r = await db.query<{ id: string }>(
     `UPDATE api_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE ${where} RETURNING id`,
     params
   );
@@ -118,15 +139,15 @@ async function revokeToken(id, { userId } = {}) {
 }
 
 /**
- * @returns {Promise<{id, name, label, userId, user}|null>} the active token,
+ * @returns the active token,
  *   or null. `name` is who uploads are credited to: the owner's display name,
  *   or the legacy token's name. `user` is { id, name } or null (legacy).
  *   A token whose owner is no longer approved (pending, denied, rejected)
  *   is refused.
  */
-async function verifyToken(token) {
+export async function verifyToken(token: unknown): Promise<ApiUser | null> {
   if (!token || typeof token !== 'string' || token.length > 200) return null;
-  const r = await db.query(
+  const r = await db.query<Pick<ApiTokenRow, 'id' | 'name' | 'user_id'> & OwnerNames & { owner_id: string | null; owner_status: string | null }>(
     `SELECT t.id, t.name, t.user_id, u.id AS owner_id, u.status AS owner_status,
             u.display_name AS owner_display_name, u.name AS owner_name, u.username AS owner_username
      FROM api_tokens t LEFT JOIN users u ON u.id = t.user_id
@@ -144,7 +165,7 @@ async function verifyToken(token) {
   return { id: row.id, name: user ? user.name : row.name, label: row.name, userId: row.user_id || null, user };
 }
 
-function bearerFrom(req) {
+export function bearerFrom(req: AuthHeaderRequest): string | null {
   const header = req.headers.authorization || '';
   const m = header.match(/^Bearer\s+(\S+)\s*$/i);
   return m ? m[1] : null;
@@ -152,10 +173,10 @@ function bearerFrom(req) {
 
 /**
  * Express middleware: require a valid Bearer token; sets req.apiUser. The
- * Android app's session (`lam_`, mobileTokens.js) is no CLI token: refused
+ * Android app's session (`lam_`, mobileTokens.ts) is no CLI token: refused
  * with 403 TOKEN_REQUIRED (not 401, which the app would read as "signed out").
  */
-function requireToken(req, res, next) {
+export function requireToken(req: Request, res: Response, next: NextFunction) {
   const token = bearerFrom(req);
   if (isMobileToken(token)) {
     return res.status(403).json({ error: 'This needs a CLI token (la_...); an app session cannot use it', code: 'TOKEN_REQUIRED' });
@@ -178,28 +199,11 @@ function requireToken(req, res, next) {
 // "Bearer" here means a CLI token: the Android app's `lam_` session token is a
 // user session (userAuth.js), so routes that take "a token or a signed-in
 // user" treat it as the signed-in user.
-function hasBearer(req) {
+export function hasBearer(req: AuthHeaderRequest): boolean {
   return /^Bearer\s/i.test(req.headers.authorization || '') && !isMobileToken(bearerFrom(req));
 }
 
-function optionalToken(req, res, next) {
+export function optionalToken(req: Request, res: Response, next: NextFunction) {
   if (!hasBearer(req)) return next();
   return requireToken(req, res, next);
 }
-
-module.exports = {
-  MAX_ACTIVE_PER_USER,
-  TokenError,
-  hashToken,
-  generateToken,
-  createToken,
-  getToken,
-  listTokens,
-  listUserTokens,
-  revokeToken,
-  verifyToken,
-  bearerFrom,
-  requireToken,
-  optionalToken,
-  hasBearer,
-};

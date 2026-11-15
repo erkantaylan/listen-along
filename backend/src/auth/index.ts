@@ -7,3 +7,9 @@ export { readDevLogin, signDevToken, DEV_COOKIE, DevLoginError } from './devLogi
 export { mobileBearer } from './mobileTokens.ts';
 // The /dashboard cookie (la_admin): requireAdmin, isAdmin, the login's helpers.
 export * as adminAuth from './adminAuth.ts';
+// CLI tokens (la_...): requireToken, optionalToken, hasBearer, verifyToken and the store.
+export * as tokens from './tokens.ts';
+// The caller's own CLI tokens (/api/tokens).
+export { createTokenRouter } from './tokenRoutes.ts';
+export type { TokenRouterHooks } from './tokenRoutes.ts';
+export type { Account, ApiUser, PublicToken, ApiTokenRow } from './types.ts';

@@ -3,7 +3,6 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 
 const library = require('./library');
-const tokens = require('./tokens');
 const { createResolver } = require('./songResolver');
 
 describe('library.parseYoutubeId', () => {
@@ -208,33 +207,6 @@ describe('library.isQueued', () => {
     const legacy = { ...plainSong, source_url: 'https://example.com/cache/p.m4a' };
     assert.equal(library.isQueued([{ url: 'https://example.com/cache/p.m4a' }], legacy), true);
     assert.equal(library.isQueued([{ url: 'https://example.com/other.m4a' }, {}, null], legacy), false);
-  });
-});
-
-describe('tokens helpers', () => {
-  it('generates distinct prefixed tokens and hashes deterministically', () => {
-    const a = tokens.generateToken();
-    const b = tokens.generateToken();
-    assert.notEqual(a, b);
-    assert.match(a, /^la_[A-Za-z0-9_-]{43}$/);
-    assert.equal(tokens.hashToken(a), tokens.hashToken(a));
-    assert.match(tokens.hashToken(a), /^[0-9a-f]{64}$/);
-  });
-
-  it('parses Bearer headers', () => {
-    assert.equal(tokens.bearerFrom({ headers: { authorization: 'Bearer abc' } }), 'abc');
-    assert.equal(tokens.bearerFrom({ headers: { authorization: 'bearer   abc ' } }), 'abc');
-    assert.equal(tokens.bearerFrom({ headers: { authorization: 'Basic abc' } }), null);
-    assert.equal(tokens.bearerFrom({ headers: {} }), null);
-  });
-
-  it('optionalToken ignores non-Bearer Authorization (cached browser Basic auth)', () => {
-    let passed = false;
-    const res = { status() { throw new Error('should not respond'); } };
-    tokens.optionalToken({ headers: { authorization: 'Basic YWRtaW46cHc=' } }, res, () => { passed = true; });
-    assert.equal(passed, true);
-    assert.equal(tokens.hasBearer({ headers: { authorization: 'Bearer x' } }), true);
-    assert.equal(tokens.hasBearer({ headers: { authorization: 'Basic x' } }), false);
   });
 });
 

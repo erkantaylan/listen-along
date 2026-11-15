@@ -51,7 +51,7 @@ const withPgweb = env('LISTEN_PGWEB', '1') !== '0';
 const BASE_URL = `http://localhost:${port}`;
 const SESSION_SECRET = 'listen-along-dev-session-secret-local-only';
 const ADMIN_PASSWORD = 'dev-admin';
-// CLI tokens the seed inserts (only their SHA-256 is stored, as tokens.js does):
+// CLI tokens the seed inserts (only their SHA-256 is stored, as backend/src/auth/tokens.ts does):
 // the worker's, owned by Dev User, and the second account's, used by the seed.
 const DEV_WORKER_TOKEN = 'la_dev-worker-token-local-only-not-a-secret-000';
 const DEV_LISTENER_TOKEN = 'la_dev-listener-token-local-only-not-a-secret-00';

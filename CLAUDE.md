@@ -79,7 +79,7 @@ of a fresh database and of a migrated old one.
   library.js (music library + upload validation (m4a / Ogg Opus) + legacy cache migration +
   duplicate checks + replace), songMatch.js (normalized "artist|title" key for
   probable duplicates; bump META_KEY_VERSION when changing it — boot recomputes),
-  requests.js (song requests), tokens.js (CLI tokens), mobileAuth.js (the
+  requests.js (song requests), auth/tokens.ts (CLI tokens), mobileAuth.js (the
   Android app's sign-in, below), auth/adminAuth.ts (/dashboard),
   libraryRoutes.js (library/requests/admin HTTP API), songResolver.js
   (what a user typed -> library song or song request)
@@ -537,9 +537,9 @@ of a fresh database and of a migrated old one.
   login, deletes all its sessions; its CLI tokens stop by themselves. The
   central `roles` claim gates nothing (stored with the session for later).
 - The CLI (`la`) authenticates with `Authorization: Bearer la_...` tokens
-  (`tokens.js`). Each token belongs to a user (`api_tokens.user_id`): approved
+  (`auth/tokens.ts`). Each token belongs to a user (`api_tokens.user_id`): approved
   users create / revoke their own on the profile page (`/api/tokens`,
-  `tokenRoutes.js`); `/dashboard` lists and revokes all. `req.apiUser` =
+  `auth/tokenRoutes.ts`); `/dashboard` lists and revokes all. `req.apiUser` =
   `{ id, name, label, userId, user }`; a token stops working while its owner
   is not approved. Tokens from before ownership have `user_id` NULL ("legacy")
   and still work. Uploads record `library_songs.uploaded_by_user_id` (owner)
@@ -724,7 +724,7 @@ nodemon / testcontainers depend on a fixed version.
   sign-in). `DATABASE_URL` is a `postgres://` URL built with `refExpr` (Aspire's `ConnectionStrings__*` is ADO
   format); the Postgres password is pinned and URL-safe.
 - `backend/scripts/dev-seed.js` (plain Node, idempotent, never in the image: `.dockerignore` drops
-  `backend/scripts`): users and CLI tokens (SHA-256 of known dev values, as `tokens.js`) and chat straight into
+  `backend/scripts`): users and CLI tokens (SHA-256 of known dev values, as `auth/tokens.ts`) and chat straight into
   Postgres; songs (ffmpeg tones, `.m4a` and `.opus`) and playlists through the HTTP API with those tokens, so the
   server's validation and in-memory state apply. Dev User is the row `/auth/dev/login` uses (provider `dev`,
   provider_id `dev`) and gets `oidc_sub = dev-1`, the fake IdP's default sub. When a schema or an API the seed uses

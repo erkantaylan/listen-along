@@ -1,12 +1,12 @@
 /**
  * The Android app's session token: what the app sends as
  * `Authorization: Bearer lam_...` after signing in through the central login
- * (mobileAuth.js). Pure: no I/O, no requires, so userAuth.js, tokens.js and
+ * (mobileAuth.js). Pure: no I/O, nothing of the app imported, so userAuth.js, tokens.ts and
  * oidcSessions.js can all use it without a require cycle.
  *
  * The prefix `lam_` ("listen-along mobile") never collides with a CLI token
  * (`la_` + base64url: a CLI token's third character is always `_`, a mobile
- * token's is `m`). tokens.js treats a
+ * token's is `m`). tokens.ts treats a
  * `lam_` Bearer as "not a CLI token", userAuth.js as a user session.
  *
  * Two shapes, one per sign-in mode (fixed at boot):

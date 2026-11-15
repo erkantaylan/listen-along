@@ -12,23 +12,29 @@
  * /api/admin/tokens (libraryRoutes.js).
  */
 
-const express = require('express');
-const db = require('./shared/db.ts');
-const tokens = require('./tokens');
-const library = require('./library');
-const { make } = require('./shared/rateLimits.ts');
+import express from 'express';
+import type { NextFunction, Request, RequestHandler, Response, Router } from 'express';
+import db from '../shared/db.ts';
+import * as tokens from './tokens.ts';
+import library from '../library.js';
+import { make } from '../shared/rateLimits.ts';
+import type { Account } from './types.ts';
 
-/**
- * @param {object} hooks
- * @param {Function} hooks.requireUser - middleware: an approved, logged-in
- *   account; sets req.account = { id, name }. Responds 401/403 otherwise.
- * @param {number} [hooks.createLimit] - token creations per user per hour
- */
-function createTokenRouter({ requireUser, createLimit = 10 } = {}) {
+/** A request past requireUser: req.account is the caller's approved account. */
+type AccountRequest = Request & { account: Account };
+
+export interface TokenRouterHooks {
+  /** middleware: an approved, logged-in account; sets req.account = { id, name }. Responds 401/403 otherwise. */
+  requireUser?: RequestHandler;
+  /** token creations per user per hour */
+  createLimit?: number;
+}
+
+export function createTokenRouter({ requireUser, createLimit = 10 }: TokenRouterHooks = {}): Router {
   if (typeof requireUser !== 'function') throw new Error('createTokenRouter: requireUser is required');
   const router = express.Router();
 
-  const requireDb = (req, res, next) => {
+  const requireDb = (req: Request, res: Response, next: NextFunction) => {
     if (!db.isAvailable()) return res.status(503).json({ error: 'CLI tokens need the database' });
     next();
   };
@@ -36,34 +42,38 @@ function createTokenRouter({ requireUser, createLimit = 10 } = {}) {
   // Keyed by account, not IP: a user can't dodge it by switching networks,
   // and people sharing an IP don't share a bucket.
   const createLimiter = make(createLimit, 60 * 60 * 1000, {
-    keyGenerator: (req) => `user:${req.account.id}`,
+    keyGenerator: (req) => `user:${(req as AccountRequest).account.id}`,
     message: 'Too many tokens created, try again later',
   });
 
-  router.get('/api/tokens', requireUser, requireDb, async (req, res) => {
+  router.get('/api/tokens', requireUser, requireDb, async (request, res) => {
+    const req = request as AccountRequest;
     try {
       res.json({ tokens: await tokens.listUserTokens(req.account.id) });
     } catch (err) {
-      console.error('[tokens] list error:', err.message);
+      console.error('[tokens] list error:', (err as Error).message);
       res.status(500).json({ error: 'Failed to list tokens' });
     }
   });
 
-  router.post('/api/tokens', requireUser, requireDb, createLimiter, express.json(), async (req, res) => {
+  router.post('/api/tokens', requireUser, requireDb, createLimiter, express.json(), async (request, res) => {
+    const req = request as AccountRequest;
     const label = req.body && typeof req.body.label === 'string' ? req.body.label : '';
     if (!label.trim()) return res.status(400).json({ error: 'A label is required (e.g. "Desktop")' });
     try {
       const { token, record } = await tokens.createToken(label, { userId: req.account.id });
-      console.log(`[tokens] ${req.account.name || req.account.id} created token ${record.prefix}… ("${record.label}")`);
+      // getToken of the row just inserted: never null here.
+      console.log(`[tokens] ${req.account.name || req.account.id} created token ${record!.prefix}… ("${record!.label}")`);
       res.status(201).json({ token, record });
     } catch (err) {
       if (err instanceof tokens.TokenError) return res.status(err.status).json({ error: err.message });
-      console.error('[tokens] create error:', err.message);
+      console.error('[tokens] create error:', (err as Error).message);
       res.status(500).json({ error: 'Failed to create token' });
     }
   });
 
-  router.delete('/api/tokens/:id', requireUser, requireDb, async (req, res) => {
+  router.delete('/api/tokens/:id', requireUser, requireDb, async (request, res) => {
+    const req = request as AccountRequest;
     if (!library.isUuid(req.params.id)) return res.status(404).json({ error: 'Token not found' });
     try {
       const record = await tokens.revokeToken(req.params.id, { userId: req.account.id });
@@ -71,12 +81,10 @@ function createTokenRouter({ requireUser, createLimit = 10 } = {}) {
       console.log(`[tokens] ${req.account.name || req.account.id} revoked token ${record.prefix}… ("${record.label}")`);
       res.json({ record });
     } catch (err) {
-      console.error('[tokens] revoke error:', err.message);
+      console.error('[tokens] revoke error:', (err as Error).message);
       res.status(500).json({ error: 'Failed to revoke token' });
     }
   });
 
   return router;
 }
-
-module.exports = { createTokenRouter };

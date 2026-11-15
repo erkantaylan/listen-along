@@ -11,7 +11,7 @@
  *     and "Dev Listener", both approved
  *   - a CLI token for each, with known values (DEV_WORKER_TOKEN, used by the
  *     optional `la worker`; DEV_LISTENER_TOKEN); only their SHA-256 is stored,
- *     exactly as tokens.js does
+ *     exactly as src/auth/tokens.ts does
  *   - five library songs: real AAC (.m4a) and Opus (.opus) files of a few
  *     seconds of tone, made with ffmpeg into $DEV_DATA_DIR/seed-audio and
  *     uploaded through the real API (ffprobe validation, duplicate checks)

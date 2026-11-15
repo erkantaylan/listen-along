@@ -21,7 +21,7 @@ const { startFakeIssuer } = require('./fakeOidcIssuer');
 const { SECRET, cookieFor, adminCookie, startServer, freePort } = require('./testServer');
 const mobileTokens = require('./auth/mobileTokens.ts');
 const { policyFor, refusal } = require('./userAuth');
-const tokens = require('./tokens');
+const tokens = require('./auth/tokens.ts');
 const { MOBILE_REDIRECT_URI, readMobileConfig, idpNonce, normalizeFingerprint, RELEASE_CERT_SHA256 } = require('./mobileAuth');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
