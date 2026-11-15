@@ -70,6 +70,8 @@ describe('the real server: one count per limited request', { timeout: 60_000 }, 
       ['/api/tokens', { cookie: alice }],
       ['/api/playlist-folders', { cookie: alice }],
       ['/api/workers', { cookie: alice }], // jobRoutes, path-scoped
+      ['/api/stream/silence?q=library:x', { cookie: alice }], // lists it (core/library/silenceRoutes.ts)
+      ['/api/admin/library/silence', { cookie: adminCookie() }], // the library router's /api/admin/library
       ['/', { cookie: alice }],
       ['/library', { cookie: alice }],
       ['/login', {}],

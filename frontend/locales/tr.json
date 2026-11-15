@@ -660,6 +660,8 @@
     "fxUnsupported": "Bu tarayıcı ekolayzırı ve ses yükseltmeyi uygulayamıyor.",
     "fxBlocked": "Ekolayzır ve ses yükseltme bu cihazda kapalı.",
     "fxWaiting": "Efektler bir sonraki dokunuşunda ya da tuşa basışında başlar.",
-    "sleepPlaceholder": "ör. 20"
+    "sleepPlaceholder": "ör. 20",
+    "skip": "Sessizliği atla",
+    "skipNote": "Şarkıların başındaki ve sonundaki boşluğu atlar (video yüklemelerinde sık görülür). Biriyle birlikte dinlerken çalışmaz."
   }
 }

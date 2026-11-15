@@ -30,3 +30,10 @@ test('the defaults are neutral: equalizer off and flat, no boost, effects not op
   assert.equal(DEFAULT_SOUND.boost, 0);
   assert.equal(DEFAULT_SOUND.effectsOnMobile, false);
 });
+
+test('skip silence is on unless turned off', () => {
+  assert.equal(DEFAULT_SOUND.skipSilence, true);
+  assert.equal(parseSoundSettings('{"skipSilence":false}').skipSilence, false);
+  assert.equal(parseSoundSettings('{"skipSilence":"no"}').skipSilence, true);
+  assert.equal(parseSoundSettings('{"v":1,"speed":1}').skipSilence, true, 'a value saved before the setting existed');
+});

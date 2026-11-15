@@ -9,6 +9,7 @@ import { setupSpeed } from './player/speed.ts';
 import { setupSoundPanel } from './player/sound-panel.ts';
 import { setupSleepTimer } from './player/sleep-timer.ts';
 import { setupAudioGraph } from './player/audio-graph.ts';
+import { setupSkipSilence, forgetSilence } from './player/skip-silence.ts';
 import { checkAuth, setupLoginView, showPendingCard, setupProfilePage, loadProfilePage } from './features/account/auth.ts';
 import { setupSocial, applySocialRoute, toggleSocial, refreshPeople, reportNowPlaying as reportPresence } from './features/social/social.ts';
 import type { SocialOptions } from './features/social/social.ts';
@@ -98,6 +99,8 @@ function setupSocket(): void {
     s.on('library:updated', handleArtistsLibraryUpdated);
     s.on('library:updated', handleArtistLibraryUpdated);
     s.on('library:updated', handleSearchLibraryUpdated);
+    // A replaced file has new silence numbers (skip silence).
+    s.on('library:updated', (data) => { if (data && 'replaced' in data) forgetSilence(); });
     s.on('requests:updated', handleRequestsUpdated);
     // Download jobs (Download tab) and downloaders online.
     s.on('jobs:update', handleJobUpdate);
@@ -296,10 +299,11 @@ function initAuthenticatedApp(): void {
   setupPlaybackFailures();
   setupPlayerBarControls();
   // The listener's own sound settings (sound panel): speed, the sleep timer,
-  // the equalizer and the volume boost.
+  // the equalizer and the volume boost, skip silence.
   setupSpeed();
   setupSleepTimer();
   setupAudioGraph();
+  setupSkipSilence();
   setupSoundPanel();
   setupRadio();
   setupArtists({ play: playArtistFromTop });

@@ -12,8 +12,9 @@
  *   - a CLI token for each, with known values (DEV_WORKER_TOKEN, used by the
  *     optional `la worker`; DEV_LISTENER_TOKEN); only their SHA-256 is stored,
  *     exactly as src/auth/tokens.ts does
- *   - five library songs: real AAC (.m4a) and Opus (.opus) files of a few
- *     seconds of tone, made with ffmpeg into $DEV_DATA_DIR/seed-audio and
+ *   - six library songs: real AAC (.m4a) and Opus (.opus) files of a few
+ *     seconds of tone (one with seconds of silence before and after, for
+ *     "Skip silence"), made with ffmpeg into $DEV_DATA_DIR/seed-audio and
  *     uploaded through the real API (ffprobe validation, duplicate checks)
  *   - playlists: "Dev Mix" (public) and "Late Night" (private) for Dev User,
  *     "Road Trip" (public) for Dev Listener, with songs
@@ -58,10 +59,12 @@ const SONGS = [
   { file: 'e330.opus', freq: 330, seconds: 7, title: 'Low E Drone', artist: 'Sine Wave Collective' },
   { file: 'g392.opus', freq: 392, seconds: 4, title: 'Sol', artist: 'Sine Wave Collective, Dev Listener' },
   { file: 'b247.m4a', freq: 247, seconds: 8, title: 'Bass Hum', artist: 'Oscillator & Friends' },
+  // Dead air before and after, like many video uploads: "Skip silence" trims it.
+  { file: 'f349-dead-air.m4a', freq: 349, seconds: 6, lead: 3, tail: 4, title: 'Dead Air (video upload)', artist: 'The Test Tones' },
 ];
 
 const PLAYLISTS = [
-  { owner: 'dev', name: 'Dev Mix', visibility: 'public', songs: [0, 1, 2, 3] },
+  { owner: 'dev', name: 'Dev Mix', visibility: 'public', songs: [0, 1, 2, 3, 5] },
   { owner: 'dev', name: 'Late Night', visibility: 'private', songs: [4, 2] },
   { owner: 'listener', name: 'Road Trip', visibility: 'public', songs: [3, 0, 4] },
 ];
@@ -111,9 +114,14 @@ function ensureAudio(dir) {
     if (!fs.existsSync(file) || fs.statSync(file).size === 0) {
       const codec = s.file.endsWith('.opus') ? ['-c:a', 'libopus', '-b:a', '48k', '-f', 'ogg'] : ['-c:a', 'aac', '-b:a', '96k', '-f', 'mp4'];
       const tmp = `${file}.tmp`;
+      const tone = `sine=frequency=${s.freq}:duration=${s.seconds}:sample_rate=48000`;
+      // With dead air: digital silence, the tone, digital silence.
+      const input = s.lead || s.tail
+        ? ['-filter_complex', `aevalsrc=0:s=48000:d=${s.lead || 0}[a];${tone}[b];aevalsrc=0:s=48000:d=${s.tail || 0}[c];[a][b][c]concat=n=3:v=0:a=1[out]`, '-map', '[out]']
+        : ['-f', 'lavfi', '-i', tone];
       execFileSync(FFMPEG, [
         '-hide_banner', '-loglevel', 'error', '-y',
-        '-f', 'lavfi', '-i', `sine=frequency=${s.freq}:duration=${s.seconds}:sample_rate=48000`,
+        ...input,
         '-ac', '2', ...codec, '-map_metadata', '-1', '-fflags', '+bitexact', tmp,
       ], { stdio: ['ignore', 'ignore', 'inherit'] });
       fs.renameSync(tmp, file);
@@ -141,7 +149,7 @@ async function seedSongs(files) {
     form.set('title', s.title);
     form.set('artist', s.artist);
     if (s.album) form.set('album', s.album);
-    form.set('duration_sec', String(s.seconds));
+    form.set('duration_sec', String(s.seconds + (s.lead || 0) + (s.tail || 0)));
     const type = s.file.endsWith('.opus') ? 'audio/ogg' : 'audio/mp4';
     form.set('file', new Blob([fs.readFileSync(files[i])], { type }), s.file);
     const r = await api('POST', '/api/library/upload', WORKER_TOKEN, form);

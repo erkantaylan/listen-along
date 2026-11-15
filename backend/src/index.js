@@ -41,6 +41,7 @@ const { createStationRouter } = require('./features/radio/index.ts');
 const { createArtistRouter } = require('./features/artists/index.ts');
 const { createInfoRouter, createPageRouter } = require('./appRoutes');
 const { createMediaRouter } = require('./mediaRoutes');
+const { createSilenceScanner, createSilenceRouter } = require('./core/library/index.ts');
 const { createProfileRouter } = require('./profileRoutes');
 const { createAdminRouter } = require('./adminRoutes');
 const { createAuthRoutes } = require('./auth/index.ts');
@@ -206,13 +207,23 @@ const workerHub = createWorkerHub({
 });
 workerHub.attach(server);
 
+// Silence at the start / end of each song (core/library/silence.ts): measured
+// after uploads and replaces, and in the background for the rest of the library.
+// Off in tests unless asked for (SILENCE_SCAN=on), and anywhere with SILENCE_SCAN=off.
+const envMs = (name) => (process.env[name] !== undefined && process.env[name] !== '' && Number.isFinite(Number(process.env[name])) ? Number(process.env[name]) : undefined);
+const silenceScanner = createSilenceScanner({
+  db, songsPath: library.SONGS_PATH, songsFile: (p) => library.songsFile(p),
+  enabled: process.env.SILENCE_SCAN ? process.env.SILENCE_SCAN !== 'off' : process.env.NODE_ENV !== 'test',
+  startDelayMs: envMs('SILENCE_START_DELAY_MS'), pauseMs: envMs('SILENCE_PAUSE_MS'),
+});
+
 // Music library, song requests, CLI tokens and admin API (see libraryRoutes.js)
 app.use(createLibraryRouter({
   onJobUpload: (job, song) => { addJobSongsToPlaylist(job, [song]).catch(err => console.error('[jobs] playlist add failed:', err.message)); },
   onRequestDismissed: (request) => {
     downloadJobs.cancelForRequest(request.id).then((rows) => rows.forEach(emitJob)).catch(() => {});
   },
-  onSongAdded: (song, fulfilled) => { handleLibrarySongAdded(song, fulfilled).catch(err => console.error('[library] post-upload handling failed:', err)); },
+  onSongAdded: (song, fulfilled) => { silenceScanner.songAdded(song); handleLibrarySongAdded(song, fulfilled).catch(err => console.error('[library] post-upload handling failed:', err)); },
   onRequestsChanged: () => io.to(APP_ROOM).emit('requests:updated'),
   onSongRemoved: (song) => {
     io.to(APP_ROOM).emit('library:updated', { removed: song.id });
@@ -220,7 +231,7 @@ app.use(createLibraryRouter({
   },
   // Marked / unmarked broken, or reports dismissed: badges everywhere refresh.
   onReportsChanged: (songId) => io.to(APP_ROOM).emit('library:updated', { reports: { id: songId } }),
-  onSongReplaced: (song, previous) => { handleLibrarySongReplaced(song, previous).catch(err => console.error('[library] post-replace handling failed:', err)); },
+  onSongReplaced: (song, previous) => { silenceScanner.songReplaced(song); handleLibrarySongReplaced(song, previous).catch(err => console.error('[library] post-replace handling failed:', err)); },
   onSongDetailsChanged: (song, previous) => { handleLibrarySongDetailsChanged(song, previous).catch(err => console.error('[library] post-edit handling failed:', err)); },
   onJobUpdated: emitJob,
   loginRateLimit: rateLimit,
@@ -281,6 +292,8 @@ app.use(createPageRouter({ frontendPath, apiLimiter, adminAuth, appRelease }));
 
 // Audio for queue entries and their covers (mediaRoutes.js).
 app.use(createMediaRouter({ db, library, covers, apiLimiter, sendSongFile }));
+// The silence numbers of a queue entry's song, and the scan's progress for admins.
+app.use(createSilenceRouter({ db, resolveQueueUrl: (url) => library.resolveQueueUrl(url), apiLimiter, requireAdmin: adminAuth.requireAdmin, scanner: silenceScanner }));
 
 // Playlists over HTTP, songs included (playlistRoutes.js).
 const { router: playlistRouter, ownerNames } = createPlaylistRoutes({
@@ -406,6 +419,8 @@ async function start() {
       // an older normalization). Background, batched; retried next boot.
       console.error('Duplicate-key backfill failed:', err.message);
     });
+    // Lead-in / tail silence of songs not measured yet: niced, one at a time, after a delay.
+    silenceScanner.start().catch(err => console.error('[silence] could not start:', err.message));
   } else {
     console.log('Running in memory-only mode');
   }
@@ -434,6 +449,7 @@ const shutdown = (signal) => {
   const lastSeenDone = social ? social.flushLastSeen().catch(() => {}) : Promise.resolve();
   presence.close();
   workerHub.close();
+  silenceScanner.stop();
 
   server.close(async () => {
     console.log('HTTP server closed');

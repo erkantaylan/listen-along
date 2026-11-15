@@ -2,7 +2,8 @@
 // #sound-panel, a popover above the bar's right end on desktop and a sheet
 // above the bar on phones. It holds the listener's own settings (sound.ts):
 // speed, the sleep timer (sleep-timer.ts, not a stored setting), the
-// equalizer and the volume boost (audio-graph.ts). Not
+// equalizer and the volume boost (audio-graph.ts), skip silence
+// (skip-silence.ts). Not
 // modal: Escape, the close button, the sound button or a click outside
 // closes it, and focus goes back to the sound button.
 import { byId } from '../shared/dom.ts';
@@ -103,6 +104,7 @@ function render(): void {
 
   renderSleep();
   renderEffects();
+  byId<HTMLInputElement>('sound-skip').checked = s.skipSilence;
 
   const active = effectsActive();
   const sleeping = sleepTimer().kind !== 'off';
@@ -234,6 +236,8 @@ export function setupSoundPanel(): void {
   boost.addEventListener('input', () => fx({ boost: normalizeBoost(boost.value) }));
   byId('sound-boost-reset').addEventListener('click', () => fx({ boost: 0 }));
   onGraphChange(render);
+
+  byId<HTMLInputElement>('sound-skip').addEventListener('change', (e) => updateSound({ skipSilence: (e.target as HTMLInputElement).checked }));
 
   onSoundChange(render);
   onListenChange(render);

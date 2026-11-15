@@ -80,6 +80,9 @@ export interface LibrarySongRow {
   meta_key_version: number | null;
   created_at: Date;
   replaced_at: Date | null;
+  /** ms of silence at the very start / end (core/library/silence.ts); null = not measured yet */
+  lead_silence_ms: number | null;
+  trail_silence_ms: number | null;
 }
 
 export type Visibility = 'public' | 'private';

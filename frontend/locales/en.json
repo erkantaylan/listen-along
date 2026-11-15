@@ -660,6 +660,8 @@
     "fxUnsupported": "This browser cannot apply the equalizer or the boost.",
     "fxBlocked": "The equalizer and the boost are off on this device.",
     "fxWaiting": "The effects start with your next tap or key press.",
-    "sleepPlaceholder": "e.g. 20"
+    "sleepPlaceholder": "e.g. 20",
+    "skip": "Skip silence",
+    "skipNote": "Skips the dead air at the start and end of songs (common in uploads of videos). Not while you listen along with someone."
   }
 }

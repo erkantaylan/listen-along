@@ -80,8 +80,9 @@ machine; nothing comes from production.
 
 ### Dev accounts and signing in
 
-The seed makes two approved accounts, five short songs (real AAC and Opus
-files of a tone), three playlists and a few chat messages:
+The seed makes two approved accounts, six short songs (real AAC and Opus
+files of a tone; "Dead Air (video upload)" has seconds of silence before and
+after, for the player's Skip silence), three playlists and a few chat messages:
 
 - **Dev User**: open <http://localhost:3100/auth/dev/login> (or press **Sign
   in**). Owns "Dev Mix" (public) and "Late Night" (private).

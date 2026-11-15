@@ -24,6 +24,8 @@ export interface SoundSettings {
   boost: number;
   /** Phones and tablets: the listener chose to use effects anyway (audio-graph.ts). */
   effectsOnMobile: boolean;
+  /** Skip the dead air at the start and end of songs (skip-silence-rules.ts). On unless turned off. */
+  skipSilence: boolean;
 }
 
 export const DEFAULT_SOUND: Readonly<SoundSettings> = Object.freeze({
@@ -34,6 +36,7 @@ export const DEFAULT_SOUND: Readonly<SoundSettings> = Object.freeze({
   eqCustom: [...FLAT_GAINS],
   boost: 0,
   effectsOnMobile: false,
+  skipSilence: true,
 });
 
 /** Anything (a parsed JSON value, a patch merged over the current settings) -> valid settings. */
@@ -47,6 +50,7 @@ export function normalizeSoundSettings(input: unknown): SoundSettings {
     eqCustom: normalizeGains(o.eqCustom),
     boost: normalizeBoost(o.boost),
     effectsOnMobile: o.effectsOnMobile === true,
+    skipSilence: o.skipSilence !== false,
   };
 }
 

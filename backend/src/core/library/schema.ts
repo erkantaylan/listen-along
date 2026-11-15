@@ -1,7 +1,8 @@
 // The music library: songs, their replace / edit history, broken-song reports,
 // and the legacy yt-dlp cache table. Run by shared/db.ts, in the order of its
-// SCHEMA list. Only the schema lives here so far; library.js, songReports.js
-// and the rest move into this folder with the core.
+// SCHEMA list. The schema and the silence measurements (silence.ts) live here
+// so far; library.js, songReports.js and the rest move into this folder with
+// the core.
 import type { Migration } from '../../shared/db.ts';
 
 export const tables: readonly string[] = [
@@ -37,7 +38,9 @@ export const tables: readonly string[] = [
       source_url TEXT,
       uploaded_by VARCHAR(255) NOT NULL,
       uploaded_by_token UUID,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      lead_silence_ms INTEGER,
+      trail_silence_ms INTEGER
     )
   `,
   // Audit trail of "replace the audio of a library song" (library.replaceSong).
@@ -145,6 +148,10 @@ export const migrations: readonly Migration[] = [
   `ALTER TABLE library_songs ADD COLUMN IF NOT EXISTS upload_job_id UUID`,
   `ALTER TABLE library_songs ADD COLUMN IF NOT EXISTS requested_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL`,
   `ALTER TABLE library_songs ADD COLUMN IF NOT EXISTS requested_by VARCHAR(255)`,
+  // Migration: dead air at the very start / end of the file, in ms (silence.ts);
+  // NULL = not measured yet (the background scan fills it), reset on replace.
+  `ALTER TABLE library_songs ADD COLUMN IF NOT EXISTS lead_silence_ms INTEGER`,
+  `ALTER TABLE library_songs ADD COLUMN IF NOT EXISTS trail_silence_ms INTEGER`,
   `CREATE INDEX IF NOT EXISTS idx_library_songs_uploader ON library_songs(uploaded_by_user_id)`,
   `CREATE INDEX IF NOT EXISTS idx_library_songs_worker ON library_songs(uploaded_by_worker_id)`,
   `CREATE INDEX IF NOT EXISTS idx_library_songs_requester ON library_songs(requested_by_user_id)`,

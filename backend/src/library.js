@@ -34,7 +34,7 @@ const UPLOAD_FORMATS = {
 };
 const UPLOAD_EXTS = new Set(Object.values(UPLOAD_FORMATS).map((f) => f.ext));
 
-const PUBLIC_COLUMNS = 'id, youtube_id, title, artist, album, duration_sec, source_url, uploaded_by, created_at, sha256, replaced_at, uploaded_by_worker, requested_by';
+const PUBLIC_COLUMNS = 'id, youtube_id, title, artist, album, duration_sec, source_url, uploaded_by, created_at, sha256, replaced_at, uploaded_by_worker, requested_by, lead_silence_ms, trail_silence_ms';
 const MAX_SOURCE_URL_LENGTH = 2048;
 
 function ensureDirs() {
@@ -173,6 +173,9 @@ function toPublic(row) {
     // e.g. /api/library/<id>/file?v=<file_version>.
     file_version: row.sha256 ? String(row.sha256).slice(0, 16) : null,
     replaced_at: row.replaced_at || null,
+    // Silence at the very start / end in ms, null until measured (core/library/silence.ts). Additive.
+    lead_silence_ms: row.lead_silence_ms ?? null,
+    trail_silence_ms: row.trail_silence_ms ?? null,
   };
 }
 

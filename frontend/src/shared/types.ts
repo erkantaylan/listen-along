@@ -57,6 +57,9 @@ export interface LibrarySong {
   file_version: string | null;
   /** ISO string (TIMESTAMPTZ), null until the audio was replaced. */
   replaced_at: string | null;
+  /** ms of silence at the very start / end of the file; null until the server measured it. Additive. */
+  lead_silence_ms?: number | null;
+  trail_silence_ms?: number | null;
   /** Open reports. Only on GET /api/library, GET|PATCH /api/library/:id and report answers (attachReports), not on socket payloads. */
   reports?: SongReport[];
   /** reports.length; present together with `reports`. */
@@ -67,6 +70,12 @@ export interface LibrarySong {
 export interface LibraryListResponse {
   songs: LibrarySong[];
   total: number;
+}
+
+// GET /api/stream/silence?q=<queue url> (core/library/silenceRoutes.ts): what the player trims (skip silence).
+export interface SongSilence {
+  lead_silence_ms: number | null;
+  trail_silence_ms: number | null;
 }
 
 // stations.toStationSong (lean row; also the artist page's rows, artists.js)

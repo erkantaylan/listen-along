@@ -24,7 +24,8 @@
 //   player.setRefill(fn)                 fn(context, track) -> songs | null: what comes after the last song (Radio)
 //   player.setSkip(fn)                   fn(track) -> true for a song next / previous go past (it failed to play, playback-failures.ts)
 //   player.setEndHook(fn)                fn() -> true when it handled a song's end itself (the sleep timer's "end of song")
-//   player.finishTrack()                 the song came to its end: what the 'ended' event does
+//   player.finishTrack()                 the song came to its end: what the 'ended' event does (skip silence ends songs early through it)
+//   player.setStartAt(fn)                fn(track, position) -> where a song the listener starts begins (skip silence's lead-in)
 //   player.playIndex(i) / playTrack(track, { position, autoplay })
 //   player.play() / pause() / toggle() / next() / previous() / seek(seconds) / stop()
 //     (these are the listener's own actions: each one ends a driver; the
@@ -38,6 +39,7 @@
 //     'queue'   (songs)
 //     'seeked'  (currentTime)       any seek finished (also the driver's)
 //     'rate'    (playbackRate)      the playback speed changed (speed.ts)
+//     'start'   ({ track, position }) playTrack started a song (also the same one again: repeat)
 //   player.setDriver({ name, onTakeover, onEnded }) lets something else steer
 //     playback (listen-along, listen-along.ts) through playTrack and
 //     play/pause/seek with { keepDriver: true }. The listener's first own
@@ -81,6 +83,7 @@ export interface PlayerEvents {
   queue: Track[];
   seeked: number;
   rate: number;
+  start: { track: Track; position: number };
 }
 export type PlayerEvent = keyof PlayerEvents;
 export type PlayerHandler<E extends PlayerEvent> = (payload: PlayerEvents[E]) => void;
@@ -99,6 +102,8 @@ export type RefillFn = (context: PlayerContext | null, track: Track | null) => T
 export type SkipFn = (track: Track) => boolean;
 /** player.setEndHook: true when it took care of the end of the song (nothing else happens then). */
 export type EndHook = () => boolean;
+/** player.setStartAt: where a song started by the listener begins. */
+export type StartAtFn = (track: Track, position: number) => number;
 
 // socket library:updated { details } / { replaced } (types.ts LibraryUpdatedPayload).
 type DetailsChange = Extract<LibraryUpdatedPayload, { details: unknown }>['details'];
@@ -112,6 +117,7 @@ let driver: PlayerDriver | null = null;
 let refill: RefillFn | null = null;
 let skip: SkipFn | null = null;
 let endHook: EndHook | null = null;
+let startAt: StartAtFn | null = null;
 
 const audio = () => elements.audioPlayer;
 
@@ -218,9 +224,12 @@ export const player = {
 
   setEndHook(fn: EndHook | null | undefined): void { endHook = fn || null; },
 
+  setStartAt(fn: StartAtFn | null | undefined): void { startAt = fn || null; },
+
   // The song came to its end: a driver decides what follows (listen-along waits
   // for the leader's next song), else the next song plays as repeat / shuffle /
-  // Radio's refill say. The 'ended' event lands here.
+  // Radio's refill say. The 'ended' event lands here, and so does skip
+  // silence's early end at the start of a song's silent tail.
   finishTrack(): void {
     if (endHook) {
       let handled = false;
@@ -251,8 +260,14 @@ export const player = {
     const changed = !track || track.id !== t.id || track.url !== t.url;
     track = t;
     state.currentTrack = t;
-    playAudioWithUnlock(streamUrl(t), position, autoplay);
+    // A driver places songs itself (listen-along: the leader's position).
+    let at = position;
+    if (startAt && !driver) {
+      try { at = startAt(t, position); } catch (err) { console.error('player start hook failed:', err); }
+    }
+    playAudioWithUnlock(streamUrl(t), at, autoplay);
     if (changed) emit('track', track);
+    emit('start', { track: t, position: at });
   },
 
   play({ keepDriver = false }: { keepDriver?: boolean } = {}): void {
