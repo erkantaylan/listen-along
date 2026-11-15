@@ -194,9 +194,13 @@ describe('app sign-in: rules', () => {
     assert.throws(() => readMobileConfig({ ANDROID_APP_PACKAGE: 'nodots' }, {}), /ANDROID_APP_PACKAGE/);
   });
 
-  it('the IdP nonce is bound to the app nonce, the redirect and the secret', () => {
+  it('the IdP nonce depends on the app nonce, the redirect and an HKDF key from the secret', () => {
     const n = idpNonce('s', 'nonce-1', MOBILE_REDIRECT_URI);
     assert.match(n, /^[A-Za-z0-9_-]{43}$/);
+    const key = require('./secretBox').deriveKey('s', 'listen-along/mobile-nonce/v1');
+    assert.equal(n, crypto.createHmac('sha256', key).update(`${MOBILE_REDIRECT_URI}\nnonce-1`).digest('base64url'), 'keyed by the derived key');
+    assert.notEqual(n, crypto.createHmac('sha256', 's').update(`${MOBILE_REDIRECT_URI}\nnonce-1`).digest('base64url'), 'never the raw SESSION_SECRET');
+    assert.equal(idpNonce('s', 'nonce-1', MOBILE_REDIRECT_URI), n, 'stable');
     assert.notEqual(n, 'nonce-1');
     assert.notEqual(n, idpNonce('s', 'nonce-1', 'https://m.example.com/auth/mobile/callback'));
     assert.notEqual(n, idpNonce('s', 'nonce-2', MOBILE_REDIRECT_URI));
@@ -846,7 +850,7 @@ describe('app sign-in: the https App Link redirect (central login)', { timeout: 
   });
 
   for (const idpChecks of [true, false]) {
-    it(`a code obtained with one redirect cannot be exchanged with the other (IdP ${idpChecks ? 'compares redirect_uri' : 'does not compare, as authentik'})`, async () => {
+    it(`start and exchange must name the same redirect (IdP ${idpChecks ? 'compares redirect_uri' : 'does not compare, as authentik'})`, async () => {
       idp.redirectMatch = idpChecks;
       try {
         const viaHttps = await browse(srv.base, idp, { sub: 'al-4' }, { redirect: callback });
@@ -864,6 +868,27 @@ describe('app sign-in: the https App Link redirect (central login)', { timeout: 
       }
     });
   }
+
+  it('redirect_uri as an array or an empty string is refused at start and at the exchange', async () => {
+    const f = newFlow();
+    const enc = encodeURIComponent;
+    for (const extra of [
+      `&redirect_uri=${enc(callback)}&redirect_uri=${enc(callback)}`, `&redirect_uri[]=${enc(callback)}`,
+      `&redirect_uri=${enc(MOBILE_REDIRECT_URI)}&redirect_uri=${enc(callback)}`, '&redirect_uri=',
+    ]) {
+      const res = await get(startUrl(srv.base, f) + extra);
+      assert.equal(res.status, 400, extra);
+      assert.match(await res.text(), /Sign-in link not valid/, extra);
+    }
+    const b = await browse(srv.base, idp, { sub: 'al-arr' }, { redirect: callback });
+    const body = { code: b.code, state: b.state, code_verifier: b.flow.verifier, nonce: b.flow.nonce };
+    for (const bad of [[callback], [MOBILE_REDIRECT_URI], [], '']) {
+      const r = await post(`${srv.base}/auth/mobile/exchange`, { ...body, redirect_uri: bad });
+      assert.deepEqual([r.status, r.body.code], [400, 'invalid_request'], JSON.stringify(bad));
+      assert.doesNotMatch(r.body.error, /latest version/, 'not mistaken for an old app');
+    }
+    assert.equal((await post(`${srv.base}/auth/mobile/exchange`, { ...body, redirect_uri: callback })).status, 200, 'the code was not spent');
+  });
 
   it('a code from an authorize request not made by /auth/mobile/start is refused (the nonce is the server\'s)', async () => {
     idp.redirectMatch = false;
@@ -943,6 +968,69 @@ describe('app sign-in: MOBILE_CUSTOM_SCHEME=off', { timeout: 120_000 }, () => {
     }
     const ok = await appSignIn(srv.base, idp, { sub: 'off-1' }, { redirect: `${srv.base}/auth/mobile/callback` });
     assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  });
+
+  /**
+   * The attack the App Link is about, with the server switch off but the
+   * custom scheme still registered at the IdP: an app holding the scheme asks
+   * /start for the https redirect (no victim needed), copies the derived nonce
+   * from the Location header into its OWN authorize request on the scheme
+   * (its own PKCE), the victim's browser session yields a code on the scheme,
+   * and the exchange names the https redirect.
+   */
+  async function schemeReplay() {
+    const cb = `${srv.base}/auth/mobile/callback`;
+    const f = newFlow();
+    const start = await get(startUrl(srv.base, f, { redirect_uri: cb }));
+    assert.equal(start.status, 302);
+    const authorize = new URL(start.headers.get('location'));
+    authorize.searchParams.set('redirect_uri', MOBILE_REDIRECT_URI);
+    idp.user = { sub: 'victim-1' };
+    const back = await get(authorize.href);
+    if (back.status !== 302) return { authorize: back.status };
+    const landed = new URL(back.headers.get('location'));
+    assert.equal(landed.href.split('?')[0], MOBILE_REDIRECT_URI, 'the code went to the scheme');
+    return post(`${srv.base}/auth/mobile/exchange`, {
+      code: landed.searchParams.get('code'), state: f.state, code_verifier: f.verifier, nonce: f.nonce, redirect_uri: cb,
+    });
+  }
+
+  it('THE LIMIT: with an IdP that does not compare redirects (authentik), the switch alone does not stop a scheme-holding app', async () => {
+    // Accepted on purpose and documented (mobileAuth.js "What stops what",
+    // CENTRAL-LOGIN.md "The redirect"): the id_token says nothing about the
+    // redirect, so the server cannot tell which one delivered the code, and
+    // the derived nonce is public (it is in /start's Location header). What
+    // closes this is removing the scheme from the IdP client's registered
+    // redirect URIs (next tests); MOBILE_CUSTOM_SCHEME=off only turns old
+    // apps away politely.
+    idp.redirectMatch = false;
+    try {
+      const r = await schemeReplay();
+      assert.equal(r.status, 200, JSON.stringify(r.body));
+      assert.match(r.body.token, /^lam_/);
+    } finally {
+      idp.redirectMatch = true;
+    }
+  });
+
+  it('an IdP that compares redirect_uri at the token endpoint stops the same attack', async () => {
+    idp.redirectMatch = true;
+    const r = await schemeReplay();
+    assert.deepEqual([r.status, r.body.code], [400, 'signin_failed']);
+  });
+
+  it('the scheme removed from the IdP client: no code is issued to it at all (the actual fix)', async () => {
+    idp.redirectMatch = false;
+    idp.registeredRedirects = new Set([`${srv.base}/auth/oidc/callback`, `${srv.base}/auth/mobile/callback`]);
+    try {
+      const r = await schemeReplay();
+      assert.deepEqual(r, { authorize: 400 }, 'the IdP refused the authorize request');
+      const ok = await appSignIn(srv.base, idp, { sub: 'off-2' }, { redirect: `${srv.base}/auth/mobile/callback` });
+      assert.equal(ok.status, 200, 'the App Link still signs in');
+    } finally {
+      idp.redirectMatch = true;
+      idp.registeredRedirects = null;
+    }
   });
 
   it('a bad switch, certificate or package stops the boot', async () => {

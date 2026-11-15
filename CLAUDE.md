@@ -326,8 +326,9 @@ where lobby persistence broke entirely on deployed instances.
   `<BASE_URL>/auth/mobile/callback` (release builds on music.etaylan.com;
   `/.well-known/assetlinks.json` names the release key) and, during the
   transition, `com.etaylan.listen:/oauth2redirect` (older apps, debug builds,
-  other servers; `MOBILE_CUSTOM_SCHEME=off` ends it). `auth/AuthFlow.redirectFor`
-  picks one; CENTRAL-LOGIN.md "The redirect".
+  other servers; removing it from the IdP client ends it, with
+  `MOBILE_CUSTOM_SCHEME=off` here; then debug builds cannot sign in against the
+  production IdP). `auth/AuthFlow.redirectFor` picks one; CENTRAL-LOGIN.md "The redirect".
 
 ## Playlists (internally "lobbies")
 
@@ -447,11 +448,15 @@ where lobby persistence broke entirely on deployed instances.
   Tab via `GET /auth/mobile/start` (302 to the IdP with the app's
   `redirect_uri`, one of exactly two: `<BASE_URL>/auth/mobile/callback` or
   `com.etaylan.listen:/oauth2redirect`, the default; the IdP gets
-  `idpNonce` = HMAC(SESSION_SECRET, redirect + app nonce), which binds the code
-  to the redirect and to a start made here: authentik does not compare
-  redirect_uri at the token endpoint), the SERVER exchanges the code at
+  `idpNonce` = HMAC(HKDF(SESSION_SECRET), redirect + app nonce): a consistency
+  check (start and exchange name the same redirect, the nonce came out of
+  /start), NOT a secret or a binding to the redirect the IdP used: it is in
+  /start's Location header, authentik does not compare redirect_uri at the
+  token endpoint and the id_token does not name it. Only removing the scheme
+  from the IdP client closes the custom-scheme attack; `MOBILE_CUSTOM_SCHEME=off`
+  is its polite server-side companion, tested as "THE LIMIT"), the SERVER exchanges the code at
   `POST /auth/mobile/exchange` (`finishLogin` with that redirect URI and the
-  app's state / bound nonce / verifier: the same id_token checks, the same
+  app's state / derived nonce / verifier: the same id_token checks, the same
   `linkCentralIdentity`, a `central-login: ... client=app` line) and stores a
   `user_sessions` row like a cookie session (`create({ prefix: 'lam_' })`:
   the hash covers the prefix, so cookie ids and Bearers never cross). The app

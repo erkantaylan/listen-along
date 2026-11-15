@@ -29,7 +29,7 @@ interface SessionHolder {
 
 /** The server calls of a sign-in (api/SignInClient; a fake in tests). */
 interface SignInApi {
-    /** [redirectUri]: the redirect the sign-in was started with (the server binds the code to it). */
+    /** [redirectUri]: the redirect the sign-in was started with (the server requires start and exchange to agree). */
     suspend fun exchange(code: String, state: String, verifier: String, nonce: String, iss: String?, previousToken: String?, redirectUri: String): SessionGrant
     suspend fun logout(token: String)
 }

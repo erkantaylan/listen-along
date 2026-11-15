@@ -15,8 +15,8 @@ import java.util.Base64
  * process being killed while the browser is open). The PKCE [verifier] never
  * leaves the app until the code exchange; [server] is the listen-along server
  * the sign-in was started against; [redirect] the redirect it asked for
- * ([AuthFlow.redirectFor]), sent again at the exchange (the server binds the
- * code to it). A sign-in stored by an older version has none:
+ * ([AuthFlow.redirectFor]), sent again at the exchange (the server requires
+ * start and exchange to name the same one). A sign-in stored by an older version has none:
  * it used the custom scheme.
  */
 @Serializable
@@ -129,7 +129,7 @@ object AuthFlow {
      * and the sign-in no older than [MAX_AGE_MS]. Either redirect may answer:
      * a server from before App Links ignores `redirect_uri` and answers on the
      * scheme; the state is what proves the redirect belongs to this sign-in
-     * (and a newer server binds the code to the redirect it was started with).
+     * (and a newer server requires the exchange to name the redirect it was started with).
      */
     fun parseRedirect(uri: String, pending: PendingSignIn?, now: Long): Redirect {
         val base = listOf(REDIRECT_URI, APP_LINK_URI).firstOrNull { uri == it || uri.startsWith("$it?") }

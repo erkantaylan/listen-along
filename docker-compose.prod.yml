@@ -32,8 +32,9 @@ services:
       # accounts until an admin saves the switch in /dashboard (then that wins).
       - REGISTRATIONS_DEFAULT=${REGISTRATIONS_DEFAULT:-}
       # The Android app's sign-in redirect (CENTRAL-LOGIN.md, "The redirect"):
-      # on | off (empty = on) for the old custom scheme; off once the App Link
-      # version is installed. The other two override assetlinks.json's package
+      # on | off (empty = on) for the old custom scheme. off TOGETHER with
+      # removing the scheme from the IdP client (that removal is the fix; off
+      # alone only turns old apps away). The other two override assetlinks.json's package
       # and release-key fingerprint (empty = the built-in ones).
       - MOBILE_CUSTOM_SCHEME=${MOBILE_CUSTOM_SCHEME:-}
       - ANDROID_APP_PACKAGE=${ANDROID_APP_PACKAGE:-}

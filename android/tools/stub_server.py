@@ -248,7 +248,8 @@ class Handler(BaseHTTPRequestHandler):
         redirect = self.chosen_redirect(None if asked is None else asked[0])
         if redirect is None:
             return self.send_html(400, "Sign-in link not valid", "<p>The app asked for a redirect this server does not allow.</p>")
-        # The code names its redirect, as the real server binds it through the nonce.
+        # The code names its redirect: start and exchange must agree, as the real
+        # server checks through its derived nonce (a consistency check only).
         code = "dev." + b64url(json.dumps({"c": challenge, "n": nonce, "r": redirect, "t": time.time()}).encode())
         link = f"{redirect}?{urlencode({'code': code, 'state': state})}"
         self.send_html(200, "Stub sign-in", "<p>tools/stub_server.py: no IdP, anyone is " + html.escape(ME) + ".</p>"

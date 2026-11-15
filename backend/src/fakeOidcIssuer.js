@@ -37,6 +37,7 @@ async function startFakeIssuer({ clientId = 'listen-along', slug = 'listen-along
     refreshError: null,     // e.g. 'invalid_client': the next refreshes fail with it
     metadataOverride: null, // (md) => md, for malformed-discovery tests
     redirectMatch: true,    // false: the token endpoint does not compare redirect_uri with the code's (as authentik)
+    registeredRedirects: null, // a Set: authorize refuses any other redirect_uri (the client's registered list); null = any
     disabled: new Set(),
     codes: new Map(),
     refreshTokens: new Map(), // token -> { sub, claims, active }
@@ -47,7 +48,7 @@ async function startFakeIssuer({ clientId = 'listen-along', slug = 'listen-along
     enable(sub) { this.disabled.delete(sub); },
     reset() {
       this.user = null; this.tamper = null; this.down = false; this.refreshDelayMs = 0; this.refreshError = null;
-      this.metadataOverride = null; this.redirectMatch = true; this.disabled.clear();
+      this.metadataOverride = null; this.redirectMatch = true; this.registeredRedirects = null; this.disabled.clear();
     },
   };
 
@@ -134,6 +135,8 @@ async function startFakeIssuer({ clientId = 'listen-along', slug = 'listen-along
       idp.authorizeRequests.push(Object.fromEntries(q));
       const redirect = q.get('redirect_uri');
       if (q.get('client_id') !== clientId || !redirect) return json(res, 400, { error: 'invalid_client' });
+      // An unregistered redirect gets an error page, never a redirect with a code.
+      if (idp.registeredRedirects && !idp.registeredRedirects.has(redirect)) return json(res, 400, { error: 'invalid_request', error_description: 'redirect_uri' });
       const back = new URL(redirect);
       if (!idp.user) {
         back.searchParams.set('error', 'access_denied');

@@ -23,8 +23,9 @@
  *                                             and older); MOBILE_CUSTOM_SCHEME=off
  *                                             refuses it
  *        Central login: 302 to the IdP's authorize endpoint with that
- *        redirect_uri, the server's scopes, and a nonce DERIVED from the app's
- *        nonce and the redirect (idpNonce, below). The IdP sends the browser
+ *        redirect_uri, the server's scopes, and a nonce derived from the app's
+ *        nonce and the redirect (idpNonce, below; a consistency check, not a
+ *        secret: it is in this Location header). The IdP sends the browser
  *        back with ?code&state (or ?error). Dev sign-in: a page whose link goes
  *        straight back to the app with a signed dev code.
  *   GET  /auth/mobile/callback?code&state   the https redirect's target. When
@@ -40,8 +41,9 @@
  *   POST /auth/mobile/exchange  { code, state, code_verifier, nonce, iss?, redirect_uri? }
  *        redirect_uri: the one the sign-in was started with (same allowlist,
  *        same default). It goes to the IdP's token endpoint and into the
- *        derived nonce the id_token must carry, so a code from a flow started
- *        with one redirect cannot be exchanged as the other.
+ *        derived nonce the id_token must carry, so start and exchange must
+ *        name the same redirect. That is NOT proof of the redirect the IdP
+ *        actually sent the code to (see "What stops what").
  *        200 { token: 'lam_...', token_type: 'Bearer', expires_at, mode:
  *        'central'|'dev', user: { id, name, status } }. Errors are
  *        { error, code } with code invalid_request (400), signin_failed (400:
@@ -66,16 +68,24 @@
  *   - another app that STARTS its own flow on the custom scheme and catches
  *     the code for the victim's existing IdP browser session (PKCE does not
  *     help: it holds its own verifier): the https App Link, which Android
- *     gives only to the app signed with the key in assetlinks.json, and
- *     MOBILE_CUSTOM_SCHEME=off once every installed app uses it;
- *   - a code obtained outside /auth/mobile/start (an authorize URL built by
- *     hand with the public client id, e.g. on the custom scheme while it is
- *     still registered at the IdP) or with the other redirect: the IdP gets
- *     idpNonce(app nonce, redirect) = HMAC(SESSION_SECRET, ...), and the
- *     exchange expects exactly that in the id_token; nobody without the
- *     secret can make it. (authentik checks only that the token request's
- *     redirect_uri is registered, not that the code was issued for it, so
- *     this binding is the server's own.)
+ *     gives only to the app signed with the key in assetlinks.json (on
+ *     Android 12+; see CENTRAL-LOGIN.md for 8-11), and then REMOVING the
+ *     custom scheme from the IdP client's redirect URIs (central-login
+ *     catalog), so the IdP issues no code to it at all. Only that removal
+ *     closes this. MOBILE_CUSTOM_SCHEME=off is its server-side companion
+ *     (old apps get "update the app"), not the fix: authentik checks only
+ *     that the token request's redirect_uri is registered, not that it is the
+ *     one the code was issued for, and the id_token says nothing about the
+ *     redirect, so no server-only check can tell which redirect really
+ *     delivered a code. With the scheme still registered, an attacker asks
+ *     /start for the https redirect, copies the derived nonce out of the
+ *     Location header into its own authorize URL on the scheme (its own
+ *     PKCE), and exchanges the caught code naming the https redirect: the
+ *     server accepts it (tested: mobile-auth.test.js "the limit").
+ *   - what idpNonce does buy: start and exchange must name the same redirect
+ *     (a mixed-up client fails), and the nonce must have come out of /start
+ *     (an authorize URL with a nonce of the caller's own fails). A
+ *     consistency check; it is no secret and no proof of the redirect used.
  *   - a forged redirect into the app (login CSRF): the app compares `state`;
  *   - a replayed id_token / mixed-up flow: the server passes the app's nonce
  *     as the expected nonce, so an id_token minted for another flow fails;
@@ -92,6 +102,7 @@ const express = require('express');
 const { make: makeLimiter } = require('./rateLimits');
 const { linkCentralIdentity, centralName } = require('./oidcLink');
 const { hashId, SESSION_MAX_AGE_MS } = require('./oidcSessions');
+const { deriveKey } = require('./secretBox');
 const {
   MOBILE_TOKEN_PREFIX, CENTRAL_TOKEN_RE, mobileBearer, signDevMobileToken, signDevCode, verifyDevCode, s256,
 } = require('./mobileTokens');
@@ -133,8 +144,10 @@ function normalizeFingerprint(raw) {
  *
  *   MOBILE_CUSTOM_SCHEME     on (default) | off: whether the custom-scheme
  *                            redirect is still accepted (app 0.4.0 and older
- *                            use it). Switch it off once the App Link version
- *                            is installed everywhere (CENTRAL-LOGIN.md).
+ *                            use it). Switch it off TOGETHER with removing the
+ *                            scheme from the IdP client, which is what closes
+ *                            the risk; off alone only turns old apps away
+ *                            (CENTRAL-LOGIN.md "The redirect").
  *   ANDROID_APP_PACKAGE      the release package (default DEFAULT_APP_PACKAGE)
  *   ANDROID_APP_CERT_SHA256  comma-separated SHA-256 certificate fingerprints
  *                            (hex, colons optional) for that package;
@@ -200,14 +213,30 @@ function devBaseUrl(env) {
   }
 }
 
+/** HKDF purpose label of the nonce key (secretBox.deriveKey), so it is no other key made from SESSION_SECRET. */
+const NONCE_KEY_PURPOSE = 'listen-along/mobile-nonce/v1';
+const nonceKeys = new Map(); // secret -> derived key (one secret per process; tests use a few)
+
 /**
  * The nonce the IdP is given (and the id_token must carry) for an app sign-in:
- * bound to the app's nonce AND the redirect, keyed by SESSION_SECRET. Only
- * /auth/mobile/start makes it, so a code from any other authorize request, or
- * from a flow started with the other redirect, fails the exchange.
+ * HMAC over the redirect and the app's nonce, with a key derived from
+ * SESSION_SECRET. A CONSISTENCY CHECK, NOT A SECRET OR A BINDING to the
+ * redirect the IdP used: /auth/mobile/start hands it to anyone in its Location
+ * header. What it gives: the exchange must name the same redirect as the start,
+ * and the nonce must have come out of /start (a hand-built authorize URL with a
+ * nonce of its own fails). What it does not: anyone can take it from /start
+ * for one redirect and use it in an authorize request on the other; only the
+ * IdP's registered redirect URIs decide which redirects can receive a code.
  */
 function idpNonce(secret, nonce, redirectUri) {
-  return crypto.createHmac('sha256', String(secret)).update(`listen-along-mobile-nonce-v1\n${redirectUri}\n${nonce}`).digest('base64url');
+  const s = String(secret);
+  let key = nonceKeys.get(s);
+  if (!key) {
+    key = deriveKey(s, NONCE_KEY_PURPOSE);
+    if (nonceKeys.size > 16) nonceKeys.clear();
+    nonceKeys.set(s, key);
+  }
+  return crypto.createHmac('sha256', key).update(`${redirectUri}\n${nonce}`).digest('base64url');
 }
 
 const VERIFIER_RE = /^[A-Za-z0-9._~-]{43,128}$/; // RFC 7636
@@ -367,11 +396,11 @@ function createMobileAuthRouter({
       }
       return page(res, 400, 'Sign-in link not valid', '<p>Go back to the app and tap Sign in again.</p>');
     }
-    const boundNonce = idpNonce(secret, nonce, redirectUri);
+    const nonceForIdp = idpNonce(secret, nonce, redirectUri); // consistency, not secrecy (idpNonce)
 
     if (devLogin) {
       const asked = typeof q.user === 'string' ? q.user.trim().slice(0, 100) : '';
-      const code = signDevCode(secret, { user: asked || null, challenge, nonce: boundNonce }, now());
+      const code = signDevCode(secret, { user: asked || null, challenge, nonce: nonceForIdp }, now());
       const hidden = { state, nonce, code_challenge: challenge, code_challenge_method: 'S256' };
       if (typeof q.redirect_uri === 'string') hidden.redirect_uri = redirectUri;
       return page(res, 200, 'Development sign-in',
@@ -383,7 +412,7 @@ function createMobileAuthRouter({
     }
 
     try {
-      const url = await oidc.authorizationUrl({ redirectUri, state, nonce: boundNonce, codeChallenge: challenge });
+      const url = await oidc.authorizationUrl({ redirectUri, state, nonce: nonceForIdp, codeChallenge: challenge });
       res.set('Cache-Control', 'no-store');
       return res.redirect(url);
     } catch (err) {

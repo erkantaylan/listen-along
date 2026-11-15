@@ -85,13 +85,21 @@ app"). It never asks for a token and never holds the central login's tokens.
     against the server's `/.well-known/assetlinks.json` (the release key's
     SHA-256) and then gives the link to this app only, without a chooser.
     A custom scheme can be claimed by any installed app; this cannot.
+    **Known limit, Android 8–11** (minSdk stays 26): there, an app with an
+    unverified intent filter for the host can be offered in a chooser next to
+    this one for the link; Android 12+ sends an unverified link only to the
+    browser. The risk the link removes is closed only once the custom scheme
+    is also removed from the IdP client (CENTRAL-LOGIN.md "The redirect").
   - **Everything else**: the custom scheme `com.etaylan.listen:/oauth2redirect`
     (registered at the central login; `build.gradle.kts` puts it in the
     manifest and `BuildConfig`; not the applicationId). Any other server
     (self-hosted, development) cannot be declared in the manifest, and debug
     builds (`.debug`, the debug key) are never verified for the production
-    host. The server may switch the scheme off (`MOBILE_CUSTOM_SCHEME=off`);
-    such a server then needs the App Link.
+    host. Once the scheme is removed from the production IdP client (with
+    `MOBILE_CUSTOM_SCHEME=off` on the server), **debug builds can no longer
+    sign in against production**: develop against a server with
+    `INSECURE_DEV_LOGIN`, the stub, or an IdP of your own that registers the
+    scheme.
   - **Not verified (yet)**: Android shows the https URL in the browser
     instead. The server's page there has an **Open the app** button: an
     `intent:` link to the same URL naming this package, which works whether
@@ -100,7 +108,7 @@ app"). It never asks for a token and never holds the central login's tokens.
     does not look at `DomainVerificationManager` first and fall back to the
     custom scheme, because that fallback would hand the code to whoever holds
     the scheme (the very risk the App Link removes) and would stop working
-    once the server switches the scheme off. The cost is one extra tap on a
+    once the scheme is removed from the IdP. The cost is one extra tap on a
     phone where verification failed. Check it with
     `adb shell pm get-app-links com.erkantaylan.listenalong` (`verified`).
 - The app sends the code, the verifier, the nonce and the redirect to
