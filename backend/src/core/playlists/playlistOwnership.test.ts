@@ -70,10 +70,10 @@ describe('Playlist ownership, visibility, persistence', { skip: skipReason, time
     forgetQueues();
   });
 
-  it('lobbies table has visibility + host_id and no is_public / chat table', async () => {
+  it('the playlists table has visibility + host_id and no is_public / chat table', async () => {
     const cols = await db.query(`
       SELECT column_name FROM information_schema.columns
-      WHERE table_name = 'lobbies'
+      WHERE table_name = 'playlists'
     `);
     const names = cols.rows.map(r => r.column_name);
     assert.ok(names.includes('visibility'), 'visibility column should exist');
@@ -88,14 +88,14 @@ describe('Playlist ownership, visibility, persistence', { skip: skipReason, time
     assert.equal(created.ownerId, ALICE);
     assert.equal(created.visibility, 'public');
 
-    const row = await db.query('SELECT host_id, visibility FROM lobbies WHERE id = $1', ['own-1']);
+    const row = await db.query('SELECT host_id, visibility FROM playlists WHERE id = $1', ['own-1']);
     assert.equal(row.rows[0].host_id, ALICE);
     assert.equal(row.rows[0].visibility, 'public');
   });
 
   it('anonymous creator persists host_id = null and is always public', async () => {
     await playlist.createPlaylistAsync(null, 'anon-1', null, 'private');
-    const row = await db.query('SELECT host_id, visibility FROM lobbies WHERE id = $1', ['anon-1']);
+    const row = await db.query('SELECT host_id, visibility FROM playlists WHERE id = $1', ['anon-1']);
     assert.equal(row.rows[0].host_id, null);
     assert.equal(row.rows[0].visibility, 'public');
   });
@@ -104,7 +104,7 @@ describe('Playlist ownership, visibility, persistence', { skip: skipReason, time
     await playlist.createPlaylistAsync(ALICE, 'vis-1', 'Toggle me');
 
     await playlist.setVisibility('vis-1', 'private');
-    let row = await db.query('SELECT visibility FROM lobbies WHERE id = $1', ['vis-1']);
+    let row = await db.query('SELECT visibility FROM playlists WHERE id = $1', ['vis-1']);
     assert.equal(row.rows[0].visibility, 'private');
 
     simulateRestart();
@@ -114,7 +114,7 @@ describe('Playlist ownership, visibility, persistence', { skip: skipReason, time
     assert.equal(restored.ownerId, ALICE, 'owner should persist');
 
     await playlist.setVisibility('vis-1', 'public');
-    row = await db.query('SELECT visibility FROM lobbies WHERE id = $1', ['vis-1']);
+    row = await db.query('SELECT visibility FROM playlists WHERE id = $1', ['vis-1']);
     assert.equal(row.rows[0].visibility, 'public');
   });
 
@@ -137,13 +137,13 @@ describe('Playlist ownership, visibility, persistence', { skip: skipReason, time
 
     // Backdate well past the old 24h timeout.
     const ancient = Date.now() - (1000 * 60 * 60 * 24 * 30); // 30 days
-    await db.query('UPDATE lobbies SET last_activity = $1 WHERE id = $2', [ancient, 'idle-1']);
+    await db.query('UPDATE playlists SET last_activity = $1 WHERE id = $2', [ancient, 'idle-1']);
 
     // Both the (now no-op) DB cleanup and the in-memory sweep must keep it.
     assert.equal(await db.cleanupExpiredLobbies(), 0, 'cleanupExpiredLobbies must delete nothing');
     await playlist.cleanupEmptyPlaylists();
 
-    const row = await db.query('SELECT id FROM lobbies WHERE id = $1', ['idle-1']);
+    const row = await db.query('SELECT id FROM playlists WHERE id = $1', ['idle-1']);
     assert.equal(row.rows.length, 1, 'idle playlist row must still exist');
     assert.ok(playlist.getPlaylist('idle-1') || await playlist.getPlaylistAsync('idle-1'), 'idle playlist still loadable');
   });
@@ -154,7 +154,7 @@ describe('Playlist ownership, visibility, persistence', { skip: skipReason, time
 
     await playlist.deletePlaylistAsync('del-1');
 
-    const row = await db.query('SELECT id FROM lobbies WHERE id = $1', ['del-1']);
+    const row = await db.query('SELECT id FROM playlists WHERE id = $1', ['del-1']);
     assert.equal(row.rows.length, 0, 'deleted playlist row must be gone');
 
     // And it must not resurrect on restart.

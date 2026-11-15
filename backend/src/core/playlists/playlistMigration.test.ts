@@ -78,7 +78,7 @@ describe('Playlist migration from the old lobby schema', { skip: skipReason, tim
   });
 
   it('backfills visibility: owned private stays private, everything else is public', async () => {
-    const r = await db.query<{ id: string; host_id: string | null; visibility: string }>('SELECT id, host_id, visibility FROM lobbies ORDER BY id');
+    const r = await db.query<{ id: string; host_id: string | null; visibility: string }>('SELECT id, host_id, visibility FROM playlists ORDER BY id');
     const byId = Object.fromEntries(r.rows.map(row => [row.id, row]));
     assert.equal(Object.keys(byId).length, 4, 'no playlist is lost');
     assert.equal(byId['own-pub'].visibility, 'public');
@@ -89,19 +89,19 @@ describe('Playlist migration from the old lobby schema', { skip: skipReason, tim
   });
 
   it('drops is_public and the chat history, keeps queues', async () => {
-    const cols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_name = 'lobbies'`);
+    const cols = await db.query(`SELECT column_name FROM information_schema.columns WHERE table_name = 'playlists'`);
     assert.ok(!cols.rows.some(c => c.column_name === 'is_public'));
     const chat = await db.query(`SELECT 1 FROM information_schema.tables WHERE table_name = 'chat_messages'`);
     assert.equal(chat.rows.length, 0);
-    const songs = await db.query(`SELECT title FROM queue_songs WHERE lobby_id = 'own-prv'`);
+    const songs = await db.query(`SELECT title FROM queue_songs WHERE playlist_id = 'own-prv'`);
     assert.deepEqual(songs.rows.map(s => s.title), ['Kept song']);
   });
 
   it('is idempotent: a second boot changes nothing', async () => {
-    await db.query(`UPDATE lobbies SET visibility = 'private' WHERE id = 'own-pub'`);
+    await db.query(`UPDATE playlists SET visibility = 'private' WHERE id = 'own-pub'`);
     await db.close();
     assert.ok(await db.init());
-    const r = await db.query(`SELECT visibility FROM lobbies WHERE id = 'own-pub'`);
+    const r = await db.query(`SELECT visibility FROM playlists WHERE id = 'own-pub'`);
     assert.equal(r.rows[0].visibility, 'private', 'a later choice is not overwritten on restart');
   });
 

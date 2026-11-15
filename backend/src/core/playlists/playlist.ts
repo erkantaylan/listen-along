@@ -1,6 +1,5 @@
-// The playlists, in memory with the database behind them (table `lobbies`:
-// the old name stays in storage and on the wire until they are renamed
-// together), and who is listening to each one right now (sockets, memory only).
+// The playlists, in memory with the database behind them (table `playlists`),
+// and who is listening to each one right now (sockets, memory only).
 import { v4 as uuidv4 } from 'uuid';
 import dbModule from '../../shared/db.ts';
 import type { DbModule } from '../../shared/db.ts';
@@ -26,7 +25,7 @@ export type PlaylistWithUsers = Playlist & { users: Map<string, Listener> };
 /** One row of getAllPlaylists: the playlist and how many listen. */
 export type PlaylistSummary = Playlist & { userCount: number };
 
-/** A `lobbies` row as PLAYLIST_COLUMNS selects it (core/playlists/schema.ts). */
+/** A `playlists` row as PLAYLIST_COLUMNS selects it (core/playlists/schema.ts). */
 interface PlaylistRow {
   id: string;
   host_id: string | null;
@@ -101,7 +100,7 @@ async function createPlaylist(
   if (db.isAvailable()) {
     try {
       await db.query(
-        'INSERT INTO lobbies (id, host_id, name, visibility, created_at, last_activity, pinned) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO UPDATE SET last_activity = $6',
+        'INSERT INTO playlists (id, host_id, name, visibility, created_at, last_activity, pinned) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO UPDATE SET last_activity = $6',
         [id, ownerId || null, name || null, vis, now, now, false]
       );
     } catch (err) {
@@ -125,7 +124,7 @@ async function getPlaylist(id: unknown): Promise<PlaylistWithUsers | undefined> 
   if (!playlist && db.isAvailable()) {
     try {
       const result = await db.query<PlaylistRow>(
-        `SELECT ${PLAYLIST_COLUMNS} FROM lobbies WHERE id = $1`,
+        `SELECT ${PLAYLIST_COLUMNS} FROM playlists WHERE id = $1`,
         [id]
       );
       if (result.rows.length > 0) {
@@ -158,7 +157,7 @@ async function updateLastActivity(playlistId: string): Promise<void> {
   if (db.isAvailable()) {
     try {
       await db.query(
-        'UPDATE lobbies SET last_activity = $1 WHERE id = $2',
+        'UPDATE playlists SET last_activity = $1 WHERE id = $2',
         [playlist.lastActivity, playlistId]
       );
     } catch (err) {
@@ -277,7 +276,7 @@ export async function renamePlaylist(playlistId: string, newName: unknown, visib
 
   if (db.isAvailable()) {
     try {
-      await db.query('UPDATE lobbies SET name = $1 WHERE id = $2', [trimmed, playlistId]);
+      await db.query('UPDATE playlists SET name = $1 WHERE id = $2', [trimmed, playlistId]);
     } catch (err) {
       console.error('Failed to update lobby name in DB:', (err as Error).message);
     }
@@ -294,7 +293,7 @@ export async function pinPlaylist(playlistId: string, pinned: boolean): Promise<
 
   if (db.isAvailable()) {
     try {
-      await db.query('UPDATE lobbies SET pinned = $1 WHERE id = $2', [pinned, playlistId]);
+      await db.query('UPDATE playlists SET pinned = $1 WHERE id = $2', [pinned, playlistId]);
     } catch (err) {
       console.error('Failed to update lobby pinned state:', (err as Error).message);
     }
@@ -312,7 +311,7 @@ export async function setVisibility(playlistId: string, visibility: unknown): Pr
 
   if (db.isAvailable()) {
     try {
-      await db.query('UPDATE lobbies SET visibility = $1 WHERE id = $2', [vis, playlistId]);
+      await db.query('UPDATE playlists SET visibility = $1 WHERE id = $2', [vis, playlistId]);
     } catch (err) {
       console.error('Failed to update lobby visibility:', (err as Error).message);
     }
@@ -324,7 +323,7 @@ export async function setVisibility(playlistId: string, visibility: unknown): Pr
 async function deletePlaylistAsync(id: string): Promise<boolean> {
   if (db.isAvailable()) {
     try {
-      await db.query('DELETE FROM lobbies WHERE id = $1', [id]);
+      await db.query('DELETE FROM playlists WHERE id = $1', [id]);
     } catch (err) {
       console.error('Failed to delete lobby from DB:', (err as Error).message);
     }
@@ -443,7 +442,7 @@ export async function loadPlaylistsFromDB(): Promise<void> {
 
   try {
     const result = await db.query<PlaylistRow>(
-      `SELECT ${PLAYLIST_COLUMNS} FROM lobbies ORDER BY last_activity DESC`
+      `SELECT ${PLAYLIST_COLUMNS} FROM playlists ORDER BY last_activity DESC`
     );
 
     for (const row of result.rows) {

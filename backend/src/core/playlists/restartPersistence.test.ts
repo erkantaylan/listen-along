@@ -48,7 +48,7 @@ async function waitFor(check: () => Promise<boolean>, message: string, timeoutMs
 /** Song titles persisted for a playlist, in sort order. */
 async function persistedTitles(db: DbModule, playlistId: string) {
   const result = await db.query<{ title: string }>(
-    'SELECT title FROM queue_songs WHERE lobby_id = $1 ORDER BY sort_order',
+    'SELECT title FROM queue_songs WHERE playlist_id = $1 ORDER BY sort_order',
     [playlistId]
   );
   return result.rows.map(r => r.title);
@@ -117,21 +117,21 @@ describe('Playlist persistence across server restarts', { skip: skipReason, time
   it('migrates a pre-existing Jam playlist to a plain playlist on startup', async () => {
     // Recreate the old schema: per-playlist listening mode, shared queue cursor
     // and server-side playback state, with a playlist stored as synchronized.
-    await db.query(`ALTER TABLE lobbies ADD COLUMN IF NOT EXISTS listening_mode VARCHAR(20) DEFAULT 'synchronized'`);
-    await db.query(`ALTER TABLE lobbies ADD COLUMN IF NOT EXISTS current_index INTEGER DEFAULT -1`);
-    await db.query(`CREATE TABLE IF NOT EXISTS playback_state (lobby_id VARCHAR(8) PRIMARY KEY REFERENCES lobbies(id) ON DELETE CASCADE, position REAL DEFAULT 0)`);
+    await db.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS listening_mode VARCHAR(20) DEFAULT 'synchronized'`);
+    await db.query(`ALTER TABLE playlists ADD COLUMN IF NOT EXISTS current_index INTEGER DEFAULT -1`);
+    await db.query(`CREATE TABLE IF NOT EXISTS playback_state (playlist_id VARCHAR(8) PRIMARY KEY REFERENCES playlists(id) ON DELETE CASCADE, position REAL DEFAULT 0)`);
     await db.query(
-      `INSERT INTO lobbies (id, name, listening_mode, current_index, created_at, last_activity) VALUES ('jam-old1', 'Old jam', 'synchronized', 2, $1, $1)`,
+      `INSERT INTO playlists (id, name, listening_mode, current_index, created_at, last_activity) VALUES ('jam-old1', 'Old jam', 'synchronized', 2, $1, $1)`,
       [Date.now()]
     );
-    await db.query(`INSERT INTO playback_state (lobby_id, position) VALUES ('jam-old1', 42)`);
+    await db.query(`INSERT INTO playback_state (playlist_id, position) VALUES ('jam-old1', 42)`);
 
     // Restart: init runs the migrations again on the existing schema.
     await db.close();
     assert.ok(await db.init(), 'Database should re-initialize');
 
     const cols = await db.query(
-      `SELECT column_name FROM information_schema.columns WHERE table_name = 'lobbies' AND column_name IN ('listening_mode', 'current_index')`
+      `SELECT column_name FROM information_schema.columns WHERE table_name = 'playlists' AND column_name IN ('listening_mode', 'current_index')`
     );
     assert.equal(cols.rows.length, 0, 'listening_mode and current_index should be dropped');
     const tables = await db.query(`SELECT to_regclass('playback_state') AS t`);

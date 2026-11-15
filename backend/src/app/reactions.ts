@@ -246,12 +246,12 @@ export function createReactions({
     if (db.isAvailable()) {
       // Playlists not loaded in memory yet still have their queue in the DB.
       const ytId = previous.youtube_id || null;
-      const r = await db.query<{ lobby_id: string }>(
-        `SELECT DISTINCT lobby_id FROM queue_songs WHERE url = ANY($1::text[])
+      const r = await db.query<{ playlist_id: string }>(
+        `SELECT DISTINCT playlist_id FROM queue_songs WHERE url = ANY($1::text[])
            OR ($2::text IS NOT NULL AND url LIKE '%' || $2 || '%')`,
         [oldUrls, ytId]
-      ).catch(() => ({ rows: [] as Array<{ lobby_id: string }> }));
-      for (const row of r.rows) playlistIds.add(row.lobby_id);
+      ).catch(() => ({ rows: [] as Array<{ playlist_id: string }> }));
+      for (const row of r.rows) playlistIds.add(row.playlist_id);
     }
     let rewritten = 0;
     for (const playlistId of playlistIds) {

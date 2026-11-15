@@ -398,7 +398,7 @@ if (!m) {
     assert.equal((await nextEvent(s, ['lobby:joined', 'lobby:not-found', 'lobby:error']))[0], 'lobby:joined');
     return s;
   }
-  const requestsFor = async (lobbyId: string): Promise<Payload[]> => (await db!.query('SELECT * FROM song_requests WHERE lobby_id = $1 ORDER BY created_at', [lobbyId])).rows;
+  const requestsFor = async (lobbyId: string): Promise<Payload[]> => (await db!.query('SELECT * FROM song_requests WHERE playlist_id = $1 ORDER BY created_at', [lobbyId])).rows;
   const jobRows = async (where: string, params: unknown[]): Promise<Payload[]> => (await db!.query(`SELECT * FROM download_jobs WHERE ${where} ORDER BY created_at, id`, params)).rows;
   const queueOf = async (who: string, id: string): Promise<Payload[]> => (await req('GET', `/api/playlists/${id}/songs`, { cookie: cookies[who] })).body.songs;
 

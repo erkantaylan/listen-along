@@ -59,8 +59,8 @@ describe('legacy playlist tables and the rollback guard', { skip: skipReason, ti
   });
 
   it('the older images\' DROP fails as a whole and drops nothing', async () => {
-    await pg!.query('CREATE TABLE IF NOT EXISTS playlists (id VARCHAR(8) PRIMARY KEY, host_id VARCHAR(255))');
-    await pg!.query(`INSERT INTO playlists (id, host_id) VALUES ('keep0001', 'u') ON CONFLICT DO NOTHING`);
+    // The app's own playlists table (db.init made it): a row the old DROP must not take.
+    await pg!.query(`INSERT INTO playlists (id, host_id, created_at, last_activity) VALUES ('keep0001', 'u', 1, 1) ON CONFLICT DO NOTHING`);
     await assert.rejects(pg!.query(OLD_DROP), /is not a table/);
     assert.equal(await relkind('playlists'), 'r');
     assert.equal((await pg!.query(`SELECT count(*)::int AS n FROM playlists`)).rows[0].n, 1);

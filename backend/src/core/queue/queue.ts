@@ -1,5 +1,5 @@
 // Each playlist's song list (its "queue"), in memory with the database behind
-// it (table queue_songs, column lobby_id: the playlist's id).
+// it (table queue_songs, column playlist_id).
 import { v4 as uuidv4 } from 'uuid';
 import dbModule from '../../shared/db.ts';
 import type { DbModule } from '../../shared/db.ts';
@@ -107,7 +107,7 @@ export class Queue {
 
   async _persistSong(song: QueueSong, sortOrder: number): Promise<void> {
     await db.query(
-      `INSERT INTO queue_songs (id, lobby_id, url, title, duration, added_by, thumbnail, added_at, sort_order)
+      `INSERT INTO queue_songs (id, playlist_id, url, title, duration, added_by, thumbnail, added_at, sort_order)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [song.id, this.playlistId, song.url, song.title, song.duration, song.addedBy, song.thumbnail, song.addedAt, sortOrder]
     );
@@ -207,7 +207,7 @@ export class Queue {
 
     // Clear from database if available
     if (db.isAvailable()) {
-      this._write('Failed to clear queue from DB', () => db.query('DELETE FROM queue_songs WHERE lobby_id = $1', [this.playlistId]));
+      this._write('Failed to clear queue from DB', () => db.query('DELETE FROM queue_songs WHERE playlist_id = $1', [this.playlistId]));
     }
   }
 
@@ -256,7 +256,7 @@ export class Queue {
     let result;
     try {
       result = await db.query<QueueSongRow>(
-        'SELECT id, url, title, duration, added_by, thumbnail, added_at FROM queue_songs WHERE lobby_id = $1 ORDER BY sort_order',
+        'SELECT id, url, title, duration, added_by, thumbnail, added_at FROM queue_songs WHERE playlist_id = $1 ORDER BY sort_order',
         [this.playlistId]
       );
     } catch (err) {
@@ -323,7 +323,7 @@ export async function getQueueAsync(playlistId: string): Promise<Queue> {
 export function deleteQueue(playlistId: string): boolean {
   const queue = queues.get(playlistId);
   if (queue && db.isAvailable()) {
-    db.query('DELETE FROM queue_songs WHERE lobby_id = $1', [playlistId]).catch(err => {
+    db.query('DELETE FROM queue_songs WHERE playlist_id = $1', [playlistId]).catch(err => {
       console.error('Failed to delete queue from DB:', err.message);
     });
   }

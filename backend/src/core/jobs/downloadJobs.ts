@@ -453,7 +453,7 @@ export function adminWorkerView(row: WorkerWithOwner, live: WorkerLive | null | 
 const JOB_SELECT = `
   SELECT j.*, l.name AS playlist_name, s.title AS song_title, s.artist AS song_artist, rs.id AS replace_target_id
   FROM download_jobs j
-  LEFT JOIN lobbies l ON l.id = j.playlist_id
+  LEFT JOIN playlists l ON l.id = j.playlist_id
   LEFT JOIN library_songs s ON s.id = j.song_id
   LEFT JOIN library_songs rs ON rs.id = j.replace_song_id`;
 

@@ -55,12 +55,18 @@ const skip = !PostgreSqlContainer ? 'testcontainers package not installed'
 const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
 // A wait that fails with its name instead of hanging until the suite's timeout.
 const within = <T>(p: Promise<T>, ms: number, what: string): Promise<T> => Promise.race([p, tick(ms).then((): never => { throw new Error(`timed out waiting for ${what}`); })]);
+// The server's log, for a wait that times out (set once the server runs).
+let serverLog: () => string = () => '';
 async function until<T>(fn: () => T | Promise<T>, what: string, ms = 8000): Promise<NonNullable<T>> {
   const end = Date.now() + ms;
   for (;;) {
     const v = await fn();
     if (v) return v as NonNullable<T>;
-    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
+    if (Date.now() > end) {
+      // What the server did meanwhile says why (a dispatch that never ran, a worker it never saw, ...).
+      const tail = serverLog().split('\n').slice(-60).join('\n');
+      throw new Error(`timed out waiting for ${what}\n--- server log (last lines) ---\n${tail}`);
+    }
     await tick(25);
   }
 }
@@ -158,6 +164,7 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
       ACTIVITY_PROGRESS_MS: '400',
     });
     req = requester(srv.base);
+    serverLog = srv.log;
   }
 
   /** A worker process stand-in speaking the protocol. */

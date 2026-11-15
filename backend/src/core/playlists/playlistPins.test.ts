@@ -103,7 +103,7 @@ describe('playlist pins on Postgres', { skip, timeout: 180_000 }, () => {
     const r = await pg.query(`
       SELECT confrelid::regclass::text AS target, confdeltype FROM pg_constraint
       WHERE conrelid = 'playlist_pins'::regclass AND contype = 'f' ORDER BY 1`);
-    assert.deepEqual(r.rows.map((x: Payload) => [x.target, x.confdeltype]), [['lobbies', 'c'], ['users', 'c']]);
+    assert.deepEqual(r.rows.map((x: Payload) => [x.target, x.confdeltype]), [['playlists', 'c'], ['users', 'c']]);
   });
 
   it('requires a login', async () => {
@@ -151,7 +151,7 @@ describe('playlist pins on Postgres', { skip, timeout: 180_000 }, () => {
         assert.equal(r.body.code, 'NOT_FOUND');
       }
     }
-    const { rows } = await pg.query('SELECT 1 FROM playlist_pins WHERE lobby_id = $1', [pl.priv]);
+    const { rows } = await pg.query('SELECT 1 FROM playlist_pins WHERE playlist_id = $1', [pl.priv]);
     assert.equal(rows.length, 0);
     assert.equal((await req('PUT', `/api/playlists/${pl.priv}/pin`, { cookie: cookies.alice })).status, 200);
     assert.equal((await rowOf('alice', pl.priv)).pinnedByMe, true);
@@ -175,9 +175,9 @@ describe('playlist pins on Postgres', { skip, timeout: 180_000 }, () => {
     const id = await create('alice', 'Short lived');
     await req('PUT', `/api/playlists/${id}/pin`, { cookie: cookies.alice });
     await req('PUT', `/api/playlists/${id}/pin`, { cookie: cookies.bob });
-    assert.equal((await pg.query('SELECT 1 FROM playlist_pins WHERE lobby_id = $1', [id])).rows.length, 2);
+    assert.equal((await pg.query('SELECT 1 FROM playlist_pins WHERE playlist_id = $1', [id])).rows.length, 2);
     assert.equal((await req('DELETE', `/api/playlists/${id}`, { cookie: cookies.alice })).status, 200);
-    assert.equal((await pg.query('SELECT 1 FROM playlist_pins WHERE lobby_id = $1', [id])).rows.length, 0);
+    assert.equal((await pg.query('SELECT 1 FROM playlist_pins WHERE playlist_id = $1', [id])).rows.length, 0);
 
     const temp = await pg.query(`INSERT INTO users (provider, provider_id, name, status, created_at) VALUES ('github', 'temp', 'temp', 'approved', 1) RETURNING id`);
     await req('PUT', `/api/playlists/${pl.pub}/pin`, { cookie: cookieFor(temp.rows[0].id) });

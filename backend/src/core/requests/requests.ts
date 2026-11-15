@@ -26,7 +26,7 @@ export interface SongRequestRow {
   requested_by: string;
   requested_by_id: string | null;
   /** the playlist it came from (no FK: the request outlives it) */
-  lobby_id: string | null;
+  playlist_id: string | null;
   status: RequestStatus;
   song_id: string | null;
   created_at: Date;
@@ -56,7 +56,7 @@ function toPublic(row: SongRequestRow): SongRequest {
     title: row.title || null,
     artist: row.artist || null,
     requested_by: row.requested_by,
-    lobby_id: row.lobby_id || null,
+    lobby_id: row.playlist_id || null,
     status: row.status,
     song_id: row.song_id || null,
     created_at: row.created_at,
@@ -94,33 +94,33 @@ export async function createRequest({ youtubeId, url, title, artist, requestedBy
     artist: clean(artist, 300),
     requested_by: clean(requestedBy, 255) || 'anonymous',
     requested_by_id: clean(requestedById, 255),
-    lobby_id: clean(playlistId, 8),
+    playlist_id: clean(playlistId, 8),
   };
   if (!fields.youtube_id && !fields.url && !fields.title) throw new Error('A request needs a youtube_id, url or title');
 
   let existing;
   if (fields.youtube_id) {
     existing = await db.query<SongRequestRow>(
-      "SELECT * FROM song_requests WHERE status = 'pending' AND youtube_id = $1 AND lobby_id IS NOT DISTINCT FROM $2 LIMIT 1",
-      [fields.youtube_id, fields.lobby_id]
+      "SELECT * FROM song_requests WHERE status = 'pending' AND youtube_id = $1 AND playlist_id IS NOT DISTINCT FROM $2 LIMIT 1",
+      [fields.youtube_id, fields.playlist_id]
     );
   } else if (fields.url) {
     existing = await db.query<SongRequestRow>(
-      "SELECT * FROM song_requests WHERE status = 'pending' AND url = $1 AND lobby_id IS NOT DISTINCT FROM $2 LIMIT 1",
-      [fields.url, fields.lobby_id]
+      "SELECT * FROM song_requests WHERE status = 'pending' AND url = $1 AND playlist_id IS NOT DISTINCT FROM $2 LIMIT 1",
+      [fields.url, fields.playlist_id]
     );
   } else {
     existing = await db.query<SongRequestRow>(
-      "SELECT * FROM song_requests WHERE status = 'pending' AND youtube_id IS NULL AND url IS NULL AND lower(title) = lower($1) AND lobby_id IS NOT DISTINCT FROM $2 LIMIT 1",
-      [fields.title, fields.lobby_id]
+      "SELECT * FROM song_requests WHERE status = 'pending' AND youtube_id IS NULL AND url IS NULL AND lower(title) = lower($1) AND playlist_id IS NOT DISTINCT FROM $2 LIMIT 1",
+      [fields.title, fields.playlist_id]
     );
   }
   if (existing.rows[0]) return { request: toPublic(existing.rows[0]), created: false };
 
   const r = await db.query<SongRequestRow>(
-    `INSERT INTO song_requests (youtube_id, url, title, artist, requested_by, requested_by_id, lobby_id)
+    `INSERT INTO song_requests (youtube_id, url, title, artist, requested_by, requested_by_id, playlist_id)
      VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-    [fields.youtube_id, fields.url, fields.title, fields.artist, fields.requested_by, fields.requested_by_id, fields.lobby_id]
+    [fields.youtube_id, fields.url, fields.title, fields.artist, fields.requested_by, fields.requested_by_id, fields.playlist_id]
   );
   return { request: toPublic(r.rows[0]), created: true };
 }

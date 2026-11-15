@@ -5,7 +5,7 @@
  * change nothing about who may see or edit a playlist).
  *
  * One level: a folder holds playlists, not folders. A playlist is in at most
- * one folder per user (primary key (user_id, lobby_id)); anything the user can
+ * one folder per user (primary key (user_id, playlist_id)); anything the user can
  * see may be filed (their own playlists and public ones).
  *
  *   GET    /api/playlist-folders                           { folders: [{ id, name, position, createdAt, playlistIds }], limits }
@@ -73,7 +73,7 @@ export interface FolderDeps {
 }
 
 interface FolderRow { id: string; name: string; position: number; created_at: string | number }
-interface ItemRow { lobby_id: string; folder_id: string; position: number }
+interface ItemRow { playlist_id: string; folder_id: string; position: number }
 
 class NotFound extends Error {
   readonly code: 'FOLDER_NOT_FOUND' | 'NOT_FOUND';
@@ -119,25 +119,25 @@ export function createFolderStore() {
     return max + 1;
   };
 
-  async function load(userId: string): Promise<{ folders: MemoryFolder[]; items: { lobbyId: string; folderId: string; position: number }[] }> {
+  async function load(userId: string): Promise<{ folders: MemoryFolder[]; items: { playlistId: string; folderId: string; position: number }[] }> {
     if (!db.isAvailable()) {
       const m = mine(userId);
       return {
         folders: [...m.folders.values()].map((f) => ({ ...f })),
-        items: [...m.items].map(([lobbyId, it]) => ({ lobbyId, ...it })),
+        items: [...m.items].map(([playlistId, it]) => ({ playlistId, ...it })),
       };
     }
     const f = await db.query<FolderRow>('SELECT id::text AS id, name, position, created_at FROM playlist_folders WHERE user_id = $1', [userId]);
-    const i = await db.query<ItemRow>('SELECT lobby_id, folder_id::text AS folder_id, position FROM playlist_folder_items WHERE user_id = $1', [userId]);
+    const i = await db.query<ItemRow>('SELECT playlist_id, folder_id::text AS folder_id, position FROM playlist_folder_items WHERE user_id = $1', [userId]);
     return {
       folders: f.rows.map((r) => ({ id: r.id, name: r.name, position: Number(r.position), createdAt: Number(r.created_at) })),
-      items: i.rows.map((r) => ({ lobbyId: r.lobby_id, folderId: r.folder_id, position: Number(r.position) })),
+      items: i.rows.map((r) => ({ playlistId: r.playlist_id, folderId: r.folder_id, position: Number(r.position) })),
     };
   }
 
   /** In memory only: a deleted playlist's rows (Postgres cascades). */
-  function forget(userId: string, lobbyId: string): void {
-    memory.get(userId)?.items.delete(lobbyId);
+  function forget(userId: string, playlistId: string): void {
+    memory.get(userId)?.items.delete(playlistId);
   }
 
   async function create(userId: string, name: string): Promise<MemoryFolder> {
@@ -191,7 +191,7 @@ export function createFolderStore() {
     if (!db.isAvailable()) {
       const m = memory.get(userId);
       if (!m || !m.folders.delete(folderId)) throw new NotFound('FOLDER_NOT_FOUND');
-      for (const [lobbyId, it] of m.items) if (it.folderId === folderId) m.items.delete(lobbyId);
+      for (const [playlistId, it] of m.items) if (it.folderId === folderId) m.items.delete(playlistId);
       return;
     }
     const r = await db.query('DELETE FROM playlist_folders WHERE id = $2 AND user_id = $1', [userId, folderId]);
@@ -199,22 +199,22 @@ export function createFolderStore() {
   }
 
   // File a playlist in one of the user's folders (moving it out of any other), at its end.
-  async function file(userId: string, folderId: string, lobbyId: string): Promise<void> {
+  async function file(userId: string, folderId: string, playlistId: string): Promise<void> {
     if (!db.isAvailable()) {
       const m = memory.get(userId);
       if (!m || !m.folders.has(folderId)) throw new NotFound('FOLDER_NOT_FOUND');
       const inFolder = [...m.items.values()].filter((it) => it.folderId === folderId);
-      m.items.set(lobbyId, { folderId, position: nextPosition(inFolder) });
+      m.items.set(playlistId, { folderId, position: nextPosition(inFolder) });
       return;
     }
     try {
       const r = await db.query(
-        `INSERT INTO playlist_folder_items (user_id, lobby_id, folder_id, position)
+        `INSERT INTO playlist_folder_items (user_id, playlist_id, folder_id, position)
          SELECT f.user_id, $3, f.id,
                 COALESCE((SELECT MAX(i.position) + 1 FROM playlist_folder_items i WHERE i.folder_id = f.id), 0)
          FROM playlist_folders f WHERE f.id = $2 AND f.user_id = $1
-         ON CONFLICT (user_id, lobby_id) DO UPDATE SET folder_id = EXCLUDED.folder_id, position = EXCLUDED.position`,
-        [userId, folderId, lobbyId]
+         ON CONFLICT (user_id, playlist_id) DO UPDATE SET folder_id = EXCLUDED.folder_id, position = EXCLUDED.position`,
+        [userId, folderId, playlistId]
       );
       if (!r.rowCount) throw new NotFound('FOLDER_NOT_FOUND');
     } catch (err) {
@@ -225,17 +225,17 @@ export function createFolderStore() {
   }
 
   // Out of this folder, to the top level; true when it was in it.
-  async function unfile(userId: string, folderId: string, lobbyId: string): Promise<boolean> {
+  async function unfile(userId: string, folderId: string, playlistId: string): Promise<boolean> {
     if (!db.isAvailable()) {
       const m = memory.get(userId);
       if (!m || !m.folders.has(folderId)) throw new NotFound('FOLDER_NOT_FOUND');
-      if (m.items.get(lobbyId)?.folderId !== folderId) return false;
-      m.items.delete(lobbyId);
+      if (m.items.get(playlistId)?.folderId !== folderId) return false;
+      m.items.delete(playlistId);
       return true;
     }
     const f = await db.query('SELECT 1 FROM playlist_folders WHERE id = $2 AND user_id = $1', [userId, folderId]);
     if (!f.rowCount) throw new NotFound('FOLDER_NOT_FOUND');
-    const r = await db.query('DELETE FROM playlist_folder_items WHERE user_id = $1 AND lobby_id = $2 AND folder_id = $3', [userId, lobbyId, folderId]);
+    const r = await db.query('DELETE FROM playlist_folder_items WHERE user_id = $1 AND playlist_id = $2 AND folder_id = $3', [userId, playlistId, folderId]);
     return !!r.rowCount;
   }
 
@@ -287,10 +287,10 @@ export function createPlaylistFolderRouter(deps: FolderDeps, store: FolderStore 
 
   async function listFor(userId: string): Promise<FolderView[]> {
     const { folders, items } = await store.load(userId);
-    const byFolder = new Map<string, { lobbyId: string; position: number }[]>();
+    const byFolder = new Map<string, { playlistId: string; position: number }[]>();
     for (const it of items) {
-      if (!(await deps.canSee(it.lobbyId, userId))) {
-        if (!(await deps.exists(it.lobbyId))) store.forget(userId, it.lobbyId);
+      if (!(await deps.canSee(it.playlistId, userId))) {
+        if (!(await deps.exists(it.playlistId))) store.forget(userId, it.playlistId);
         continue; // hidden (went private): kept, not shown
       }
       const list = byFolder.get(it.folderId) || [];
@@ -304,7 +304,7 @@ export function createPlaylistFolderRouter(deps: FolderDeps, store: FolderStore 
         name: f.name,
         position: f.position,
         createdAt: f.createdAt,
-        playlistIds: (byFolder.get(f.id) || []).sort((a, b) => a.position - b.position || a.lobbyId.localeCompare(b.lobbyId)).map((it) => it.lobbyId),
+        playlistIds: (byFolder.get(f.id) || []).sort((a, b) => a.position - b.position || a.playlistId.localeCompare(b.playlistId)).map((it) => it.playlistId),
       }));
   }
 

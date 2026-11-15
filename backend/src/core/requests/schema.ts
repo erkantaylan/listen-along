@@ -4,7 +4,7 @@ import type { Migration } from '../../shared/db.ts';
 
 export const tables: readonly string[] = [
   // Song requests: a web user queued something that is not in the library.
-  // lobby_id has no FK on purpose — the request outlives a deleted lobby.
+  // playlist_id has no FK on purpose — the request outlives a deleted playlist.
   `
     CREATE TABLE IF NOT EXISTS song_requests (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -14,7 +14,7 @@ export const tables: readonly string[] = [
       artist TEXT,
       requested_by VARCHAR(255) NOT NULL DEFAULT 'anonymous',
       requested_by_id VARCHAR(255),
-      lobby_id VARCHAR(8),
+      playlist_id VARCHAR(8),
       status VARCHAR(20) NOT NULL DEFAULT 'pending',
       song_id UUID REFERENCES library_songs(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

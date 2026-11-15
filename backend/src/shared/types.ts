@@ -98,7 +98,7 @@ export interface Playlist {
   ownerName: string | null;
   name: string | null;
   visibility: Visibility;
-  /** the old shared pin (lobbies.pinned), not the per-user one */
+  /** the old shared pin (playlists.pinned), not the per-user one */
   pinned: boolean;
   createdAt: number;
   lastActivity: number;

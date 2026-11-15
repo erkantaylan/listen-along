@@ -255,13 +255,13 @@ describe('folders on Postgres', { skip, timeout: 240_000 }, () => {
       FROM pg_constraint WHERE conrelid IN ('playlist_folders'::regclass, 'playlist_folder_items'::regclass) AND contype = 'f'
       ORDER BY 1, 2`);
     assert.deepEqual(fks.rows.map((r) => [r.tbl, r.target, r.confdeltype, r.cols]), [
-      ['playlist_folder_items', 'lobbies', 'c', 'lobby_id'],
       ['playlist_folder_items', 'playlist_folders', 'c', 'folder_id,user_id'],
+      ['playlist_folder_items', 'playlists', 'c', 'playlist_id'],
       ['playlist_folder_items', 'users', 'c', 'user_id'],
       ['playlist_folders', 'users', 'c', 'user_id'],
     ]);
     const idx = await db!.query(`SELECT indexname FROM pg_indexes WHERE tablename LIKE 'playlist_folder%' ORDER BY 1`);
-    for (const name of ['idx_playlist_folder_items_folder', 'idx_playlist_folder_items_lobby', 'idx_playlist_folders_user']) {
+    for (const name of ['idx_playlist_folder_items_folder', 'idx_playlist_folder_items_playlist', 'idx_playlist_folders_user']) {
       assert.ok(idx.rows.some((r) => r.indexname === name), name);
     }
   });
@@ -269,7 +269,7 @@ describe('folders on Postgres', { skip, timeout: 240_000 }, () => {
   it('the database refuses a filing row that points at another user\'s folder', async () => {
     const f = await req('POST', '/api/playlist-folders', { cookie: cookies.alice, body: { name: 'Key test' } });
     await assert.rejects(
-      db!.query('INSERT INTO playlist_folder_items (user_id, lobby_id, folder_id, position) VALUES ($1, $2, $3, 0)', [ids.bob, pl.bobPub, f.body.folder.id]),
+      db!.query('INSERT INTO playlist_folder_items (user_id, playlist_id, folder_id, position) VALUES ($1, $2, $3, 0)', [ids.bob, pl.bobPub, f.body.folder.id]),
       /foreign key/
     );
     await req('DELETE', `/api/playlist-folders/${f.body.folder.id}`, { cookie: cookies.alice });
@@ -350,13 +350,13 @@ describe('folders on Postgres', { skip, timeout: 240_000 }, () => {
     await db!.query('DELETE FROM users WHERE id = $1', [ids.carol]);
     const left = await db!.query('SELECT (SELECT COUNT(*) FROM playlist_folders WHERE user_id = $1)::int AS f, (SELECT COUNT(*) FROM playlist_folder_items WHERE user_id = $1)::int AS i', [ids.carol]);
     assert.deepEqual(left.rows[0], { f: 0, i: 0 });
-    assert.equal((await db!.query('SELECT COUNT(*)::int AS n FROM lobbies WHERE id = $1', [pl.bobPub])).rows[0].n, 1);
+    assert.equal((await db!.query('SELECT COUNT(*)::int AS n FROM playlists WHERE id = $1', [pl.bobPub])).rows[0].n, 1);
   });
 
   it('a private playlist hidden in a folder keeps its row in the database (so it can come back)', async () => {
     const f = await req('POST', '/api/playlist-folders', { cookie: cookies.alice, body: { name: 'Rows', playlistId: pl.bobPub } });
     await req('PATCH', `/api/playlists/${pl.bobPub}`, { cookie: cookies.bob, body: { visibility: 'private' } });
-    const rows = await db!.query('SELECT folder_id::text AS f FROM playlist_folder_items WHERE user_id = $1 AND lobby_id = $2', [ids.alice, pl.bobPub]);
+    const rows = await db!.query('SELECT folder_id::text AS f FROM playlist_folder_items WHERE user_id = $1 AND playlist_id = $2', [ids.alice, pl.bobPub]);
     assert.deepEqual(rows.rows, [{ f: f.body.folder.id }]);
     await req('PATCH', `/api/playlists/${pl.bobPub}`, { cookie: cookies.bob, body: { visibility: 'public' } });
     await req('DELETE', `/api/playlist-folders/${f.body.folder.id}`, { cookie: cookies.alice });

@@ -6,7 +6,7 @@ export const tables: readonly string[] = [
   `
     CREATE TABLE IF NOT EXISTS queue_songs (
       id UUID PRIMARY KEY,
-      lobby_id VARCHAR(8) NOT NULL REFERENCES lobbies(id) ON DELETE CASCADE,
+      playlist_id VARCHAR(8) NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
       url TEXT NOT NULL,
       title TEXT DEFAULT 'Unknown',
       duration REAL DEFAULT 0,
@@ -19,5 +19,5 @@ export const tables: readonly string[] = [
 ];
 
 export const migrations: readonly Migration[] = [
-  { sql: `CREATE INDEX IF NOT EXISTS idx_queue_songs_lobby ON queue_songs(lobby_id, sort_order);`, mustSucceed: true },
+  { sql: `CREATE INDEX IF NOT EXISTS idx_queue_songs_playlist ON queue_songs(playlist_id, sort_order);`, mustSucceed: true },
 ];

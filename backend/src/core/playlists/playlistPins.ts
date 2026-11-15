@@ -6,7 +6,7 @@
  * nothing about access: callers check playlistAccess first, and the list view
  * only annotates playlists the viewer can already see, so a pin on a playlist
  * that went private stays hidden (it comes back if the playlist goes public
- * again). Not to be confused with the older shared `lobbies.pinned` flag.
+ * again). Not to be confused with the older shared `playlists.pinned` flag.
  */
 import dbModule from '../../shared/db.ts';
 import type { DbModule } from '../../shared/db.ts';
@@ -24,8 +24,8 @@ export async function pinsForUser(userId: string | null | undefined): Promise<Ma
   if (!userId) return new Map();
   if (!db.isAvailable()) return new Map(memory.get(userId) || []);
   try {
-    const r = await db.query<{ lobby_id: string; pinned_at: string }>('SELECT lobby_id, pinned_at FROM playlist_pins WHERE user_id = $1', [userId]);
-    return new Map(r.rows.map(row => [row.lobby_id, Number(row.pinned_at)]));
+    const r = await db.query<{ playlist_id: string; pinned_at: string }>('SELECT playlist_id, pinned_at FROM playlist_pins WHERE user_id = $1', [userId]);
+    return new Map(r.rows.map(row => [row.playlist_id, Number(row.pinned_at)]));
   } catch (err) {
     console.error('Failed to load playlist pins:', (err as Error).message);
     return new Map();
@@ -43,7 +43,7 @@ export async function pin(userId: string, playlistId: string): Promise<number> {
   }
   try {
     await db.query(
-      'INSERT INTO playlist_pins (user_id, lobby_id, pinned_at) VALUES ($1, $2, $3) ON CONFLICT (user_id, lobby_id) DO NOTHING',
+      'INSERT INTO playlist_pins (user_id, playlist_id, pinned_at) VALUES ($1, $2, $3) ON CONFLICT (user_id, playlist_id) DO NOTHING',
       [userId, playlistId, now]
     );
   } catch (err) {
@@ -60,7 +60,7 @@ export async function unpin(userId: string, playlistId: string): Promise<void> {
     if (mine) mine.delete(playlistId);
     return;
   }
-  await db.query('DELETE FROM playlist_pins WHERE user_id = $1 AND lobby_id = $2', [userId, playlistId]);
+  await db.query('DELETE FROM playlist_pins WHERE user_id = $1 AND playlist_id = $2', [userId, playlistId]);
 }
 
 // A deleted playlist: the foreign key cascades in Postgres, memory needs this.

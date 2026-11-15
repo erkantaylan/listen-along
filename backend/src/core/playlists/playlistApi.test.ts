@@ -169,7 +169,7 @@ describe('playlist API with CLI tokens on Postgres', { skip, timeout: 180_000 },
     r = await req('DELETE', `/api/playlists/${tmpPl}`, as('alice'));
     assert.equal(r.status, 200);
     assert.equal((await req('GET', `/api/playlists/${tmpPl}`, as('alice'))).status, 404);
-    assert.equal((await pg.query('SELECT count(*)::int AS n FROM lobbies WHERE id = $1', [tmpPl])).rows[0].n, 0);
+    assert.equal((await pg.query('SELECT count(*)::int AS n FROM playlists WHERE id = $1', [tmpPl])).rows[0].n, 0);
   });
 
   it('legacy token: public only, creates ownerless public playlists, manages nothing', async () => {
@@ -255,7 +255,7 @@ describe('playlist API with CLI tokens on Postgres', { skip, timeout: 180_000 },
     assert.equal(r.status, 200);
     assert.equal(r.body.song_count, 0);
     // Persisted in Postgres.
-    assert.equal((await pg.query('SELECT count(*)::int AS n FROM queue_songs WHERE lobby_id = $1', [pl.alicePriv])).rows[0].n, 0);
+    assert.equal((await pg.query('SELECT count(*)::int AS n FROM queue_songs WHERE playlist_id = $1', [pl.alicePriv])).rows[0].n, 0);
   });
 
   it('adding over the API updates open web clients like a web add (queue:update)', async () => {

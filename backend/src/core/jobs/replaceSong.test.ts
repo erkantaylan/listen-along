@@ -312,7 +312,7 @@ globalThis.fetch = async (url, opts) => {
       assert.equal(p.replaced, undefined);
       assert.equal(p.song.title, 'New Name');
       const q = await until(async () => {
-        const rows = (await pg.query('SELECT title FROM queue_songs WHERE lobby_id = $1', [id])).rows;
+        const rows = (await pg.query('SELECT title FROM queue_songs WHERE playlist_id = $1', [id])).rows;
         return rows[0] && rows[0].title.startsWith('New Name') ? rows : null;
       }, 'queue rewrite');
       assert.equal(q.length, 1);
