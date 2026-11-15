@@ -11,89 +11,112 @@
 //      IdP down, the unverified cap, long-lived sockets), logout, rate limit
 //   4. on Postgres: linking rules a-e, ambiguous and unsafe matches, banning,
 //      the registrations switch, concurrent callbacks, tokens encrypted at rest
-// Which sign-in may run where (production, the dev sign-in) is in auth-guard.test.js.
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const crypto = require('node:crypto');
-const http = require('node:http');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const { execSync, spawn } = require('node:child_process');
-const { io: ioClient } = require('socket.io-client');
-const { startFakeIssuer } = require('./fakeOidcIssuer');
-const { SECRET, cookieFor, adminCookie, startServer, centralSessionCookie, freePort } = require('./testServer');
-const { readOidcConfig, OidcConfigError } = require('./auth/oidcConfig.ts');
-const secretBox = require('./shared/secretBox.ts');
-const { parseUpstream } = require('./oidcLink');
-const { createOidcSessions } = require('./oidcSessions');
-const userAuthMod = require('./auth/userAuth.ts');
+// Which sign-in may run where (production, the dev sign-in) is in authGuard.test.ts.
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { execSync, spawn } from 'node:child_process';
+import pgModule from 'pg';
+import { io as ioClient } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { startFakeIssuer } from '../fakeOidcIssuer.js';
+import { SECRET, cookieFor, adminCookie, startServer, centralSessionCookie, freePort } from '../testServer.js';
+import { readOidcConfig, OidcConfigError } from './oidcConfig.ts';
+import type { OidcConfigOn } from './oidcConfig.ts';
+import * as secretBox from '../shared/secretBox.ts';
+import { parseUpstream } from './oidcLink.ts';
+import { createOidcSessions } from './oidcSessions.ts';
+import type { SessionStore } from './oidcSessions.ts';
+import type { OidcClient } from './oidc.ts';
+import * as userAuthMod from './userAuth.ts';
+import type { SessionLookup, UserAuthDb } from './userAuth.ts';
+import type { Request } from 'express';
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// The server's, the IdP's and the database's JSON, read as the tests need it.
+type Payload = any;
+/** The fake IdP (fakeOidcIssuer.js): the tests set its fields freely. */
+type Idp = Payload;
+type Server = Awaited<ReturnType<typeof startServer>>;
+// The fake IdP, typed loosely: the tests set its fields freely.
+const startIssuer: (opts?: { port?: number }) => Promise<Idp> = startFakeIssuer;
+/** readOn() for a configuration that turns central login on. */
+const readOn = (env: Record<string, string | undefined>) => readOidcConfig(env) as OidcConfigOn;
+/** A Set-Cookie line, split (setCookie). */
+interface CookieLine { value: string; attrs: string[]; raw: string }
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // The removed Google / GitHub login's cookie, signed as it was (same secret).
-function legacyCookie(userId, t = Date.now()) {
+function legacyCookie(userId: string, t = Date.now()) {
   const payload = Buffer.from(JSON.stringify({ id: userId, t })).toString('base64url');
   return `listen_auth=${payload}.${crypto.createHmac('sha256', SECRET).update(payload).digest('base64url')}`;
 }
 
 // ---------------------------------------------------------------- helpers
 
-function setCookie(res, name) {
+// Tests read the cookie they expect: null shows up as a failed property read.
+function setCookie(res: Response, name: string): CookieLine {
   for (const c of res.headers.getSetCookie()) {
     const [pair, ...attrs] = c.split(';');
     const idx = pair.indexOf('=');
     if (pair.slice(0, idx).trim() !== name) continue;
     return { value: pair.slice(idx + 1), attrs: attrs.map((a) => a.trim()), raw: c };
   }
-  return null;
+  return null as unknown as CookieLine;
 }
 
-const get = (url, cookie, extra = {}) => fetch(url, { redirect: 'manual', headers: { ...(cookie ? { cookie } : {}), ...extra } });
+const get = (url: string, cookie?: string | null, extra: Record<string, string> = {}) => fetch(url, { redirect: 'manual', headers: { ...(cookie ? { cookie } : {}), ...extra } });
 
 /** The three legs of a browser sign-in, separately so tests can tamper with each. */
-async function begin(base, { next, cookie } = {}) {
+async function begin(base: string, { next, cookie }: { next?: string; cookie?: string } = {}) {
   const res = await get(`${base}/auth/oidc/login${next !== undefined ? `?next=${encodeURIComponent(next)}` : ''}`, cookie);
   assert.equal(res.status, 302, 'login redirects to the IdP');
   const flow = setCookie(res, 'la_oidc_flow');
-  return { authorizeUrl: res.headers.get('location'), flow: flow && `la_oidc_flow=${flow.value}`, flowCookie: flow };
+  return { authorizeUrl: res.headers.get('location')!, flow: flow && `la_oidc_flow=${flow.value}`, flowCookie: flow };
 }
-async function authorize(idp, authorizeUrl, claims) {
+async function authorize(idp: Idp, authorizeUrl: string, claims: Payload): Promise<string> {
   idp.user = claims;
   const res = await get(authorizeUrl);
   assert.equal(res.status, 302);
-  return res.headers.get('location');
+  return res.headers.get('location')!;
 }
-async function finish(callbackUrl, cookies = []) {
+async function finish(callbackUrl: string, cookies: Array<string | null | undefined> = []) {
   const res = await get(callbackUrl, cookies.filter(Boolean).join('; '));
   const s = setCookie(res, 'la_session');
-  return { res, status: res.status, location: res.headers.get('location'), session: s && s.value ? `la_session=${s.value}` : null, sessionCookie: s };
+  // session: the cookie to send, or null; typed loosely because the tests send it straight on.
+  const session: Payload = s && s.value ? `la_session=${s.value}` : null;
+  return { res, status: res.status, location: res.headers.get('location'), session, sessionCookie: s };
 }
-async function signIn(base, idp, claims, { next, cookie } = {}) {
+async function signIn(base: string, idp: Idp, claims: Payload, { next, cookie }: { next?: string; cookie?: string | null } = {}) {
   const b = await begin(base, { next });
   const cb = await authorize(idp, b.authorizeUrl, claims);
   return finish(cb, [b.flow, cookie]);
 }
 
-function socketFor(base, cookie) {
+function socketFor(base: string, cookie?: string | null) {
   const s = ioClient(base, { transports: ['websocket'], forceNew: true, reconnection: false, extraHeaders: cookie ? { cookie } : {} });
-  const ready = new Promise((resolve, reject) => { s.on('connect', () => resolve(s)); s.on('connect_error', reject); });
+  const ready = new Promise<Socket>((resolve, reject) => { s.on('connect', () => resolve(s)); s.on('connect_error', reject); });
   return { socket: s, ready, gone: new Promise((resolve) => s.on('disconnect', resolve)) };
 }
 
-const within = (p, ms, what) => Promise.race([p, sleep(ms).then(() => { throw new Error(`timed out: ${what}`); })]);
+const within = (p: Promise<unknown>, ms: number, what: string) => Promise.race([p, sleep(ms).then(() => { throw new Error(`timed out: ${what}`); })]);
 
-function centralEnv(idp, extra = {}) {
-  return (port) => ({
+function centralEnv(idp: Idp, extra: Record<string, string> = {}) {
+  return (port: number) => ({
     OIDC_ISSUER: idp.issuer, OIDC_CLIENT_ID: 'listen-along', BASE_URL: `http://127.0.0.1:${port}`,
     AUTH_RATE_LIMIT: '10000', ...extra,
   });
 }
 
 /** Spawn the server expecting it to exit; resolves { code, log }. */
-function runUntilExit(env) {
+function runUntilExit(env: Record<string, string>): Promise<{ code: number | null; log: string }> {
   return new Promise((resolve) => {
-    const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], {
+    const proc = spawn(process.execPath, [path.join(import.meta.dirname, '..', 'index.js')], {
       env: { ...process.env, PORT: '0', SESSION_SECRET: SECRET, NODE_ENV: 'test', ...env, DATABASE_URL: '' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -113,7 +136,7 @@ describe('central login: rules', () => {
   it('configuration: off, on, half-configured, required in production and unusable values', () => {
     assert.deepEqual(readOidcConfig({}), { enabled: false });
     assert.deepEqual(readOidcConfig({ OIDC_ISSUER: '  ', OIDC_CLIENT_ID: '' }), { enabled: false });
-    const cfg = readOidcConfig(env);
+    const cfg = readOn(env);
     assert.equal(cfg.enabled, true);
     assert.equal(cfg.redirectUri, 'https://music.example.com/auth/oidc/callback');
     assert.equal(cfg.postLogoutRedirectUri, 'https://music.example.com/');
@@ -122,19 +145,19 @@ describe('central login: rules', () => {
     assert.equal(cfg.maxUnverifiedMs, 86_400_000);
     assert.deepEqual(cfg.providerMap, { google: 'google', github: 'github' });
     assert.equal(cfg.upstreamExpected, false);
-    assert.equal(readOidcConfig({ ...env, OIDC_SCOPES: 'openid upstream' }).upstreamExpected, true);
+    assert.equal(readOn({ ...env, OIDC_SCOPES: 'openid upstream' }).upstreamExpected, true);
     // Plain names on http (dev, tests); __Host- names whenever Secure (production).
     assert.equal(cfg.secureCookies, false);
     assert.equal(cfg.sessionCookie, 'la_session');
     assert.equal(cfg.flowCookie, 'la_oidc_flow');
-    const prod = readOidcConfig({ ...env, NODE_ENV: 'production' });
+    const prod = readOn({ ...env, NODE_ENV: 'production' });
     assert.equal(prod.secureCookies, true);
     assert.equal(prod.sessionCookie, '__Host-la_session');
     assert.equal(prod.flowCookie, '__Host-la_oidc_flow');
-    assert.equal(readOidcConfig({ ...env, BASE_URL: 'https://music.example.com/' }).redirectUri, 'https://music.example.com/auth/oidc/callback');
-    assert.equal(readOidcConfig({ ...env, BASE_URL: '', FRONTEND_URL: 'https://f.example.com' }).redirectUri, 'https://f.example.com/auth/oidc/callback');
-    assert.equal(readOidcConfig({ ...env, OIDC_SCOPES: 'openid email upstream' }).scopes, 'openid email upstream');
-    assert.deepEqual(readOidcConfig({ ...env, OIDC_PROVIDER_MAP: 'gh=github, GOOGLE-OAUTH=google' }).providerMap,
+    assert.equal(readOn({ ...env, BASE_URL: 'https://music.example.com/' }).redirectUri, 'https://music.example.com/auth/oidc/callback');
+    assert.equal(readOn({ ...env, BASE_URL: '', FRONTEND_URL: 'https://f.example.com' }).redirectUri, 'https://f.example.com/auth/oidc/callback');
+    assert.equal(readOn({ ...env, OIDC_SCOPES: 'openid email upstream' }).scopes, 'openid email upstream');
+    assert.deepEqual(readOn({ ...env, OIDC_PROVIDER_MAP: 'gh=github, GOOGLE-OAUTH=google' }).providerMap,
       { google: 'google', github: 'github', gh: 'github', 'google-oauth': 'google' });
     const bad = [
       { OIDC_ISSUER: env.OIDC_ISSUER },
@@ -156,9 +179,9 @@ describe('central login: rules', () => {
       { ...env, NODE_ENV: 'production', SESSION_SECRET: '' },
     ];
     for (const e of bad) assert.throws(() => readOidcConfig(e), OidcConfigError, JSON.stringify(e));
-    assert.equal(readOidcConfig({ ...env, NODE_ENV: 'production', BASE_URL: '', FRONTEND_URL: 'https://f.example.com' }).redirectUri,
+    assert.equal(readOn({ ...env, NODE_ENV: 'production', BASE_URL: '', FRONTEND_URL: 'https://f.example.com' }).redirectUri,
       'https://f.example.com/auth/oidc/callback', 'FRONTEND_URL stands in for BASE_URL in production too');
-    assert.equal(readOidcConfig({ ...env, OIDC_ISSUER: 'http://id.localhost:39100/application/o/listen-along/' }).allowInsecure, true);
+    assert.equal(readOn({ ...env, OIDC_ISSUER: 'http://id.localhost:39100/application/o/listen-along/' }).allowInsecure, true);
   });
 
   it('upstream_identities: mapped providers only, ids as strings, junk ignored', () => {
@@ -173,24 +196,24 @@ describe('central login: rules', () => {
   });
 
   it('userAuth with central login never reads the old or the dev cookie', async () => {
-    const sessions = { resolveHeaders: async (h) => (h.cookie === 'la_session=ok' ? { userId: 'u1', idHash: 'h1' } : null) };
-    const ua = userAuthMod.createUserAuth({ secret: SECRET, db: { isAvailable: () => false }, sessions });
+    const sessions = { resolveHeaders: async (h: { cookie?: string }) => (h.cookie === 'la_session=ok' ? { userId: 'u1', idHash: 'h1' } : null) };
+    const ua = userAuthMod.createUserAuth({ secret: SECRET, db: { isAvailable: () => false } as UserAuthDb, sessions: sessions as unknown as SessionLookup });
     assert.equal(ua.mode, 'central');
     for (const other of [legacyCookie('u2'), cookieFor('u2')]) {
       assert.equal(await ua.resolve({ cookie: other }), null);
-      assert.deepEqual(await ua.identify({ headers: { cookie: other } }), { userId: null, account: null, sessionId: null });
+      assert.deepEqual(await ua.identify({ headers: { cookie: other } } as Request), { userId: null, account: null, sessionId: null });
     }
     assert.deepEqual(await ua.resolve({ cookie: 'la_session=ok' }), { userId: 'u1', sessionId: 'h1' });
     for (const gone of ['createToken', 'verifyToken', 'userIdFromHeaders', 'legacyUserIdFromHeaders']) {
-      assert.equal(ua[gone], undefined, `nothing exposes ${gone}`);
+      assert.equal((ua as unknown as Record<string, unknown>)[gone], undefined, `nothing exposes ${gone}`);
     }
   });
 
   it('sessions read only their own cookie name (__Host- in production)', async () => {
-    const seen = [];
-    const store = { get: async (h) => { seen.push(h); return null; } };
+    const seen: string[] = [];
+    const store = { get: async (h: string) => { seen.push(h); return null; } };
     const cfg = { recheckMs: 1000, maxUnverifiedMs: 5000 };
-    const s = createOidcSessions({ store, client: {}, cfg, cookieName: '__Host-la_session' });
+    const s = createOidcSessions({ store: store as unknown as SessionStore, client: {} as OidcClient, cfg, cookieName: '__Host-la_session' });
     const raw = crypto.randomBytes(32).toString('base64url');
     assert.equal(s.idHashFromHeaders({ cookie: `la_session=${raw}` }), null, 'the unprefixed name is ignored when Secure');
     assert.ok(s.idHashFromHeaders({ cookie: `__Host-la_session=${raw}` }));
@@ -200,9 +223,9 @@ describe('central login: rules', () => {
     // The row as the database holds it; get() hands out a snapshot. The second
     // request's read is slow: it returns the row as it was BEFORE the first
     // request's refresh, but only after that refresh has finished.
-    let row = { idHash: 'h1', sub: 'sub-1', refreshToken: 'rt-1', lastCheckedAt: 0, expiresAt: 1e12 };
-    let releaseSlowRead;
-    const slowRead = new Promise((resolve) => { releaseSlowRead = resolve; });
+    let row: Payload = { idHash: 'h1', sub: 'sub-1', refreshToken: 'rt-1', lastCheckedAt: 0, expiresAt: 1e12 };
+    let releaseSlowRead = () => {};
+    const slowRead = new Promise<void>((resolve) => { releaseSlowRead = resolve; });
     let reads = 0;
     const store = {
       get: async () => {
@@ -210,19 +233,19 @@ describe('central login: rules', () => {
         if (++reads === 2) await slowRead;
         return snapshot;
       },
-      markChecked: async (idHash, { refreshToken, at }) => { row = { ...row, refreshToken, lastCheckedAt: at }; return true; },
+      markChecked: async (idHash: string, { refreshToken, at }: Payload) => { row = { ...row, refreshToken, lastCheckedAt: at }; return true; },
       remove: async () => { row = null; },
     };
-    const used = [];
+    const used: string[] = [];
     const client = {
-      refresh: async (token) => {
+      refresh: async (token: string) => {
         used.push(token);
         if (token !== row.refreshToken) throw Object.assign(new Error('invalid_grant'), { kind: 'refused' });
         return { refreshToken: `rt-${used.length + 1}`, idToken: null, claims: {} };
       },
     };
     let t = 10_000;
-    const s = createOidcSessions({ store, client, cfg: { recheckMs: 1000, maxUnverifiedMs: 60_000 }, now: () => t, logger: { log() {}, warn() {}, error() {} } });
+    const s = createOidcSessions({ store: store as unknown as SessionStore, client, cfg: { recheckMs: 1000, maxUnverifiedMs: 60_000 }, now: () => t, logger: { log() {}, warn() {}, error() {} } });
     const first = s.check('h1');
     const second = s.check('h1');
     assert.ok(await first, 'the first request re-checks');
@@ -267,7 +290,7 @@ describe('central login: boot', { timeout: 60_000 }, () => {
   });
 
   it('DATABASE_URL set but the database down: sign-in fails closed, nothing in memory', async () => {
-    const idp = await startFakeIssuer();
+    const idp = await startIssuer();
     const deadPort = await freePort();
     const srv = await startServer(centralEnv(idp, { DATABASE_URL: `postgres://x:y@127.0.0.1:${deadPort}/none` }));
     try {
@@ -290,13 +313,13 @@ describe('central login: boot', { timeout: 60_000 }, () => {
   });
 
   it('metadata from the wrong issuer refuses to start', async () => {
-    const idp = await startFakeIssuer();
+    const idp = await startIssuer();
     try {
-      idp.metadataOverride = (md) => ({ ...md, issuer: 'http://evil.example/' });
+      idp.metadataOverride = (md: Payload) => ({ ...md, issuer: 'http://evil.example/' });
       const r = await runUntilExit({ OIDC_ISSUER: idp.issuer, OIDC_CLIENT_ID: 'listen-along', BASE_URL: 'http://127.0.0.1:1' });
       assert.equal(r.code, 1);
       assert.match(r.log, /discovery .* failed/);
-      idp.metadataOverride = (md) => ({ ...md, code_challenge_methods_supported: ['plain'] });
+      idp.metadataOverride = (md: Payload) => ({ ...md, code_challenge_methods_supported: ['plain'] });
       const r2 = await runUntilExit({ OIDC_ISSUER: idp.issuer, OIDC_CLIENT_ID: 'listen-along', BASE_URL: 'http://127.0.0.1:1' });
       assert.equal(r2.code, 1);
       assert.match(r2.log, /S256/);
@@ -307,14 +330,14 @@ describe('central login: boot', { timeout: 60_000 }, () => {
     const idpPort = await freePort();
     const issuer = `http://127.0.0.1:${idpPort}/application/o/listen-along/`;
     const srv = await startServer((port) => ({ OIDC_ISSUER: issuer, OIDC_CLIENT_ID: 'listen-along', BASE_URL: `http://127.0.0.1:${port}`, AUTH_RATE_LIMIT: '1000' }));
-    let idp;
+    let idp: Idp;
     try {
       assert.match(srv.log(), /not reachable at boot/);
       assert.equal((await get(`${srv.base}/health`)).status, 200);
       const r = await get(`${srv.base}/auth/oidc/login`);
       assert.equal(r.status, 302);
       assert.equal(r.headers.get('location'), '/login?error=signin_unavailable');
-      idp = await startFakeIssuer({ port: idpPort });
+      idp = await startIssuer({ port: idpPort });
       const s = await signIn(srv.base, idp, { sub: 'late-1', email: 'late@example.com', email_verified: true });
       assert.equal(s.location, '/');
       assert.ok(s.session);
@@ -328,12 +351,12 @@ describe('central login: boot', { timeout: 60_000 }, () => {
 // ---------------------------------------------------------------- 3. protocol (no database)
 
 describe('central login: protocol, sessions and re-check (no database)', { timeout: 120_000 }, () => {
-  let idp;
-  let srv;
-  const sockets = [];
+  let idp: Idp;
+  let srv: Server;
+  const sockets: Socket[] = [];
 
   before(async () => {
-    idp = await startFakeIssuer();
+    idp = await startIssuer();
     srv = await startServer(centralEnv(idp, { OIDC_RECHECK_SECONDS: '1', OIDC_MAX_UNVERIFIED_SECONDS: '4' }));
   });
   after(async () => {
@@ -341,7 +364,7 @@ describe('central login: protocol, sessions and re-check (no database)', { timeo
     if (srv) await srv.stop();
     if (idp) await idp.close();
   });
-  const sock = (cookie) => { const h = socketFor(srv.base, cookie); sockets.push(h.socket); return h; };
+  const sock = (cookie?: string | null) => { const h = socketFor(srv.base, cookie); sockets.push(h.socket); return h; };
 
   it('happy path: PKCE S256 + state + nonce, fixed redirect URI, an opaque HttpOnly session cookie', async () => {
     const b = await begin(srv.base, { next: '/library?q=x' });
@@ -351,14 +374,14 @@ describe('central login: protocol, sessions and re-check (no database)', { timeo
     assert.equal(q.get('client_id'), 'listen-along');
     assert.equal(q.get('response_type'), 'code');
     assert.equal(q.get('code_challenge_method'), 'S256');
-    assert.match(q.get('code_challenge'), /^[A-Za-z0-9_-]{43}$/);
+    assert.match(q.get('code_challenge')!, /^[A-Za-z0-9_-]{43}$/);
     assert.ok(q.get('state') && q.get('nonce'));
     assert.equal(q.get('redirect_uri'), `${srv.base}/auth/oidc/callback`);
     assert.equal(q.get('scope'), 'openid email profile entitlements offline_access');
     const fc = b.flowCookie;
     for (const attr of ['HttpOnly', 'SameSite=Lax', 'Path=/', 'Max-Age=600']) assert.ok(fc.attrs.includes(attr), attr);
     assert.ok(!fc.attrs.some((a) => /^Domain=/i.test(a)), 'host-only');
-    assert.doesNotMatch(fc.value, new RegExp(q.get('state')), 'the flow cookie is encrypted');
+    assert.doesNotMatch(fc.value, new RegExp(q.get('state')!), 'the flow cookie is encrypted');
 
     const cb = await authorize(idp, b.authorizeUrl, { sub: 'happy-1', email: 'happy@example.com', email_verified: true, name: 'Happy' });
     const f = await finish(cb, [b.flow]);
@@ -387,11 +410,11 @@ describe('central login: protocol, sessions and re-check (no database)', { timeo
   });
 
   it('the redirect URI comes from BASE_URL, never the Host header', async () => {
-    const res = await new Promise((resolve, reject) => {
+    const res = await new Promise<http.IncomingMessage>((resolve, reject) => {
       http.get(`${srv.base}/auth/oidc/login`, { headers: { host: 'evil.example', 'x-forwarded-host': 'evil.example', 'x-forwarded-proto': 'https' } }, resolve).on('error', reject);
     });
     res.resume();
-    assert.equal(new URL(res.headers.location).searchParams.get('redirect_uri'), `${srv.base}/auth/oidc/callback`);
+    assert.equal(new URL(res.headers.location!).searchParams.get('redirect_uri'), `${srv.base}/auth/oidc/callback`);
   });
 
   it('?next must be a same-origin path', async () => {
@@ -403,25 +426,26 @@ describe('central login: protocol, sessions and re-check (no database)', { timeo
 
   it('rejects every validation failure with the generic error and no session', async () => {
     const claims = { sub: 'victim-1', email: 'v@example.com', email_verified: true };
-    const failed = (f, what) => {
+    const failed = (f: Payload, what: string) => {
       assert.equal(f.status, 302, what);
       assert.equal(f.location, '/login?error=signin_failed', what);
       assert.equal(f.session, null, what);
     };
     // state
     let b = await begin(srv.base);
-    let cb = new URL(await authorize(idp, b.authorizeUrl, claims));
+    let cb: Payload = new URL(await authorize(idp, b.authorizeUrl, claims));
     cb.searchParams.set('state', 'forged');
     failed(await finish(cb.href, [b.flow]), 'state');
     // id_token claims and signature (one-shot tamper of the next id_token)
-    for (const [what, tamper] of [
+    const tampers: Array<[string, Payload]> = [
       ['nonce', { nonce: 'not-the-one' }], ['audience', { aud: 'someone-else' }], ['issuer', { iss: 'http://evil.example/' }],
       ['expired', { exp: Math.floor(Date.now() / 1000) - 600 }], ['signature', { key: 'other' }],
       ['alg none', { alg: 'none' }], ['HS256', { alg: 'HS256' }],
       ['extra audience', { aud: ['listen-along', 'someone-else'], azp: 'listen-along' }],
       ['extra audience, no azp', { aud: ['listen-along', 'someone-else'] }],
       ['wrong azp', { azp: 'someone-else' }],
-    ]) {
+    ];
+    for (const [what, tamper] of tampers) {
       b = await begin(srv.base);
       cb = await authorize(idp, b.authorizeUrl, claims);
       idp.tamper = tamper;
@@ -431,7 +455,7 @@ describe('central login: protocol, sessions and re-check (no database)', { timeo
     const victim = await begin(srv.base);
     const attacker = await begin(srv.base);
     const attackerCb = new URL(await authorize(idp, attacker.authorizeUrl, claims));
-    attackerCb.searchParams.set('state', new URL(victim.authorizeUrl).searchParams.get('state'));
+    attackerCb.searchParams.set('state', new URL(victim.authorizeUrl).searchParams.get('state')!);
     idp.lastTokenError = null;
     failed(await finish(attackerCb.href, [victim.flow]), 'pkce');
     assert.equal(idp.lastTokenError, 'PKCE verification failed', 'it got as far as the token endpoint');
@@ -439,7 +463,7 @@ describe('central login: protocol, sessions and re-check (no database)', { timeo
     b = await begin(srv.base);
     cb = await authorize(idp, b.authorizeUrl, claims);
     const flowKey = secretBox.deriveKey(SECRET, 'oidc-flow-cookie-v1');
-    const flowData = JSON.parse(secretBox.open(flowKey, decodeURIComponent(b.flowCookie.value), 'listen-along/oidc-flow'));
+    const flowData = JSON.parse(secretBox.open(flowKey, decodeURIComponent(b.flowCookie.value), 'listen-along/oidc-flow')!);
     flowData.t = Date.now() - 11 * 60 * 1000;
     failed(await finish(cb, [`la_oidc_flow=${secretBox.seal(flowKey, JSON.stringify(flowData), 'listen-along/oidc-flow')}`]), 'expired flow cookie');
     // the flow cookie: missing, forged, from another secret
@@ -539,7 +563,8 @@ describe('central login: protocol, sessions and re-check (no database)', { timeo
   });
 
   it('re-check: a refreshed id_token that does not validate, or names someone else, ends the session', async () => {
-    for (const [what, tamper] of [['bad signature', { key: 'other' }], ['other sub', { sub: 'someone-else' }], ['alg none', { alg: 'none' }]]) {
+    const tampers: Array<[string, Payload]> = [['bad signature', { key: 'other' }], ['other sub', { sub: 'someone-else' }], ['alg none', { alg: 'none' }]];
+    for (const [what, tamper] of tampers) {
       const sub = `refresh-tamper-${what.replace(/\W/g, '')}`;
       const s = await signIn(srv.base, idp, { sub });
       await sleep(1100);
@@ -585,12 +610,12 @@ describe('central login: protocol, sessions and re-check (no database)', { timeo
     await within(h.ready, 3000, 'socket');
     const r = await fetch(`${srv.base}/api/auth/logout`, { method: 'POST', headers: { cookie: s.session } });
     assert.equal(r.status, 200);
-    const body = await r.json();
+    const body: Payload = await r.json();
     const u = new URL(body.redirect);
     assert.equal(u.origin + u.pathname, `${idp.issuer}end-session/`);
     assert.equal(u.searchParams.get('post_logout_redirect_uri'), `${srv.base}/`);
     assert.equal(u.searchParams.get('client_id'), 'listen-along');
-    assert.equal(u.searchParams.get('id_token_hint').split('.').length, 3);
+    assert.equal(u.searchParams.get('id_token_hint')!.split('.').length, 3);
     assert.ok(setCookie(r, 'la_session').attrs.some((a) => /Expires=Thu, 01 Jan 1970/.test(a)));
     await within(h.gone, 3000, 'socket cut on logout');
     assert.equal((await get(`${srv.base}/api/playlists`, s.session)).status, 401);
@@ -603,7 +628,7 @@ describe('central login: protocol, sessions and re-check (no database)', { timeo
 
   it('registrations closed (in memory without a database): no new account', async () => {
     const admin = adminCookie();
-    const put = (v, cookie) => fetch(`${srv.base}/api/admin/settings`, { method: 'PUT', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ registrations_open: v }) });
+    const put = (v: boolean, cookie: string) => fetch(`${srv.base}/api/admin/settings`, { method: 'PUT', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ registrations_open: v }) });
     assert.equal((await put(false, admin)).status, 200);
     const s = await signIn(srv.base, idp, { sub: 'closed-1' });
     assert.equal(s.location, '/login?error=registrations_closed');
@@ -615,7 +640,7 @@ describe('central login: protocol, sessions and re-check (no database)', { timeo
 
 describe('central login: the sign-in routes are rate limited', { timeout: 60_000 }, () => {
   it('per client address', async () => {
-    const idp = await startFakeIssuer();
+    const idp = await startIssuer();
     const srv = await startServer(centralEnv(idp, { AUTH_RATE_LIMIT: '3' }));
     try {
       const codes = [];
@@ -631,30 +656,34 @@ describe('central login: the sign-in routes are rate limited', { timeout: 60_000
 
 // ---------------------------------------------------------------- 4. on Postgres
 
-let PostgreSqlContainer;
-try { PostgreSqlContainer = require('@testcontainers/postgresql').PostgreSqlContainer; } catch {}
-const has = (cmd) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
+let PostgreSqlContainer: typeof import('@testcontainers/postgresql').PostgreSqlContainer | undefined;
+try { ({ PostgreSqlContainer } = await import('@testcontainers/postgresql')); } catch {}
+const has = (cmd: string) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
 const pgSkip = !PostgreSqlContainer ? 'testcontainers package not installed'
   : !has('docker info') ? 'Docker not available' : false;
 
 describe('central login on Postgres: linking, banning, registrations', { skip: pgSkip, timeout: 240_000 }, () => {
-  let container;
-  let pg;
-  let idp;
-  let srv;
-  let tmp;
-  let pgUrl;
-  const sockets = [];
-  const U = {};
+  let container: StartedPostgreSqlContainer | undefined;
+  let pg: pgModule.Client;
+  let idp: Payload;
+  let srv: Server;
+  let tmp: string;
+  let pgUrl: string;
+  const sockets: Socket[] = [];
+  const U: Record<string, string> = {};
   // Central mode as the owner deploys it first: registrations closed until an
   // admin saves the switch, and `upstream` requested.
-  const pgEnv = (extra = {}) => centralEnv(idp, {
+  const pgEnv = (extra: Record<string, string> = {}) => centralEnv(idp, {
     DATABASE_URL: pgUrl, SONGS_PATH: path.join(tmp, 'songs'), COVERS_DIR: path.join(tmp, 'covers'),
     APP_RELEASES_API_URL: 'http://127.0.0.1:9/', REGISTRATIONS_DEFAULT: 'closed',
     OIDC_SCOPES: 'openid email profile entitlements offline_access upstream', ...extra,
   });
 
-  const addUser = async (key, { provider = 'google', providerId = key, email = null, name = `Legacy ${key}`, displayName = null, status = 'approved', createdAt, providers = [] } = {}) => {
+  interface LegacyUser {
+    provider?: string; providerId?: string; email?: string | null; name?: string; displayName?: string | null;
+    status?: string; createdAt?: number; providers?: Array<{ provider: string; providerId: string; email?: string | null }>;
+  }
+  const addUser = async (key: string, { provider = 'google', providerId = key, email = null, name = `Legacy ${key}`, displayName = null, status = 'approved', createdAt, providers = [] }: LegacyUser = {}) => {
     const r = await pg.query(
       `INSERT INTO users (provider, provider_id, email, name, display_name, status, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
       [provider, providerId, email, name, displayName, status, createdAt]
@@ -669,19 +698,19 @@ describe('central login on Postgres: linking, banning, registrations', { skip: p
     }
     return U[key];
   };
-  const userRow = async (id) => (await pg.query('SELECT * FROM users WHERE id = $1', [id])).rows[0];
-  const bySub = async (sub) => (await pg.query('SELECT * FROM users WHERE oidc_sub = $1', [sub])).rows;
+  const userRow = async (id: string): Promise<Payload> => (await pg.query('SELECT * FROM users WHERE id = $1', [id])).rows[0];
+  const bySub = async (sub: string): Promise<Payload[]> => (await pg.query('SELECT * FROM users WHERE oidc_sub = $1', [sub])).rows;
   const userCount = async () => (await pg.query('SELECT count(*)::int AS n FROM users')).rows[0].n;
-  const me = async (cookie) => (await get(`${srv.base}/api/auth/me`, cookie)).json();
+  const me = async (cookie: string): Promise<Payload> => (await get(`${srv.base}/api/auth/me`, cookie)).json();
 
   before(async () => {
-    container = await new PostgreSqlContainer('postgres:16-alpine').withDatabase('listen_oidc').withUsername('test').withPassword('test').start();
+    container = await new PostgreSqlContainer!('postgres:16-alpine').withDatabase('listen_oidc').withUsername('test').withPassword('test').start();
     const url = container.getConnectionUri();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'la-oidc-test-'));
-    idp = await startFakeIssuer();
+    idp = await startIssuer();
     pgUrl = url;
     srv = await startServer(pgEnv());
-    const { Client } = require('pg');
+    const { Client } = pgModule;
     pg = new Client({ connectionString: url });
     await pg.connect();
 
@@ -741,7 +770,7 @@ describe('central login on Postgres: linking, banning, registrations', { skip: p
   });
 
   it('saving the switch in the dashboard overrides the env default (open over closed)', async () => {
-    const put = (v) => fetch(`${srv.base}/api/admin/settings`, { method: 'PUT', headers: { cookie: adminCookie(), 'content-type': 'application/json' }, body: JSON.stringify({ registrations_open: v }) });
+    const put = (v: boolean) => fetch(`${srv.base}/api/admin/settings`, { method: 'PUT', headers: { cookie: adminCookie(), 'content-type': 'application/json' }, body: JSON.stringify({ registrations_open: v }) });
     assert.equal((await put(true)).status, 200);
     assert.deepEqual(await (await get(`${srv.base}/api/admin/settings`, adminCookie())).json(), { registrations_open: true, source: 'saved', central_login: true });
     const s = await signIn(srv.base, idp, { sub: 'central-nomatch' });
@@ -892,7 +921,7 @@ describe('central login on Postgres: linking, banning, registrations', { skip: p
 
   it('the registrations switch: admin only, stored, applied at once, existing users unaffected', async () => {
     const url = `${srv.base}/api/admin/settings`;
-    const put = (body, cookie) => fetch(url, { method: 'PUT', headers: { ...(cookie ? { cookie } : {}), 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const put = (body: Payload, cookie?: string) => fetch(url, { method: 'PUT', headers: { ...(cookie ? { cookie } : {}), 'content-type': 'application/json' }, body: JSON.stringify(body) });
     const userSession = (await signIn(srv.base, idp, { sub: 'central-1' })).session;
     assert.equal((await get(url)).status, 401);
     assert.equal((await get(url, userSession)).status, 401, 'a user session is not the admin');
@@ -943,7 +972,7 @@ describe('central login on Postgres: linking, banning, registrations', { skip: p
     const winners = done.filter((d) => d.session);
     assert.equal(winners.length, 1, 'exactly one got in');
     assert.equal((await me(winners[0].session)).user.id, U.race13);
-    assert.equal(done.find((d) => !d.session).location, '/login?error=link_conflict');
+    assert.equal(done.find((d) => !d.session)!.location, '/login?error=link_conflict');
     assert.ok(['race-a', 'race-b'].includes((await userRow(U.race13)).oidc_sub));
     assert.equal(await userCount(), before, 'no new account for the loser');
   });
@@ -966,9 +995,9 @@ describe('central login on Postgres: linking, banning, registrations', { skip: p
   });
 
   it('dashboard: users carry whether they are linked; centralSessionCookie works like cookieFor', async () => {
-    const list = await (await get(`${srv.base}/api/dashboard/users`, adminCookie())).json();
-    assert.equal(list.users.find((u) => u.id === U.google1).central, true);
-    assert.equal(list.users.find((u) => u.id === U.ambNew).central, false);
+    const list: Payload = await (await get(`${srv.base}/api/dashboard/users`, adminCookie())).json();
+    assert.equal(list.users.find((u: Payload) => u.id === U.google1).central, true);
+    assert.equal(list.users.find((u: Payload) => u.id === U.ambNew).central, false);
     const dev = await centralSessionCookie(pg, U.ambNew);
     assert.equal((await me(dev)).user.id, U.ambNew);
     assert.equal((await get(`${srv.base}/api/playlists`, dev)).status, 200);

@@ -15,4 +15,11 @@ export type { TokenRouterHooks } from './tokenRoutes.ts';
 // Who a request or a socket handshake is, and the guard's policy per path.
 export { createUserAuth, isBlocked, policyFor } from './userAuth.ts';
 export type { UserAuth, SessionLookup, UserAuthDb } from './userAuth.ts';
-export type { Account, ApiUser, PublicToken, ApiTokenRow, Identity, Level, Policy, Who } from './types.ts';
+// Central login: the OIDC client, the server-side sessions (cookie and app Bearer).
+export { createOidcClient, OidcError } from './oidc.ts';
+export type { OidcClient } from './oidc.ts';
+export { createSessionStore, createOidcSessions } from './oidcSessions.ts';
+export type { SessionStore, OidcSessions } from './oidcSessions.ts';
+export type {
+  Account, ApiUser, PublicToken, ApiTokenRow, Identity, Level, Policy, Who, CentralClaims, Session, UserSessionRow,
+} from './types.ts';

@@ -19,8 +19,6 @@ const library = require('./library');
 const songRequests = require('./requests');
 const { createLibraryRouter, sendSongFile } = require('./libraryRoutes');
 const { apiLimiter, make: makeLimiter } = require('./shared/rateLimits.ts');
-const { createOidcClient } = require('./oidc');
-const { createSessionStore, createOidcSessions } = require('./oidcSessions');
 const { createSettings, parseRegistrationsDefault } = require('./shared/settings.ts');
 const { createResolver } = require('./songResolver');
 const { createPicker } = require('./features/picker/index.ts');
@@ -30,7 +28,9 @@ const playlistPins = require('./playlistPins');
 const spotify = require('./spotify');
 const { createAppRelease } = require('./features/app-release/index.ts');
 const { createCliRelease, createCliRouter } = require('./cliRelease');
-const { readOidcConfig, readDevLogin, adminAuth, tokens, createTokenRouter, createUserAuth } = require('./auth/index.ts');
+const {
+  readOidcConfig, readDevLogin, adminAuth, tokens, createTokenRouter, createUserAuth, createOidcClient, createSessionStore, createOidcSessions,
+} = require('./auth/index.ts');
 const { chat, createPresence, createSocial } = require('./features/social/index.ts');
 const { createListenAlong, createSourceResolver } = require('./features/listen-along/index.ts');
 const downloadJobs = require('./downloadJobs');

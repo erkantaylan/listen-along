@@ -30,16 +30,38 @@
  * to two subs.
  */
 
-const { isBlocked } = require('./auth/userAuth.ts');
+import type { PoolClient } from 'pg';
+import { isBlocked } from './userAuth.ts';
+import type { ProviderMap } from './oidcConfig.ts';
+import type { CentralClaims, Logger } from './types.ts';
+import type { UserRow } from '../shared/types.ts';
 
 const MAX_UPSTREAM = 20;
 
+/** One upstream account, in listen-along's provider names. */
+export interface Upstream {
+  provider: string;
+  providerId: string;
+}
+
+/** The users columns a link reads and returns (USER_COLS). */
+export type LinkedUser = Pick<UserRow, 'id' | 'status' | 'name' | 'display_name' | 'email' | 'created_at' | 'oidc_sub'>;
+
+/** Which rule found the account: a sub, b upstream, c verified email, e new. */
+export type LinkRule = 'a' | 'b' | 'c' | 'e';
+
+/** The decision; logging it is the caller's job (one greppable line per sign-in). */
+export type LinkResult =
+  | { outcome: 'ok'; rule: LinkRule; created: boolean; user: LinkedUser }
+  | { outcome: 'refused'; rule: LinkRule | null; reason: 'account_disabled' | 'registrations_closed' | 'link_conflict'; user?: LinkedUser };
+
 /** upstream_identities -> [{ provider, providerId }] mapped to listen-along names; junk dropped. */
-function parseUpstream(claim, providerMap) {
+export function parseUpstream(claim: unknown, providerMap: ProviderMap): Upstream[] {
   if (!Array.isArray(claim)) return [];
-  const out = [];
-  const seen = new Set();
-  for (const item of claim.slice(0, MAX_UPSTREAM)) {
+  const out: Upstream[] = [];
+  const seen = new Set<string>();
+  // Claim entries are untrusted JSON: each field is checked below.
+  for (const item of claim.slice(0, MAX_UPSTREAM) as Array<{ provider?: unknown; id?: unknown } | null>) {
     if (!item || typeof item !== 'object') continue;
     const slug = typeof item.provider === 'string' ? item.provider.trim().toLowerCase() : '';
     let id = item.id;
@@ -56,30 +78,34 @@ function parseUpstream(claim, providerMap) {
 }
 
 /** The name the IdP knows the person by, or null. */
-function centralName(claims) {
+export function centralName(claims: Pick<CentralClaims, 'name' | 'preferred_username'>): string | null {
   for (const v of [claims.name, claims.preferred_username]) {
     if (typeof v === 'string' && v.trim()) return v.trim().slice(0, 255);
   }
   return null;
 }
 
-function centralEmail(claims) {
+function centralEmail(claims: Pick<CentralClaims, 'email'>): string | null {
   return typeof claims.email === 'string' && claims.email.trim() && claims.email.length <= 255 ? claims.email.trim() : null;
 }
 
 const USER_COLS = 'id, status, name, display_name, email, created_at, oidc_sub';
-const short = (s) => String(s).slice(0, 8);
+const short = (s: unknown) => String(s).slice(0, 8);
 
 /**
  * @param db          db module (getClient)
  * @param claims      validated id_token claims
  * @param registrationsOpen () => Promise<boolean>
  * @param providerMap OIDC_PROVIDER_MAP
- * @returns {{ outcome: 'ok'|'refused', rule: 'a'|'b'|'c'|'e', created?: boolean,
- *   user?: object, reason?: 'account_disabled'|'registrations_closed'|'link_conflict' }}
  *   Logging the decision is the caller's job (one greppable line per sign-in).
  */
-async function linkCentralIdentity({ db, claims, registrationsOpen, providerMap, logger = console }) {
+export async function linkCentralIdentity({ db, claims, registrationsOpen, providerMap, logger = console }: {
+  db: { getClient(): Promise<PoolClient> };
+  claims: CentralClaims;
+  registrationsOpen: () => Promise<boolean>;
+  providerMap: ProviderMap;
+  logger?: Logger;
+}): Promise<LinkResult> {
   const sub = claims.sub;
   const upstream = parseUpstream(claims.upstream_identities, providerMap);
   const email = centralEmail(claims);
@@ -92,23 +118,23 @@ async function linkCentralIdentity({ db, claims, registrationsOpen, providerMap,
     // Serialize callbacks for the same sub (a double callback, two tabs).
     await client.query("SELECT pg_advisory_xact_lock(hashtextextended('listen-along:oidc-link:' || $1, 0))", [sub]);
 
-    let user = null;
-    let rule = null;
+    let user: LinkedUser | null = null;
+    let rule: LinkRule | null = null;
     let created = false;
-    const refuse = async (reason, r = rule) => {
+    const refuse = async (reason: 'registrations_closed' | 'link_conflict', r: LinkRule | null = rule): Promise<LinkResult> => {
       await client.query('ROLLBACK');
       return { outcome: 'refused', rule: r, reason };
     };
 
     // a. already linked
     {
-      const r = await client.query(`SELECT ${USER_COLS} FROM users WHERE oidc_sub = $1`, [sub]);
+      const r = await client.query<LinkedUser>(`SELECT ${USER_COLS} FROM users WHERE oidc_sub = $1`, [sub]);
       if (r.rows[0]) { user = r.rows[0]; rule = 'a'; }
     }
 
     // Stamp oidc_sub on a still-unlinked user; null when someone else got it first.
-    const link = async (id) => {
-      const r = await client.query(
+    const link = async (id: string): Promise<LinkedUser | null> => {
+      const r = await client.query<LinkedUser>(
         `UPDATE users SET oidc_sub = $1, updated_at = $2 WHERE id = $3 AND oidc_sub IS NULL RETURNING ${USER_COLS}`,
         [sub, Date.now(), id]
       );
@@ -119,7 +145,7 @@ async function linkCentralIdentity({ db, claims, registrationsOpen, providerMap,
     for (let attempt = 0; !user && attempt < 3; attempt++) {
       // b. upstream identities
       if (upstream.length) {
-        const r = await client.query(
+        const r = await client.query<Pick<UserRow, 'id' | 'created_at' | 'oidc_sub'>>(
           `WITH ids(provider, provider_id) AS (SELECT * FROM unnest($1::text[], $2::text[]))
            SELECT u.id, u.created_at, u.oidc_sub FROM users u
            WHERE EXISTS (SELECT 1 FROM user_providers up JOIN ids ON up.provider = ids.provider AND up.provider_id = ids.provider_id
@@ -144,7 +170,7 @@ async function linkCentralIdentity({ db, claims, registrationsOpen, providerMap,
       }
       // c. verified email, Google-sourced, exactly one candidate
       if (email && emailVerified) {
-        const r = await client.query(
+        const r = await client.query<Pick<UserRow, 'id'>>(
           `SELECT u.id FROM users u
            WHERE u.oidc_sub IS NULL AND (
              (u.provider = 'google' AND lower(u.email) = lower($1))
@@ -167,7 +193,7 @@ async function linkCentralIdentity({ db, claims, registrationsOpen, providerMap,
     if (!user) {
       if (!(await registrationsOpen())) return refuse('registrations_closed', 'e');
       const now = Date.now();
-      const r = await client.query(
+      const r = await client.query<LinkedUser>(
         `INSERT INTO users (provider, provider_id, oidc_sub, email, name, status, created_at, updated_at)
          VALUES ('oidc', $1, $2, $3, $4, 'approved', $5, $5) RETURNING ${USER_COLS}`,
         // The address only when the IdP vouches for it: if central login is
@@ -190,8 +216,9 @@ async function linkCentralIdentity({ db, claims, registrationsOpen, providerMap,
 
     await client.query('COMMIT');
 
+    // rule is set wherever user is (a, b, c or e).
     if (isBlocked(user.status)) return { outcome: 'refused', rule, reason: 'account_disabled', user };
-    return { outcome: 'ok', rule, created, user };
+    return { outcome: 'ok', rule: rule!, created, user };
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     throw err;
@@ -199,5 +226,3 @@ async function linkCentralIdentity({ db, claims, registrationsOpen, providerMap,
     client.release();
   }
 }
-
-module.exports = { linkCentralIdentity, parseUpstream, centralName };

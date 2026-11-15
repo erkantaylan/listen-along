@@ -349,7 +349,7 @@ There is no password login. Two ways to sign in without the owner's IdP:
   `--name`, `--port` to change the one user it signs in) and prints the variables to start the app
   with (`NODE_ENV=development OIDC_ISSUER=http://127.0.0.1:9400/application/o/listen-along/
   OIDC_CLIENT_ID=listen-along BASE_URL=http://localhost:3000 SESSION_SECRET=dev`). Plain http
-  issuers are accepted only outside production. `central-login.test.js` runs the real server
+  issuers are accepted only outside production. `backend/src/auth/centralLogin.test.ts` runs the real server
   against the same fake provider (discovery, JWKS, authorize, token with PKCE and refresh rotation,
   end-session, signed with jose).
 - **The dev sign-in** (`INSECURE_DEV_LOGIN=1`, `backend/src/auth/devLogin.ts`): no IdP at all. The

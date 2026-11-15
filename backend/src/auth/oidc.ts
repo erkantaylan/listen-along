@@ -1,8 +1,8 @@
 /**
  * The central login's OIDC client (authorization code + PKCE S256 + state +
  * nonce), on openid-client v6. Everything protocol-shaped lives here; the
- * routes in index.js, the sessions in oidcSessions.js and the account linking
- * in oidcLink.js call it.
+ * routes in authRoutes.ts, the sessions in oidcSessions.ts and the account linking
+ * in oidcLink.ts call it.
  *
  * - Discovery is lazy and retried: if the IdP is unreachable at boot the app
  *   starts anyway (bootCheck() only logs), and each later call tries again. A
@@ -10,7 +10,7 @@
  *   different issuer, no token endpoint, no S256) is fatal at boot.
  * - The browser half of a sign-in (state, nonce, PKCE verifier, the page to
  *   return to) rides in one short-lived cookie, encrypted and authenticated
- *   with a key derived from SESSION_SECRET (secretBox.js): HttpOnly,
+ *   with a key derived from SESSION_SECRET (shared/secretBox.ts): HttpOnly,
  *   SameSite=Lax (the IdP's redirect back is a top-level GET), Path=/, 10
  *   minutes; named __Host-la_oidc_flow when Secure (production).
  * - The redirect URI is fixed from configuration (BASE_URL), never from the
@@ -23,27 +23,48 @@
  *   (include_claims_in_id_token), so there is no userinfo call.
  */
 
-const { deriveKey, seal, open } = require('./shared/secretBox.ts');
+import * as client from 'openid-client';
+import { deriveKey, seal, open } from '../shared/secretBox.ts';
+import type { OidcConfigOn } from './oidcConfig.ts';
+import type { CentralClaims, Logger } from './types.ts';
 
-const FLOW_COOKIE = 'la_oidc_flow'; // the name without the __Host- prefix (see oidcConfig.js)
-const FLOW_COOKIE_PATH = '/'; // __Host- cookies must be Path=/
-const REFRESH_TIMEOUT_SECONDS = 3; // a re-check must never hold a request long
-const FLOW_MAX_AGE_MS = 10 * 60 * 1000;
+export const FLOW_COOKIE = 'la_oidc_flow'; // the name without the __Host- prefix (see oidcConfig.ts)
+export const FLOW_COOKIE_PATH = '/'; // __Host- cookies must be Path=/
+export const REFRESH_TIMEOUT_SECONDS = 3; // a re-check must never hold a request long
+export const FLOW_MAX_AGE_MS = 10 * 60 * 1000;
 const FLOW_AAD = 'listen-along/oidc-flow';
 
 /** Discovery failures that mean "the IdP is not reachable right now". */
-const TRANSIENT_CODES = new Set(['OAUTH_RESPONSE_IS_NOT_CONFORM']);
+const TRANSIENT_CODES: ReadonlySet<unknown> = new Set(['OAUTH_RESPONSE_IS_NOT_CONFORM']);
 
-class OidcError extends Error {
-  /** @param {'fatal'|'unavailable'|'refused'|'invalid'} kind */
-  constructor(kind, message, cause) {
+/**
+ * fatal: discovery answered with metadata that cannot work; unavailable: the IdP
+ * did not answer; refused: end the session; misconfigured: an OAuth error that
+ * is not invalid_grant; invalid: a sign-in that does not validate.
+ */
+export type OidcErrorKind = 'fatal' | 'unavailable' | 'refused' | 'misconfigured' | 'invalid';
+
+export class OidcError extends Error {
+  kind: OidcErrorKind;
+
+  constructor(kind: OidcErrorKind, message: string, cause?: unknown) {
     super(message);
     this.kind = kind;
     if (cause) this.cause = cause;
   }
 }
 
-function describe(err) {
+/** What describe() / isTransient() read of a thrown value (an Error, openid-client's or fetch's, or anything). */
+interface ErrorLike {
+  code?: unknown;
+  name?: string;
+  message?: string;
+  status?: number;
+  cause?: { code?: unknown; name?: string };
+}
+
+export function describe(error: unknown): string {
+  const err = error as ErrorLike | null | undefined;
   if (!err) return 'unknown error';
   const code = err.code || (err.cause && err.cause.code);
   const name = err.name && err.name !== 'Error' ? err.name : '';
@@ -51,15 +72,55 @@ function describe(err) {
 }
 
 /** Network errors, timeouts and non-2xx answers: the IdP is down or busy, not misconfigured. */
-function isTransient(err) {
+export function isTransient(error: unknown): boolean {
+  const err = error as ErrorLike | null | undefined;
   if (!err) return false;
   if (err instanceof TypeError) return true; // fetch failed (DNS, refused, reset, TLS)
   if (err.name === 'TimeoutError' || err.name === 'AbortError') return true;
   if (err.code && TRANSIENT_CODES.has(err.code)) return true;
   // An OAuth error body with a 5xx / 429 status: busy or broken, not a "no".
-  if (err.name === 'ResponseBodyError' && (err.status >= 500 || err.status === 429)) return true;
+  if (err.name === 'ResponseBodyError' && (err.status! >= 500 || err.status === 429)) return true;
   if (err.cause && (err.cause.name === 'TimeoutError' || err.cause.name === 'AbortError')) return true;
   return false;
+}
+
+/** The browser half of a sign-in, from the flow cookie (or the Android app's own secrets). */
+export interface FlowSecrets {
+  state: string;
+  nonce: string;
+  verifier: string;
+}
+export interface Flow extends FlowSecrets {
+  /** a validated same-origin path to land on */
+  next: string;
+}
+
+/** What a sign-in hands back: the validated claims and the tokens to keep (encrypted) with the session. */
+export interface SignInResult {
+  claims: CentralClaims;
+  refreshToken: string | null;
+  idToken: string | null;
+}
+
+/** A successful re-check: the token to keep (rotated or not), the new id_token and its claims. */
+export interface RefreshResult {
+  refreshToken: string;
+  idToken: string | null;
+  /** the refreshed id_token's claims; none when the IdP sent no id_token */
+  claims: Readonly<Record<string, unknown>> | null | undefined;
+}
+
+/** What createOidcClient() returns. */
+export interface OidcClient {
+  configuration(): Promise<client.Configuration>;
+  bootCheck(): Promise<boolean>;
+  startLogin(opts?: { next?: string }): Promise<{ url: string; flowCookie: string }>;
+  authorizationUrl(opts: { redirectUri: string; state: string; nonce: string; codeChallenge: string }): Promise<string>;
+  finishLogin(query: string, flow: FlowSecrets | null, opts?: { redirectUri?: string }): Promise<SignInResult>;
+  refresh(refreshToken: string, opts?: { expectedSub?: string }): Promise<RefreshResult>;
+  endSessionUrl(idToken: string | null): Promise<string | null>;
+  openFlow(value: string | null, now?: number): Flow | null;
+  cfg: OidcConfigOn;
 }
 
 /**
@@ -67,21 +128,22 @@ function isTransient(err) {
  * @param secret  SESSION_SECRET
  * @param timeoutSeconds  per HTTP call to the IdP
  */
-function createOidcClient(cfg, { secret, timeoutSeconds = 10, logger = console } = {}) {
+export function createOidcClient(cfg: OidcConfigOn, { secret, timeoutSeconds = 10, logger = console }: {
+  /** required: deriveKey() throws without it */
+  secret?: string;
+  timeoutSeconds?: number;
+  logger?: Logger;
+} = {}): OidcClient {
   if (!cfg || !cfg.enabled) throw new Error('createOidcClient: central login is not configured');
   const flowKey = deriveKey(secret, 'oidc-flow-cookie-v1');
 
-  let libPromise = null;
-  const lib = () => (libPromise ||= import('openid-client'));
+  let configPromise: Promise<client.Configuration> | null = null;
+  let refreshConfig: client.Configuration | null = null; // same metadata, short timeout (refresh only)
 
-  let configPromise = null;
-  let refreshConfig = null; // same metadata, short timeout (refresh only)
-
-  async function discover() {
-    const client = await lib();
+  async function discover(): Promise<client.Configuration> {
     const clientAuth = cfg.clientSecret ? client.ClientSecretBasic(cfg.clientSecret) : client.None();
     const metadata = cfg.clientSecret ? { client_secret: cfg.clientSecret } : undefined;
-    let config;
+    let config: client.Configuration;
     try {
       config = await client.discovery(cfg.issuer, cfg.clientId, metadata, clientAuth, {
         timeout: timeoutSeconds,
@@ -93,7 +155,7 @@ function createOidcClient(cfg, { secret, timeoutSeconds = 10, logger = console }
       throw new OidcError(isTransient(err) ? 'unavailable' : 'fatal', `discovery of ${cfg.issuer.href} failed: ${describe(err)}`, err);
     }
     const md = config.serverMetadata();
-    const missing = ['authorization_endpoint', 'token_endpoint', 'jwks_uri'].filter((k) => typeof md[k] !== 'string' || !md[k]);
+    const missing = (['authorization_endpoint', 'token_endpoint', 'jwks_uri'] as const).filter((k) => typeof md[k] !== 'string' || !md[k]);
     if (missing.length) throw new OidcError('fatal', `the IdP's metadata has no ${missing.join(', ')}`);
     if (Array.isArray(md.code_challenge_methods_supported) && !md.code_challenge_methods_supported.includes('S256')) {
       throw new OidcError('fatal', 'the IdP does not support PKCE S256');
@@ -112,7 +174,7 @@ function createOidcClient(cfg, { secret, timeoutSeconds = 10, logger = console }
   }
 
   /** The discovered configuration; a failure is not cached, so the next call retries. */
-  function configuration() {
+  function configuration(): Promise<client.Configuration> {
     if (!configPromise) {
       const p = discover();
       configPromise = p;
@@ -125,7 +187,7 @@ function createOidcClient(cfg, { secret, timeoutSeconds = 10, logger = console }
    * At boot: discovery that answers with metadata that cannot work throws
    * (fatal); an IdP that cannot be reached is logged and retried later.
    */
-  async function bootCheck() {
+  async function bootCheck(): Promise<boolean> {
     try {
       const config = await configuration();
       const md = config.serverMetadata();
@@ -140,18 +202,20 @@ function createOidcClient(cfg, { secret, timeoutSeconds = 10, logger = console }
 
   // ---- the browser half of a sign-in ------------------------------------
 
-  function sealFlow(flow) {
-    return seal(flowKey, JSON.stringify(flow), FLOW_AAD);
+  function sealFlow(flow: Flow & { t: number }): string {
+    // seal() is null only for a null plaintext; a JSON string never is.
+    return seal(flowKey, JSON.stringify(flow), FLOW_AAD) as string;
   }
 
   /** The flow from the cookie value, or null (missing, forged, expired). */
-  function openFlow(value, now = Date.now()) {
+  function openFlow(value: string | null, now: number = Date.now()): Flow | null {
     if (!value) return null;
     let raw = value;
     try { raw = decodeURIComponent(value); } catch {}
     const json = open(flowKey, raw, FLOW_AAD);
     if (!json) return null;
-    let f;
+    // Parsed JSON, checked field by field before it is used.
+    let f: Record<string, unknown> | null;
     try { f = JSON.parse(json); } catch { return null; }
     if (!f || typeof f.state !== 'string' || typeof f.nonce !== 'string' || typeof f.verifier !== 'string') return null;
     if (typeof f.t !== 'number' || f.t > now + 60_000 || now - f.t > FLOW_MAX_AGE_MS) return null;
@@ -162,8 +226,7 @@ function createOidcClient(cfg, { secret, timeoutSeconds = 10, logger = console }
    * Start a sign-in. `next` must already be a validated same-origin path.
    * @returns {{ url: string, flowCookie: string }}
    */
-  async function startLogin({ next = '/' } = {}) {
-    const client = await lib();
+  async function startLogin({ next = '/' }: { next?: string } = {}): Promise<{ url: string; flowCookie: string }> {
     const config = await configuration();
     const verifier = client.randomPKCECodeVerifier();
     const state = client.randomState();
@@ -185,8 +248,9 @@ function createOidcClient(cfg, { secret, timeoutSeconds = 10, logger = console }
    * Android app: it made state, nonce and the PKCE verifier and keeps them;
    * mobileAuth.js). Same scopes, S256 only.
    */
-  async function authorizationUrl({ redirectUri, state, nonce, codeChallenge }) {
-    const client = await lib();
+  async function authorizationUrl({ redirectUri, state, nonce, codeChallenge }: {
+    redirectUri: string; state: string; nonce: string; codeChallenge: string;
+  }): Promise<string> {
     const config = await configuration();
     return client.buildAuthorizationUrl(config, {
       redirect_uri: redirectUri,
@@ -206,18 +270,16 @@ function createOidcClient(cfg, { secret, timeoutSeconds = 10, logger = console }
    * @param redirectUri  the redirect URI the sign-in was started with: the
    *                web callback by default, the app's custom scheme for the
    *                Android app (mobileAuth.js)
-   * @returns {{ claims: object, refreshToken: string|null, idToken: string|null }}
    * @throws OidcError('invalid'|'unavailable')
    */
-  async function finishLogin(query, flow, { redirectUri = cfg.redirectUri } = {}) {
+  async function finishLogin(query: string, flow: FlowSecrets | null, { redirectUri = cfg.redirectUri }: { redirectUri?: string } = {}): Promise<SignInResult> {
     if (!flow) throw new OidcError('invalid', 'no sign-in in progress (flow cookie missing, expired or forged)');
-    const client = await lib();
-    let config;
+    let config: client.Configuration;
     try { config = await configuration(); } catch (err) { throw new OidcError('unavailable', describe(err), err); }
     // The registered redirect URI plus the IdP's answer (code, state, iss or error).
     const current = new URL(redirectUri);
     current.search = String(query || '').replace(/^\?/, '');
-    let tokens;
+    let tokens: Awaited<ReturnType<typeof client.authorizationCodeGrant>>;
     try {
       tokens = await client.authorizationCodeGrant(config, current, {
         pkceCodeVerifier: flow.verifier,
@@ -228,7 +290,8 @@ function createOidcClient(cfg, { secret, timeoutSeconds = 10, logger = console }
     } catch (err) {
       throw new OidcError(isTransient(err) ? 'unavailable' : 'invalid', describe(err), err);
     }
-    const claims = tokens.claims();
+    // The validated id_token's claims, read as unknown values until checked.
+    const claims: Readonly<Record<string, unknown>> | undefined = tokens.claims();
     if (!claims || typeof claims.sub !== 'string' || !claims.sub || claims.sub.length > 255) {
       throw new OidcError('invalid', 'the id_token has no usable sub');
     }
@@ -237,12 +300,12 @@ function createOidcClient(cfg, { secret, timeoutSeconds = 10, logger = console }
     const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
     if (aud.length !== 1 || aud[0] !== cfg.clientId) throw new OidcError('invalid', 'the id_token has another or an extra audience');
     if (claims.azp !== undefined && claims.azp !== cfg.clientId) throw new OidcError('invalid', 'the id_token was issued to another party (azp)');
-    return { claims, refreshToken: tokens.refresh_token || null, idToken: tokens.id_token || null };
+    // sub, aud and azp checked above; every other claim is checked where it is read.
+    return { claims: claims as CentralClaims, refreshToken: tokens.refresh_token || null, idToken: tokens.id_token || null };
   }
 
   /**
    * Refresh-token grant for a session's re-check (short timeout).
-   * @returns {{ refreshToken: string, idToken: string|null, claims: object|null }}
    * @throws OidcError:
    *   'refused'      end the session: invalid_grant (account disabled
    *                  centrally, token revoked or expired), or an answer whose
@@ -252,12 +315,12 @@ function createOidcClient(cfg, { secret, timeoutSeconds = 10, logger = console }
    *                  app is set up wrong; users are not to blame
    *   'unavailable'  keep the session: no answer (network, timeout, 5xx, 429)
    */
-  async function refresh(refreshToken, { expectedSub } = {}) {
-    const client = await lib();
+  async function refresh(refreshToken: string, { expectedSub }: { expectedSub?: string } = {}): Promise<RefreshResult> {
     try { await configuration(); } catch (err) { throw new OidcError('unavailable', describe(err), err); }
-    let t;
+    let t: Awaited<ReturnType<typeof client.refreshTokenGrant>>;
     try {
-      t = await client.refreshTokenGrant(refreshConfig, refreshToken);
+      // configuration() resolved: discover() set refreshConfig.
+      t = await client.refreshTokenGrant(refreshConfig!, refreshToken);
     } catch (err) {
       if (err instanceof client.ResponseBodyError && !isTransient(err)) {
         if (err.error === 'invalid_grant') throw new OidcError('refused', `${err.status} invalid_grant`, err);
@@ -266,7 +329,7 @@ function createOidcClient(cfg, { secret, timeoutSeconds = 10, logger = console }
       if (isTransient(err)) throw new OidcError('unavailable', describe(err), err);
       throw new OidcError('refused', `the refresh answer did not validate: ${describe(err)}`, err);
     }
-    const claims = t.id_token ? t.claims() : null;
+    const claims: Readonly<Record<string, unknown>> | null | undefined = t.id_token ? t.claims() : null;
     if (claims && expectedSub && claims.sub !== expectedSub) {
       throw new OidcError('refused', 'the refreshed id_token names a different sub');
     }
@@ -275,12 +338,11 @@ function createOidcClient(cfg, { secret, timeoutSeconds = 10, logger = console }
   }
 
   /** Where to send the browser after the local session is gone (RP-initiated logout). */
-  async function endSessionUrl(idToken) {
+  async function endSessionUrl(idToken: string | null): Promise<string | null> {
     try {
-      const client = await lib();
       const config = await configuration();
       if (!config.serverMetadata().end_session_endpoint) return null;
-      const params = { post_logout_redirect_uri: cfg.postLogoutRedirectUri };
+      const params: Record<string, string> = { post_logout_redirect_uri: cfg.postLogoutRedirectUri };
       if (idToken) params.id_token_hint = idToken;
       return client.buildEndSessionUrl(config, params).href;
     } catch (err) {
@@ -291,5 +353,3 @@ function createOidcClient(cfg, { secret, timeoutSeconds = 10, logger = console }
 
   return { configuration, bootCheck, startLogin, authorizationUrl, finishLogin, refresh, endSessionUrl, openFlow, cfg };
 }
-
-module.exports = { createOidcClient, OidcError, FLOW_COOKIE, FLOW_COOKIE_PATH, FLOW_MAX_AGE_MS, REFRESH_TIMEOUT_SECONDS, isTransient, describe };

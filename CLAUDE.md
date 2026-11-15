@@ -458,10 +458,10 @@ of a fresh database and of a migrated old one.
   `NODE_ENV` is `development` or `test`, and next to `OIDC_*`). Neither = the
   boot stops. `/api/auth/providers` answers `{ central, dev }`; the login page
   has one "Sign in" button. Central login: the owner's authentik over OIDC
-  (`oidc.js`: code + PKCE S256 + state + nonce, openid-client v6 with
+  (`auth/oidc.ts`: code + PKCE S256 + state + nonce, openid-client v6 with
   `enableNonRepudiationChecks`, redirect URI from `BASE_URL`, never the Host
   header; `aud` exactly the client, no foreign `azp`); a server-side session
-  (`oidcSessions.js`, table `user_sessions`: the session cookie's SHA-256, refresh
+  (`auth/oidcSessions.ts`, table `user_sessions`: the session cookie's SHA-256, refresh
   token + id_token AES-GCM encrypted via `shared/secretBox.ts`, 30 days; cookies
   `__Host-la_session` / `__Host-la_oidc_flow` when Secure (production), plain
   `la_session` / `la_oidc_flow` on http: names from `auth/oidcConfig.ts`) re-checked
@@ -471,7 +471,7 @@ of a fresh database and of a migrated old one.
   backoff, ends after `OIDC_MAX_UNVERIFIED_SECONDS`, 24 h). The old
   `listen_auth` cookie is NEVER a session and plays NO part in linking: the
   callback only clears it (do not add an old-cookie link rule back: it hands
-  accounts to whoever signs in on that browser). Linking (`oidcLink.js`, `users.oidc_sub` unique): a. sub, b.
+  accounts to whoever signs in on that browser). Linking (`auth/oidcLink.ts`, `users.oidc_sub` unique): a. sub, b.
   `upstream_identities` vs user_providers / users.provider (earliest of several,
   logged; any match already linked to another sub = refused `link_conflict`,
   never a new account), c. `email_verified === true` and exactly one unlinked
@@ -566,7 +566,7 @@ of a fresh database and of a migrated old one.
   in `auth-guard.test.js`); the server binds `PORT=0` and `listening()` reads the port from its
   "Server running on port N" line (never pick a free port first and bind it later: that races). Or **a fake IdP**: `node src/fakeOidcIssuer.js`
   (prints the `OIDC_*` / `BASE_URL` to start the app with; plain http, so not
-  with `NODE_ENV=production`); `central-login.test.js` drives the real flow
+  with `NODE_ENV=production`); `auth/centralLogin.test.ts` drives the real flow
   against it, and `testServer.js` `centralSessionCookie(DATABASE_URL,
   '<users.id>')` inserts a `user_sessions` row (prints `la_session=...`).
 
@@ -672,7 +672,7 @@ TypeScript one area at a time; until an area is converted its files stay
     be edited yet still requires an old path, a folder with the old name holds a one-line `index.js`
     re-export, so the move stays a rename in git history; delete it as soon as that test can be edited (none
     is left). A unit test of a moved module that sits inside a bigger test file moves out next to the module
-    (the secret box and settings tests left `central-login.test.js`).
+    (the secret box and settings tests left `central-login.test.js`, now `auth/centralLogin.test.ts`).
   - Schema: an area's tables and migrations go in its folder's `schema.ts` (`{ tables, migrations }`, typed by
     `AreaSchema` / `Migration` from `shared/db.ts` with `import type`, so there is no import cycle at run time),
     listed once in `SCHEMA` in `shared/db.ts`; rules in "Database Migrations" above. An area that has not moved

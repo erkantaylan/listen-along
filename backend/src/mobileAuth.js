@@ -100,8 +100,8 @@
 const crypto = require('crypto');
 const express = require('express');
 const { make: makeLimiter } = require('./shared/rateLimits.ts');
-const { linkCentralIdentity, centralName } = require('./oidcLink');
-const { hashId, SESSION_MAX_AGE_MS } = require('./oidcSessions');
+const { linkCentralIdentity, centralName } = require('./auth/oidcLink.ts');
+const { hashId, SESSION_MAX_AGE_MS } = require('./auth/oidcSessions.ts');
 const { deriveKey } = require('./shared/secretBox.ts');
 const {
   MOBILE_TOKEN_PREFIX, CENTRAL_TOKEN_RE, mobileBearer, signDevMobileToken, signDevCode, verifyDevCode, s256,

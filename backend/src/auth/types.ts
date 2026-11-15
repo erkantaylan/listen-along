@@ -93,3 +93,62 @@ export interface Who {
 export type Identity =
   | { userId: string; account: Account; sessionId: string | null }
   | { userId: null; account: null; sessionId: null };
+
+/** Where the sign-in code logs (console; tests pass their own). */
+export type Logger = Pick<Console, 'log' | 'warn' | 'error'>;
+
+/**
+ * A validated id_token's claims, as this app reads them. openid-client checked
+ * the signature, issuer, audience, expiry and nonce; oidc.finishLogin then
+ * checked `sub` (a string of 1-255 characters), `aud` (exactly the client) and
+ * `azp` (absent or the client). Every other claim stays `unknown` and is
+ * checked where it is read (centralName, centralEmail, parseUpstream, roles).
+ */
+export interface CentralClaims {
+  readonly sub: string;
+  readonly aud?: unknown;
+  readonly azp?: unknown;
+  readonly name?: unknown;
+  readonly preferred_username?: unknown;
+  readonly email?: unknown;
+  readonly email_verified?: unknown;
+  /** authentik's `upstream` scope: [{ provider, id }] (parseUpstream) */
+  readonly upstream_identities?: unknown;
+  /** the `entitlements` scope; stored with the session, gates nothing */
+  readonly roles?: unknown;
+  readonly [claim: string]: unknown;
+}
+
+/**
+ * A `user_sessions` row: a central-login session, a browser's (cookie) or the
+ * Android app's (`lam_` Bearer). Only the SHA-256 of the raw id is stored; the
+ * tokens are AES-256-GCM boxes (shared/secretBox.ts) bound to the row's hash.
+ */
+export interface UserSessionRow {
+  id_hash: string;
+  user_id: string;
+  oidc_sub: string;
+  refresh_token_enc: string | null;
+  id_token_enc: string | null;
+  /** JSONB: the `roles` claim's strings (stored for later; gates nothing) */
+  roles: unknown;
+  /** BIGINT epoch ms */
+  created_at: string;
+  last_checked_at: string;
+  expires_at: string;
+}
+
+/** A session as the store hands it out (oidcSessions fromRow): tokens opened, times as numbers. */
+export interface Session {
+  idHash: string;
+  userId: string;
+  sub: string;
+  refreshToken: string | null;
+  idToken: string | null;
+  /** a stored token cannot be opened (SESSION_SECRET changed): the session ends */
+  tokensBroken: boolean;
+  roles: unknown[];
+  createdAt: number;
+  lastCheckedAt: number;
+  expiresAt: number;
+}
