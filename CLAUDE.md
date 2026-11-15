@@ -564,8 +564,21 @@ stays JavaScript). Until an area is converted its files stay `.js`.
     `backend/src/shared/types.ts`, type-only and written from the SQL in `db.js` (pg's parsing: BIGINT is a
     string, TIMESTAMPTZ a Date); change them with the schema. A dependency still in CommonJS gets a small
     structural interface of what the area uses, not `any`; a CommonJS helper imported by `.ts` (e.g.
-    `testServer.js`) may get JSDoc `@param` / `@returns` instead.
-  - Every importer changes in the same commit, and so does every path this file cites.
+    `testServer.js`) may get JSDoc `@param` / `@returns` instead. index.js is not typechecked, so a test checks
+    that what it passes fits (`export const realServerFits = (io: Io): ActivityIo => io;`). A JavaScript
+    function whose inferred type is too loose is typed once where it is imported (`classifyInputJs as (input:
+    unknown) => Classified`).
+  - Test files: `node:test` / `node:assert/strict` imports; the optional testcontainers package by
+    `try { ({ PostgreSqlContainer } = await import('@testcontainers/postgresql')); } catch {}`; server, socket
+    and database JSON may be read through one `type Payload = any` per file. Run one folder's tests with
+    `node --test 'src/features/<name>/*.test.ts'` (a directory argument is not searched).
+  - Every importer changes in the same commit, and so does every path this file cites. When a test that cannot
+    be edited yet still requires an old path, a folder with the old name holds a one-line `index.js`
+    re-export (`backend/src/chat/`, `presence/`), so the move stays a rename in git history.
+  - Left in CommonJS on purpose: `ytdlp.js` (the resolver, the download jobs and `/health` use it) and
+    `songReports.js` / `songVerify.js` (library.js and libraryRoutes.js use them inside the library's own
+    queries and routes) go to `core/` with the library, not to `features/`. The artist pages import the radio's
+    `toStationSong`: the one feature-to-feature import, until that row moves to the library.
 - `frontend/src/globals.d.ts` types the classic-script globals (`io`,
   `window.i18n`, `MediaSessionManager`); `i18n.js` and `media-session.js` stay
   classic scripts. `frontend/package.json` is `"type": "module"` so Node
