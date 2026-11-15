@@ -30,13 +30,13 @@ const adminAuth = require('./adminAuth');
 const ytdlp = require('./ytdlp');
 const { apiLimiter, make } = require('./rateLimits');
 const { isOutdated } = require('./cliRelease');
-const { cleanPicks, MAX_PICKS } = require('./picker');
+const { cleanPicks, MAX_PICKS } = require('./features/picker/index.ts');
 
 // Each preview may run yt-dlp once on the server; results are kept a while.
 const previewLimiter = make(30, 60 * 1000, { message: 'Too many link lookups, slow down' });
 const PREVIEW_CACHE_MS = 10 * 60 * 1000;
 const PREVIEW_CACHE_SIZE = 200;
-// The pick dialog: a search or a playlist listing each (picker.js keeps answers a while).
+// The pick dialog: a search or a playlist listing each (features/picker keeps answers a while).
 const pickLimiter = make(30, 60 * 1000, { message: 'Too many searches, slow down' });
 
 /** "Differs a lot": more than 15 seconds and more than 10% of the current length. */
@@ -57,7 +57,7 @@ function durationDiffers(current, next) {
  * @param {(playlistId, userId) => Promise<object|null>} hooks.visiblePlaylist - the playlist if this user can see it
  * @param {(job) => void} [hooks.onJobUpdated]
  * @param {(videoId) => Promise<{title, channel, duration_sec}|null>} [hooks.previewVideo]
- * @param {object} hooks.picker - picker.js (lookup, search, titles)
+ * @param {object} hooks.picker - features/picker (lookup, search, titles)
  */
 function createJobRouter(hooks) {
   const { requireUser, requireMember, hub } = hooks;
@@ -129,7 +129,7 @@ function createJobRouter(hooks) {
     res.json({ jobs: rows.map(jobs.toPublic), workers: workerCounts() });
   }));
 
-  // What the pick dialog shows before anything is queued (picker.js for the
+  // What the pick dialog shows before anything is queued (features/picker for the
   // shapes). `query` is always a search (a playlist item's alternatives);
   // `input` is read like the Download box does. Nothing is created here.
   router.post('/api/jobs/picks', requireUser, requireDb, pickLimiter, express.json(), route('look that up', async (req, res) => {

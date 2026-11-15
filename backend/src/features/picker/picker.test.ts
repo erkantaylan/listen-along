@@ -5,68 +5,84 @@
 //   - POST /api/jobs { picks } and socket queue:add { picks }: the chosen video
 //     is what the job / request carries, and what a worker is sent
 //   - both without picks: exactly what they did before
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const { execSync } = require('node:child_process');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const { io: ioClient } = require('socket.io-client');
-const { cookieFor, startServer, requester } = require('./testServer');
-const { createPicker, cleanPicks, MAX_PICKS, SEARCH_COUNT } = require('./picker');
-const { createResolver } = require('./songResolver');
-const { parseSpotifyUrl } = require('./spotify');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { execSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import pg from 'pg';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { io as ioClient } from 'socket.io-client';
+import type { Socket as ClientSocket } from 'socket.io-client';
+import { cookieFor, startServer, requester } from '../../testServer.js';
+import { createPicker, cleanPicks, MAX_PICKS, SEARCH_COUNT } from './picker.ts';
+import type { PickAnswer, PickerDeps, PickerSong, PickError, YtEntry } from './picker.ts';
+import { createResolver } from '../../songResolver.js';
+import { parseSpotifyUrl } from '../../spotify.js';
 
-let PostgreSqlContainer;
-try { PostgreSqlContainer = require('@testcontainers/postgresql').PostgreSqlContainer; } catch {}
-const has = (cmd) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
+// What the server answers (HTTP, sockets, worker messages, database rows):
+// JSON, read field by field below.
+type Payload = any;
+
+let PostgreSqlContainer: typeof import('@testcontainers/postgresql').PostgreSqlContainer | undefined;
+try { ({ PostgreSqlContainer } = await import('@testcontainers/postgresql')); } catch {}
+const has = (cmd: string) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
 const skip = !PostgreSqlContainer ? 'testcontainers package not installed'
   : !has('docker info') ? 'Docker not available'
   : typeof WebSocket !== 'function' ? 'no global WebSocket (Node >= 22)' : false;
 
 const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
-async function until(fn, what, ms = 8000) {
+async function until<T>(fn: () => T | Promise<T>, what: string, ms = 8000): Promise<NonNullable<T>> {
   const end = Date.now() + ms;
   for (;;) {
     const v = await fn();
-    if (v) return v;
+    if (v) return v as NonNullable<T>;
     if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
     await tick(25);
   }
 }
 
-const vid = (n) => `video${String(n).padStart(6, '0')}`;
-const watch = (id) => `https://www.youtube.com/watch?v=${id}`;
+const vid = (n: number) => `video${String(n).padStart(6, '0')}`;
+const watch = (id: string) => `https://www.youtube.com/watch?v=${id}`;
+/** A refused lookup, as assert.rejects sees it. */
+const refused = (err: unknown) => err as PickError;
+/** An answer that lists videos (the test fails here on a library answer). */
+function listed(a: PickAnswer): Exclude<PickAnswer, { kind: 'library' }> {
+  assert.ok('results' in a, `a list, not ${a.kind}`);
+  return a;
+}
 
 describe('picker (fakes)', () => {
   const librarySong = { id: '11111111-1111-4111-8111-111111111111', youtube_id: vid(3), title: 'In Library', artist: 'Band' };
 
-  function make(over = {}) {
-    const calls = { search: [], playlist: [], preview: [], spotify: [], oembed: [] };
+  type Over = { songs?: PickerSong[]; library?: Partial<NonNullable<PickerDeps['library']>>; ytdlp?: Partial<NonNullable<PickerDeps['ytdlp']>>; spotify?: Partial<NonNullable<PickerDeps['spotify']>> };
+  function make(over: Over = {}) {
+    const calls = { search: [] as [string, number][], playlist: [] as string[], preview: [] as string[], spotify: [] as string[], oembed: [] as string[] };
     let clock = 1000;
     const songs = over.songs || [librarySong];
     const library = {
-      isYoutubeId: (v) => typeof v === 'string' && /^[A-Za-z0-9_-]{11}$/.test(v),
-      getByYoutubeId: async (id) => songs.find((s) => s.youtube_id === id) || null,
-      getByYoutubeIds: async (ids) => new Map(songs.filter((s) => ids.includes(s.youtube_id)).map((s) => [s.youtube_id, s])),
-      findBestTextMatch: async () => null,
-      findByTitleArtist: async () => null,
-      toPublic: (s) => ({ id: s.id, title: s.title }),
+      isYoutubeId: (v: unknown) => typeof v === 'string' && /^[A-Za-z0-9_-]{11}$/.test(v),
+      getByYoutubeId: async (id: string) => songs.find((s) => s.youtube_id === id) || null,
+      getByYoutubeIds: async (ids: string[]) => new Map(songs.filter((s) => ids.includes(s.youtube_id as string)).map((s) => [s.youtube_id as string, s])),
+      findBestTextMatch: async (): Promise<PickerSong | null> => null,
+      findByTitleArtist: async (title: string, artist: string | null): Promise<PickerSong | null> => null,
+      toPublic: (s: PickerSong) => ({ id: s.id, title: s.title }),
       ...over.library,
     };
     const ytdlp = {
-      searchYoutubeMany: async (query, count) => {
+      searchYoutubeMany: async (query: string, count: number): Promise<YtEntry[]> => {
         calls.search.push([query, count]);
         return [1, 2, 3, 4, 5].map((n) => ({ id: vid(n), title: `Hit ${n}`, duration: 100 + n, channel: 'Ch' }));
       },
-      getPlaylistEntries: async (url) => { calls.playlist.push(url); return [7, 3, 8].map((n) => ({ id: vid(n), title: `Entry ${n}`, duration: 0, channel: null })); },
-      previewVideo: async (id) => { calls.preview.push(id); return { title: 'Previewed', channel: 'Chan', duration_sec: 61 }; },
-      getOembed: async (id) => { calls.oembed.push(id); return { title: `Oembed ${id}`, channel: 'Chan' }; },
+      getPlaylistEntries: async (url: string): Promise<YtEntry[]> => { calls.playlist.push(url); return [7, 3, 8].map((n) => ({ id: vid(n), title: `Entry ${n}`, duration: 0, channel: null })); },
+      previewVideo: async (id: string): Promise<{ title: string | null; channel: string | null; duration_sec: number | null } | null> => { calls.preview.push(id); return { title: 'Previewed', channel: 'Chan', duration_sec: 61 }; },
+      getOembed: async (id: string) => { calls.oembed.push(id); return { title: `Oembed ${id}`, channel: 'Chan' }; },
       ...over.ytdlp,
     };
-    const spotify = { parseSpotifyUrl, getTrack: async (url) => { calls.spotify.push(url); return { name: 'Song', artist: 'Band' }; }, ...over.spotify };
+    const spotify = { parseSpotifyUrl, getTrack: async (url: string) => { calls.spotify.push(url); return { name: 'Song', artist: 'Band' }; }, ...over.spotify };
     const picker = createPicker({ library, ytdlp, spotify, cacheMs: 1000, now: () => clock });
-    return { picker, calls, advance: (ms) => { clock += ms; } };
+    return { picker, calls, advance: (ms: number) => { clock += ms; } };
   }
 
   it('search text: the first results, the library\'s marked', async () => {
@@ -101,17 +117,17 @@ describe('picker (fakes)', () => {
   });
 
   it('library marking is fresh on every answer, also from the cache', async () => {
-    const songs = [];
+    const songs: PickerSong[] = [];
     const { picker } = make({ songs });
-    assert.equal((await picker.lookup('x')).results[0].in_library, null);
+    assert.equal(listed(await picker.lookup('x')).results[0].in_library, null);
     songs.push({ id: 'new', youtube_id: vid(1), title: 'Now here', artist: '' });
-    assert.deepEqual((await picker.lookup('x')).results[0].in_library, { id: 'new', title: 'Now here', artist: null });
+    assert.deepEqual(listed(await picker.lookup('x')).results[0].in_library, { id: 'new', title: 'Now here', artist: null });
   });
 
   it('a failed search is a 502 and is not kept', async () => {
     let fail = true;
     const { picker } = make({ ytdlp: { searchYoutubeMany: async () => { if (fail) throw new Error('bot check'); return []; } } });
-    await assert.rejects(picker.lookup('x'), (err) => err.status === 502 && err.code === 'LOOKUP_FAILED' && /bot check/.test(err.message));
+    await assert.rejects(picker.lookup('x'), (err) => refused(err).status === 502 && refused(err).code === 'LOOKUP_FAILED' && /bot check/.test(refused(err).message));
     fail = false;
     assert.deepEqual(await picker.lookup('x'), { kind: 'search', query: 'x', results: [] });
   });
@@ -119,10 +135,10 @@ describe('picker (fakes)', () => {
   it('bad input is a 400', async () => {
     const { picker, calls } = make();
     for (const input of ['', '   ', null, 'https://soundcloud.com/a/b', 'https://open.spotify.com/album/x', 'x'.repeat(501)]) {
-      await assert.rejects(picker.lookup(input), (err) => err.status === 400 && err.code === 'BAD_INPUT', String(input).slice(0, 30));
+      await assert.rejects(picker.lookup(input), (err) => refused(err).status === 400 && refused(err).code === 'BAD_INPUT', String(input).slice(0, 30));
     }
     for (const query of ['', '  ', undefined, 42, 'x'.repeat(501)]) {
-      await assert.rejects(picker.search(query), (err) => err.status === 400 && err.code === 'BAD_INPUT');
+      await assert.rejects(picker.search(query), (err) => refused(err).status === 400 && refused(err).code === 'BAD_INPUT');
     }
     assert.equal(calls.search.length, 0);
   });
@@ -138,7 +154,7 @@ describe('picker (fakes)', () => {
 
   it('a video that cannot be looked up is still offered, and asked again next time', async () => {
     const { picker, calls } = make({ ytdlp: { previewVideo: async (id) => { calls.preview.push(id); return null; } } });
-    const r = await picker.lookup(watch(vid(9)));
+    const r = listed(await picker.lookup(watch(vid(9))));
     assert.deepEqual(r.results, [{ youtube_id: vid(9), title: null, channel: null, duration_sec: null, in_library: null }]);
     await picker.lookup(watch(vid(9)));
     assert.equal(calls.preview.length, 2);
@@ -152,10 +168,10 @@ describe('picker (fakes)', () => {
     assert.equal(r.kind, 'playlist');
     assert.equal(r.total, MAX_PICKS + 20);
     assert.equal(r.results.length, MAX_PICKS);
-    assert.equal(r.results[3].in_library.id, librarySong.id);
+    assert.equal(r.results[3].in_library!.id, librarySong.id);
     await picker.lookup('https://www.youtube.com/playlist?list=PLabc');
     assert.deepEqual(calls.playlist, ['https://www.youtube.com/playlist?list=PLabc']);
-    assert.equal(picker.known(vid(MAX_PICKS - 1)).title, `E${MAX_PICKS - 1}`);
+    assert.equal(picker.known(vid(MAX_PICKS - 1))!.title, `E${MAX_PICKS - 1}`);
     assert.equal(picker.known(vid(MAX_PICKS)), null, 'what cannot be picked is not remembered');
   });
 
@@ -166,7 +182,7 @@ describe('picker (fakes)', () => {
     assert.equal(r.query, 'Band - Song');
     assert.deepEqual(calls.search, [['Band - Song', SEARCH_COUNT]]);
     const broken = make({ spotify: { getTrack: async () => { throw new Error('gone'); } } });
-    await assert.rejects(broken.picker.lookup('https://open.spotify.com/track/abc'), (err) => err.status === 400 && /Spotify/.test(err.message));
+    await assert.rejects(broken.picker.lookup('https://open.spotify.com/track/abc'), (err) => refused(err).status === 400 && /Spotify/.test(refused(err).message));
   });
 
   it('search() is always a search, whatever the text looks like', async () => {
@@ -208,11 +224,12 @@ describe('picker (fakes)', () => {
 });
 
 describe('picker.titles (chosen videos)', () => {
-  const fake = (getOembed) => createPicker({
+  // Only what titles() and search() reach.
+  const fake = (getOembed: NonNullable<PickerDeps['ytdlp']>['getOembed']) => createPicker({
     library: { getByYoutubeIds: async () => new Map() },
     ytdlp: { searchYoutubeMany: async () => [{ id: vid(1), title: 'Looked up', duration: 10 }], getOembed },
     spotify: { parseSpotifyUrl },
-  });
+  } as unknown as PickerDeps);
 
   it('what a lookup said, without asking anyone', async () => {
     const picker = fake(async () => { throw new Error('not needed'); });
@@ -220,7 +237,7 @@ describe('picker.titles (chosen videos)', () => {
     assert.deepEqual([...await picker.titles([vid(1), vid(1)])], [[vid(1), 'Looked up']]);
   });
   it('a video it no longer knows gets its title from oEmbed, and is remembered', async () => {
-    const asked = [];
+    const asked: string[] = [];
     const picker = fake(async (id) => { asked.push(id); return id === vid(3) ? null : { title: `Oembed ${id}`, channel: 'C' }; });
     await picker.search('x');
     const titles = await picker.titles([vid(1), vid(2), vid(3)]);
@@ -257,7 +274,7 @@ describe('cleanPicks', () => {
   it('takes 1 to MAX_PICKS video ids, each once', () => {
     assert.deepEqual(cleanPicks([vid(1)]), [vid(1)]);
     assert.deepEqual(cleanPicks([vid(1), vid(2), vid(1)]), [vid(1), vid(2)]);
-    assert.equal(cleanPicks(Array.from({ length: MAX_PICKS }, (_, i) => vid(i))).length, MAX_PICKS);
+    assert.equal(cleanPicks(Array.from({ length: MAX_PICKS }, (_, i) => vid(i)))!.length, MAX_PICKS);
   });
   it('refuses anything else', () => {
     for (const bad of [null, undefined, '', vid(1), {}, [], [vid(1), 'short'], [42], [null], [`${vid(1)}x`], [watch(vid(1))],
@@ -269,8 +286,8 @@ describe('cleanPicks', () => {
 
 describe('songResolver: chosen videos', () => {
   const song = { id: 's1', youtube_id: vid(1), title: 'Have it' };
-  const resolver = (over = {}) => createResolver({
-    library: { getByYoutubeId: async (id) => (id === vid(1) ? song : null), youtubeUrl: watch },
+  const resolver = (over: object = {}) => createResolver({
+    library: { getByYoutubeId: async (id: string) => (id === vid(1) ? song : null), youtubeUrl: watch },
     ytdlp: {
       getOembed: async () => ({ title: 'From oEmbed' }),
       searchYoutube: async () => { throw new Error('a chosen video is never searched for'); },
@@ -278,9 +295,9 @@ describe('songResolver: chosen videos', () => {
     },
     spotify: { parseSpotifyUrl },
     ...over,
-  });
+  } as Parameters<typeof createResolver>[0]);
 
-  const titled = (map) => async (ids) => new Map(ids.filter((id) => map[id]).map((id) => [id, map[id]]));
+  const titled = (map: Record<string, string>) => async (ids: string[]) => new Map(ids.filter((id) => map[id]).map((id) => [id, map[id]]));
 
   it('one video: the library song, or a request for exactly it', async () => {
     assert.deepEqual(await resolver().resolve({ picks: [vid(1)] }), { type: 'library', song });
@@ -288,36 +305,38 @@ describe('songResolver: chosen videos', () => {
       { type: 'request', request: { youtubeId: vid(2), url: watch(vid(2)), title: 'Server title', artist: null } });
   });
   it('titles are asked only for videos the library does not have', async () => {
-    const asked = [];
-    await resolver({ videoTitles: async (ids) => { asked.push(...ids); return new Map(); } }).resolve({ picks: [vid(1), vid(2)] });
+    const asked: string[] = [];
+    await resolver({ videoTitles: async (ids: string[]) => { asked.push(...ids); return new Map(); } }).resolve({ picks: [vid(1), vid(2)] });
     assert.deepEqual(asked, [vid(2)]);
   });
   it('several: answered like a playlist, in order; a title nobody has stays empty', async () => {
     const r = await resolver({ videoTitles: titled({ [vid(3)]: 'Three' }) }).resolve({ picks: [vid(2), vid(1), vid(3)] });
     assert.equal(r.type, 'playlist');
     assert.equal(r.total, 3);
-    assert.deepEqual(r.items.map((x) => x.type), ['request', 'library', 'request']);
+    assert.deepEqual(r.items.map((x: Payload) => x.type), ['request', 'library', 'request']);
     assert.deepEqual(r.items[0].request, { youtubeId: vid(2), url: watch(vid(2)), title: null, artist: null });
     assert.equal(r.items[2].request.title, 'Three');
   });
 });
 
 describe('pick the video on Postgres', { skip, timeout: 240_000 }, () => {
-  let container;
-  let dbUrl;
-  let pg;
-  let srv;
-  let req;
-  let tmp;
-  let stubDir;
-  let callLog;
-  const ids = {};
-  const cookies = {};
-  const playlists = {};
-  const workers = [];
-  const sockets = [];
-  let token;
-  let librarySong;
+  type Worker = { ws: WebSocket; name: string; jobs: Payload[]; closed: number | null; id?: string };
+  type Watched = ClientSocket & { seen: [string, Payload][] };
+  let container: StartedPostgreSqlContainer | undefined;
+  let dbUrl: string;
+  let db: pg.Client | undefined;
+  let srv: Awaited<ReturnType<typeof startServer>> | undefined;
+  let req: ReturnType<typeof requester>;
+  let tmp: string;
+  let stubDir: string;
+  let callLog: string;
+  const ids: Record<string, string> = {};
+  const cookies: Record<string, string> = {};
+  const playlists: Record<string, string> = {};
+  const workers: Worker[] = [];
+  const sockets: ClientSocket[] = [];
+  let token: string;
+  let librarySong: Payload;
 
   // The stand-in yt-dlp: "ytsearchN:<query>" gives N results r<query hash>…,
   // "none…" nothing, "fail…" an error, "libfirst…" the library's video first,
@@ -347,8 +366,8 @@ if (!m) {
 `;
 
   const ytCalls = () => (fs.existsSync(callLog) ? fs.readFileSync(callLog, 'utf8').split('\n').filter((line) => line && line !== '--version') : []);
-  const picks = (who, body) => req('POST', '/api/jobs/picks', { cookie: who ? cookies[who] : undefined, body });
-  const createJobs = (who, body) => req('POST', '/api/jobs', { cookie: cookies[who], body });
+  const picks = (who: string | null, body: unknown) => req('POST', '/api/jobs/picks', { cookie: who ? cookies[who] : undefined, body });
+  const createJobs = (who: string, body: unknown) => req('POST', '/api/jobs', { cookie: cookies[who], body });
 
   async function boot() {
     srv = await startServer({
@@ -359,9 +378,9 @@ if (!m) {
     req = requester(srv.base);
   }
 
-  function connectWorker(name) {
-    const ws = new WebSocket(srv.base.replace(/^http/, 'ws') + '/api/workers/connect');
-    const w = { ws, name, jobs: [], closed: null };
+  function connectWorker(name: string): Promise<Worker> {
+    const ws = new WebSocket(srv!.base.replace(/^http/, 'ws') + '/api/workers/connect');
+    const w: Worker = { ws, name, jobs: [], closed: null };
     ws.addEventListener('message', (ev) => {
       const msg = JSON.parse(ev.data);
       if (msg.type === 'ping') ws.send(JSON.stringify({ type: 'pong' }));
@@ -375,29 +394,29 @@ if (!m) {
       cli_version: '0.2.0', node_version: '24.0.0', ytdlp_version: '2026.10.26',
     })));
     workers.push(w);
-    return until(() => w.id && w, `${name} welcome`);
+    return until(() => (w.id ? w : null), `${name} welcome`);
   }
 
-  function socketFor(who) {
-    const s = ioClient(srv.base, { transports: ['websocket'], forceNew: true, reconnection: false, extraHeaders: { cookie: cookies[who] } });
+  function socketFor(who: string): Promise<Watched> {
+    const s = ioClient(srv!.base, { transports: ['websocket'], forceNew: true, reconnection: false, extraHeaders: { cookie: cookies[who] } }) as Watched;
     sockets.push(s);
     s.seen = [];
     s.onAny((event, data) => s.seen.push([event, data]));
     return new Promise((resolve, reject) => { s.on('connect', () => resolve(s)); s.on('connect_error', reject); });
   }
-  const nextEvent = (s, names, from = 0) => until(() => s.seen.slice(from).find(([e]) => names.includes(e)), names.join('/'));
-  async function joined(who, lobbyId) {
+  const nextEvent = (s: Watched, names: string[], from = 0) => until(() => s.seen.slice(from).find(([e]) => names.includes(e)), names.join('/'));
+  async function joined(who: string, lobbyId: string) {
     const s = await socketFor(who);
     s.emit('lobby:join', { lobbyId, username: who });
     assert.equal((await nextEvent(s, ['lobby:joined', 'lobby:not-found', 'lobby:error']))[0], 'lobby:joined');
     return s;
   }
-  const requestsFor = async (lobbyId) => (await pg.query('SELECT * FROM song_requests WHERE lobby_id = $1 ORDER BY created_at', [lobbyId])).rows;
-  const jobRows = async (where, params) => (await pg.query(`SELECT * FROM download_jobs WHERE ${where} ORDER BY created_at, id`, params)).rows;
-  const queueOf = async (who, id) => (await req('GET', `/api/playlists/${id}/songs`, { cookie: cookies[who] })).body.songs;
+  const requestsFor = async (lobbyId: string): Promise<Payload[]> => (await db!.query('SELECT * FROM song_requests WHERE lobby_id = $1 ORDER BY created_at', [lobbyId])).rows;
+  const jobRows = async (where: string, params: unknown[]): Promise<Payload[]> => (await db!.query(`SELECT * FROM download_jobs WHERE ${where} ORDER BY created_at, id`, params)).rows;
+  const queueOf = async (who: string, id: string): Promise<Payload[]> => (await req('GET', `/api/playlists/${id}/songs`, { cookie: cookies[who] })).body.songs;
 
   before(async () => {
-    container = await new PostgreSqlContainer('postgres:16-alpine')
+    container = await new PostgreSqlContainer!('postgres:16-alpine')
       .withDatabase('listen_picks').withUsername('test').withPassword('test').start();
     dbUrl = container.getConnectionUri();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'la-picks-'));
@@ -417,11 +436,10 @@ globalThis.fetch = async (url, opts) => {
   return real(url, opts);
 };`);
     await boot();
-    const { Client } = require('pg');
-    pg = new Client({ connectionString: dbUrl });
-    await pg.connect();
+    db = new pg.Client({ connectionString: dbUrl });
+    await db.connect();
     for (const key of ['alice', 'bob', 'pending']) {
-      const r = await pg.query(
+      const r = await db.query(
         `INSERT INTO users (provider, provider_id, name, display_name, status, created_at) VALUES ('github', $1, $2, $3, $4, 1) RETURNING id`,
         [key, key, key[0].toUpperCase() + key.slice(1), key === 'pending' ? 'pending' : 'approved']
       );
@@ -431,12 +449,12 @@ globalThis.fetch = async (url, opts) => {
     const t = await req('POST', '/api/tokens', { cookie: cookies.alice, body: { label: 'x' } });
     assert.equal(t.status, 201, t.text);
     token = t.body.token;
-    for (const [key, who, visibility] of [['pub', 'alice', 'public'], ['priv', 'alice', 'private']]) {
+    for (const [key, who, visibility] of [['pub', 'alice', 'public'], ['priv', 'alice', 'private']] as const) {
       const r = await req('POST', '/api/playlists', { cookie: cookies[who], body: { name: key, visibility } });
       assert.equal(r.status, 201, r.text);
       playlists[key] = r.body.id;
     }
-    librarySong = (await pg.query(
+    librarySong = (await db.query(
       `INSERT INTO library_songs (youtube_id, title, artist, duration_sec, file_path, sha256, uploaded_by)
        VALUES ('inlibrary01', 'Quokka Anthem', 'The Band', 180, '/nowhere/x.m4a', $1, 'test') RETURNING *`, ['a'.repeat(64)]
     )).rows[0];
@@ -445,7 +463,7 @@ globalThis.fetch = async (url, opts) => {
   after(async () => {
     for (const s of sockets) s.close();
     for (const w of workers) { try { w.ws.close(); } catch {} }
-    if (pg) await pg.end().catch(() => {});
+    if (db) await db.end().catch(() => {});
     if (srv) await srv.stop();
     if (container) await container.stop();
     if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
@@ -515,7 +533,7 @@ globalThis.fetch = async (url, opts) => {
       assert.equal(r.status, 200, r.text);
       assert.equal(r.body.kind, 'playlist');
       assert.equal(r.body.total, 3);
-      assert.deepEqual(r.body.results.map((v) => v.youtube_id), ['listvideo01', 'inlibrary01', 'listvideo03']);
+      assert.deepEqual(r.body.results.map((v: Payload) => v.youtube_id), ['listvideo01', 'inlibrary01', 'listvideo03']);
       assert.equal(r.body.results[1].in_library.id, librarySong.id);
       assert.equal(r.body.results[0].channel, 'List Ch');
       assert.equal(r.body.title, 'Road Mix', 'the playlist\'s own name (the search page\'s import card)');
@@ -577,17 +595,17 @@ globalThis.fetch = async (url, opts) => {
     });
 
     it('picks: a failure part way keeps and dispatches what was queued, and names the rest', async () => {
-      await pg.query(`CREATE FUNCTION refuse_job() RETURNS trigger AS $$ BEGIN
+      await db!.query(`CREATE FUNCTION refuse_job() RETURNS trigger AS $$ BEGIN
         IF NEW.input LIKE '%refuseme002%' THEN RAISE EXCEPTION 'refused for the test'; END IF; RETURN NEW; END $$ LANGUAGE plpgsql`);
-      await pg.query('CREATE TRIGGER refuse_job BEFORE INSERT ON download_jobs FOR EACH ROW EXECUTE FUNCTION refuse_job()');
+      await db!.query('CREATE TRIGGER refuse_job BEFORE INSERT ON download_jobs FOR EACH ROW EXECUTE FUNCTION refuse_job()');
       // An idle worker with nothing else waiting: it gets the job only if this request dispatches.
-      await pg.query("UPDATE download_jobs SET status = 'cancelled' WHERE status = 'queued'");
+      await db!.query("UPDATE download_jobs SET status = 'cancelled' WHERE status = 'queued'");
       const worker = await connectWorker('part-way-worker');
       try {
         const r = await createJobs('alice', { picks: ['refuseme001', 'inlibrary01', 'refuseme002', 'refuseme003'] });
         assert.equal(r.status, 201, r.text);
-        assert.deepEqual(r.body.jobs.map((j) => j.input), [watch('refuseme001')]);
-        assert.deepEqual(r.body.existing.map((s) => s.id), [librarySong.id]);
+        assert.deepEqual(r.body.jobs.map((j: Payload) => j.input), [watch('refuseme001')]);
+        assert.deepEqual(r.body.existing.map((s: Payload) => s.id), [librarySong.id]);
         assert.deepEqual(r.body.failed, ['refuseme002', 'refuseme003']);
         assert.match(r.body.error, /2 of 4 could not be queued/);
         const sent = await until(() => worker.jobs.find((j) => j.id === r.body.jobs[0].id), 'the queued job at the worker');
@@ -598,8 +616,8 @@ globalThis.fetch = async (url, opts) => {
         assert.equal(none.status, 500);
         assert.equal(none.body.jobs, undefined);
       } finally {
-        await pg.query('DROP TRIGGER refuse_job ON download_jobs');
-        await pg.query('DROP FUNCTION refuse_job()');
+        await db!.query('DROP TRIGGER refuse_job ON download_jobs');
+        await db!.query('DROP FUNCTION refuse_job()');
         worker.ws.close();
         await until(async () => (await req('GET', '/api/workers', { cookie: cookies.alice })).body.online === 0, 'no workers online');
       }
@@ -620,11 +638,11 @@ globalThis.fetch = async (url, opts) => {
     it('picks: several videos are one job each; the library\'s go straight to the playlist', async () => {
       const r = await createJobs('alice', { picks: ['listvideo01', 'inlibrary01', 'listvideo03', 'listvideo01'], playlist_id: playlists.priv });
       assert.equal(r.status, 201, r.text);
-      assert.deepEqual(r.body.jobs.map((j) => [j.kind, j.input, j.title, j.playlist_id]), [
+      assert.deepEqual(r.body.jobs.map((j: Payload) => [j.kind, j.input, j.title, j.playlist_id]), [
         ['video', watch('listvideo01'), 'Entry 1', playlists.priv],
         ['video', watch('listvideo03'), 'Entry 3', playlists.priv],
       ]);
-      assert.deepEqual(r.body.existing.map((s) => s.id), [librarySong.id]);
+      assert.deepEqual(r.body.existing.map((s: Payload) => s.id), [librarySong.id]);
       assert.equal(r.body.added_to_playlist, 1);
       assert.equal(r.body.playlist_id, playlists.priv);
       assert.deepEqual((await queueOf('alice', playlists.priv)).map((s) => s.library_id), [librarySong.id]);
@@ -687,7 +705,7 @@ globalThis.fetch = async (url, opts) => {
       assert.equal(s.seen.slice(from).some(([e]) => e === 'queue:adding'), false, 'nothing was looked up');
       const rows = await requestsFor(playlists.pub);
       assert.deepEqual(rows.map((r) => [r.youtube_id, r.url]), [['resultalph4', watch('resultalph4')]]);
-      const [job] = await until(async () => { const j = await jobRows('request_id = $1', [rows[0].id]); return j.length && j; }, 'the request job');
+      const [job] = await until<Payload>(async () => { const j = await jobRows('request_id = $1', [rows[0].id]); return j.length && j; }, 'the request job');
       assert.equal(job.kind, 'video');
       assert.equal(job.input, watch('resultalph4'));
       assert.equal(job.source, 'request');
@@ -711,8 +729,8 @@ globalThis.fetch = async (url, opts) => {
       assert.match(data.status, /added 1 song, 2 not in the library yet \(requested\)/);
       const rows = await requestsFor(playlists.pub);
       assert.deepEqual(rows.map((r) => [r.youtube_id, r.title]).slice(1), [['listvideo01', 'Entry 1'], ['listvideo03', 'Entry 3']]);
-      const jobs = await until(async () => { const j = await jobRows('request_id = ANY($1::uuid[])', [rows.slice(1).map((r) => r.id)]); return j.length === 2 && j; }, 'two request jobs');
-      assert.deepEqual(jobs.map((j) => [j.kind, j.input]).sort(), [['video', watch('listvideo01')], ['video', watch('listvideo03')]]);
+      const jobs = await until<Payload>(async () => { const j = await jobRows('request_id = ANY($1::uuid[])', [rows.slice(1).map((r) => r.id)]); return j.length === 2 && j; }, 'two request jobs');
+      assert.deepEqual(jobs.map((j: Payload) => [j.kind, j.input]).sort(), [['video', watch('listvideo01')], ['video', watch('listvideo03')]]);
     });
 
     it('picks: a video with an open request in this playlist is not requested twice; another playlist gets its own', async () => {
@@ -786,11 +804,11 @@ globalThis.fetch = async (url, opts) => {
 
   describe('a chosen video the server no longer knows (restart between lookup and confirm)', () => {
     it('several picks get their titles from oEmbed, for jobs and for requests', async () => {
-      await srv.stop();
+      await srv!.stop();
       await boot();
       const r = await createJobs('alice', { picks: ['knownvid101', 'neverseen02', 'knownvid102'] });
       assert.equal(r.status, 201, r.text);
-      assert.deepEqual(r.body.jobs.map((j) => [j.input, j.title]), [
+      assert.deepEqual(r.body.jobs.map((j: Payload) => [j.input, j.title]), [
         [watch('knownvid101'), 'Oembed knownvid101'], [watch('neverseen02'), null], [watch('knownvid102'), 'Oembed knownvid102'],
       ]);
       const s = await joined('alice', playlists.pub);
@@ -805,7 +823,7 @@ globalThis.fetch = async (url, opts) => {
 
   describe('rate limit', () => {
     it('30 lookups a minute per client, cached or not', async () => {
-      await srv.stop();
+      await srv!.stop();
       await boot();
       for (let i = 0; i < 30; i++) {
         const r = await picks('alice', { input: 'alpha song' });

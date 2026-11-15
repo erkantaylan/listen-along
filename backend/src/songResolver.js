@@ -105,7 +105,7 @@ function createResolver({ library = realLibrary, ytdlp = realYtdlp, spotify = re
 
   /**
    * Videos chosen in the web's pick dialog: exactly these, no search. Titles
-   * are the server's own (videoTitles: picker.js, with oEmbed for what it no
+   * are the server's own (videoTitles: features/picker, with oEmbed for what it no
    * longer knows), never the client's. Several are answered like a playlist.
    */
   async function resolvePicks(ids) {

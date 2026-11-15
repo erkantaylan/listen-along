@@ -238,7 +238,7 @@ where lobby persistence broke entirely on deployed instances.
   or button; the global search started on that page adds to it).
 - **Pick the video** (web only, before a job or request exists): `frontend/pick-dialog.js`
   (rules in `pick-rules.js`, tested; DESIGN.md "Pick the video") asks
-  `POST /api/jobs/picks` (jobRoutes.js -> `picker.js`; approved accounts, no tokens,
+  `POST /api/jobs/picks` (jobRoutes.js -> `backend/src/features/picker/`; approved accounts, no tokens,
   `pickLimiter` 30/min per `req.clientIp`, answers cached 10 min, library marking
   never cached): `{ input, match_library? }` is read by `classifyInput` and answers
   `search` (5 results via `ytdlp.searchYoutubeMany`; a Spotify track is "artist - title"),

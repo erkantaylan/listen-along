@@ -15,7 +15,7 @@
  * addedBy / requester come from the account, never from the client.
  */
 
-const { cleanPicks } = require('./picker');
+const { cleanPicks } = require('./features/picker/index.ts');
 const { createSocketRateLimit } = require('./memoryRateLimit');
 
 // Songs removed from a queue in the last minute, so the remover can undo

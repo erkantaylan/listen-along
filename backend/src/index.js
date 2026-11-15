@@ -25,7 +25,7 @@ const { createOidcClient } = require('./oidc');
 const { createSessionStore, createOidcSessions } = require('./oidcSessions');
 const { createSettings, parseRegistrationsDefault } = require('./settings');
 const { createResolver } = require('./songResolver');
-const { createPicker } = require('./picker');
+const { createPicker } = require('./features/picker/index.ts');
 const covers = require('./covers');
 const access = require('./playlistAccess');
 const playlistPins = require('./playlistPins');
@@ -57,7 +57,7 @@ const { createMemoryRateLimit } = require('./memoryRateLimit');
 const { createReactions } = require('./reactions');
 const { createHttpApp } = require('./httpApp');
 
-// The web's "pick the video" dialog (picker.js): lookups for it, and what they
+// The web's "pick the video" dialog (features/picker): lookups for it, and what they
 // said about each video, for the title of a chosen one.
 const picker = createPicker();
 const resolver = createResolver({ videoTitles: picker.titles });
