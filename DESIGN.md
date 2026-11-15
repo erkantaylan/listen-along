@@ -533,8 +533,9 @@ Two rounded panels, a gap apart (see "App shell"):
   the name, visually hidden; `title` is the tooltip). The place on screen is `aria-current="page"` (`syncPlaces`,
   Radio only on `/radio`, not while merely playing): the selection tint and accent text, never an edge; focus is
   the usual 2px ring, inset. Not shown from 768px.
-- Lower panel head: "Playlists" (bold) + the sort control + a ghost New playlist
-  icon button (not primary: the view's primary stays in the view), then the filter and the search box.
+- Lower panel head: "Playlists" (bold) + the sort control + a ghost **New folder** icon button (`#plnav-new-folder`, a
+  folder with a plus) + a ghost New playlist icon button (neither primary: the view's primary stays in the view), then the
+  filter and the search box.
 - **Filter** (`#plnav-chips`, `role="group"`): All (default), Mine, Public, Private, one at a time, `aria-pressed`: a full-width segmented
   control (`.app-seg.app-seg-fill`, see "Tabs" under "Components"), four equal buttons, `fs-xs`, 32px (40px on touch). A label may take two
   lines, and does in Turkish ("Herkese açık"), which makes the whole control 37px; a button never gets narrower than its longest word.
@@ -560,10 +561,40 @@ Two rounded panels, a gap apart (see "App shell"):
   is playing from (`.is-playing`) has the equaliser at the start of its line, an accent semibold title and the
   playing row's tint, and "playing" in its label. Hover and press as other rows. The text block is the `role="link"`: `bindContextMenu` keeps the browser's menu
   on real links, which would lose right-click and long-press here.
-- **Row actions**: pin toggle and ⋮ (`playlistMenuItems` + Pin / Unpin; right-click and long-press
+- **Row actions**: pin toggle and ⋮ (`playlistMenuItems` + Pin / Unpin and **Move to folder ▸**; right-click and long-press
   too). Shown on hover / focus-within, always on touch, and they keep their space so names do not
   jump. A pinned row always shows its pin, as a plain accent icon rather than the usual toggled box.
   `aria-pressed` + a label naming the playlist.
+- **Folders** (the user's own, like Spotify's; nobody else sees them and they change nothing about a playlist; one level;
+  `folder-tree.ts` decides what shows where, `folder-actions.ts` the dialogs and menus):
+  - A folder is a row like a playlist's: a 2.5rem `--app-btn-tonal` box with a folder icon (open while expanded), the name
+    over a muted "3 playlists" ("Empty"), a chevron (› closed, ⌄ open) and ⋮. The row is a disclosure button
+    (`aria-expanded`, `aria-controls` its list): click, Enter or Space toggles, → opens, ← closes. Its playlists follow in
+    a list of their own indented 1rem (`aria-label` the folder's name), the same rows as anywhere. An open empty folder
+    says how to fill it. Open / closed is remembered per folder in the browser (`listen-sidebarFolders`); new folders open.
+    A collapsed folder holding the playlist on air shows the equaliser and the playing row's accent name.
+  - **All** and **Mine**, no search: a **Folders** section after Pinned, before Your playlists / Public playlists (or the
+    A–Z list). A filed playlist is inside its folder and not repeated in its group; **Pinned** still shows it (a shortcut),
+    with "in <folder>" on its line. The sort applies inside each folder and to the folders (Name: A–Z by folder name; Date:
+    newest folder first). Mine shows only your playlists inside; a folder left with none of yours is hidden there, an empty
+    folder always shows. **Public** and **Private** are flat as before (a folder is neither), filed rows saying "in <folder>".
+  - **Search**: flat. Matching playlists in their groups, a filed one with "in <folder>"; above them the folders whose
+    name matches, open (closing one lasts for that search only), holding their playlists, not repeated below.
+  - Any playlist you can see can be filed (yours and public ones); one that goes private or is deleted simply leaves the
+    folder, and comes back to it if it is public again.
+  - **Actions**: New folder (the title row; also "New folder…" in a playlist's Move to folder ▸, which files it at once).
+    The folder's ⋮ / right-click / long-press: Rename (dialog) and a danger **Delete folder** that asks first ("Its 3
+    playlists go back to the list. No playlist is deleted."). A playlist's **Move to folder ▸** (sidebar rows and the landing
+    tiles and cards): the folders A–Z as radio choices (the current one checked; a search box from eight folders), then
+    New folder… and "Remove from “<folder>”". Changes apply at once and are put back with a danger toast if refused; a
+    move toasts "Moved to “…”". Other tabs of the same account follow (`playlists:changed`).
+  - **Drag** (mouse only, `(hover: hover) and (pointer: fine)`; touch keeps scrolling and the long-press menu, and
+    keyboards have the menu): a playlist row dragged onto a folder (its row or its playlists) files it there; dropped
+    anywhere else in the list it leaves its folder. The target folder row is the selection tint with a full 2px
+    `--app-accent-border` outline; the list as a target gets a full dashed outline; the dragged row dims. Never an edge or
+    an insertion line. The list does not re-render under a drag.
+  - **Rail**: each folder is one 2.5rem icon after Pinned (its playlists are not listed); clicking it expands the sidebar
+    with that folder open and focused. **Drawer** (phones): as the expanded sidebar; the menus are bottom sheets.
 - **Double-click** (`row-double-click.ts`, mouse only): a sidebar row, a rail avatar, a landing row, Radio's row or an artist card plays, as Play does (`quickPlayLobby`,
   `playRadioFromTop`, `playArtistFromTop`): from the top, shuffle taking over after the first song; the one already playing is left alone, or resumed if paused; empty gives the usual toast. The first click opens without any delay
   and the second press is taken whole, whatever is under it by then. Row controls keep their clicks. No hint, no keyboard equivalent (Enter opens; Play is in ⋮ and on landing rows), no double tap. Rows are `user-select: none`.
@@ -580,8 +611,15 @@ Every song in the listener's own shuffled order, separate from the library, whic
   it is `.is-current`: the selection tint (`--app-accent-subtle`, `--app-accent-border`, accent title); `.is-playing` adds the equaliser. No covers, no edge.
 - **Rail**: a 3rem box with the icon, among the places; tooltip and `aria-label` carry the count. **Drawer**: the same row; navigating closes the drawer.
 - **Page**: navbar with ☰ / back, a radio cover (`.cover-radio`), `h1.h6` "Radio" over a muted "All songs, shuffled", ghost Reshuffle and the view's primary Play / Pause. No hero, no art. Under it the stats strip (`statsHtml`) with songs and total length only,
-  then the playlist song table (`.queue-head`, `.queue-item`) with #, Title + artist, Duration, ⋮ at every column width from 480px, and the compact row under that. Windowed with `virtual-list.ts`, so ↑ / ↓, Page Up / Down and Home / End work as on playlists.
+  then the **search** (`#radio-search`, a labelled `.form-control-sm`, 28rem at most, with "2 of 2,108 songs" beside it while
+  there is text), then the playlist song table (`.queue-head`, `.queue-item`) with #, Title + artist, Duration, ⋮ at every column width from 480px, and the compact row under that. Windowed with `virtual-list.ts`, so ↑ / ↓, Page Up / Down and Home / End work as on playlists.
   No Added / Added by, edit mode, remove or reorder. The song menu works as on any song row.
+- **Search** (`radio-search.ts`): filters the rows as you type by title, artist and album, every word, Turkish-folded as in
+  the sidebar. It changes what is SHOWN only: rows keep their # (their place in the order), ↓ from the field goes to the
+  first row and ↑ from it back, Escape clears, a new opening starts empty. No match: "No songs match “…”" with a grey Clear
+  search. **Playback rule**: the station order is untouched. A row picked from the results plays from its place in the
+  full shuffled order, and Radio goes on from there through every song (not only the matches); Play starts at the first
+  row shown. Typing never touches the song on air.
 - **Behaviour**: opening plays nothing. Play starts at the top, so what you see is what you hear; a row plays from there (the song already playing is resumed, never
   restarted). The order is made in the browser per opening and stays while the view is open and while Radio is the player's source, playing or paused, also across navigation (with the
   current row scrolled into view). Opened when it is not the source: a fresh shuffle. Picking a song or playlist elsewhere replaces it, like any context.

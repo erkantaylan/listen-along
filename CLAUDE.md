@@ -6,7 +6,7 @@
 
 The schema lives with the area that owns each table, in a `schema.ts` exporting `{ tables, migrations }`:
 `backend/src/shared/schema.ts` (`app_settings`), `auth/schema.ts` (`users`, `user_providers`, `api_tokens`,
-`user_sessions`), `core/playlists/schema.ts` (`lobbies`, `playlist_pins`), `core/queue/schema.ts` (`queue_songs`),
+`user_sessions`), `core/playlists/schema.ts` (`lobbies`, `playlist_pins`, `playlist_folders`, `playlist_folder_items`), `core/queue/schema.ts` (`queue_songs`),
 `core/library/schema.ts` (`songs`, `library_songs`, `library_song_replacements`, `library_song_reports`),
 `core/requests/schema.ts` (`song_requests`), `core/jobs/schema.ts` (`download_workers`, `download_jobs`),
 `features/social/schema.ts` (`global_chat_messages`). `backend/src/shared/db.ts` runs them from ONE ordered list
@@ -63,7 +63,8 @@ of a fresh database and of a migrated old one.
   central-login / dev sign-in round trips, `/api/auth/me`, logout, `/login`, `/api/auth/providers`; it mounts
   the Android app's sign-in, `mobileAuth.js`, on its `router`),
   `playlistRoutes.js` (`/api/playlists` + `/api/lobbies`, songs included; `requireViewer`, `findVisiblePlaylist`;
-  returns `ownerNames`, whose cache the socket handlers share).
+  returns `ownerNames`, whose cache the socket handlers share), `core/playlists/folders.ts` (`/api/playlist-folders`, the
+  user's own sidebar folders; below).
   `socketServer.js`: the Socket.IO server, the room names (`APP_ROOM`, `userRoom`, `sessionRoom`), the handshake
   (origin check, account, rooms), the central-login re-check of open sockets, and the connection handler: the
   connection's account helpers, then `social` / `listenAlong` `attach`, then each area's `register`, then `disconnect`.
@@ -298,6 +299,13 @@ of a fresh database and of a migrated old one.
   reshuffle, a next round or `library:updated` (`reconcile`, which keeps the
   playing song and puts new songs after it). Presence reports `{ type: 'radio' }`.
   Followers need nothing: `listen:sync` carries the song alone.
+  **Radio's search** (web): the field over the table filters what is SHOWN by title, artist and album
+  (`radio-search.ts`, pure and tested; `foldText`, so Turkish letters fold as in the sidebar and the artist page;
+  `/api/stations/:id/songs` carries `album`, additive). It never touches the order or the player: a row played from
+  the results plays from its place in the full order (`player.playFrom` with the whole `page.order`), so Radio goes on
+  through the whole station, and `setRefill` / `reconcile` / the context are as before. Rows keep their `#`; the
+  virtual list's positions are the shown rows (`page.shown`), `data-index` the place in the order. Play starts at the
+  first row shown. A new opening clears it.
 - **Artists** (landing shelf, `/artists`, `/artist/<key>`): read-only song lists
   per library artist, nothing stored. `backend/src/features/artists/` (`GET /api/artists`,
   `GET /api/artists/:key/songs`, approved accounts by the guard's default, no
@@ -387,6 +395,25 @@ of a fresh database and of a migrated old one.
   playlist. The older shared `lobbies.pinned` (socket `lobby:pin`, field `pinned`)
   still exists on the server but the web no longer sets or shows it; the playlist
   page's pin button is the personal pin.
+- **Sidebar folders are per user** (like Spotify's; one level, no nesting): `core/playlists/folders.ts` (ESM, store +
+  router, mounted by index.js after `apiLimiter` for its path; tests `folders.test.ts`), tables `playlist_folders` (`id`
+  uuid, `user_id`, `name` <= 50, `position`, `created_at`; unique `(id, user_id)`) and `playlist_folder_items`
+  (`user_id`, `lobby_id`, `folder_id`, `position`; primary key `(user_id, lobby_id)` = one folder per playlist per
+  user; foreign key `(folder_id, user_id)` -> `playlist_folders(id, user_id)`, so a row can never point at another
+  user's folder). Everything cascades from the user; items from the playlist (deleted) and the folder (deleted: the
+  playlist is back at the top level, never deleted). In memory without a database (a deleted playlist's rows are
+  pruned when listed). `GET /api/playlist-folders` (`{ folders: [{ id, name, position, createdAt, playlistIds }],
+  limits }`), `POST` `{ name, playlistId? }`, `PATCH /:id` `{ name }`, `DELETE /:id`, `PUT|DELETE
+  /:id/playlists/:playlistId`; 100 folders per user (`FOLDER_LIMIT` 409, decided under a per-user advisory lock).
+  Same rule as pins: a playlist the caller cannot see is 404 `NOT_FOUND` exactly like a missing one (checked first,
+  from the in-memory playlists, `lobby.lobbies`, no database lookup: no timing difference) and is left out of
+  `playlistIds`; a filed playlist that goes private keeps its row, hidden, and is back in its folder when public again.
+  Another user's folder is `FOLDER_NOT_FOUND`. Who: the guard's default (`approved`: web cookie and the Android app's
+  `lam_` session; not `/api/playlists`, so CLI tokens get 401). Each change emits `playlists:changed` to the caller's
+  own `userRoom` only. Web: `folder-store.ts` (optimistic, rolled back with a toast on refusal; reloads on
+  `playlists:changed`), `folder-actions.ts` (dialogs, the folder menu, "Move to folder ▸"), and the sidebar's tree rules
+  in `folder-tree.ts` (pure, tested: what shows where per tab, search, sort, pins and the rail; DESIGN.md "Playlists
+  sidebar"). Collapsed folders: `listen-sidebarFolders` in localStorage.
 - The web sidebar (`frontend/src/features/playlists/sidebar.ts`, list in `playlist-store.ts`, search in
   `playlist-filter.ts`) refetches `/api/playlists` on socket `playlists:changed`
   (`notifyPlaylistsChanged` in reactions.js). The signal carries no data; a private
@@ -605,7 +632,8 @@ TypeScript one area at a time; until an area is converted its files stay
   - A converted area is a folder of ES-module `.ts` (`backend/src/features/<name>/`), moved with `git mv` so
     history follows, its tests next to it as `*.test.ts` (plain `node --test` finds them). The folder holding
     converted areas has a `package.json` that is only `{"type": "module"}` (`backend/src/features/`, `shared/`,
-    `auth/`, `core/`; the last two hold only their `schema.ts` files so far). Everything under them is ES modules,
+    `auth/`, `core/`; `auth/` holds only its `schema.ts` so far, `core/` its areas' `schema.ts` files and
+    `core/playlists/folders.ts`). Everything under them is ES modules,
     so a file moves there only once converted (never a CommonJS `.js`). Without it Node guesses the format of each `.ts`
     and prints `MODULE_TYPELESS_PACKAGE_JSON` at boot and in tests; with it there is no warning and no flag. It
     goes away when `backend/package.json` becomes `"type": "module"`.
