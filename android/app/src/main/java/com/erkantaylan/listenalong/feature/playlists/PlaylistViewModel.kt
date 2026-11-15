@@ -6,6 +6,9 @@ import com.erkantaylan.listenalong.core.data.Loaded
 import com.erkantaylan.listenalong.core.data.PlaylistRepository
 import com.erkantaylan.listenalong.core.download.BulkPlan
 import com.erkantaylan.listenalong.core.download.DownloadSnapshot
+import com.erkantaylan.listenalong.core.data.PlaylistDownloads
+import com.erkantaylan.listenalong.core.domain.PlaylistDownloadStatus
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import com.erkantaylan.listenalong.core.download.Downloads
@@ -69,7 +72,13 @@ class PlaylistViewModel(
     private val repo: PlaylistRepository,
     private val downloads: Downloads,
     private val messages: UserMessages,
+    private val playlistDownloads: PlaylistDownloads,
+    statuses: StateFlow<Map<String, PlaylistDownloadStatus>>,
 ) : ViewModel() {
+
+    /** The Download switch and what it is doing (downloaded, n of m, waiting for Wi-Fi…). */
+    val download: StateFlow<PlaylistDownloadStatus> = statuses.map { it[playlistId] ?: PlaylistDownloadStatus.Off }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, statuses.value[playlistId] ?: PlaylistDownloadStatus.Off)
 
     private val _state = MutableStateFlow(initial())
     val state: StateFlow<PlaylistDetailUi> = _state.asStateFlow()
@@ -120,8 +129,43 @@ class PlaylistViewModel(
             } catch (t: Throwable) {
                 val gone = t is ApiException && t.code == 404
                 _state.update { it.copy(loading = false, refreshing = false, error = PlaylistRepository.describe(t), gone = gone) }
+                // A downloaded playlist that is gone is shown as unavailable; its files stay.
+                if (gone && playlistDownloads.isDownloaded(playlistId)) {
+                    viewModelScope.launch { runCatching { playlistDownloads.sync() } }
+                }
             }
         }
+    }
+
+    /**
+     * "Download" on: every song of the playlist is downloaded and kept in
+     * step with the server (core/data/PlaylistDownloads).
+     */
+    fun startDownload() {
+        val p = _state.value.playlist ?: return
+        viewModelScope.launch {
+            runCatching { playlistDownloads.enable(p, PlaylistSongs(p, _state.value.entries).takeIf { !_state.value.fromCache }) }
+        }
+    }
+
+    /** "Download" off; [removeFiles]: also delete the files playlist sync saved for it (the user's own stay). */
+    fun stopDownload(removeFiles: Boolean) {
+        viewModelScope.launch {
+            val removed = playlistDownloads.disable(playlistId, removeFiles)
+            messages.say(
+                when {
+                    !removeFiles -> "Download turned off — the songs stay on this device"
+                    removed == 0 -> "Download turned off"
+                    removed == 1 -> "Download turned off — 1 song removed"
+                    else -> "Download turned off — $removed songs removed"
+                }
+            )
+        }
+    }
+
+    /** A failed playlist download: try its songs again. */
+    fun retryDownload() {
+        viewModelScope.launch { runCatching { playlistDownloads.sync() } }
     }
 
     private fun apply(loaded: Loaded<PlaylistSongs>) {
@@ -133,6 +177,10 @@ class PlaylistViewModel(
                 fromCache = loaded.fromCache, savedAt = loaded.savedAt,
                 error = null,
             )
+        }
+        // A downloaded playlist follows what was just loaded: songs added since download now.
+        if (!loaded.fromCache && playlistDownloads.isDownloaded(playlistId)) {
+            viewModelScope.launch { runCatching { playlistDownloads.sync(mapOf(playlistId to loaded.value)) } }
         }
     }
 

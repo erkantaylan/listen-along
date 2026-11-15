@@ -6,6 +6,8 @@ import com.erkantaylan.listenalong.core.data.AccountRepository
 import com.erkantaylan.listenalong.core.data.CheckLine
 import com.erkantaylan.listenalong.core.data.ServerConfig
 import com.erkantaylan.listenalong.core.data.ServerSettings
+import com.erkantaylan.listenalong.core.data.DownloadPrefs
+import com.erkantaylan.listenalong.core.domain.SyncSettings
 import com.erkantaylan.listenalong.core.download.DownloadSnapshot
 import com.erkantaylan.listenalong.core.download.Downloads
 import com.erkantaylan.listenalong.core.network.ServerUrl
@@ -36,7 +38,15 @@ class SettingsViewModel(
     private val account: AccountRepository,
     private val downloads: Downloads,
     private val messages: UserMessages,
+    private val downloadPrefs: DownloadPrefs,
 ) : ViewModel() {
+
+    /** Playlist sync's settings ("Download over mobile data", "Remove downloads of songs removed from a playlist"). */
+    val sync: StateFlow<SyncSettings> = downloadPrefs.sync
+
+    fun setAllowMetered(allow: Boolean) = downloadPrefs.setAllowMetered(allow)
+
+    fun setRemoveUnlisted(remove: Boolean) = downloadPrefs.setRemoveUnlisted(remove)
 
     val config: StateFlow<ServerConfig> = settings.config
     val overridden: StateFlow<Boolean> = settings.overridden

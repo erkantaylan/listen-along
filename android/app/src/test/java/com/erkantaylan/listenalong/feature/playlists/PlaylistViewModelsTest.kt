@@ -46,7 +46,12 @@ class PlaylistViewModelsTest {
     private val downloads = Downloads(DownloadQueue(MemoryTextStore()), DownloadIndex(MemoryTextStore()), MemorySink(), { api }, kick = {}, io = main.dispatcher)
 
     private fun listVm() = PlaylistsViewModel(MutableStateFlow(signedIn()), network, repo, messages)
-    private fun detailVm(id: String = "p1") = PlaylistViewModel(id, network, repo, downloads, messages)
+    private val playlistDownloads = com.erkantaylan.listenalong.core.data.PlaylistDownloads(
+        MemoryTextStore(), { api }, repo, downloads, com.erkantaylan.listenalong.testing.FakePrefs(), { network.network.value },
+    )
+    private fun detailVm(id: String = "p1") = PlaylistViewModel(
+        id, network, repo, downloads, messages, playlistDownloads, kotlinx.coroutines.flow.MutableStateFlow(emptyMap()),
+    )
 
     private fun collectMessages() = kotlinx.coroutines.CoroutineScope(main.dispatcher).launch { messages.messages.collect { said += it } }
 

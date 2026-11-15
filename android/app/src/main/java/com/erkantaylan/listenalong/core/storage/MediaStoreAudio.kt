@@ -132,6 +132,11 @@ class MediaStoreAudio(private val context: Context) : AudioSink {
     override val canSeeAllFiles: Boolean
         get() = context.checkSelfPermission(READ_PERMISSION) == PackageManager.PERMISSION_GRANTED
 
+    @Suppress("DEPRECATION")
+    override fun freeBytes(): Long? = runCatching {
+        android.os.StatFs(Environment.getExternalStorageDirectory().path).availableBytes
+    }.getOrNull()
+
     override fun listSaved(): List<SavedFile> {
         val scoped = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
         val collection = if (scoped) MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)

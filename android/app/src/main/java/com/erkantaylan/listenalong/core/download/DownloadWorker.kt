@@ -17,6 +17,9 @@ import androidx.core.content.ContextCompat
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import java.util.concurrent.TimeUnit
 import androidx.work.ForegroundInfo
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
@@ -29,9 +32,26 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** The Application gives the worker (an Android entry point) the process's download machinery. */
+/** The Application gives the workers (Android entry points) the process's download machinery. */
 interface DownloadsHost {
     val downloads: Downloads
+
+    /** One playlist sync (core/data/PlaylistDownloads.sync), for the periodic worker. */
+    suspend fun syncPlaylists()
+}
+
+/**
+ * The background half of playlist sync: every [DownloadScheduler.SYNC_HOURS]
+ * hours, on a network the settings allow and not on a low battery, it asks
+ * the server for the downloaded playlists and queues what was added (the
+ * download worker then fetches them). Scheduled only while a playlist is
+ * downloaded.
+ */
+class PlaylistSyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        runCatching { (applicationContext as DownloadsHost).syncPlaylists() }
+        return Result.success()
+    }
 }
 
 /**
@@ -91,6 +111,44 @@ open class DownloadWorker(context: Context, params: WorkerParameters) : Coroutin
 
 object DownloadScheduler {
     private const val WORK_NAME = "downloads"
+    private const val WAIT_NAME = "downloads-network"
+    private const val SYNC_NAME = "playlist-sync"
+
+    /** How often playlist sync runs in the background (a battery-friendly compromise; the app also syncs when opened). */
+    const val SYNC_HOURS = 6L
+
+    /** The network playlist sync may use: any but roaming with mobile data allowed, else unmetered (Wi-Fi). */
+    private fun syncNetwork(allowMetered: Boolean) = if (allowMetered) NetworkType.NOT_ROAMING else NetworkType.UNMETERED
+
+    /**
+     * Playlist sync's downloads are queued but the network in force is not one
+     * they may use: a worker waits for one that is (KEEP: one waiting is enough).
+     */
+    fun waitForNetwork(context: Context, allowMetered: Boolean) {
+        val request = OneTimeWorkRequestBuilder<DownloadWorker>()
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(syncNetwork(allowMetered)).build())
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(WAIT_NAME, ExistingWorkPolicy.REPLACE, request)
+    }
+
+    /** The periodic background sync, while [enabled] (a playlist is downloaded); its network follows the setting. */
+    fun schedulePlaylistSync(context: Context, enabled: Boolean, allowMetered: Boolean) {
+        val manager = WorkManager.getInstance(context)
+        if (!enabled) {
+            manager.cancelUniqueWork(SYNC_NAME)
+            manager.cancelUniqueWork(WAIT_NAME)
+            return
+        }
+        val request = PeriodicWorkRequestBuilder<PlaylistSyncWorker>(SYNC_HOURS, TimeUnit.HOURS, 1, TimeUnit.HOURS)
+            .setConstraints(
+                Constraints.Builder()
+                    .setRequiredNetworkType(syncNetwork(allowMetered))
+                    .setRequiresBatteryNotLow(true)
+                    .build()
+            )
+            .build()
+        manager.enqueueUniquePeriodicWork(SYNC_NAME, ExistingPeriodicWorkPolicy.UPDATE, request)
+    }
 
     /**
      * Makes sure a worker will look at the queue. APPEND_OR_REPLACE rather

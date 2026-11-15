@@ -1,5 +1,8 @@
 package com.erkantaylan.listenalong.feature.playlists
 
+import com.erkantaylan.listenalong.core.designsystem.DownloadMarkIcon
+import com.erkantaylan.listenalong.core.designsystem.FilterChip
+import com.erkantaylan.listenalong.core.ui.markFor
 import com.erkantaylan.listenalong.core.designsystem.CoverTile
 import com.erkantaylan.listenalong.core.designsystem.Dimens
 import com.erkantaylan.listenalong.core.designsystem.EqualizerIcon
@@ -256,7 +259,15 @@ private fun PlaylistList(
                             selected = state.filter.ordinal,
                             onSelect = { viewModel.setFilter(OwnerFilter.entries[it]) },
                             fill = true,
-                            modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+                            modifier = Modifier.padding(start = 12.dp, end = 12.dp),
+                        )
+                    }
+                    item(key = "chips") {
+                        // A real filter that combines with the one above: a chip.
+                        FilterChip(
+                            "Downloaded", state.downloadedOnly, { viewModel.setDownloadedOnly(!state.downloadedOnly) },
+                            tag = "filter:downloaded", icon = AppIcons.DownloadedCircle,
+                            modifier = Modifier.padding(start = 12.dp, end = 12.dp),
                         )
                     }
                     if (state.error != null) {
@@ -272,14 +283,21 @@ private fun PlaylistList(
                                     OwnerFilter.PRIVATE -> "You have no private playlists"
                                     OwnerFilter.PUBLIC -> "No public playlists"
                                     OwnerFilter.ALL -> "No playlists"
-                                },
+                                }.let { if (state.downloadedOnly) "No downloaded playlists" else it },
                                 icon = AppIcons.QueueMusic,
-                            ) { SecondaryButton("Show all", { viewModel.setFilter(OwnerFilter.ALL) }, tag = "show-all") }
+                            ) {
+                                SecondaryButton("Show all", {
+                                    viewModel.setFilter(OwnerFilter.ALL)
+                                    viewModel.setDownloadedOnly(false)
+                                }, tag = "show-all")
+                            }
                         }
                     }
                     items(shown, key = { p -> p.id }) { playlist ->
+                        val mark = state.downloads[playlist.id]?.let(::markFor)
                         PlaylistRow(playlist, readOnly, playingFrom = nowPlaying.context,
                                     playing = nowPlaying.isPlaying,
+                                    metaLeading = mark?.let { m -> { DownloadMarkIcon(m, size = 14.dp, label = "Downloaded playlist") } },
                                     onOpen = { onOpen(playlist.id) },
                                     onToggleVisibility = { viewModel.toggleVisibility(playlist) },
                                     onDialog = onDialog)

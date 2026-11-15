@@ -47,6 +47,17 @@ import com.erkantaylan.listenalong.core.download.CoverSync
 import com.erkantaylan.listenalong.core.network.ImageHttp
 import com.erkantaylan.listenalong.core.storage.CoverStore
 import kotlinx.coroutines.launch
+import com.erkantaylan.listenalong.core.data.PlaylistDownloads
+import com.erkantaylan.listenalong.core.domain.PlaylistDownloadStatus
+import com.erkantaylan.listenalong.core.domain.PlaylistSyncPlanner
+import com.erkantaylan.listenalong.core.model.PlaylistSongs
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.stateIn
 import okio.Path.Companion.toOkioPath
 
 /**
@@ -137,6 +148,9 @@ class AppContainer(context: Context) {
         clientProvider = ::client,
         kick = { DownloadScheduler.kick(app) },
         onSaved = { coverSync.fetchFor(it) },
+        mayFetchAuto = { PlaylistSyncPlanner.mayDownload(connectivity.network.value, settings.sync.value) },
+        waitForNetwork = { DownloadScheduler.waitForNetwork(app, settings.sync.value.allowMetered) },
+        onMissing = { playlistDownloads.markMissing(it) },
     )
 
     /** Downloaded songs this app can read right now; with no media access, an earlier install's files stream instead. */
@@ -166,6 +180,34 @@ class AppContainer(context: Context) {
     )
 
     val library = LibraryRepository(::client, index.entries, reports)
+
+    /** Downloaded playlists and their sync (core/data/PlaylistDownloads). */
+    val playlistDownloads: PlaylistDownloads by lazy {
+        PlaylistDownloads(
+            store = PrefsTextStore(app, "downloads", "playlists_v1"),
+            api = ::client,
+            repo = playlists,
+            downloads = downloads,
+            prefs = settings,
+            network = { connectivity.network.value },
+            schedule = { enabled, allowMetered -> DownloadScheduler.schedulePlaylistSync(app, enabled, allowMetered) },
+        )
+    }
+
+    /** Every downloaded playlist's status (the marks on rows, On device, a playlist's header). */
+    val playlistStatuses: StateFlow<Map<String, PlaylistDownloadStatus>> by lazy {
+        playlistDownloads.statuses(downloads.snapshots, connectivity.network)
+            .stateIn(appScope, SharingStarted.Eagerly, emptyMap())
+    }
+
+    /**
+     * Asks for a playlist sync (quietly: offline or signed out it does
+     * nothing). [fresh]: song lists just fetched by a screen.
+     */
+    fun requestSync(fresh: Map<String, PlaylistSongs> = emptyMap()) {
+        if (!settings.config.value.signedIn) return
+        appScope.launch { runCatching { playlistDownloads.sync(fresh) } }
+    }
 
     val account = AccountRepository(::client)
 
@@ -206,6 +248,7 @@ class AppContainer(context: Context) {
             readableDownloads = ::readableDownloads,
             coverUri = ::coverUri,
             grantRead = { pkg, uri -> app.grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) },
+            downloadedPlaylists = { playlistDownloads.playlists.value.filter { !it.unavailable }.mapTo(HashSet()) { it.id } },
         ),
     )
 
@@ -215,5 +258,20 @@ class AppContainer(context: Context) {
             // A song's cover goes with its download.
             index.entries.collect { covers.retainOnly(it.keys) }
         }
+        // Playlist sync: at start, after a server or sign-in change, when the connection returns.
+        settings.config.onEach {
+            playlistDownloads.reload()
+            requestSync()
+        }.launchIn(appScope)
+        connectivity.online.drop(1).filter { it }.onEach { requestSync() }.launchIn(appScope)
+        // The network settings: the background sync's constraints follow, waiting downloads re-check.
+        settings.sync.drop(1).onEach {
+            playlistDownloads.reload()
+            if (queue.pending.value.isNotEmpty()) DownloadScheduler.kick(app)
+        }.launchIn(appScope)
+        // Moving to a network sync may use (Wi-Fi again): the waiting downloads go.
+        connectivity.network.drop(1).filter { PlaylistSyncPlanner.mayDownload(it, settings.sync.value) }
+            .onEach { if (queue.pending.value.any { q -> !q.manual }) DownloadScheduler.kick(app) }
+            .launchIn(appScope)
     }
 }

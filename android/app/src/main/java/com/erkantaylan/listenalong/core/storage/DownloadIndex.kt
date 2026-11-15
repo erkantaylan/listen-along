@@ -28,6 +28,15 @@ data class LocalSong(
     val reclaimed: Boolean = false,
     /** The song's YouTube video, for its cover (core/model/CoverArt). Null for older entries until the cover backfill finds it. */
     val youtubeId: String? = null,
+    /**
+     * Why the file is here: true = the user downloaded it (a song's download
+     * button, "Download all shown", or kept when a playlist's download was
+     * turned off); false = only because a downloaded playlist holds it
+     * (playlist sync), so the sync may remove it again. Entries from before
+     * playlist sync have no such field and read as true: manual, never
+     * removed automatically.
+     */
+    val manual: Boolean = true,
 )
 
 /**
@@ -55,6 +64,12 @@ class DownloadIndex(private val store: TextStore) {
     fun put(song: LocalSong) = mutate { it + (song.songId to song) }
 
     fun remove(songId: String) = mutate { it - songId }
+
+    /** Marks these songs as the user's own (they are never removed by playlist sync). */
+    fun markManual(songIds: Collection<String>) {
+        if (songIds.none { _entries.value[it]?.manual == false }) return
+        mutate { current -> current.mapValues { (id, local) -> if (id in songIds && !local.manual) local.copy(manual = true) else local } }
+    }
 
     /** Fills in the YouTube ids of entries that are still here (the cover backfill), in one write. */
     fun setYoutubeIds(ids: Map<String, String>) = mutate { current ->

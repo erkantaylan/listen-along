@@ -70,6 +70,7 @@ class SongDownloader(private val sink: AudioSink) {
                     bytes = written,
                     savedAt = now(),
                     youtubeId = song.youtubeId,
+                    manual = song.manual,
                 )
             } catch (t: Throwable) {
                 pending.abort()

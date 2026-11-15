@@ -26,11 +26,13 @@ object AppViewModels {
     }
 
     fun playlists(c: AppContainer): ViewModelProvider.Factory = viewModelFactory {
-        initializer { PlaylistsViewModel(c.settings.config, c.connectivity, c.playlists, c.messages) }
+        initializer {
+            PlaylistsViewModel(c.settings.config, c.connectivity, c.playlists, c.messages, c.playlistStatuses, onRefreshed = { c.requestSync() })
+        }
     }
 
     fun playlist(c: AppContainer, id: String): ViewModelProvider.Factory = viewModelFactory {
-        initializer { PlaylistViewModel(id, c.connectivity, c.playlists, c.downloads, c.messages) }
+        initializer { PlaylistViewModel(id, c.connectivity, c.playlists, c.downloads, c.messages, c.playlistDownloads, c.playlistStatuses) }
     }
 
     fun addToPlaylist(c: AppContainer): ViewModelProvider.Factory = viewModelFactory {
@@ -38,10 +40,10 @@ object AppViewModels {
     }
 
     fun onDevice(c: AppContainer): ViewModelProvider.Factory = viewModelFactory {
-        initializer { OnDeviceViewModel(c.downloads, c.messages) }
+        initializer { OnDeviceViewModel(c.downloads, c.messages, c.playlistDownloads, c.playlistStatuses, c.playlists) }
     }
 
     fun settings(c: AppContainer): ViewModelProvider.Factory = viewModelFactory {
-        initializer { SettingsViewModel(c.settings, c.auth, c.account, c.downloads, c.messages) }
+        initializer { SettingsViewModel(c.settings, c.auth, c.account, c.downloads, c.messages, c.settings) }
     }
 }

@@ -136,8 +136,13 @@ class CarLibrary(
                 folder(CarNode.Songs(CarList.Device), listTitle(CarList.Device), MediaMetadata.MEDIA_TYPE_PLAYLIST),
                 folder(CarNode.Songs(CarList.Library), listTitle(CarList.Library), MediaMetadata.MEDIA_TYPE_PLAYLIST),
             )
-            CarNode.Playlists -> playlists().map { p ->
-                folder(CarNode.Songs(CarList.Playlist(p.id)), p.displayName, MediaMetadata.MEDIA_TYPE_PLAYLIST, subtitle = p.ownerLine)
+            CarNode.Playlists -> {
+                // Downloaded playlists first (they play with no connection), with the car's download mark.
+                val downloaded = graph.downloadedPlaylists()
+                playlists().sortedBy { it.id !in downloaded }.map { p ->
+                    folder(CarNode.Songs(CarList.Playlist(p.id)), p.displayName, MediaMetadata.MEDIA_TYPE_PLAYLIST,
+                           subtitle = p.ownerLine, downloaded = p.id in downloaded)
+                }
             }
             is CarNode.Songs -> songItems(node.list)
             else -> return@future LibraryResult.ofError(SessionError.ERROR_BAD_VALUE)
@@ -338,7 +343,7 @@ class CarLibrary(
 
     // ---- Items -------------------------------------------------------------------------------
 
-    private fun folder(node: CarNode, title: String, mediaType: Int, subtitle: String? = null): MediaItem =
+    private fun folder(node: CarNode, title: String, mediaType: Int, subtitle: String? = null, downloaded: Boolean = false): MediaItem =
         MediaItem.Builder()
             .setMediaId(node.id)
             .setMediaMetadata(
@@ -348,6 +353,7 @@ class CarLibrary(
                     .setIsBrowsable(true)
                     .setIsPlayable(false)
                     .setMediaType(mediaType)
+                    .apply { if (downloaded) setExtras(Bundle().apply { putLong(EXTRA_DOWNLOAD_STATUS, STATUS_DOWNLOADED) }) }
                     .build(),
             )
             .build()

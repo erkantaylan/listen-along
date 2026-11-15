@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.erkantaylan.listenalong.core.data.PlaylistRepository
 import com.erkantaylan.listenalong.core.data.ServerConfig
 import com.erkantaylan.listenalong.core.model.Playlist
+import com.erkantaylan.listenalong.core.domain.PlaylistDownloadStatus
 import com.erkantaylan.listenalong.core.model.Visibility
 import com.erkantaylan.listenalong.core.network.NetworkMonitor
 import com.erkantaylan.listenalong.core.ui.UserMessages
@@ -32,6 +33,10 @@ data class PlaylistsUi(
     val signedIn: Boolean = false,
     val playlists: List<Playlist> = emptyList(),
     val filter: OwnerFilter = OwnerFilter.ALL,
+    /** The "Downloaded" chip: only playlists whose Download is on. */
+    val downloadedOnly: Boolean = false,
+    /** Downloaded playlists' statuses, by id (their marks). */
+    val downloads: Map<String, PlaylistDownloadStatus> = emptyMap(),
     val loading: Boolean = false,
     val refreshing: Boolean = false,
     val error: String? = null,
@@ -47,7 +52,7 @@ data class PlaylistsUi(
                 OwnerFilter.MINE -> it.isOwner
                 OwnerFilter.PUBLIC -> !it.isPrivate
                 OwnerFilter.PRIVATE -> it.isPrivate
-            }
+            } && (!downloadedOnly || it.id in downloads)
         }
 }
 
@@ -62,6 +67,9 @@ class PlaylistsViewModel(
     private val network: NetworkMonitor,
     private val repo: PlaylistRepository,
     private val messages: UserMessages,
+    statuses: StateFlow<Map<String, PlaylistDownloadStatus>> = kotlinx.coroutines.flow.MutableStateFlow(emptyMap()),
+    /** After the list was loaded from the server: downloaded playlists sync too. */
+    private val onRefreshed: () -> Unit = {},
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(PlaylistsUi(signedIn = config.value.signedIn))
@@ -79,9 +87,10 @@ class PlaylistsViewModel(
         repo.observePlaylists().onEach { list ->
             if (_state.value.signedIn) _state.update { it.copy(playlists = list) }
         }.launchIn(viewModelScope)
+        statuses.onEach { map -> _state.update { it.copy(downloads = map) } }.launchIn(viewModelScope)
         refresh(initial = true)
         config.drop(1).distinctUntilChanged().onEach {
-            _state.value = PlaylistsUi(signedIn = it.signedIn)
+            _state.value = PlaylistsUi(signedIn = it.signedIn, downloads = _state.value.downloads)
             refresh(initial = true)
         }.launchIn(viewModelScope)
         network.online.drop(1).filter { it }.onEach {
@@ -108,12 +117,17 @@ class PlaylistsViewModel(
                     it.copy(playlists = loaded.value, loading = false, refreshing = false,
                             fromCache = loaded.fromCache, savedAt = loaded.savedAt, error = null)
                 }
+                if (!loaded.fromCache) onRefreshed()
             } catch (c: CancellationException) {
                 throw c
             } catch (t: Throwable) {
                 _state.update { it.copy(loading = false, refreshing = false, error = PlaylistRepository.describe(t)) }
             }
         }
+    }
+
+    fun setDownloadedOnly(on: Boolean) {
+        _state.update { it.copy(downloadedOnly = on) }
     }
 
     /** Picking the filter that is on, or All, shows everything. */

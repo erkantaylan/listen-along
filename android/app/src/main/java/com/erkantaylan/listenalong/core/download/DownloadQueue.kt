@@ -17,9 +17,12 @@ data class QueuedSong(
     val durationSec: Int? = null,
     /** For the cover saved next to the download. */
     val youtubeId: String? = null,
+    /** Asked for by the user (true, the default for anything queued before playlist sync) or by playlist sync. */
+    val manual: Boolean = true,
 ) {
     companion object {
-        fun of(song: Song) = QueuedSong(song.id, song.title, song.artist, song.durationSec, youtubeId = song.youtubeId)
+        fun of(song: Song, manual: Boolean = true) =
+            QueuedSong(song.id, song.title, song.artist, song.durationSec, youtubeId = song.youtubeId, manual = manual)
     }
 }
 
@@ -55,13 +58,19 @@ class DownloadQueue(private val store: TextStore) {
         synchronized(lock) {
             val seen = _pending.value.mapTo(HashSet()) { it.id }
             val added = songs.filter { !isDownloaded(it.id) && seen.add(it.id) }
-            if (added.isNotEmpty()) write(_pending.value + added)
+            // The user asking for a song playlist sync had queued makes it theirs.
+            val upgrade = songs.filter { it.manual }.mapTo(HashSet()) { it.id }
+            val current = _pending.value.map { if (!it.manual && it.id in upgrade) it.copy(manual = true) else it }
+            if (added.isNotEmpty() || current != _pending.value) write(current + added)
             added
         }
 
     /** The first pending song nobody is working on, now marked as running. */
-    fun claimNext(): QueuedSong? = synchronized(lock) {
-        _pending.value.firstOrNull { it.id !in running }?.also { running += it.id }
+    fun claimNext(): QueuedSong? = claimNext { true }
+
+    /** The first pending song nobody is working on that [allowed] accepts, now marked as running. */
+    fun claimNext(allowed: (QueuedSong) -> Boolean): QueuedSong? = synchronized(lock) {
+        _pending.value.firstOrNull { it.id !in running && allowed(it) }?.also { running += it.id }
     }
 
     /** Done with [id], whatever the outcome: it leaves the queue. */

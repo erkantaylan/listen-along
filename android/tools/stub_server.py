@@ -37,6 +37,18 @@ Serves every .m4a / .opus / .ogg / .mp3 under --music as a library song
   POST /stub/end-sessions                    ends every session (the app's
                                              next request gets 401
                                              SESSION_ENDED: test sign-out)
+  POST /stub/change?playlist=<name or id>&add=N&remove=M
+                                             someone else edits a playlist:
+                                             adds the next N library songs
+                                             it lacks, removes its last M
+                                             (playlist sync: refresh and
+                                             watch the downloads follow)
+  POST /stub/missing?song=<title or id>      that song's file answers 404
+                                             FILE_MISSING (as a lost file);
+                                             &restore=1 brings it back
+  POST /stub/hide?playlist=<name or id>      the playlist becomes someone
+                                             else's private one (404 for us);
+                                             &restore=1 makes it ours again
   GET /api/me                                needs a session; 401
                                              SESSION_ENDED otherwise
   /api/playlists...                          list, songs, create, rename,
@@ -162,6 +174,11 @@ def make_samples(target):
         ("Legacy Artist", "An Old MP3", "mp3", 392),
         ("Unknown", "No Artist Here", "m4a", 294),
         ("Opus Artist", "A New Opus Song", "opus", 349),
+        # Spare songs, not in any seeded playlist: /stub/change adds them (playlist sync).
+        ("Kim Wilde", "Cambodia", "m4a", 370),
+        ("Sezen Aksu", "Firuze", "opus", 415),
+        ("Queen", "Bicycle Race", "m4a", 466),
+        ("Tarkan", "Şımarık", "m4a", 311),
     ]
     for i, (artist, title, ext, freq) in enumerate(samples):
         safe = re.sub(r'[\\/:*?"<>|]', " ", f"{artist} - {title}")
@@ -388,6 +405,8 @@ class Handler(BaseHTTPRequestHandler):
             song = next((s for s in self.songs if s["id"] == parts[2]), None)
             if not song:
                 return self.send_json(404, {"error": "Song not found"})
+            if song.get("_missing"):
+                return self.send_json(404, {"error": "The file is missing", "code": "FILE_MISSING"})
             return self.send_file(song)
 
         self.send_json(404, {"error": "Not found"})
@@ -479,6 +498,8 @@ class Handler(BaseHTTPRequestHandler):
         if method == "POST" and parts == ["stub", "end-sessions"]:
             Handler.sessions.clear()
             return self.send_json(200, {"success": True})
+        if method == "POST" and len(parts) == 2 and parts[0] == "stub":
+            return self.stub_control(parts[1], parse_qs(urlparse(self.path).query))
         authed = self.auth()
         if authed is False:
             return self.send_json(401, SESSION_ENDED)
@@ -584,6 +605,42 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         self.playlist_write("DELETE")
+
+    def stub_control(self, what, qs):
+        """Changes made "elsewhere", for trying the app's playlist sync (see the docstring)."""
+        def find_playlist(key):
+            return next((p for p in self.playlists.values() if key in (p["id"], p["name"])), None)
+        restore = qs.get("restore", [""])[0] in ("1", "true")
+        if what == "change":
+            p = find_playlist(qs.get("playlist", [""])[0])
+            if p is None:
+                return self.send_json(404, {"error": "No such playlist"})
+            add, remove = int(qs.get("add", ["0"])[0]), int(qs.get("remove", ["0"])[0])
+            removable = [e for e in p["entries"] if e["library_id"]]
+            for e in removable[len(removable) - remove:] if remove else []:
+                p["entries"].remove(e)
+            have = {e["library_id"] for e in p["entries"]}
+            for song in [s for s in self.songs if s["id"] not in have][:add]:
+                p["entries"].append({"entry_id": str(uuid.uuid4()), "library_id": song["id"], "youtube_id": song.get("youtube_id"),
+                                     "title": song["title"], "artist": song["artist"], "duration_sec": song["duration_sec"],
+                                     "url": f"library:{song['id']}", "thumbnail": song.get("thumbnail"), "added_by": "Ayşe",
+                                     "added_at": int(time.time() * 1000)})
+            print(f"stub: {p['name']} now has {len(p['entries'])} entries", flush=True)
+            return self.send_json(200, {"playlist": self.playlist_info(p), "songs": self.entry_views(p)})
+        if what == "missing":
+            key = qs.get("song", [""])[0]
+            song = next((x for x in self.songs if key in (x["id"], x["title"])), None)
+            if song is None:
+                return self.send_json(404, {"error": "No such song"})
+            song["_missing"] = not restore
+            return self.send_json(200, {"song": song["id"], "missing": song["_missing"]})
+        if what == "hide":
+            p = find_playlist(qs.get("playlist", [""])[0])
+            if p is None:
+                return self.send_json(404, {"error": "No such playlist"})
+            p["visibility"], p["ownerId"] = ("private", "u-me") if restore else ("private", "u-someone")
+            return self.send_json(200, {"hidden": not restore})
+        return self.send_json(404, {"error": "Not found"})
 
     def send_file(self, song):
         size = os.path.getsize(song["_path"])

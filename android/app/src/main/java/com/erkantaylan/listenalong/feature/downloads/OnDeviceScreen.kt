@@ -1,5 +1,26 @@
 package com.erkantaylan.listenalong.feature.downloads
 
+import com.erkantaylan.listenalong.core.designsystem.IconAction
+import com.erkantaylan.listenalong.core.designsystem.CardShape
+import com.erkantaylan.listenalong.core.designsystem.CoverTile
+import com.erkantaylan.listenalong.core.designsystem.Dimens
+import com.erkantaylan.listenalong.core.designsystem.QuietButton
+import com.erkantaylan.listenalong.core.designsystem.SecondaryButton
+import com.erkantaylan.listenalong.core.designsystem.dialogEdge
+import com.erkantaylan.listenalong.core.domain.PlaylistDownloadStatus
+import com.erkantaylan.listenalong.core.ui.PlaylistDownloadLine
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import com.erkantaylan.listenalong.core.model.formatBytes
 import com.erkantaylan.listenalong.core.domain.toSong
 import com.erkantaylan.listenalong.core.ui.AppActions
@@ -58,9 +79,11 @@ fun OnDeviceScreen(
     nowPlaying: NowPlaying,
     actions: AppActions,
     online: Boolean,
+    onOpenPlaylist: (String) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var deleting by remember { mutableStateOf<LocalSong?>(null) }
+    var forgetting by remember { mutableStateOf<DeviceListPlaylist?>(null) }
     val snapshot = state.snapshot
     val query = state.query
 
@@ -81,7 +104,7 @@ fun OnDeviceScreen(
         TextInput(
             value = query,
             onValueChange = viewModel::onQueryChange,
-            placeholder = "Filter downloaded songs",
+            placeholder = "Filter downloads",
             tag = "filter",
             leadingIcon = AppIcons.Search,
             modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 12.dp),
@@ -115,10 +138,24 @@ fun OnDeviceScreen(
                             onCancelDownload = { viewModel.cancel(song.id) },
                         )
                     }
-                    item(key = "saved-header") { SectionHeading("Saved — ${snapshot.downloaded.size}") }
                 }
 
-                if (songs.isEmpty()) {
+                // Downloaded playlists first, as Spotify's Downloaded shelf; then the songs downloaded on their own.
+                if (state.playlists.isNotEmpty()) {
+                    item(key = "playlists-header") { SectionHeading("Downloaded playlists — ${state.playlists.size}") }
+                    items(state.playlists, key = { "p-${it.id}" }) { p ->
+                        DevicePlaylistRow(
+                            p,
+                            onOpen = { if (p.status !is PlaylistDownloadStatus.Unavailable) onOpenPlaylist(p.id) else forgetting = p },
+                            onForget = { forgetting = p },
+                        )
+                    }
+                    item(key = "songs-header") {
+                        SectionHeading(if (songs.isEmpty()) "Songs" else "Songs — ${songs.size}")
+                    }
+                }
+
+                if (songs.isEmpty() && state.playlists.isEmpty()) {
                     item(key = "empty") {
                         EmptyState(
                             title = if (query.isNotBlank()) "Nothing matches." else "Nothing downloaded yet",
@@ -127,13 +164,26 @@ fun OnDeviceScreen(
                             icon = if (query.isNotBlank()) AppIcons.Search else AppIcons.Download,
                         )
                     }
-                } else {
+                } else if (state.allSongs.isNotEmpty()) {
                     item(key = "play-all") {
+                        // Play / Shuffle everything on the phone, playlists' songs included.
+                        val all = state.allAsSongs
                         PlayAllBar(
                             playEnabled = true,
-                            onPlay = { actions.play(asSongs, 0, "On device", false) },
-                            onShuffle = { actions.play(asSongs, 0, "On device", true) },
-                        )
+                            onPlay = { actions.play(all, 0, "On device", false) },
+                            onShuffle = { actions.play(all, 0, "On device", true) },
+                        ) {
+                            Text("${all.size} songs", color = Palette.fg3, fontSize = 12.sp, modifier = Modifier.padding(end = 4.dp))
+                        }
+                    }
+                    if (songs.isEmpty()) {
+                        item(key = "no-own-songs") {
+                            Text(
+                                "Every song here belongs to a downloaded playlist.",
+                                color = Palette.fg3, fontSize = 13.sp,
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                            )
+                        }
                     }
                 }
                 itemsIndexed(songs, key = { _, s -> s.songId }) { i, song ->
@@ -160,7 +210,7 @@ fun OnDeviceScreen(
                         }
                     }
                 }
-                if (songs.isNotEmpty()) {
+                if (state.allSongs.isNotEmpty()) {
                     item(key = "where") {
                         Text(
                             "Saved as plain audio files in ${MediaStoreAudio.RELATIVE_PATH}",
@@ -177,7 +227,11 @@ fun OnDeviceScreen(
         ConfirmDialog(
             title = "Delete from the device?",
             text = "\"${song.displayName}\" will be deleted from ${MediaStoreAudio.RELATIVE_PATH}. " +
-                "It stays in the library and can be downloaded again.",
+                "It stays in the library and can be downloaded again." +
+                viewModel.playlistsHolding(song.songId).takeIf { it.isNotEmpty() }?.let {
+                    "\n\nIt is in the downloaded playlist ${it.joinToString { n -> "\u201c$n\u201d" }}, which will download it again. " +
+                        "Turn that playlist's Download off to keep it off the phone."
+                }.orEmpty(),
             confirmLabel = "Delete",
             destructive = true,
             onConfirm = {
@@ -186,5 +240,54 @@ fun OnDeviceScreen(
             },
             onDismiss = { deleting = null },
         )
+    }
+    forgetting?.let { p ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { forgetting = null },
+            containerColor = Palette.overlay,
+            titleContentColor = Palette.fg,
+            textContentColor = Palette.fg2,
+            shape = CardShape,
+            modifier = Modifier.dialogEdge(),
+            title = { Text("Stop downloading \u201c${p.name}\u201d?", fontSize = 17.sp, fontWeight = FontWeight.SemiBold) },
+            text = {
+                Text(
+                    (if (p.status is PlaylistDownloadStatus.Unavailable)
+                        "This playlist was deleted or made private, so it is no longer synced. Its songs are still on this phone. "
+                    else "New songs of this playlist will no longer be downloaded. ") +
+                        "Remove the songs it downloaded too? Songs you downloaded yourself, and songs another downloaded playlist holds, stay.",
+                    fontSize = 14.sp, lineHeight = 20.sp,
+                )
+            },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SecondaryButton("Keep songs", { forgetting = null; viewModel.forget(p.id, removeFiles = false) }, tag = "stop-keep", compact = true)
+                    DangerButton("Remove", { forgetting = null; viewModel.forget(p.id, removeFiles = true) }, tag = "stop-remove", compact = true, solid = true)
+                }
+            },
+            dismissButton = { QuietButton("Cancel", { forgetting = null }, accent = false, tag = "dialog:dismiss") },
+        )
+    }
+}
+
+/** A downloaded playlist: its cover, its name, what its download is doing (Spotify's Downloaded list). */
+@Composable
+private fun DevicePlaylistRow(p: DeviceListPlaylist, onOpen: () -> Unit, onForget: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp)
+            .clip(RoundedCornerShape(Dimens.controlRadius))
+            .clickable(onClick = onOpen)
+            .heightIn(min = 64.dp)
+            .padding(start = 8.dp, top = 8.dp, bottom = 8.dp)
+            .testTag("device-playlist:${p.id}"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CoverTile(p.id, p.name, size = 48.dp, modifier = Modifier.alpha(if (p.status is PlaylistDownloadStatus.Unavailable) 0.5f else 1f))
+        Column(Modifier.weight(1f).padding(start = 12.dp, end = 4.dp)) {
+            Text(p.name, color = Palette.fg, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1,
+                 overflow = TextOverflow.Ellipsis)
+            PlaylistDownloadLine(p.status)
+        }
+        IconAction(AppIcons.More, "Download actions for ${p.name}", tag = "menu:device-playlist:${p.id}", onClick = onForget)
     }
 }

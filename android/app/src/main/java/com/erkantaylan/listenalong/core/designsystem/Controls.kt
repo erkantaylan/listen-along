@@ -291,3 +291,41 @@ fun MetaLine(
 fun RowGroup(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Column(modifier.fillMaxWidth().padding(horizontal = Dimens.space3), verticalArrangement = Arrangement.spacedBy(2.dp)) { content() }
 }
+
+/** The app's switch: the accent track when on (dark thumb), the sunken field with a strong edge when off. */
+@Composable
+fun AppSwitch(checked: Boolean, onChange: ((Boolean) -> Unit)?, tag: String, enabled: Boolean = true) {
+    androidx.compose.material3.Switch(
+        checked = checked,
+        onCheckedChange = onChange,
+        enabled = enabled,
+        colors = androidx.compose.material3.SwitchDefaults.colors(
+            checkedThumbColor = Palette.onAccent,
+            checkedTrackColor = Palette.accent,
+            checkedBorderColor = Palette.accent,
+            uncheckedThumbColor = Palette.fg3,
+            uncheckedTrackColor = Palette.field,
+            uncheckedBorderColor = Palette.borderStrong,
+        ),
+        modifier = Modifier.testTag(tag),
+    )
+}
+
+/** A setting: a label and a muted hint, its switch on the right; the whole row toggles it (48dp+). */
+@Composable
+fun SwitchRow(label: String, hint: String?, checked: Boolean, onChange: (Boolean) -> Unit, tag: String, modifier: Modifier = Modifier) {
+    Row(
+        modifier.fillMaxWidth()
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onChange(!checked) }
+            .semantics(mergeDescendants = true) { role = Role.Switch; this.selected = checked }
+            .heightIn(min = Dimens.touchTarget)
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(label, color = Palette.fg, fontSize = 15.sp)
+            if (hint != null) Text(hint, color = Palette.fg3, fontSize = 13.sp, lineHeight = 18.sp)
+        }
+        AppSwitch(checked, null, tag)
+    }
+}

@@ -212,7 +212,13 @@ fun AppUi(
                         }
                     }
                     composable<OnDeviceRoute> {
-                        OnDeviceScreen(viewModel(factory = AppViewModels.onDevice(container)), nowPlaying, actions, online)
+                        OnDeviceScreen(
+                            viewModel(factory = AppViewModels.onDevice(container)), nowPlaying, actions, online,
+                            onOpenPlaylist = { id ->
+                                nav.selectTab(Tab.PLAYLISTS)
+                                nav.navigate(PlaylistRoute(id))
+                            },
+                        )
                     }
                     composable<SettingsRoute> {
                         SettingsScreen(viewModel(factory = AppViewModels.settings(container)), actions)

@@ -10,11 +10,15 @@ import android.os.SystemClock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import com.erkantaylan.listenalong.core.domain.NetworkInfo
 
 /** What screens and repositories need to know about the connection; [Connectivity] is the real one. */
 interface NetworkMonitor {
     /** A validated network and no recent sign that the server is down (see [Connectivity]). */
     val online: StateFlow<Boolean>
+
+    /** [online] plus what the network costs: metered, roaming, Data Saver (playlist sync's rules). */
+    val network: StateFlow<NetworkInfo>
 }
 
 /**
@@ -42,14 +46,36 @@ class Connectivity(context: Context) : NetworkMonitor {
     private val _online = MutableStateFlow(true)
     override val online: StateFlow<Boolean> = _online.asStateFlow()
 
+    private val _network = MutableStateFlow(NetworkInfo())
+    override val network: StateFlow<NetworkInfo> = _network.asStateFlow()
+
+    /**
+     * The default network's capabilities as its callback last reported them.
+     * Read from the callback rather than asked of ConnectivityManager inside
+     * it: right after airplane mode ends, `activeNetwork` can still be null
+     * while the callback already says the new network is validated, and the
+     * app then stayed "offline" until the next change.
+     */
+    @Volatile private var caps: NetworkCapabilities? = null
+
     init {
-        reachability.network(currentlyValidated())
+        caps = runCatching { manager.getNetworkCapabilities(manager.activeNetwork) }.getOrNull()
+        reachability.network(validated(caps))
         publish()
         runCatching {
             manager.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
-                override fun onAvailable(network: Network) = update()
-                override fun onLost(network: Network) = update()
-                override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = update()
+                override fun onAvailable(network: Network) {
+                    caps = runCatching { manager.getNetworkCapabilities(network) }.getOrNull() ?: caps
+                    update()
+                }
+                override fun onLost(network: Network) {
+                    caps = null
+                    update()
+                }
+                override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                    caps = networkCapabilities
+                    update()
+                }
             })
         }
     }
@@ -69,16 +95,27 @@ class Connectivity(context: Context) : NetworkMonitor {
     }
 
     private fun update() {
-        reachability.network(currentlyValidated())
+        reachability.network(validated(caps))
         publish()
     }
 
     private fun publish() {
-        _online.value = reachability.online
+        val online = reachability.online
+        _online.value = online
+        _network.value = runCatching {
+            val caps = caps
+            NetworkInfo(
+                online = online,
+                metered = caps == null || !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED),
+                roaming = caps != null && !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_ROAMING),
+                // Data Saver on and this app not exempted (it restricts metered networks only).
+                dataSaver = manager.restrictBackgroundStatus == ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED,
+            )
+        }.getOrDefault(NetworkInfo(online = online))
     }
 
-    private fun currentlyValidated(): Boolean = runCatching {
-        val caps = manager.getNetworkCapabilities(manager.activeNetwork) ?: return false
+    private fun validated(caps: NetworkCapabilities?): Boolean = runCatching {
+        caps ?: return false
         caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
             caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) &&
             !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL)

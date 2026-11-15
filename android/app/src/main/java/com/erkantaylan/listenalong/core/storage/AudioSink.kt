@@ -31,6 +31,9 @@ interface AudioSink {
 
     /** The finished files visible in the app's folder. Does I/O. */
     fun listSaved(): List<SavedFile> = emptyList()
+
+    /** Free space where the files go, in bytes; null when unknown. */
+    fun freeBytes(): Long? = null
 }
 
 /** A finished file in the app's folder, as the system describes it. */

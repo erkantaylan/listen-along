@@ -23,6 +23,10 @@ class ListenAlongApp : Application(), PlayerHost, DownloadsHost, SingletonImageL
     override val playerDependencies: PlayerDependencies get() = container.playerDependencies
     override val downloads: Downloads get() = container.downloads
 
+    override suspend fun syncPlaylists() {
+        if (container.settings.config.value.signedIn) container.playlistDownloads.sync()
+    }
+
     /** Every AsyncImage uses the container's loader (its own HTTP client, no session). */
     override fun newImageLoader(context: PlatformContext): ImageLoader = container.imageLoader
 

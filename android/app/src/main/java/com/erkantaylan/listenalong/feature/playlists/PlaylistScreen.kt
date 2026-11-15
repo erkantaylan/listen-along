@@ -1,5 +1,14 @@
 package com.erkantaylan.listenalong.feature.playlists
 
+import com.erkantaylan.listenalong.core.designsystem.DangerButton
+import com.erkantaylan.listenalong.core.designsystem.Dimens
+import com.erkantaylan.listenalong.core.designsystem.QuietButton
+import com.erkantaylan.listenalong.core.domain.PlaylistDownloadStatus
+import com.erkantaylan.listenalong.core.ui.PlaylistDownloadLine
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.stateDescription
 import com.erkantaylan.listenalong.core.designsystem.CoverTile
 import com.erkantaylan.listenalong.core.designsystem.ButtonShape
 import com.erkantaylan.listenalong.core.designsystem.CardShape
@@ -108,13 +117,28 @@ fun PlaylistScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snapshot by viewModel.downloadState.collectAsStateWithLifecycle()
+    val download by viewModel.download.collectAsStateWithLifecycle()
     var dialog by remember { mutableStateOf<PlaylistDialog?>(null) }
+    var stopping by remember { mutableStateOf(false) }
     LaunchedEffect(viewModel) { viewModel.closed.collect { onBack() } }
     // Back in edit mode leaves edit mode; otherwise it leaves the page.
     BackHandler(enabled = state.editing) { viewModel.finishEditing() }
 
     Box(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }) {
-        PlaylistDetail(state, viewModel, snapshot, online, nowPlaying, actions, onBack, onDialog = { dialog = it })
+        PlaylistDetail(
+            state, viewModel, snapshot, online, nowPlaying, actions, onBack, onDialog = { dialog = it },
+            download = download,
+            onStartDownload = { actions.beforeDownload(); viewModel.startDownload() },
+            onStopDownload = { stopping = true },
+        )
+    }
+    if (stopping) {
+        StopDownloadDialog(
+            name = state.playlist?.displayName ?: "this playlist",
+            onKeep = { stopping = false; viewModel.stopDownload(removeFiles = false) },
+            onRemove = { stopping = false; viewModel.stopDownload(removeFiles = true) },
+            onDismiss = { stopping = false },
+        )
     }
     PlaylistDialogHost(
         dialog,
@@ -136,6 +160,9 @@ private fun PlaylistDetail(
     actions: AppActions,
     onBack: () -> Unit,
     onDialog: (PlaylistDialog) -> Unit,
+    download: PlaylistDownloadStatus,
+    onStartDownload: () -> Unit,
+    onStopDownload: () -> Unit,
 ) {
     val playlist = state.playlist
     val readOnly = state.fromCache || !online
@@ -206,11 +233,18 @@ private fun PlaylistDetail(
                     SecondaryButton("Edit", { viewModel.startEditing() }, tag = "edit-playlist", compact = true,
                                     modifier = Modifier.padding(end = 4.dp))
                 }
-                IconAction(AppIcons.Download, "Download playlist", tag = "download-playlist",
-                           enabled = songs.isNotEmpty() && online) {
-                    onDialog(PlaylistDialog.Download(playlist, viewModel.downloadPlan()))
+                PlaylistMenu(playlist, readOnly, { viewModel.toggleVisibility() }, onDialog) { dismiss ->
+                    val on = download != PlaylistDownloadStatus.Off
+                    MenuEntry(
+                        if (on) "Stop downloading" else "Download",
+                        if (on) AppIcons.DownloadCircleOutline else AppIcons.DownloadedCircle,
+                        "menu-download-playlist",
+                        enabled = on || songs.isNotEmpty(),
+                    ) {
+                        dismiss()
+                        if (on) onStopDownload() else onStartDownload()
+                    }
                 }
-                PlaylistMenu(playlist, readOnly, { viewModel.toggleVisibility() }, onDialog)
             }
         }
 
@@ -227,10 +261,22 @@ private fun PlaylistDetail(
                             onPlay = { actions.play(songs, 0, label, false) },
                             onShuffle = { actions.play(songs, 0, label, true) },
                         ) {
-                            Text(
-                                if (onDevice == songs.size && songs.isNotEmpty()) "All on device" else "$onDevice of ${songs.size} on device",
-                                color = if (onDevice == songs.size && songs.isNotEmpty()) Palette.success else Palette.fg3,
-                                fontSize = 12.sp, modifier = Modifier.padding(end = 4.dp).testTag("on-device-count"),
+                            if (download == PlaylistDownloadStatus.Off) {
+                                Text(
+                                    if (onDevice == songs.size && songs.isNotEmpty()) "All on device" else "$onDevice of ${songs.size} on device",
+                                    color = if (onDevice == songs.size && songs.isNotEmpty()) Palette.success else Palette.fg3,
+                                    fontSize = 12.sp, modifier = Modifier.padding(end = 4.dp).testTag("on-device-count"),
+                                )
+                            }
+                        }
+                    }
+                    if (playlist != null) {
+                        item(key = "download-switch") {
+                            DownloadSwitchRow(
+                                status = download,
+                                enabled = download != PlaylistDownloadStatus.Off || songs.isNotEmpty(),
+                                onChange = { on -> if (on) onStartDownload() else onStopDownload() },
+                                onRetry = viewModel::retryDownload,
                             )
                         }
                     }
@@ -405,4 +451,86 @@ internal fun totalLength(entries: List<com.erkantaylan.listenalong.core.model.Pl
         else -> "${seconds / 3600} h ${Math.round((seconds % 3600) / 60.0)} min"
     }
     return if (known.size < entries.count { it.playable }) "about $text" else text
+}
+
+/**
+ * The playlist's Download switch (Spotify's): on = every song is downloaded
+ * and kept in step with the server; its status under the label.
+ */
+@Composable
+private fun DownloadSwitchRow(
+    status: PlaylistDownloadStatus,
+    enabled: Boolean,
+    onChange: (Boolean) -> Unit,
+    onRetry: () -> Unit,
+) {
+    val on = status != PlaylistDownloadStatus.Off
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp).clip(RoundedCornerShape(Dimens.controlRadius))
+            .clickable(enabled = enabled) { onChange(!on) }
+            .heightIn(min = 56.dp).padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Download"
+                stateDescription = if (on) "On" else "Off"
+            }
+            .testTag("download-switch-row"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            if (on) AppIcons.DownloadedCircle else AppIcons.DownloadCircleOutline, contentDescription = null,
+            tint = if (on) Palette.success else Palette.fg2, modifier = Modifier.size(26.dp),
+        )
+        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+            Text("Download", color = Palette.fg, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            if (on) PlaylistDownloadLine(status) else {
+                Text("Keeps every song on this phone, and the ones added later", color = Palette.fg3, fontSize = 13.sp,
+                     maxLines = 2)
+            }
+        }
+        if (status is PlaylistDownloadStatus.Failed) {
+            QuietButton("Retry", onRetry, tag = "download-retry")
+        }
+        Switch(
+            checked = on,
+            onCheckedChange = onChange,
+            enabled = enabled,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Palette.onAccent,
+                checkedTrackColor = Palette.accent,
+                checkedBorderColor = Palette.accent,
+                uncheckedThumbColor = Palette.fg3,
+                uncheckedTrackColor = Palette.field,
+                uncheckedBorderColor = Palette.borderStrong,
+            ),
+            modifier = Modifier.testTag("download-switch"),
+        )
+    }
+}
+
+/** Turning Download off: keep the songs (they become yours) or remove the ones it downloaded. */
+@Composable
+private fun StopDownloadDialog(name: String, onKeep: () -> Unit, onRemove: () -> Unit, onDismiss: () -> Unit) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Palette.overlay,
+        titleContentColor = Palette.fg,
+        textContentColor = Palette.fg2,
+        shape = CardShape,
+        modifier = Modifier.dialogEdge(),
+        title = { Text("Stop downloading \u201c$name\u201d?", fontSize = 17.sp, fontWeight = FontWeight.SemiBold) },
+        text = {
+            Text(
+                "New songs of this playlist will no longer be downloaded. Remove the songs it downloaded too? " +
+                    "Songs you downloaded yourself, and songs another downloaded playlist holds, stay.",
+                fontSize = 14.sp, lineHeight = 20.sp,
+            )
+        },
+        confirmButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SecondaryButton("Keep songs", onKeep, tag = "stop-keep", compact = true)
+                DangerButton("Remove", onRemove, tag = "stop-remove", compact = true, solid = true)
+            }
+        },
+        dismissButton = { QuietButton("Cancel", onDismiss, accent = false, tag = "dialog:dismiss") },
+    )
 }

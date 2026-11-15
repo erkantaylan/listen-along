@@ -1,6 +1,9 @@
 package com.erkantaylan.listenalong.testing
 
+import com.erkantaylan.listenalong.core.data.DownloadPrefs
 import com.erkantaylan.listenalong.core.data.ServerConfig
+import com.erkantaylan.listenalong.core.domain.NetworkInfo
+import com.erkantaylan.listenalong.core.domain.SyncSettings
 import com.erkantaylan.listenalong.core.model.AddSongsResult
 import com.erkantaylan.listenalong.core.model.AddSongsSummary
 import com.erkantaylan.listenalong.core.model.LibraryPage
@@ -53,6 +56,18 @@ fun signedIn(token: String = "lam_test") = ServerConfig(TEST_SERVER, token, "Tes
 
 class FakeNetwork(online: Boolean = true) : NetworkMonitor {
     override val online = MutableStateFlow(online)
+    override val network = MutableStateFlow(NetworkInfo(online = online))
+
+    fun set(info: NetworkInfo) {
+        network.value = info
+        online.value = info.online
+    }
+}
+
+class FakePrefs(settings: SyncSettings = SyncSettings()) : DownloadPrefs {
+    override val sync = MutableStateFlow(settings)
+    override fun setAllowMetered(allow: Boolean) { sync.value = sync.value.copy(allowMetered = allow) }
+    override fun setRemoveUnlisted(remove: Boolean) { sync.value = sync.value.copy(removeUnlisted = remove) }
 }
 
 fun song(id: String, title: String = "Song $id", artist: String = "Artist", duration: Double? = 180.0) =
@@ -62,7 +77,7 @@ fun entry(entryId: String, libraryId: String?, title: String = "T $entryId", art
     PlaylistEntry(entryId = entryId, libraryId = libraryId, title = title, artist = artist, durationRaw = 120.0)
 
 fun local(id: String, title: String = "Song $id", artist: String = "Artist", manual: Boolean = true, reclaimed: Boolean = false) =
-    LocalSong(id, "content://fake/$id", "$artist - $title.m4a", title, artist, 180, "audio/mp4", 1000, 1, reclaimed)
+    LocalSong(id, "content://fake/$id", "$artist - $title.m4a", title, artist, 180, "audio/mp4", 1000, 1, reclaimed, manual = manual)
 
 /**
  * The server, in memory. Everything is public so a test sets it up and looks

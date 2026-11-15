@@ -52,11 +52,20 @@ class ScreensViewModelTest {
 
     private fun collect() = CoroutineScope(main.dispatcher).launch { messages.messages.collect { said += it } }
 
+    private val repo = com.erkantaylan.listenalong.core.data.PlaylistRepository(
+        { api }, com.erkantaylan.listenalong.core.data.PlaylistCache(MemoryTextStore(), { MemoryTextStore() }),
+    )
+    private val playlistDownloads = com.erkantaylan.listenalong.core.data.PlaylistDownloads(
+        MemoryTextStore(), { api }, repo, downloads, com.erkantaylan.listenalong.testing.FakePrefs(),
+        { com.erkantaylan.listenalong.core.domain.NetworkInfo() },
+    )
+    private fun onDeviceVm() = OnDeviceViewModel(downloads, messages, playlistDownloads, MutableStateFlow(emptyMap()), repo)
+
     @Test
     fun `On device filters by title or artist, artist first`() {
         index.put(local("a", "Zed", "Abba"))
         index.put(local("b", "Alpha", "Queen"))
-        val vm = OnDeviceViewModel(downloads, messages)
+        val vm = onDeviceVm()
         assertEquals(listOf("a", "b"), vm.state.value.songs.map { it.songId })
         vm.onQueryChange("queen")
         assertEquals(listOf("b"), vm.state.value.songs.map { it.songId })
@@ -67,7 +76,7 @@ class ScreensViewModelTest {
     fun `On device deletes a file and forgets it`() {
         val job = collect()
         index.put(local("a"))
-        val vm = OnDeviceViewModel(downloads, messages)
+        val vm = onDeviceVm()
         var consent = false
         vm.delete(index["a"]!!) { consent = true }
         assertFalse(consent)
@@ -100,7 +109,7 @@ class ScreensViewModelTest {
             allowDevSignIn = false,
             scope = CoroutineScope(main.dispatcher),
         )
-        return SettingsViewModel(settings, auth, AccountRepository { api }, downloads, messages)
+        return SettingsViewModel(settings, auth, AccountRepository { api }, downloads, messages, com.erkantaylan.listenalong.testing.FakePrefs())
     }
 
     @Test

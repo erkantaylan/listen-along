@@ -1,5 +1,6 @@
 package com.erkantaylan.listenalong.feature.settings
 
+import com.erkantaylan.listenalong.core.designsystem.SwitchRow
 import com.erkantaylan.listenalong.core.designsystem.Alert
 import com.erkantaylan.listenalong.core.designsystem.AlertKind
 import com.erkantaylan.listenalong.core.designsystem.AppIcons
@@ -67,6 +68,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, actions: AppActions) {
     val snapshot by viewModel.storage.collectAsStateWithLifecycle()
     val connection by viewModel.connection.collectAsStateWithLifecycle()
     val serverNote by viewModel.serverNote.collectAsStateWithLifecycle()
+    val sync by viewModel.sync.collectAsStateWithLifecycle()
     val checking = connection.checking
     val lines = connection.lines
 
@@ -166,6 +168,29 @@ fun SettingsScreen(viewModel: SettingsViewModel, actions: AppActions) {
                         modifier = Modifier.padding(top = 8.dp),
                     )
                 }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Card(title = "Downloaded playlists") {
+                Text(
+                    "Turn Download on for a playlist (on its page) to keep all its songs on this phone. " +
+                        "Songs added to it later, by anyone, download by themselves: when the app opens, when you " +
+                        "refresh, when the connection returns, and every 6 hours in the background.",
+                    color = Palette.fg3, fontSize = 13.sp, lineHeight = 18.sp, modifier = Modifier.padding(bottom = 6.dp),
+                )
+                SwitchRow(
+                    "Download over mobile data",
+                    if (sync.allowMetered) "On: playlists also download on mobile data (never while roaming or with Data Saver on)."
+                    else "Off: playlists download on Wi-Fi only. Songs you download yourself still use any connection.",
+                    sync.allowMetered, viewModel::setAllowMetered, tag = "setting-mobile-data",
+                )
+                SwitchRow(
+                    "Remove downloads of songs removed from a playlist",
+                    if (sync.removeUnlisted) "On: when a song leaves a downloaded playlist, its file is removed too — only if the app " +
+                        "downloaded it for a playlist, no other downloaded playlist holds it, and you did not download it yourself."
+                    else "Off: songs removed from a playlist stay on this phone.",
+                    sync.removeUnlisted, viewModel::setRemoveUnlisted, tag = "setting-remove-unlisted",
+                )
             }
 
             Spacer(Modifier.height(12.dp))

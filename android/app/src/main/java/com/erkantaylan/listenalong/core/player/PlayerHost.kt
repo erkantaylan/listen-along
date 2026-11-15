@@ -39,4 +39,6 @@ class CarSources(
     val coverUri: (String) -> android.net.Uri? = { null },
     /** Lets a car app read a cover URI ([coverUri]'s FileProvider is not exported). */
     val grantRead: (packageName: String, uri: android.net.Uri) -> Unit = { _, _ -> },
+    /** The downloaded playlists (Download on): listed first, marked downloaded, there offline. */
+    val downloadedPlaylists: () -> Set<String> = { emptySet() },
 )

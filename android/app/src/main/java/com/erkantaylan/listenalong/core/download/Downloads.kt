@@ -58,6 +58,16 @@ class Downloads(
     private val io: CoroutineDispatcher = Dispatchers.IO,
     /** After a song is saved (its cover is fetched next to it); a failure here never fails the download. */
     private val onSaved: suspend (LocalSong) -> Unit = {},
+    /**
+     * Whether playlist sync's downloads may run on the network in force
+     * (the "Download over mobile data" setting, roaming, Data Saver). The
+     * user's own downloads always run, as before.
+     */
+    private val mayFetchAuto: () -> Boolean = { true },
+    /** Playlist sync's downloads are waiting for a network they may use: have a worker wait for one. */
+    private val waitForNetwork: () -> Unit = {},
+    /** A song whose file the server does not have (404): playlist sync skips it for a while. */
+    private val onMissing: (String) -> Unit = {},
 ) {
 
     private val downloader = SongDownloader(sink)
@@ -75,13 +85,33 @@ class Downloads(
     fun snapshot(): DownloadSnapshot =
         DownloadSnapshot(index.entries.value, queue.pending.value, progress.value, failures.value)
 
-    /** Queues [songs] (skipping ones already here or queued). Returns how many were added. */
-    fun enqueue(songs: List<Song>): Int {
+    /**
+     * Queues [songs] (skipping ones already here or queued). Returns how many
+     * were added. [manual]: the user asked (the default); false: playlist sync.
+     */
+    fun enqueue(songs: List<Song>, manual: Boolean = true): Int {
         val ids = songs.mapTo(HashSet()) { it.id }
         failures.update { it - ids }
-        val added = queue.enqueue(songs.map(QueuedSong::of), index::contains)
+        val added = queue.enqueue(songs.map { QueuedSong.of(it, manual) }, index::contains)
         if (queue.pending.value.isNotEmpty()) kick()
         return added.size
+    }
+
+    /** Forgets the last failure of these songs (a playlist's Retry). */
+    fun clearFailures(songIds: Collection<String>) {
+        failures.update { it - songIds.toSet() }
+    }
+
+    /**
+     * Playlist sync removing a song it downloaded: only a file this app saved
+     * for a playlist ([LocalSong.manual] false) and not found in the folder
+     * from an earlier install. Never asks the user (no consent prompt): a file
+     * that cannot be deleted silently stays. Returns whether it is gone.
+     */
+    suspend fun deleteOwned(local: LocalSong): Boolean {
+        val current = index[local.songId] ?: return false
+        if (current.manual || current.reclaimed) return false
+        return delete(current)
     }
 
     fun cancel(songId: String) {
@@ -170,7 +200,12 @@ class Downloads(
      * empty. Cancelling the calling coroutine (WorkManager stopping the worker)
      * leaves unfinished songs queued for the next run.
      */
-    suspend fun drain(stats: DrainStats = DrainStats()) {
+    suspend fun drain(stats: DrainStats = DrainStats()) = drainLock.withLock { drainLocked(stats) }
+
+    /** One drain at a time in this process (two workers may start one: the queue's and the network wait). */
+    private val drainLock = Mutex()
+
+    private suspend fun drainLocked(stats: DrainStats) {
         // One drain at a time per process (WorkManager's unique work), and
         // nothing is being written yet: anything pending now is an orphan
         // from a process that died mid-download.
@@ -184,7 +219,7 @@ class Downloads(
         if (client == null) {
             // Nothing can be fetched without a server; say so on every row.
             while (true) {
-                val song = queue.claimNext() ?: break
+                val song = queue.claimNext { true } ?: break
                 failures.update { it + (song.id to "No server set — see Settings") }
                 queue.finish(song.id)
                 stats.failed.incrementAndGet()
@@ -196,7 +231,8 @@ class Downloads(
             repeat(concurrency) {
                 launch {
                     while (currentCoroutineContext().isActive) {
-                        val song = queue.claimNext() ?: break
+                        // Playlist sync's songs wait while the network is not one they may use.
+                        val song = queue.claimNext { it.manual || mayFetchAuto() } ?: break
                         // Its own job, so cancelling one song leaves the lane
                         // (and the other lane) running.
                         coroutineScope {
@@ -208,6 +244,7 @@ class Downloads(
                 }
             }
         }
+        if (queue.pending.value.any { !it.manual }) waitForNetwork()
     }
 
     private suspend fun runOne(client: ListenAlongApi, song: QueuedSong, stats: DrainStats) {
@@ -216,6 +253,9 @@ class Downloads(
             if (index.contains(id)) {
                 queue.finish(id)
                 return
+            }
+            sink.freeBytes()?.let { free ->
+                if (free < MIN_FREE_BYTES) throw LowStorageException()
             }
             progress.update { it + (id to Progress(0, -1)) }
             val local = withRetries {
@@ -238,6 +278,7 @@ class Downloads(
                 queue.release(id)
                 return
             }
+            if (t is ApiException && t.code == 404) onMissing(id)
             failures.update { it + (id to describe(t)) }
             queue.finish(id)
             stats.failed.incrementAndGet()
@@ -261,6 +302,7 @@ class Downloads(
     }
 
     private fun describe(t: Throwable): String = when {
+        t is LowStorageException -> "Not enough free space on the phone"
         t is ApiException && t.code == 404 -> "Not on the server any more"
         t is ApiException && t.sessionEnded -> "Signed out: sign in again"
         t is ApiException -> "Server error: ${t.message}"
@@ -269,5 +311,10 @@ class Downloads(
 
     companion object {
         const val DEFAULT_CONCURRENCY = 2
+        /** Below this much free space nothing more is downloaded (the phone needs room to work). */
+        const val MIN_FREE_BYTES = 200L * 1024 * 1024
     }
 }
+
+/** The phone is almost full: the download is not started. */
+class LowStorageException : IOException("Not enough free space")

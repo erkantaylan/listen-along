@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import com.erkantaylan.listenalong.core.domain.SyncSettings
 import okhttp3.HttpUrl
 
 /**
@@ -45,7 +46,7 @@ interface ServerSettings {
  * under a Keystore-backed key (as kitaplik keeps its Drive credentials). A
  * session belongs to the server it was made on: another address drops it.
  */
-class SettingsStore(context: Context) : SessionHolder, ServerSettings {
+class SettingsStore(context: Context) : SessionHolder, ServerSettings, DownloadPrefs {
 
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
@@ -84,6 +85,25 @@ class SettingsStore(context: Context) : SessionHolder, ServerSettings {
     private val _config = MutableStateFlow(load())
     /** Never null: with nothing saved it is [DEFAULT_SERVER], signed out. */
     override val config: StateFlow<ServerConfig> = _config.asStateFlow()
+
+    private val _sync = MutableStateFlow(
+        SyncSettings(
+            removeUnlisted = prefs.getBoolean(KEY_REMOVE_UNLISTED, true),
+            allowMetered = prefs.getBoolean(KEY_ALLOW_METERED, true),
+        )
+    )
+    /** Playlist sync's two settings; both default to on (the owner's choice: Spotify-like). */
+    override val sync: StateFlow<SyncSettings> = _sync.asStateFlow()
+
+    override fun setAllowMetered(allow: Boolean) {
+        prefs.edit { putBoolean(KEY_ALLOW_METERED, allow) }
+        _sync.update { it.copy(allowMetered = allow) }
+    }
+
+    override fun setRemoveUnlisted(remove: Boolean) {
+        prefs.edit { putBoolean(KEY_REMOVE_UNLISTED, remove) }
+        _sync.update { it.copy(removeUnlisted = remove) }
+    }
 
     /** True while a debug-only, in-memory server override is in force (see [overrideForSession]). */
     private val _overridden = MutableStateFlow(false)
@@ -170,6 +190,8 @@ class SettingsStore(context: Context) : SessionHolder, ServerSettings {
         private const val KEY_SESSION_SERVER = "session_server"
         private const val KEY_SESSION_USER = "session_user"
         private const val KEY_PENDING = "pending_sign_in"
+        private const val KEY_ALLOW_METERED = "sync_allow_metered"
+        private const val KEY_REMOVE_UNLISTED = "sync_remove_unlisted"
         /** The CLI token older builds stored; removed at start. */
         private const val LEGACY_TOKEN = "api_token"
         val DEFAULT_URL: HttpUrl = ServerUrl.normalize(DEFAULT_SERVER)!!
