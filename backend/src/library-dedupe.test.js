@@ -71,7 +71,7 @@ describe('library duplicate detection and replace', { skip, timeout: 240_000 }, 
     process.env.SONGS_PATH = songsDir;
     const db = require('./shared/db.ts');
     assert.ok(await db.init());
-    const library = require('./library');
+    const library = require('./core/library/index.ts').library;
     const legacy = await db.query(
       `INSERT INTO library_songs (title, artist, duration_sec, file_path, sha256, uploaded_by)
        VALUES ('Sevda Çiçeği (Sözleri)', 'Müslüm Gürses', 200, '/nope.m4a', $1, 'server') RETURNING id, meta_key`,
@@ -82,7 +82,7 @@ describe('library duplicate detection and replace', { skip, timeout: 240_000 }, 
     assert.ok(await library.backfillMetaKeys({ pauseMs: 0 }) >= 1);
     const after = await db.query('SELECT meta_key, meta_key_version FROM library_songs WHERE id = $1', [legacyId]);
     assert.equal(after.rows[0].meta_key, 'muslumgurses|sevda cicegi');
-    assert.equal(after.rows[0].meta_key_version, require('./songMatch').META_KEY_VERSION);
+    assert.equal(after.rows[0].meta_key_version, require('./core/library/index.ts').songMatch.META_KEY_VERSION);
     assert.equal(await library.backfillMetaKeys({ pauseMs: 0 }), 0, 'idempotent');
     await db.close();
 

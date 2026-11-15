@@ -24,7 +24,7 @@
 
 const express = require('express');
 const db = require('./shared/db.ts');
-const library = require('./library');
+const { library } = require('./core/library/index.ts');
 const jobs = require('./downloadJobs');
 const { adminAuth } = require('./auth/index.ts');
 const ytdlp = require('./ytdlp');

@@ -23,20 +23,18 @@
 import express from 'express';
 import type { Request, Response, Router } from 'express';
 import dbModule from '../../shared/db.ts';
-import { OPEN_REPORT_EXISTS_SQL } from '../../songReports.js';
+// The library's lean song row (the same as Radio's).
+import { OPEN_REPORT_EXISTS_SQL, toLeanSong } from '../../core/library/index.ts';
+import type { LeanSong, LeanSongRow } from '../../core/library/index.ts';
 import { splitArtistCredit, knownArtistKeys, MAX_KEY } from './artistCredits.ts';
 import type { CreditedArtist } from './artistCredits.ts';
-// The radio's lean song row. A feature importing another feature: the row
-// belongs with the library (core) once it moves.
-import { toStationSong } from '../radio/index.ts';
-import type { StationSong, StationSongRow } from '../radio/index.ts';
 import type { Db, LibrarySongRow } from '../../shared/types.ts';
 
 // The live module object: tests replace its functions.
 const db: Db = dbModule;
 
 /** The library columns the artist pages read. */
-export type ArtistSongRow = StationSongRow & Pick<LibrarySongRow, 'created_at'>;
+export type ArtistSongRow = LeanSongRow & Pick<LibrarySongRow, 'created_at'>;
 
 /** One artist: every song its credit names it in (rows), and what the list shows of it. */
 export interface ArtistGroup<R extends GroupableRow = ArtistSongRow> extends ArtistSummary {
@@ -54,7 +52,7 @@ export interface ArtistSummary {
 
 /** GET /api/artists/:key/songs */
 export interface ArtistSongs extends ArtistSummary {
-  songs: StationSong[];
+  songs: LeanSong[];
 }
 
 /** What groupArtists reads of a row (the tests pass a few fields only). */
@@ -79,7 +77,7 @@ function creditArtists(rows: GroupableRow[]): Map<string, CreditedArtist[]> {
   return credits as Map<string, CreditedArtist[]>;
 }
 
-const byTitle = (a: StationSongRow, b: StationSongRow) => String(a.title).localeCompare(String(b.title), 'tr', { sensitivity: 'base', numeric: true })
+const byTitle = (a: LeanSongRow, b: LeanSongRow) => String(a.title).localeCompare(String(b.title), 'tr', { sensitivity: 'base', numeric: true })
   || String(a.id).localeCompare(String(b.id));
 
 /**
@@ -163,7 +161,7 @@ export function createArtistRouter(): Router {
     if (!key || key.length > MAX_KEY) return null;
     const g = (await loadGroups()).get(key);
     if (!g) return null;
-    return { ...summaryOf(g), songs: g.rows.slice().sort(byTitle).map(toStationSong) };
+    return { ...summaryOf(g), songs: g.rows.slice().sort(byTitle).map(toLeanSong) };
   }));
   return router;
 }

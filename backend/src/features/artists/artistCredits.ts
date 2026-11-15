@@ -32,7 +32,9 @@
  * no leading "the" — for a single artist the same key normalizeArtist gives,
  * so /artist/barismanco keeps working.
  */
-import { fold } from '../../songMatch.js';
+import { songMatch } from '../../core/library/index.ts';
+
+const { fold } = songMatch;
 
 export const MAX_KEY = 200;
 

@@ -2,7 +2,7 @@
  * Is a library song really broken? The server's own answer, never a client's.
  *
  * The web player files a "needs replacement" report by itself when a song
- * fails to play (`auto: true`, songReports.js). Such a report takes the song
+ * fails to play (`auto: true`, songReports.ts). Such a report takes the song
  * out of Radio and the artist pages for everyone, and a browser cannot be the
  * authority on it: its cache, its audio device and its codecs all fail in ways
  * that look like a broken file. So before an automatic report is stored,
@@ -22,9 +22,14 @@
  * says STORAGE_UNAVAILABLE).
  */
 
-const fs = require('fs');
-const { spawn } = require('child_process');
-const db = require('./shared/db.ts');
+import fs from 'node:fs';
+import { spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
+import dbModule from '../../shared/db.ts';
+import type { DbModule } from '../../shared/db.ts';
+
+// The live module object: tests replace its functions.
+const db: DbModule = dbModule;
 
 // --- Storage health ---------------------------------------------------------
 // A bad mount after a redeploy leaves an empty folder; one upload later it is
@@ -36,21 +41,28 @@ const db = require('./shared/db.ts');
 // a legacy cache location).
 const SAMPLE_OLDEST = 10;
 const SAMPLE_NEAR = 5;         // each side of the song's own upload time
-const MIN_SAMPLE = 5;          // fewer than this proves nothing (a tiny library)
-const HEALTHY_RATIO = 0.9;     // at least this share of the sample must exist
+export const MIN_SAMPLE = 5;          // fewer than this proves nothing (a tiny library)
+export const HEALTHY_RATIO = 0.9;     // at least this share of the sample must exist
 
-async function exists(filePath) {
+async function exists(filePath: string): Promise<boolean> {
   try { await fs.promises.access(filePath, fs.constants.R_OK); return true; } catch { return false; }
 }
 
+/** What storageHealth found. */
+export interface StorageHealth {
+  sampled: number;
+  present: number;
+  healthy: boolean;
+  unhealthy: boolean;
+}
+
 /**
- * @returns {Promise<{ sampled: number, present: number, healthy: boolean, unhealthy: boolean }>}
- *   healthy:   enough other songs were sampled and (nearly) all their files exist
+ * @returns healthy:   enough other songs were sampled and (nearly) all their files exist
  *   unhealthy: some were sampled and too many are missing
  *   neither:   too few other songs to tell
  */
-async function storageHealth(songId) {
-  const r = await db.query(
+export async function storageHealth(songId: string): Promise<StorageHealth> {
+  const r = await db.query<{ id: string; file_path: string }>(
     `WITH me AS (SELECT created_at FROM library_songs WHERE id = $1)
      SELECT id, file_path FROM (
        (SELECT id, file_path FROM library_songs WHERE id <> $1 ORDER BY created_at ASC, id LIMIT $2)
@@ -76,8 +88,8 @@ async function storageHealth(songId) {
 // The file routes ask on every request for a missing file: remember the answer
 // for a moment. verifyBroken never reads this (a report is always re-checked).
 const HEALTH_TTL_MS = 3000;
-const healthCache = new Map(); // song id -> { at, health }
-async function storageHealthCached(songId) {
+const healthCache = new Map<string, { at: number; health: StorageHealth }>(); // song id -> { at, health }
+export async function storageHealthCached(songId: string): Promise<StorageHealth> {
   const hit = healthCache.get(songId);
   if (hit && Date.now() - hit.at < HEALTH_TTL_MS) return hit.health;
   const health = await storageHealth(songId);
@@ -114,20 +126,21 @@ const BAD_INPUT = /invalid data found when processing input|moov atom not found|
 // words anywhere else (opening or reading the file) still count as the
 // surroundings.
 const DECODER_REPORT = /\[dec:[^\]]*\]|error (?:submitting packet to|processing packet in) decoder|error while decoding stream/i;
-function blamesSurroundings(stderr) {
+function blamesSurroundings(stderr: string): boolean {
   const lines = stderr.split('\n').map((line) => (DECODER_REPORT.test(line) ? line.replace(/operation not permitted/gi, '') : line));
   return ENVIRONMENT.test(lines.join('\n'));
 }
-const blamesInput = (stderr) => !blamesSurroundings(stderr) && BAD_INPUT.test(stderr);
-const verdicts = new Map(); // `${path}|${size}|${mtimeMs}` -> { at, ok }
-let chain = Promise.resolve();
+export const blamesInput = (stderr: string): boolean => !blamesSurroundings(stderr) && BAD_INPUT.test(stderr);
+const verdicts = new Map<string, { at: number; ok: boolean }>(); // `${path}|${size}|${mtimeMs}` -> { at, ok }
+let chain: Promise<unknown> = Promise.resolve();
 let waiting = 0;
 
 // One ffmpeg run -> 'ok' (decoded to the end), 'bad' (ffmpeg blames the input),
 // or 'doubt' (it did not run, was killed, or failed for some other reason).
-function runDecode(filePath) {
+type DecodeRun = 'ok' | 'bad' | 'doubt';
+function runDecode(filePath: string): Promise<DecodeRun> {
   return new Promise((resolve) => {
-    let proc;
+    let proc: ChildProcess;
     try {
       proc = spawn('nice', ['-n', '10', ffmpegBin(), '-nostdin', '-v', 'error', '-xerror', '-i', filePath, '-map', '0:a:0', '-f', 'null', '-'], { stdio: ['ignore', 'ignore', 'pipe'] });
     } catch {
@@ -135,9 +148,10 @@ function runDecode(filePath) {
     }
     let stderr = '';
     let done = false;
-    const finish = (value) => { if (!done) { done = true; clearTimeout(watchdog); resolve(value); } };
+    const finish = (value: DecodeRun) => { if (!done) { done = true; clearTimeout(watchdog); resolve(value); } };
     const watchdog = setTimeout(() => { proc.kill('SIGKILL'); finish('doubt'); }, decodeTimeoutMs());
-    proc.stderr.on('data', (d) => { if (stderr.length < STDERR_MAX) stderr += d.toString().slice(0, STDERR_MAX - stderr.length); });
+    // stderr is a pipe (stdio above).
+    proc.stderr!.on('data', (d) => { if (stderr.length < STDERR_MAX) stderr += d.toString().slice(0, STDERR_MAX - stderr.length); });
     proc.on('error', () => finish('doubt'));
     proc.on('close', (code, signal) => {
       if (code === 0 && !signal) return finish('ok');
@@ -149,7 +163,8 @@ function runDecode(filePath) {
 }
 
 // The file as it is now: { size, mtimeMs } when it is a readable regular file, else null.
-async function readableFile(filePath) {
+interface FileStamp { size: number; mtimeMs: number }
+async function readableFile(filePath: string): Promise<FileStamp | null> {
   try {
     const stat = await fs.promises.stat(filePath);
     if (!stat.isFile()) return null;
@@ -159,13 +174,13 @@ async function readableFile(filePath) {
     return null;
   }
 }
-const sameFile = (a, b) => !!a && !!b && a.size === b.size && a.mtimeMs === b.mtimeMs;
+const sameFile = (a: FileStamp | null, b: FileStamp | null): boolean => !!a && !!b && a.size === b.size && a.mtimeMs === b.mtimeMs;
 
 /**
  * Does ffmpeg decode the file from start to end? No queue, no memory.
- * @returns {Promise<boolean|null>} true, false (see above), or null = not established
+ * @returns true, false (see above), or null = not established
  */
-async function checkFile(filePath) {
+export async function checkFile(filePath: string): Promise<boolean | null> {
   const before = await readableFile(filePath);
   if (!before) return null;
   const first = await runDecode(filePath);
@@ -178,9 +193,9 @@ async function checkFile(filePath) {
 
 /**
  * checkFile, one at a time, with a short waiting line and a memory of certain verdicts.
- * @returns {Promise<boolean|null>} null also when it is too busy
+ * @returns null also when it is too busy
  */
-async function decodes(filePath, stat) {
+async function decodes(filePath: string, stat: FileStamp): Promise<boolean | null> {
   const key = `${filePath}|${stat.size}|${stat.mtimeMs}`;
   const hit = verdicts.get(key);
   if (hit && Date.now() - hit.at < VERDICT_TTL_MS) return hit.ok;
@@ -188,7 +203,7 @@ async function decodes(filePath, stat) {
   waiting += 1;
   const run = chain.then(() => checkFile(filePath));
   chain = run.catch(() => {});
-  let ok;
+  let ok: boolean | null;
   try { ok = await run; } finally { waiting -= 1; }
   if (ok !== null) {
     if (verdicts.size > 500) verdicts.clear();
@@ -197,26 +212,33 @@ async function decodes(filePath, stat) {
   return ok;
 }
 
+/** verifyBroken's answer. */
+export interface Verdict {
+  broken: 'missing' | 'undecodable' | null;
+  why: string;
+  file_path: string;
+}
+
 /**
- * @param {{ id: string, file_path: string }} song - a library_songs row
- * @returns {Promise<{ broken: 'missing'|'undecodable'|null, why: string, file_path: string }>}
- *   broken null = not established (`why` is for the log only). `file_path` is
+ * @param song a library_songs row
+ * @returns broken null = not established (`why` is for the log only). `file_path` is
  *   the file the verdict is about: the report may only be stored while the
  *   song still has it (songReports.report), since a replace can commit while
  *   this runs.
  */
-async function verifyBroken(song) {
+export async function verifyBroken(song: { id: string; file_path: string }): Promise<Verdict> {
   const file_path = song.file_path;
-  const no = (why) => ({ broken: null, why, file_path });
-  let stat;
+  const no = (why: string): Verdict => ({ broken: null, why, file_path });
+  let stat: fs.Stats;
   try {
     stat = await fs.promises.stat(file_path);
   } catch (err) {
-    if (err.code !== 'ENOENT') return no(`cannot read the file (${err.code})`);
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') return no(`cannot read the file (${code})`);
     const health = await storageHealth(song.id);
     if (!health.healthy) return no(`file missing, but the storage is not known to be healthy (${health.present}/${health.sampled} other files present)`);
     // Still missing after the look around?
-    const again = await fs.promises.stat(file_path).then(() => null, (e) => e.code);
+    const again = await fs.promises.stat(file_path).then(() => null, (e: NodeJS.ErrnoException) => e.code);
     if (again !== 'ENOENT') return no('the file is there after all');
     return { broken: 'missing', why: `file missing, ${health.present}/${health.sampled} other files present`, file_path };
   }
@@ -226,4 +248,3 @@ async function verifyBroken(song) {
   return no(ok ? 'the file decodes' : 'the decode check gave no certain answer (busy, timed out, no ffmpeg, the file changed or is unreadable, or an error that is not about the file)');
 }
 
-module.exports = { verifyBroken, checkFile, blamesInput, storageHealth, storageHealthCached, MIN_SAMPLE, HEALTHY_RATIO };

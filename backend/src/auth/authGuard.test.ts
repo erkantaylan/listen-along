@@ -464,7 +464,7 @@ describe('auth guard against a running server (no database, dev sign-in)', { tim
     const twice = await c.req('GET', `/api/covers/nope?fallback=${encodeURIComponent('https://i.ytimg.com/a.jpg')}&fallback=x`, { cookie: alice });
     assert.equal(twice.status, 400, 'a repeated parameter is not a URL');
     // The target is a fixed https origin + the given path and query.
-    const { coverRedirectTarget } = (await import('../mediaRoutes.js')).default;
+    const { coverRedirectTarget } = await import('../core/library/index.ts');
     assert.equal(coverRedirectTarget('http://i.scdn.co/image/ab67?x=1#f'), 'https://i.scdn.co/image/ab67?x=1');
     assert.equal(coverRedirectTarget('https://i.ytimg.com\\@evil.example/x'), 'https://i.ytimg.com/@evil.example/x');
     assert.equal(coverRedirectTarget('https://i.ytimg.com:8443/x'), null, 'no other port');

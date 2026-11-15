@@ -158,7 +158,7 @@ class Queue {
    * it comes from the library song. Unmatched entries (requests) keep null.
    */
   async _loadArtists() {
-    const { isUuid, parseYoutubeId, queueArtist } = require('./library');
+    const { isUuid, parseYoutubeId, queueArtist } = require('./core/library/index.ts').library;
     const ids = [];
     const ytIds = [];
     for (const s of this.songs) {

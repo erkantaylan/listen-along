@@ -9,8 +9,12 @@
  *       a redirect to the fallback thumbnail on a known image host.
  */
 
-const express = require('express');
-const path = require('path');
+import express from 'express';
+import type { Request, RequestHandler, Response, Router } from 'express';
+import path from 'node:path';
+import type { LibrarySongRow } from '../../shared/types.ts';
+import type { CoverInfo } from './covers.ts';
+import type { SendSongFile } from './libraryRoutes.ts';
 
 // Where a missing cover may send the browser instead: the image hosts queue
 // entries' thumbnails come from (YouTube: library songs, search, yt-dlp; YouTube
@@ -18,9 +22,9 @@ const path = require('path');
 // hosts under googleusercontent.com or youtube.com serve pages people write).
 // The target is rebuilt from the fixed https origin + the path and query of the
 // given URL, so nothing in the request decides where it points.
-function coverRedirectTarget(value) {
+export function coverRedirectTarget(value: unknown): string | null {
   if (typeof value !== 'string') return null; // ?fallback=a&fallback=b is an array
-  let u;
+  let u: URL;
   try { u = new URL(value); } catch { return null; }
   if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
   if (u.username || u.password || u.port) return null;
@@ -37,24 +41,26 @@ function coverRedirectTarget(value) {
     default: return null;
   }
 }
-const isAllowedCoverUrl = (value) => coverRedirectTarget(value) !== null;
+export const isAllowedCoverUrl = (value: unknown): boolean => coverRedirectTarget(value) !== null;
 
-/**
- * @param {object} deps
- * @param {{ isAvailable: () => boolean }} deps.db
- * @param {{ resolveQueueUrl: (url: string) => Promise<object|null> }} deps.library
- * @param {{ getCachedCover: (id: string) => ({ path: string, contentType: string }|null), COVERS_DIR: string }} deps.covers
- * @param {import('express').RequestHandler} deps.apiLimiter - rateLimits.apiLimiter
- * @param {(req: object, res: object, song: object, opts?: { download?: boolean }) => void} deps.sendSongFile - libraryRoutes.sendSongFile
- * @returns {import('express').Router}
- */
-function createMediaRouter({ db, library, covers, apiLimiter, sendSongFile }) {
+/** What the media routes need (index.js passes the library's own modules). */
+export interface MediaRouterDeps {
+  db: { isAvailable(): boolean };
+  library: { resolveQueueUrl(url: string): Promise<LibrarySongRow | null> };
+  covers: { getCachedCover(id: string): CoverInfo | null; COVERS_DIR: string };
+  /** rateLimits.apiLimiter */
+  apiLimiter: RequestHandler;
+  /** libraryRoutes.sendSongFile */
+  sendSongFile: SendSongFile;
+}
+
+export function createMediaRouter({ db, library, covers, apiLimiter, sendSongFile }: MediaRouterDeps): Router {
   const router = express.Router();
 
   // Play audio for a queue entry. `q` is the queue entry's url: a YouTube URL
   // (looked up by youtube_id), `library:<id>`, or a legacy cache URL. The server
   // never downloads: anything not in the library is a 404 NOT_IN_LIBRARY.
-  router.get('/api/stream', apiLimiter, async (req, res) => {
+  router.get('/api/stream', apiLimiter, async (req: Request, res: Response) => {
     const { q } = req.query;
     if (!q) {
       return res.status(400).json({ error: 'Missing query parameter: q' });
@@ -72,13 +78,13 @@ function createMediaRouter({ db, library, covers, apiLimiter, sendSongFile }) {
       }
       sendSongFile(req, res, song, { download: forceDownload });
     } catch (err) {
-      console.error('Stream error:', err.message);
+      console.error('Stream error:', (err as Error).message);
       res.status(500).json({ error: 'Stream error' });
     }
   });
 
   // Get cached cover art for a song
-  router.get('/api/covers/:id', apiLimiter, (req, res) => {
+  router.get('/api/covers/:id', apiLimiter, (req: Request<{ id: string }>, res: Response) => {
     const songId = req.params.id;
     const fallbackUrl = req.query.fallback;
 
@@ -109,4 +115,3 @@ function createMediaRouter({ db, library, covers, apiLimiter, sendSongFile }) {
   return router;
 }
 
-module.exports = { createMediaRouter, isAllowedCoverUrl, coverRedirectTarget };

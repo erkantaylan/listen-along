@@ -21,7 +21,9 @@
  */
 
 const db = require('./shared/db.ts');
-const library = require('./library');
+// The library's own module, not its index: core/library/libraryRoutes.ts
+// imports this file while the library area loads (until jobs moves to core/).
+const library = require('./core/library/library.ts');
 const ytdlp = require('./ytdlp');
 const spotify = require('./spotify');
 

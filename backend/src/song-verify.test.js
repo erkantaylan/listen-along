@@ -31,7 +31,7 @@ describe('songVerify: the decode check', { skip: !has('ffmpeg -version') && 'ffm
   const check = (file_path) => verifyBroken({ id: 'x', file_path });
 
   before(() => {
-    ({ verifyBroken } = require('./songVerify'));
+    ({ verifyBroken } = require('./core/library/index.ts').songVerify);
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'la-verify-'));
   });
   after(() => { fs.rmSync(dir, { recursive: true, force: true }); });

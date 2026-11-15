@@ -16,7 +16,7 @@ import express from 'express';
 import type { NextFunction, Request, RequestHandler, Response, Router } from 'express';
 import db from '../shared/db.ts';
 import * as tokens from './tokens.ts';
-import library from '../library.js';
+import { isUuid } from '../shared/ids.ts';
 import { make } from '../shared/rateLimits.ts';
 import type { Account } from './types.ts';
 
@@ -74,7 +74,7 @@ export function createTokenRouter({ requireUser, createLimit = 10 }: TokenRouter
 
   router.delete('/api/tokens/:id', requireUser, requireDb, async (request, res) => {
     const req = request as AccountRequest;
-    if (!library.isUuid(req.params.id)) return res.status(404).json({ error: 'Token not found' });
+    if (!isUuid(req.params.id)) return res.status(404).json({ error: 'Token not found' });
     try {
       const record = await tokens.revokeToken(req.params.id, { userId: req.account.id });
       if (!record) return res.status(404).json({ error: 'Token not found' });

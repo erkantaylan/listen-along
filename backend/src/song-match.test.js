@@ -1,7 +1,7 @@
 // Normalization used for "probable duplicate" detection (songMatch.js).
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const m = require('./songMatch');
+const m = require('./core/library/index.ts').songMatch;
 
 describe('songMatch.fold', () => {
   it('folds accents and Turkish letters (both cases, dotted/dotless i)', () => {

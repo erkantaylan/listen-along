@@ -9,32 +9,61 @@
  * requireWebUser hook (standalone mounts in tests) web users get 401.
  */
 
-const crypto = require('crypto');
-const express = require('express');
-const multer = require('multer');
-const path = require('path');
-const db = require('./shared/db.ts');
-const library = require('./library');
-const requests = require('./requests');
-const { mobileBearer, adminAuth, tokens } = require('./auth/index.ts');
-const downloadJobs = require('./downloadJobs');
-const songReports = require('./songReports');
-const songVerify = require('./songVerify');
-const { apiLimiter, keyFor, make: makeLimiter } = require('./shared/rateLimits.ts');
+import crypto from 'node:crypto';
+import express from 'express';
+import type { NextFunction, Request, RequestHandler, Response, Router } from 'express';
+import multer from 'multer';
+import path from 'node:path';
+import dbModule from '../../shared/db.ts';
+import type { DbModule } from '../../shared/db.ts';
+import * as library from './library.ts';
+import type { PublicSong, UploadFields, Uploader } from './library.ts';
+import requestsJs from '../../requests.js';
+import { mobileBearer, adminAuth, tokens } from '../../auth/index.ts';
+import downloadJobsJs from '../../downloadJobs.js';
+import * as songReports from './songReports.ts';
+import * as songVerify from './songVerify.ts';
+import { apiLimiter, keyFor, make as makeLimiter } from '../../shared/rateLimits.ts';
+import type { JobRow, LibrarySongRow } from '../../shared/types.ts';
 
-function parseIntParam(value, def, min, max) {
-  const n = parseInt(value, 10);
+// The live module object: tests replace its functions.
+const db: DbModule = dbModule;
+
+// What these routes use of the song requests and the download jobs (still
+// CommonJS until they move to core/; their JSDoc types are looser than this).
+interface RequestsUse {
+  STATUSES: string[];
+  fulfillRequests(song: LibrarySongRow, requestId?: string | null, extraYoutubeId?: string | null): Promise<SongRequestView[]>;
+  listRequests(opts: { status: string }): Promise<SongRequestView[]>;
+  dismissRequest(id: string): Promise<SongRequestView | null>;
+}
+interface JobsUse {
+  uploadContext(apiUser: Uploader, body: Record<string, unknown>, fields: Partial<UploadFields>): Promise<UploadContext>;
+  getWorker(id: string | null): Promise<{ id: string; name: string } | null>;
+  activeReplaceJob(songId: string): Promise<JobRow | null>;
+  workerOwnerName(worker: { id: string; name: string }): string | null;
+  finish(jobId: string, worker: { id: string; name: string; ownerName: string | null }, result: unknown): Promise<{ job: JobRow } | null>;
+  cancelReplaceJobsForSong(songId: string, reason: string): Promise<JobRow[]>;
+}
+const requests = requestsJs as unknown as RequestsUse;
+const downloadJobs = downloadJobsJs as unknown as JobsUse;
+
+function parseIntParam(value: unknown, def: number, min: number, max: number): number {
+  const n = parseInt(String(value), 10);
   if (!Number.isFinite(n)) return def;
   return Math.min(Math.max(n, min), max);
 }
 
-function requireDb(req, res, next) {
+function requireDb(req: Request, res: Response, next: NextFunction) {
   if (!db.isAvailable()) return res.status(503).json({ error: 'Database not available' });
   next();
 }
 
+/** What a song file response needs of the row. */
+export type SongFileRow = Pick<LibrarySongRow, 'id' | 'title' | 'artist' | 'file_path' | 'mime_type' | 'sha256'>;
+
 // Safe ASCII filename for Content-Disposition.
-function downloadFilename(song) {
+export function downloadFilename(song: Pick<LibrarySongRow, 'title' | 'artist' | 'file_path' | 'mime_type'>): string {
   const ext = song.mime_type === 'audio/mpeg' ? '.mp3' : path.extname(song.file_path) || '.m4a';
   const base = `${song.artist && song.artist !== 'Unknown' ? song.artist + ' - ' : ''}${song.title || 'audio'}`
     .replace(/[^\x20-\x7e]/g, '')
@@ -60,6 +89,9 @@ const LIBRARY_PATHS = [
 const AUTO_REPORT_LIMIT = 20;
 const AUTO_REPORT_WINDOW_MS = 10 * 60 * 1000;
 
+/** sendSongFile's signature (mediaRoutes gets it in its deps). */
+export type SendSongFile = (req: Request, res: Response, song: SongFileRow, opts?: { download?: boolean }) => void;
+
 /**
  * Stream a library song's file with Range support (express sendFile handles
  * Range / 206 / 416 itself).
@@ -69,17 +101,17 @@ const AUTO_REPORT_WINDOW_MS = 10 * 60 * 1000;
  * see library.toPublic); otherwise browsers revalidate (ETag / Last-Modified
  * change with the file, so an unchanged song is a cheap 304).
  */
-function sendSongFile(req, res, song, { download = false } = {}) {
+export const sendSongFile: SendSongFile = (req, res, song, { download = false } = {}) => {
   const versioned = typeof req.query.v === 'string' && req.query.v !== '' && song.sha256
     && String(song.sha256).startsWith(req.query.v.toLowerCase()) && req.query.v.length >= 8;
-  const headers = {
+  const headers: Record<string, string> = {
     'Content-Type': song.mime_type || library.mimeForPath(song.file_path),
     'Cache-Control': versioned ? 'public, max-age=31536000, immutable' : 'no-cache',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Expose-Headers': 'Content-Length, Content-Range, Accept-Ranges',
   };
   if (download) headers['Content-Disposition'] = `attachment; filename="${downloadFilename(song)}"`;
-  res.sendFile(path.resolve(song.file_path), { headers, acceptRanges: true, dotfiles: 'allow' }, (err) => {
+  res.sendFile(path.resolve(song.file_path), { headers, acceptRanges: true, dotfiles: 'allow' }, (err?: Error & { status?: number; code?: string }) => {
     if (!err || res.headersSent) return;
     // send() may already have applied the audio headers (it does for a 416):
     // drop them so the JSON error is not labelled audio/* or cached forever.
@@ -105,24 +137,55 @@ function sendSongFile(req, res, song, { download = false } = {}) {
     console.error('[library] sendFile error:', err.message);
     res.status(500).json({ error: 'Failed to read audio file' });
   });
+};
+
+/** A song request as the API sends it (requests.js toPublic). */
+export interface SongRequestView {
+  id: string;
+  title: string | null;
+  youtube_id: string | null;
+  lobby_id: string | null;
 }
 
-/**
- * @param {object} hooks
- * @param {(song: object, fulfilled: object[]) => void} [hooks.onSongAdded] - after an upload is stored
- * @param {() => void} [hooks.onRequestsChanged] - after a request is fulfilled/dismissed
- * @param {(song: object) => void} [hooks.onSongRemoved] - after an admin deletes a song
- * @param {(song: object, previous: object) => void} [hooks.onSongReplaced] - after a song's audio was replaced
- * @param {(song: object, previous: object) => void} [hooks.onSongDetailsChanged] - after its title, artist or album changed
- * @param {(job: object) => void} [hooks.onJobUpdated] - a job changed here (a replace finished or dropped one)
- * @param {Function} [hooks.loginRateLimit] - middleware for POST /api/admin/login
- * @param {Function} [hooks.requireWebUser] - middleware: is the caller a web user allowed to read?
- * @param {(job: object, song: object) => void} [hooks.onJobUpload] - a worker uploaded a song for a job
- * @param {(request: object) => void} [hooks.onRequestDismissed]
- * @param {(songId: string) => void} [hooks.onReportsChanged] - a song was marked / unmarked broken, or its reports dismissed
- * @param {Function} [hooks.apiLimiter] - the general limit for this router's paths (default rateLimits.apiLimiter; tests pass a small one)
- */
-function createLibraryRouter(hooks = {}) {
+/** What the composition root hooks into the library's changes. All optional. */
+export interface LibraryHooks {
+  /** after an upload is stored */
+  onSongAdded?: (song: LibrarySongRow, fulfilled: SongRequestView[]) => void;
+  /** after a request is fulfilled/dismissed */
+  onRequestsChanged?: () => void;
+  /** after an admin deletes a song */
+  onSongRemoved?: (song: LibrarySongRow) => void;
+  /** after a song's audio was replaced */
+  onSongReplaced?: (song: LibrarySongRow, previous: LibrarySongRow) => void;
+  /** after its title, artist or album changed */
+  onSongDetailsChanged?: (song: LibrarySongRow, previous: LibrarySongRow) => void;
+  /** a job changed here (a replace finished or dropped one) */
+  onJobUpdated?: (job: JobRow) => void;
+  /** middleware for POST /api/admin/login */
+  loginRateLimit?: RequestHandler;
+  /** middleware: is the caller a web user allowed to read? */
+  requireWebUser?: RequestHandler;
+  /** a worker uploaded a song for a job */
+  onJobUpload?: (job: JobRow, song: LibrarySongRow) => void;
+  onRequestDismissed?: (request: SongRequestView) => void;
+  /** a song was marked / unmarked broken, or its reports dismissed */
+  onReportsChanged?: (songId: string) => void;
+  /** the general limit for this router's paths (default rateLimits.apiLimiter; tests pass a small one) */
+  apiLimiter?: RequestHandler;
+}
+
+/** The worker / job records of an upload (downloadJobs.uploadContext). */
+interface UploadContext {
+  job: JobRow | null;
+  jobId: string | null;
+  requestId: string | null;
+  workerId: string | null;
+  workerName: string | null;
+  requestedByUserId: string | null;
+  requestedBy: string | null;
+}
+
+export function createLibraryRouter(hooks: LibraryHooks = {}): Router {
   const onSongAdded = hooks.onSongAdded || (() => {});
   const onRequestsChanged = hooks.onRequestsChanged || (() => {});
   const onSongRemoved = hooks.onSongRemoved || (() => {});
@@ -132,13 +195,13 @@ function createLibraryRouter(hooks = {}) {
   const onJobUpload = hooks.onJobUpload || (() => {});
   const onRequestDismissed = hooks.onRequestDismissed || (() => {});
   const onReportsChanged = hooks.onReportsChanged || (() => {});
-  const loginRateLimit = hooks.loginRateLimit || ((req, res, next) => next());
-  const requireWebUser = hooks.requireWebUser
+  const loginRateLimit: RequestHandler = hooks.loginRateLimit || ((req, res, next) => next());
+  const requireWebUser: RequestHandler = hooks.requireWebUser
     || ((req, res) => res.status(401).json({ error: 'Authentication required', code: 'AUTH_REQUIRED' }));
 
   // Reads: a Bearer token (must be valid), else the admin cookie, else a
   // logged-in approved web user.
-  const readAccess = (req, res, next) => {
+  const readAccess: RequestHandler = (req, res, next) => {
     if (tokens.hasBearer(req)) return tokens.requireToken(req, res, next);
     if (adminAuth.isAdmin(req)) return next();
     return requireWebUser(req, res, next);
@@ -146,14 +209,14 @@ function createLibraryRouter(hooks = {}) {
 
   // Changes (replace): a Bearer token (must be valid; a revoked token or one
   // whose owner is not approved is refused) or a logged-in approved web user.
-  const writeAccess = (req, res, next) => {
+  const writeAccess: RequestHandler = (req, res, next) => {
     if (tokens.hasBearer(req)) return tokens.requireToken(req, res, next);
     return requireWebUser(req, res, next);
   };
   // Who is acting, for audit rows: the token (and its owner) or the web user.
-  const actorOf = (req) => {
+  const actorOf = (req: Request): Uploader => {
     if (req.apiUser) return req.apiUser;
-    const account = (req._listenAuth && req._listenAuth.account) || {};
+    const account: { id?: string; name?: string | null; username?: string } = (req._listenAuth && req._listenAuth.account) || {};
     return { id: null, userId: account.id || null, name: account.name || account.username || 'web user' };
   };
 
@@ -173,7 +236,7 @@ function createLibraryRouter(hooks = {}) {
   });
 
   // The account behind the request (token owner or web user), for "mine".
-  const viewerOf = (req) => (req.apiUser ? req.apiUser.userId || null
+  const viewerOf = (req: Request): string | null => (req.apiUser ? req.apiUser.userId || null
     : (req._listenAuth && req._listenAuth.account && req._listenAuth.account.id) || null);
 
   const router = express.Router();
@@ -186,21 +249,21 @@ function createLibraryRouter(hooks = {}) {
   const upload = multer({
     storage: multer.diskStorage({
       destination: (req, file, cb) => {
-        try { library.ensureDirs(); cb(null, library.UPLOAD_TMP_DIR); } catch (err) { cb(err); }
+        try { library.ensureDirs(); cb(null, library.UPLOAD_TMP_DIR); } catch (err) { cb(err as Error, ''); }
       },
       filename: (req, file, cb) => cb(null, `${crypto.randomUUID()}.part`),
     }),
     limits: { fileSize: library.MAX_UPLOAD_BYTES, files: 1, fields: 20, fieldSize: 16 * 1024 },
   });
 
-  const uploadSingle = (req, res, next) => {
-    upload.single('file')(req, res, (err) => {
+  const uploadSingle: RequestHandler = (req, res, next) => {
+    upload.single('file')(req, res, (err?: unknown) => {
       if (!err) return next();
-      if (err.code === 'LIMIT_FILE_SIZE') {
+      if ((err as { code?: string }).code === 'LIMIT_FILE_SIZE') {
         return res.status(413).json({ error: `File too large (max ${library.MAX_UPLOAD_BYTES / 1024 / 1024} MB)` });
       }
       if (err instanceof multer.MulterError) return res.status(400).json({ error: `Bad upload: ${err.message}` });
-      return res.status(400).json({ error: `Bad upload: ${err.message}` });
+      return res.status(400).json({ error: `Bad upload: ${(err as Error).message}` });
     });
   };
 
@@ -210,10 +273,11 @@ function createLibraryRouter(hooks = {}) {
   // upload_formats: what /api/library/upload and /replace take (m4a = AAC in
   // MP4, opus = Opus in Ogg). A server without it takes m4a only, and the CLI
   // then downloads and converts to m4a as it always did.
-  // The Android app's session (`lam_` Bearer) is answered by mobileAuth.js.
-  const cliOnly = (req, res, next) => (mobileBearer(req.headers) ? next('route') : next());
+  // The Android app's session (`lam_` Bearer) is answered by auth/mobileAuth.ts.
+  const cliOnly: RequestHandler = (req, res, next) => (mobileBearer(req.headers) ? next('route') : next());
   router.get('/api/me', cliOnly, tokens.requireToken, (req, res) => {
-    const { name, label, user } = req.apiUser;
+    // requireToken set it.
+    const { name, label, user } = req.apiUser!;
     res.json({ name, user, token: { label, legacy: !user }, upload_formats: Object.keys(library.UPLOAD_FORMATS) });
   });
 
@@ -235,47 +299,50 @@ function createLibraryRouter(hooks = {}) {
       await songReports.attachReports(result.songs, viewerOf(req));
       res.json(result);
     } catch (err) {
-      console.error('[library] list error:', err.message);
+      console.error('[library] list error:', (err as Error).message);
       res.status(500).json({ error: 'Failed to list library' });
     }
   });
 
   router.post('/api/library/upload', tokens.requireToken, uploadSingle, async (req, res) => {
     const cleanupTmp = () => { if (req.file) library.removeUploadTmp(req.file); };
-    let fields;
+    let fields: UploadFields;
     try {
       library.validateUploadFileMeta(req.file);
       fields = library.validateUploadFields(req.body);
     } catch (err) {
       cleanupTmp();
-      return res.status(err.status || 400).json({ error: err.message });
+      return res.status((err as library.UploadError).status || 400).json({ error: (err as Error).message });
     }
 
+    // requireToken set it.
+    const apiUser = req.apiUser!;
     try {
       // Upload records: the worker (worker_id), its job (job_id) and who asked.
-      const ctx = await downloadJobs.uploadContext(req.apiUser, req.body || {}, fields);
+      const ctx: UploadContext = await downloadJobs.uploadContext(apiUser, req.body || {}, fields);
       // Never let a replace job become a new song, whatever the worker does.
       if (ctx.job && ctx.job.replace_song_id) {
         cleanupTmp();
         return res.status(409).json({ error: 'This job replaces a song; it cannot upload a new one', code: 'replace_job_upload' });
       }
       if (ctx.requestId && !fields.request_id) fields.request_id = ctx.requestId;
-      const uploader = {
-        ...req.apiUser,
+      const uploader: Uploader = {
+        ...apiUser,
         workerId: ctx.workerId, workerName: ctx.workerName, jobId: ctx.jobId,
         requestedByUserId: ctx.requestedByUserId, requestedBy: ctx.requestedBy,
       };
-      let row;
+      let row: LibrarySongRow;
       try {
-        row = await library.ingestUpload(req.file, fields, uploader);
+        // validateUploadFileMeta checked that there is a file.
+        row = await library.ingestUpload(req.file!, fields, uploader);
       } catch (err) {
-        err.uploadContext = ctx;
+        (err as library.UploadError).uploadContext = ctx;
         throw err;
       }
       const song = library.toPublic(row);
       if (ctx.job) { try { onJobUpload(ctx.job, row); } catch (err) { console.error('[library] onJobUpload hook failed:', err); } }
-      const fulfilled = await requests.fulfillRequests(row, fields.request_id);
-      console.log(`[library] ${req.apiUser.name}${ctx.workerName ? ` (worker ${ctx.workerName})` : ''} uploaded "${row.title}" by ${row.artist} (${row.id}); fulfilled ${fulfilled.length} request(s)`);
+      const fulfilled: SongRequestView[] = await requests.fulfillRequests(row, fields.request_id);
+      console.log(`[library] ${apiUser.name}${ctx.workerName ? ` (worker ${ctx.workerName})` : ''} uploaded "${row.title}" by ${row.artist} (${row.id}); fulfilled ${fulfilled.length} request(s)`);
       try { onSongAdded(row, fulfilled); } catch (err) { console.error('[library] onSongAdded hook failed:', err); }
       if (fulfilled.length) onRequestsChanged();
       res.status(201).json({ song, fulfilled_requests: fulfilled.map((r) => r.id) });
@@ -283,8 +350,9 @@ function createLibraryRouter(hooks = {}) {
       if (err instanceof library.UploadError) {
         if (err.status === 409 && err.song) {
           // The song already exists — any matching pending request is satisfied by it.
-          if (err.uploadContext && err.uploadContext.job) { try { onJobUpload(err.uploadContext.job, err.song); } catch {} }
-          const fulfilled = await requests.fulfillRequests(err.song, fields.request_id, fields.youtube_id).catch(() => []);
+          const ctx = err.uploadContext as UploadContext | undefined;
+          if (ctx && ctx.job) { try { onJobUpload(ctx.job, err.song); } catch {} }
+          const fulfilled: SongRequestView[] = await requests.fulfillRequests(err.song, fields.request_id, fields.youtube_id).catch(() => []);
           if (fulfilled.length) {
             try { onSongAdded(err.song, fulfilled); } catch {}
             onRequestsChanged();
@@ -310,7 +378,7 @@ function createLibraryRouter(hooks = {}) {
   // duplicate_metadata (normalized artist + title, duration within ±3s;
   // "probable", exact=false). The upload itself re-checks all of them.
   router.post('/api/library/check', tokens.requireToken, requireDb, async (req, res) => {
-    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const body: Record<string, unknown> = req.body && typeof req.body === 'object' ? req.body : {};
     if (body.youtube_id !== undefined && body.youtube_id !== null && body.youtube_id !== '' && !library.parseYoutubeId(String(body.youtube_id))) {
       return res.status(400).json({ error: 'youtube_id must be an 11-character YouTube video id', code: 'BAD_REQUEST' });
     }
@@ -324,12 +392,12 @@ function createLibraryRouter(hooks = {}) {
         title: typeof body.title === 'string' ? body.title.slice(0, 300) : undefined,
         artist: typeof body.artist === 'string' ? body.artist.slice(0, 300) : undefined,
         duration_sec: body.duration_sec,
-        excludeId: library.isUuid(body.exclude_id) ? body.exclude_id : null,
+        excludeId: library.isUuid(body.exclude_id) ? body.exclude_id as string : null,
       });
       const shaped = matches.map((m) => ({ reason: m.reason, exact: m.exact, message: m.message, song: library.toPublic(m.song) }));
       res.json({ duplicate: shaped.length > 0, match: shaped[0] || null, matches: shaped });
     } catch (err) {
-      console.error('[library] check error:', err.message);
+      console.error('[library] check error:', (err as Error).message);
       res.status(500).json({ error: 'Duplicate check failed' });
     }
   });
@@ -340,54 +408,58 @@ function createLibraryRouter(hooks = {}) {
   // with a valid token, or any approved web user. Audited.
   router.post('/api/library/:id/replace', writeAccess, requireDb, uploadSingle, async (req, res) => {
     const cleanupTmp = () => { if (req.file) library.removeUploadTmp(req.file); };
-    let fields;
+    let fields: UploadFields;
     try {
       library.validateUploadFileMeta(req.file);
       fields = library.validateUploadFields(req.body);
     } catch (err) {
       cleanupTmp();
-      return res.status(err.status || 400).json({ error: err.message });
+      return res.status((err as library.UploadError).status || 400).json({ error: (err as Error).message });
     }
     try {
       let actor = actorOf(req);
-      let job = null;
-      let worker = null;
+      let job: JobRow | null = null;
+      let worker: { id: string; name: string } | null = null;
       if (req.apiUser && (req.body || {}).job_id) {
         // A worker running a replace job: it must still hold the job, for this
         // song. The job says what the song becomes; the file gives the duration.
-        const ctx = await downloadJobs.uploadContext(req.apiUser, req.body, {});
+        const ctx: UploadContext = await downloadJobs.uploadContext(req.apiUser, req.body, {});
         const usable = ctx.job && ctx.job.replace_song_id === req.params.id && ['queued', 'assigned'].includes(ctx.job.status);
         if (!usable) {
           cleanupTmp();
           return res.status(409).json({ error: 'This job is no longer active for this song', code: 'replace_job_stale' });
         }
-        job = ctx.job;
+        job = ctx.job!;
         worker = await downloadJobs.getWorker(ctx.workerId);
         const youtubeId = library.parseYoutubeId(job.input);
         fields = {
-          ...fields, title: job.replace_title, artist: job.replace_artist, album: job.replace_album || null,
+          // A replace job always carries the details it keeps (POST /api/jobs/replace).
+          ...fields, title: job.replace_title!, artist: job.replace_artist!, album: job.replace_album || null,
           youtube_id: youtubeId, source_url: library.youtubeUrl(youtubeId), duration_sec: null,
         };
         actor = { ...actor, jobId: job.id, workerName: ctx.workerName, requestedBy: job.requested_by || null };
       } else {
         // By hand: a job still waiting is overtaken below; one running is not.
-        const active = await downloadJobs.activeReplaceJob(req.params.id);
+        const active: JobRow | null = await downloadJobs.activeReplaceJob(req.params.id);
         if (active && active.status === 'assigned') {
           cleanupTmp();
           return res.status(409).json({ error: 'A downloader is replacing this song right now; try again when it is done', code: 'replace_job_active' });
         }
       }
-      const { song, previous, resolvedReports } = await library.replaceSong(req.params.id, req.file, fields, actor);
+      // validateUploadFileMeta checked that there is a file.
+      const { song, previous, resolvedReports } = await library.replaceSong(req.params.id, req.file!, fields, actor);
       if (job) {
         // Done now, not when the worker reports: a worker that drops right
         // after this must not run it again (it would be the same file).
-        const finished = await downloadJobs.finish(job.id, { id: worker.id, name: worker.name, ownerName: downloadJobs.workerOwnerName(worker) }, {
+        // The worker held the job, so it exists.
+        const w = worker!;
+        const finished: { job: JobRow } | null = await downloadJobs.finish(job.id, { id: w.id, name: w.name, ownerName: downloadJobs.workerOwnerName(w) }, {
           summary: { total: 1, replaced: 1 },
           results: [{ status: 'replaced', song_id: song.id, title: song.title, artist: song.artist, youtube_id: song.youtube_id }],
-        }).catch((err) => { console.error('[library] could not finish replace job:', err.message); return null; });
+        }).catch((err: Error) => { console.error('[library] could not finish replace job:', err.message); return null; });
         if (finished) { try { onJobUpdated(finished.job); } catch {} }
       } else {
-        const dropped = await downloadJobs.cancelReplaceJobsForSong(song.id, 'Replaced by an uploaded file').catch(() => []);
+        const dropped: JobRow[] = await downloadJobs.cancelReplaceJobsForSong(song.id, 'Replaced by an uploaded file').catch(() => []);
         for (const row of dropped) { try { onJobUpdated(row); } catch {} }
       }
       console.log(`[library] ${actor.name} replaced the audio of ${song.id}: "${previous.title}" by ${previous.artist} -> "${song.title}" by ${song.artist}${resolvedReports ? `; resolved ${resolvedReports} report(s)` : ''}`);
@@ -407,7 +479,7 @@ function createLibraryRouter(hooks = {}) {
       });
     } catch (err) {
       if (err instanceof library.UploadError) {
-        const body = { error: err.message };
+        const body: { error: string; code?: string; song?: PublicSong } = { error: err.message };
         if (err.code) body.code = err.code;
         if (err.song) body.song = library.toPublic(err.song);
         return res.status(err.status).json(body);
@@ -450,14 +522,15 @@ function createLibraryRouter(hooks = {}) {
   router.post('/api/library/:id/report', writeAccess, requireDb, autoReportLimiter, async (req, res) => {
     if (!library.isUuid(req.params.id)) return res.status(404).json({ error: 'Song not found', code: 'NOT_FOUND' });
     const songId = req.params.id;
-    const answer = async (status, report, actor) => {
-      const pub = library.toPublic(await library.getById(songId));
+    const answer = async (status: number, report: songReports.ReportView, actor: Uploader) => {
+      // The song was there a moment ago (the report names it).
+      const pub = library.toPublic(await library.getById(songId))!;
       await songReports.attachReports([pub], actor.userId);
       res.status(status).json({ report, song: pub });
     };
     try {
       const actor = actorOf(req);
-      const auto = req.body && req.body.auto !== undefined ? req.body.auto : false;
+      const auto: unknown = req.body && req.body.auto !== undefined ? req.body.auto : false;
       if (typeof auto !== 'boolean') return res.status(400).json({ error: 'auto must be true or false', code: 'BAD_REQUEST' });
       if (auto) {
         if (!actor || !actor.userId) throw new songReports.ReportError(403, 'Only a signed-in account can report songs (a legacy token has no owner)', 'FORBIDDEN');
@@ -490,7 +563,7 @@ function createLibraryRouter(hooks = {}) {
       await answer(created ? 201 : 200, report, actor);
     } catch (err) {
       if (err instanceof songReports.ReportError) return res.status(err.status).json({ error: err.message, code: err.code });
-      console.error('[reports] report error:', err.message);
+      console.error('[reports] report error:', (err as Error).message);
       res.status(500).json({ error: 'Could not report the song' });
     }
   });
@@ -506,7 +579,7 @@ function createLibraryRouter(hooks = {}) {
       try { onReportsChanged(req.params.id); } catch {}
       res.json({ ok: true });
     } catch (err) {
-      console.error('[reports] unmark error:', err.message);
+      console.error('[reports] unmark error:', (err as Error).message);
       res.status(500).json({ error: 'Could not unmark the song' });
     }
   });
@@ -543,21 +616,21 @@ function createLibraryRouter(hooks = {}) {
       // Which playlist a request came from is only shown to CLI tokens and
       // admins: a web user must not learn the id of someone's private playlist.
       const reveal = !!req.apiUser || adminAuth.isAdmin(req);
-      const list = await requests.listRequests({ status });
+      const list: SongRequestView[] = await requests.listRequests({ status });
       res.json({ requests: reveal ? list : list.map(({ lobby_id, ...rest }) => rest) });
     } catch (err) {
-      console.error('[requests] list error:', err.message);
+      console.error('[requests] list error:', (err as Error).message);
       res.status(500).json({ error: 'Failed to list requests' });
     }
   });
 
   // Dismiss: a CLI token or a logged-in admin.
-  const tokenOrAdmin = (req, res, next) => {
+  const tokenOrAdmin: RequestHandler = (req, res, next) => {
     if (!tokens.hasBearer(req) && adminAuth.isAdmin(req)) return next();
     return tokens.requireToken(req, res, next);
   };
   router.post('/api/requests/:id/dismiss', tokenOrAdmin, requireDb, async (req, res) => {
-    const request = await requests.dismissRequest(req.params.id).catch(() => null);
+    const request: SongRequestView | null = await requests.dismissRequest(req.params.id).catch(() => null);
     if (!request) return res.status(404).json({ error: 'Request not found' });
     console.log(`[requests] dismissed ${request.id} (${request.title || request.youtube_id}) by ${req.apiUser ? req.apiUser.name : 'admin'}`);
     try { onRequestDismissed(request); } catch {}
@@ -590,7 +663,7 @@ function createLibraryRouter(hooks = {}) {
   });
 
   // Tokens are created by their owners on the profile page (/api/tokens,
-  // tokenRoutes.js); the dashboard only lists and revokes them.
+  // auth/tokenRoutes.ts); the dashboard only lists and revokes them.
 
   router.post('/api/admin/tokens/:id/revoke', adminAuth.requireAdmin, requireDb, async (req, res) => {
     if (!library.isUuid(req.params.id)) return res.status(404).json({ error: 'Token not found' });
@@ -636,5 +709,3 @@ function createLibraryRouter(hooks = {}) {
 
   return router;
 }
-
-module.exports = { createLibraryRouter, sendSongFile, downloadFilename };

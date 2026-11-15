@@ -5,17 +5,17 @@
  * the same key and durations within DURATION_TOLERANCE_SEC are a *probable*
  * duplicate (the same recording uploaded from another link). Exact
  * duplicates are a same youtube_id or the same file bytes (sha256); those are
- * checked separately (library.js) and enforced by unique indexes.
+ * checked separately (library.ts) and enforced by unique indexes.
  *
- * Bump META_KEY_VERSION whenever normalization changes: library.js
+ * Bump META_KEY_VERSION whenever normalization changes: library.ts
  * recomputes every stored key with an older version in the background.
  */
 
-const META_KEY_VERSION = 1;
-const DURATION_TOLERANCE_SEC = 3;
+export const META_KEY_VERSION = 1;
+export const DURATION_TOLERANCE_SEC = 3;
 
 // Letters NFKD does not decompose into base + combining mark.
-const FOLD = {
+const FOLD: Record<string, string> = {
   'ı': 'i', 'İ': 'i', 'ß': 'ss', 'æ': 'ae', 'Æ': 'ae', 'œ': 'oe', 'Œ': 'oe',
   'ø': 'o', 'Ø': 'o', 'ł': 'l', 'Ł': 'l', 'đ': 'd', 'Đ': 'd', 'ð': 'd', 'þ': 'th',
 };
@@ -34,7 +34,7 @@ const NOISE_RE = new RegExp(`^(?:${NOISE.join('|')})$`, 'i');
 const FEAT_RE = /\b(?:feat\.?|ft\.?|featuring)\s/i;
 
 /** Lower-case, fold accents and Turkish letters, keep letters/digits/spaces. */
-function fold(value) {
+export function fold(value: unknown): string {
   return String(value ?? '')
     .replace(/[ıİßæÆœŒøØłŁđĐðþ]/g, (c) => FOLD[c])
     .normalize('NFKD')
@@ -42,13 +42,13 @@ function fold(value) {
     .toLowerCase();
 }
 
-function squash(s) {
+function squash(s: string): string {
   return s.replace(/&/g, ' and ').replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim();
 }
 
 /** Remove bracketed parts that are noise or credits; keep e.g. "(Live)", "(Remix)". */
-function stripBrackets(s) {
-  return s.replace(/[(\[{]([^()\[\]{}]*)[)\]}]/g, (m, inner) => {
+function stripBrackets(s: string): string {
+  return s.replace(/[(\[{]([^()\[\]{}]*)[)\]}]/g, (m, inner: string) => {
     const t = inner.trim();
     if (!t || FEAT_RE.test(`${t} `) || /^(?:with|w\/)\s/i.test(t)) return ' ';
     const words = squash(fold(t));
@@ -57,16 +57,16 @@ function stripBrackets(s) {
 }
 
 /** Remove trailing " - Remastered 2011", " - Official Video", " | Lyrics" etc. (repeatedly). */
-function stripTrailingNoise(s) {
-  let prev;
+function stripTrailingNoise(s: string): string {
+  let prev: string;
   do {
     prev = s;
-    s = s.replace(/\s+[-–—|:]\s+([^-–—|:]+)$/u, (m, tail) => (NOISE_RE.test(tail.trim()) || NOISE_RE.test(squash(fold(tail))) ? '' : m));
+    s = s.replace(/\s+[-–—|:]\s+([^-–—|:]+)$/u, (m, tail: string) => (NOISE_RE.test(tail.trim()) || NOISE_RE.test(squash(fold(tail))) ? '' : m));
   } while (s !== prev);
   return s;
 }
 
-function stripFeat(s) {
+function stripFeat(s: string): string {
   const m = FEAT_RE.exec(s);
   return m ? s.slice(0, m.index) : s;
 }
@@ -76,7 +76,7 @@ function stripFeat(s) {
  * suffixes (" - Topic", "VEVO", "Official") removed, only the primary
  * artist kept ("A, B & C" -> "a"), a leading "the" and all spaces removed.
  */
-function normalizeArtist(artist) {
+export function normalizeArtist(artist: unknown): string {
   let s = String(artist ?? '').trim();
   s = s.replace(/\s*-\s*topic$/i, '').replace(/vevo$/i, '').replace(/\s+official(?:\s+channel)?$/i, '');
   s = stripBrackets(s);
@@ -91,7 +91,7 @@ function normalizeArtist(artist) {
  * "- Remastered 2011", "[HD]"), "feat. …" credits and a leading
  * "<artist> - " removed, accents/Turkish letters folded.
  */
-function normalizeTitle(title, artist) {
+export function normalizeTitle(title: unknown, artist: unknown): string {
   let s = String(title ?? '').trim();
   s = stripBrackets(s);
   s = stripBrackets(s); // nested leftovers after the first pass
@@ -108,7 +108,7 @@ function normalizeTitle(title, artist) {
 }
 
 /** "artist|title", or null when either part normalizes to nothing. */
-function metaKey(title, artist) {
+export function metaKey(title: unknown, artist: unknown): string | null {
   const t = normalizeTitle(title, artist);
   const a = normalizeArtist(artist);
   if (!t || !a) return null;
@@ -118,28 +118,17 @@ function metaKey(title, artist) {
 /**
  * When the "artist" is just a YouTube channel and the title reads
  * "Artist - Title", split it. Used for search results before a download.
- * @returns {{title: string, artist: string}}
  */
-function splitArtistTitle(title, channel) {
+export function splitArtistTitle(title: unknown, channel: unknown): { title: string; artist: string } {
   const m = /^(.+?)\s+[-–—]\s+(.+)$/u.exec(String(title || '').trim());
   if (m) return { artist: m[1], title: m[2] };
   return { artist: String(channel || '').replace(/\s*-\s*topic$/i, ''), title: String(title || '') };
 }
 
-function durationsClose(a, b, tolerance = DURATION_TOLERANCE_SEC) {
+export function durationsClose(a: unknown, b: unknown, tolerance = DURATION_TOLERANCE_SEC): boolean {
   const x = Number(a);
   const y = Number(b);
   if (!Number.isFinite(x) || !Number.isFinite(y) || x <= 0 || y <= 0) return false;
   return Math.abs(x - y) <= tolerance;
 }
 
-module.exports = {
-  META_KEY_VERSION,
-  DURATION_TOLERANCE_SEC,
-  fold,
-  normalizeArtist,
-  normalizeTitle,
-  metaKey,
-  splitArtistTitle,
-  durationsClose,
-};

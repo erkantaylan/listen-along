@@ -18,26 +18,26 @@
  */
 
 // One character each way, so SQL translate() and fold() agree exactly.
-const FOLD_PAIRS = {
+const FOLD_PAIRS: Record<string, string> = {
   İ: 'i', I: 'i', ı: 'i', Ş: 's', ş: 's', Ğ: 'g', ğ: 'g', Ü: 'u', ü: 'u', Ö: 'o', ö: 'o', Ç: 'c', ç: 'c',
   Â: 'a', â: 'a', Î: 'i', î: 'i', Û: 'u', û: 'u', Ê: 'e', ê: 'e', É: 'e', é: 'e', È: 'e', è: 'e', Ë: 'e', ë: 'e',
   Á: 'a', á: 'a', À: 'a', à: 'a', Ä: 'a', ä: 'a', Í: 'i', í: 'i', Ì: 'i', ì: 'i', Ï: 'i', ï: 'i',
   Ó: 'o', ó: 'o', Ò: 'o', ò: 'o', Ú: 'u', ú: 'u', Ù: 'u', ù: 'u', Ñ: 'n', ñ: 'n',
 };
-const FOLD_FROM = Object.keys(FOLD_PAIRS).join('');
-const FOLD_TO = Object.values(FOLD_PAIRS).join('');
+export const FOLD_FROM = Object.keys(FOLD_PAIRS).join('');
+export const FOLD_TO = Object.values(FOLD_PAIRS).join('');
 const FOLD_RE = new RegExp(`[${FOLD_FROM}]`, 'g');
 
-const MAX_QUERY = 200;
-const MAX_WORDS = 10;
+export const MAX_QUERY = 200;
+export const MAX_WORDS = 10;
 
 /** Lower case, Turkish letters and accents folded, whitespace collapsed. */
-function fold(text) {
+export function fold(text: unknown): string {
   return String(text ?? '').replace(FOLD_RE, (c) => FOLD_PAIRS[c]).toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
 /** fold(), and punctuation as spaces: "AC/DC - T.N.T." -> "ac dc t n t". For comparing, not for SQL. */
-function plain(text) {
+export function plain(text: unknown): string {
   return fold(String(text ?? '').replace(/[^\p{L}\p{N}]+/gu, ' '));
 }
 
@@ -46,13 +46,20 @@ function plain(text) {
  * MAX_WORDS. A word without a letter or digit ("-", "&") is left out: it would
  * only hide songs that are written without it.
  */
-function queryWords(q) {
+export function queryWords(q: unknown): string[] {
   return fold(String(q ?? '').slice(0, MAX_QUERY)).split(' ')
     .filter((w) => /[\p{L}\p{N}]/u.test(w))
     .slice(0, MAX_WORDS);
 }
 
-function tierOf(query, song) {
+/** What ranking reads of a song. */
+export interface RankableSong {
+  id: string;
+  title: string | null;
+  artist: string | null;
+}
+
+export function tierOf(query: string, song: RankableSong): number {
   const q = plain(query);
   if (!q) return 6;
   const title = plain(song.title);
@@ -71,7 +78,7 @@ function tierOf(query, song) {
 const collator = new Intl.Collator('tr', { sensitivity: 'base', numeric: true });
 
 /** The songs in relevance order for `query` (a new array; songs need title, artist, id). */
-function rankSongs(query, songs) {
+export function rankSongs<S extends RankableSong>(query: string, songs: readonly S[]): S[] {
   return songs
     .map((song) => ({ song, tier: tierOf(query, song) }))
     .sort((a, b) => a.tier - b.tier
@@ -82,8 +89,7 @@ function rankSongs(query, songs) {
 }
 
 /** SQL for fold() of an expression, with the two translate() strings as parameters $from / $to. */
-function foldSql(expr, fromParam, toParam) {
+export function foldSql(expr: string, fromParam: string, toParam: string): string {
   return `lower(translate(${expr}, ${fromParam}, ${toParam}))`;
 }
 
-module.exports = { fold, plain, queryWords, tierOf, rankSongs, foldSql, FOLD_FROM, FOLD_TO, MAX_QUERY, MAX_WORDS };

@@ -11,7 +11,7 @@ const assert = require('node:assert/strict');
 const http = require('node:http');
 const express = require('express');
 const { make } = require('./shared/rateLimits.ts');
-const { createLibraryRouter } = require('./libraryRoutes');
+const { createLibraryRouter } = require('./core/library/index.ts');
 const { startServer, cookieFor, adminCookie } = require('./testServer');
 
 describe('the library router counts only its own paths', () => {

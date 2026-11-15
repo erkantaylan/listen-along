@@ -14,7 +14,7 @@
  * each id is a library song or a request for exactly that video.
  */
 
-const realLibrary = require('./library');
+const { library: realLibrary } = require('./core/library/index.ts');
 const realYtdlp = require('./ytdlp');
 const realSpotify = require('./spotify');
 

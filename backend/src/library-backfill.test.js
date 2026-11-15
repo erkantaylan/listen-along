@@ -24,8 +24,8 @@ describe('library meta_key backfill', { skip, timeout: 180_000 }, () => {
     process.env.DATABASE_URL = container.getConnectionUri();
     db = require('./shared/db.ts');
     assert.ok(await db.init());
-    library = require('./library');
-    songMatch = require('./songMatch');
+    library = require('./core/library/index.ts').library;
+    songMatch = require('./core/library/index.ts').songMatch;
   });
 
   after(async () => {

@@ -2,7 +2,7 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 
-const library = require('./library');
+const library = require('./core/library/index.ts').library;
 const { createResolver } = require('./songResolver');
 
 describe('library.parseYoutubeId', () => {

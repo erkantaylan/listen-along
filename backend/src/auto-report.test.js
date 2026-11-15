@@ -286,7 +286,7 @@ describe('automatic song reports: the server verifies', { skip, timeout: 240_000
     const db = require('./shared/db.ts');
     assert.ok(await db.init());
     try {
-      const songReports = require('./songReports');
+      const songReports = require('./core/library/index.ts').songReports;
       const actor = { userId: (await pg.query(`SELECT id FROM users WHERE provider_id = 'carol'`)).rows[0].id, name: 'Carol' };
       // The song was replaced between the check and the insert: its row has another file now.
       assert.equal(await songReports.reportVerified(songs[4].id, actor, `${paths[4]}.old`), null);

@@ -13,7 +13,7 @@ import { cookieFor, startServer, requester } from '../../testServer.js';
 import { policyFor } from '../../auth/index.ts';
 import { groupArtists, listArtists } from './artists.ts';
 import type { ArtistSummary, GroupableRow } from './artists.ts';
-import type { StationSong } from '../radio/index.ts';
+import type { LeanSong } from '../../core/library/index.ts';
 import { normalizeReport, viewNowPlaying } from '../social/index.ts';
 import type { NowPlayingEntry } from '../social/index.ts';
 
@@ -155,7 +155,7 @@ describe('artists API', { skip, timeout: 180_000 }, () => {
     const ke = await req('GET', '/api/artists/kurtalanekspres/songs', { cookie: cookies.alice });
     assert.equal(ke.status, 200);
     assert.equal(ke.body.name, 'Kurtalan Ekspres');
-    assert.deepEqual(ke.body.songs.map((s: StationSong) => [s.title, s.artist]), [['Düet', 'Barış Manço, Kurtalan Ekspres']]);
+    assert.deepEqual(ke.body.songs.map((s: LeanSong) => [s.title, s.artist]), [['Düet', 'Barış Manço, Kurtalan Ekspres']]);
     await db!.query('DELETE FROM library_songs WHERE id = $1', [duet]);
   });
 
@@ -203,7 +203,7 @@ describe('artists API', { skip, timeout: 180_000 }, () => {
     assert.equal(res.status, 200);
     assert.equal(res.body.name, 'Barış Manço');
     assert.equal(res.body.count, 3);
-    assert.deepEqual(res.body.songs.map((s: StationSong) => s.title), ['Ahmet Bey', 'Çoban', 'Zeytin']);
+    assert.deepEqual(res.body.songs.map((s: LeanSong) => s.title), ['Ahmet Bey', 'Çoban', 'Zeytin']);
     assert.deepEqual(Object.keys(res.body.songs[0]).sort(), ['artist', 'duration_sec', 'file_version', 'id', 'title', 'youtube_id']);
     assert.equal((await req('GET', '/api/artists/nobody/songs', { cookie: cookies.alice })).status, 404);
     assert.equal((await req('GET', `/api/artists/${'x'.repeat(201)}/songs`, { cookie: cookies.alice })).status, 404);

@@ -70,7 +70,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
     process.env.DATABASE_URL = container.getConnectionUri();
     db = require('./shared/db.ts');
     assert.ok(await db.init());
-    library = require('./library');
+    library = require('./core/library/index.ts').library;
     requests = require('./requests');
     const { tokens } = require('./auth/index.ts');
     ({ token, record: tokenRecord } = await tokens.createToken('Alice'));
@@ -87,7 +87,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
     fs.writeFileSync(fx.text, 'this is not audio'.repeat(100));
 
     const express = require('express');
-    const { createLibraryRouter } = require('./libraryRoutes');
+    const { createLibraryRouter } = require('./core/library/index.ts');
     const app = express();
     app.use(createLibraryRouter({
       onSongAdded: (song, fulfilled) => hookCalls.push({ song, fulfilled }),

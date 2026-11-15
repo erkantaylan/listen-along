@@ -16,8 +16,9 @@
 import express from 'express';
 import type { Request, Response, Router } from 'express';
 import dbModule from '../../shared/db.ts';
-import { OPEN_REPORT_EXISTS_SQL } from '../../songReports.js';
-import type { Db, LibrarySongRow } from '../../shared/types.ts';
+import { OPEN_REPORT_EXISTS_SQL, toLeanSong } from '../../core/library/index.ts';
+import type { LeanSong, LeanSongRow } from '../../core/library/index.ts';
+import type { Db } from '../../shared/types.ts';
 
 // The live module object: tests replace its functions.
 const db: Db = dbModule;
@@ -26,19 +27,11 @@ const RULES = new Map([
   ['all', `NOT ${OPEN_REPORT_EXISTS_SQL}`],
 ]);
 
-/** The library columns a station song is made of. */
-export type StationSongRow = Pick<LibrarySongRow, 'id' | 'youtube_id' | 'title' | 'artist' | 'duration_sec' | 'sha256'>;
+/** The library columns a station song is made of (the library's lean row). */
+export type StationSongRow = LeanSongRow;
 
-/** A song in a station (and on an artist page): lean, no reports or upload details. */
-export interface StationSong {
-  id: string;
-  youtube_id: string | null;
-  title: string;
-  artist: string;
-  duration_sec: number | null;
-  /** the first 16 hex digits of the file's sha256 (the audio url's ?v=) */
-  file_version: string | null;
-}
+/** A song in a station: the library's lean song (no reports or upload details). */
+export type StationSong = LeanSong;
 
 /** GET /api/stations/:id */
 export interface StationSummary {
@@ -57,17 +50,6 @@ export interface StationSongs extends StationSummary {
   songs: StationListSong[];
 }
 
-export function toStationSong(row: StationSongRow): StationSong {
-  return {
-    id: row.id,
-    youtube_id: row.youtube_id || null,
-    title: row.title,
-    artist: row.artist,
-    duration_sec: row.duration_sec === null || row.duration_sec === undefined ? null : Number(row.duration_sec),
-    file_version: row.sha256 ? String(row.sha256).slice(0, 16) : null,
-  };
-}
-
 async function summary(id: string): Promise<StationSummary> {
   const r = await db.query<{ count: number; duration_sec: string }>(
     `SELECT COUNT(*)::int AS count, COALESCE(SUM(duration_sec), 0)::bigint AS duration_sec FROM library_songs WHERE ${RULES.get(id)}`
@@ -79,7 +61,7 @@ async function songs(id: string): Promise<StationSongs> {
   const r = await db.query<StationSongRow & { album: string | null }>(
     `SELECT id, youtube_id, title, artist, album, duration_sec, sha256 FROM library_songs WHERE ${RULES.get(id)} ORDER BY id`
   );
-  const list = r.rows.map((row): StationListSong => ({ ...toStationSong(row), album: row.album || null }));
+  const list = r.rows.map((row): StationListSong => ({ ...toLeanSong(row), album: row.album || null }));
   return { id, count: list.length, duration_sec: list.reduce((sum, s) => sum + (s.duration_sec || 0), 0), songs: list };
 }
 

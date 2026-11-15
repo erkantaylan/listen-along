@@ -6,7 +6,7 @@
  */
 
 const db = require('./shared/db.ts');
-const { isUuid } = require('./library');
+const { isUuid } = require('./shared/ids.ts');
 
 const STATUSES = ['pending', 'fulfilled', 'dismissed'];
 

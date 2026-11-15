@@ -20,7 +20,7 @@
  * one it no longer knows), not from the client.
  */
 
-import realLibrary from '../../library.js';
+import { library as realLibrary } from '../../core/library/index.ts';
 import realYtdlp from '../../ytdlp.js';
 import realSpotify from '../../spotify.js';
 import { classifyInput as classifyInputJs } from '../../downloadJobs.js';

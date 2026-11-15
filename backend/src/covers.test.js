@@ -8,7 +8,7 @@ const http = require('http');
 const TEST_COVERS_DIR = '/tmp/test-covers-' + Date.now();
 process.env.COVERS_DIR = TEST_COVERS_DIR;
 
-const covers = require('./covers');
+const covers = require('./core/library/index.ts').covers;
 
 describe('covers module', () => {
   beforeEach(() => {

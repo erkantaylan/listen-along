@@ -2,7 +2,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { splitArtistCredit, knownArtistKeys, artistNameKey, BANDS } from './artistCredits.ts';
-import { normalizeArtist, metaKey, META_KEY_VERSION } from '../../songMatch.js';
+import { songMatch } from '../../core/library/index.ts';
+
+const { normalizeArtist, metaKey, META_KEY_VERSION } = songMatch;
 
 const names = (credit: string | null, known: string[] = []) => {
   const set = new Set(known.map(artistNameKey));

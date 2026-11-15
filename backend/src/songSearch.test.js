@@ -1,7 +1,7 @@
 // The global search's relevance order (songSearch.js), without a database.
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const s = require('./songSearch');
+const s = require('./core/library/index.ts').songSearch;
 
 const song = (id, title, artist) => ({ id, title, artist });
 

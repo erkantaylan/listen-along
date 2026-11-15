@@ -1,24 +1,33 @@
-const fs = require('fs');
-const path = require('path');
-const https = require('https');
-const http = require('http');
+// Cover art of queue entries: their thumbnails, downloaded once into
+// COVERS_DIR and served by mediaRoutes.ts (GET /api/covers/:id).
+import fs from 'node:fs';
+import path from 'node:path';
+import https from 'node:https';
+import http from 'node:http';
 
-const COVERS_DIR = process.env.COVERS_DIR || '/data/covers';
+export const COVERS_DIR = process.env.COVERS_DIR || '/data/covers';
+
+/** A cached cover file. */
+export interface CoverInfo {
+  path: string;
+  contentType: string;
+}
 
 // In-memory cache: songId -> { path, contentType }
 // Capped at MAX_COVER_CACHE_SIZE entries with LRU eviction
-const MAX_COVER_CACHE_SIZE = 500;
-const coverCache = new Map();
+export const MAX_COVER_CACHE_SIZE = 500;
+const coverCache = new Map<string, CoverInfo>();
 
 /**
  * Set a cache entry, evicting oldest entries if cache exceeds max size.
  * Deletes and re-inserts to move the key to the end (most recently used).
  */
-function cacheSet(songId, value) {
+function cacheSet(songId: string, value: CoverInfo): void {
   coverCache.delete(songId);
   coverCache.set(songId, value);
   while (coverCache.size > MAX_COVER_CACHE_SIZE) {
-    const oldest = coverCache.keys().next().value;
+    // The map is not empty here.
+    const oldest = coverCache.keys().next().value!;
     coverCache.delete(oldest);
   }
 }
@@ -26,7 +35,7 @@ function cacheSet(songId, value) {
 /**
  * Ensure the covers directory exists
  */
-function ensureCoversDir() {
+function ensureCoversDir(): void {
   if (!fs.existsSync(COVERS_DIR)) {
     fs.mkdirSync(COVERS_DIR, { recursive: true });
   }
@@ -35,9 +44,9 @@ function ensureCoversDir() {
 /**
  * Get file extension from URL or content-type
  */
-function getExtension(url, contentType) {
+function getExtension(url: string, contentType: string): string {
   if (contentType) {
-    const typeMap = {
+    const typeMap: Record<string, string> = {
       'image/jpeg': '.jpg',
       'image/jpg': '.jpg',
       'image/png': '.png',
@@ -59,11 +68,11 @@ function getExtension(url, contentType) {
 
 /**
  * Download and cache a thumbnail image
- * @param {string} songId - Unique song identifier
- * @param {string} thumbnailUrl - URL to download from
- * @returns {Promise<string|null>} - Path to cached file or null on failure
+ * @param songId Unique song identifier
+ * @param thumbnailUrl URL to download from
+ * @returns Path to cached file or null on failure
  */
-async function cacheCover(songId, thumbnailUrl) {
+export async function cacheCover(songId: string, thumbnailUrl: string | null | undefined): Promise<string | null> {
   if (!thumbnailUrl) return null;
 
   // Sanitize songId to prevent path traversal
@@ -73,12 +82,14 @@ async function cacheCover(songId, thumbnailUrl) {
   try {
     ensureCoversDir();
 
-    return new Promise((resolve, reject) => {
+    return new Promise<string | null>((resolve, reject) => {
       const protocol = thumbnailUrl.startsWith('https') ? https : http;
 
       const request = protocol.get(thumbnailUrl, { timeout: 10000 }, (response) => {
         // Handle redirects
-        if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+        // A response to a request always has a status code.
+        const status = response.statusCode!;
+        if (status >= 300 && status < 400 && response.headers.location) {
           cacheCover(songId, response.headers.location).then(resolve).catch(reject);
           return;
         }
@@ -118,24 +129,23 @@ async function cacheCover(songId, thumbnailUrl) {
       });
     });
   } catch (err) {
-    console.error(`Failed to cache cover for ${songId}:`, err.message);
+    console.error(`Failed to cache cover for ${songId}:`, (err as Error).message);
     return null;
   }
 }
 
 /**
  * Get cached cover info for a song
- * @param {string} songId - Unique song identifier
- * @returns {{ path: string, contentType: string } | null}
+ * @param songId Unique song identifier
  */
-function getCachedCover(songId) {
+export function getCachedCover(songId: string): CoverInfo | null {
   // Sanitize songId to prevent path traversal
   songId = path.basename(songId);
   if (!songId) return null;
 
   // Check memory cache first
   if (coverCache.has(songId)) {
-    const cached = coverCache.get(songId);
+    const cached = coverCache.get(songId)!;
     if (fs.existsSync(cached.path)) {
       return cached;
     }
@@ -148,7 +158,7 @@ function getCachedCover(songId) {
   for (const ext of extensions) {
     const filePath = path.join(COVERS_DIR, `${songId}${ext}`);
     if (fs.existsSync(filePath)) {
-      const contentTypes = { '.jpg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif' };
+      const contentTypes: Record<string, string> = { '.jpg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif' };
       const info = { path: filePath, contentType: contentTypes[ext] };
       cacheSet(songId, info);
       return info;
@@ -161,7 +171,7 @@ function getCachedCover(songId) {
 /**
  * Check if covers directory is available/writable
  */
-function isAvailable() {
+export function isAvailable(): boolean {
   try {
     ensureCoversDir();
     const testFile = path.join(COVERS_DIR, '.test');
@@ -176,15 +186,7 @@ function isAvailable() {
 /**
  * Clear the in-memory cover cache (e.g., during song cache cleanup)
  */
-function clearCache() {
+export function clearCache(): void {
   coverCache.clear();
 }
 
-module.exports = {
-  cacheCover,
-  getCachedCover,
-  isAvailable,
-  clearCache,
-  COVERS_DIR,
-  MAX_COVER_CACHE_SIZE
-};
