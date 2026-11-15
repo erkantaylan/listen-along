@@ -22,6 +22,12 @@ val keystorePath: String? = providers.environmentVariable("ANDROID_KEYSTORE_PATH
 val keystorePassword: String? = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").orNull?.ifEmpty { null }
 val keyAliasName: String = providers.environmentVariable("ANDROID_KEY_ALIAS").orNull?.ifEmpty { null } ?: "listen-along"
 
+// The sign-in redirect registered for the listen-along client at the central
+// login is com.etaylan.listen:/oauth2redirect, the same for debug and release
+// (it is not the applicationId). The manifest's intent filter and the code
+// (BuildConfig.AUTH_REDIRECT_SCHEME, auth/AuthFlow) both take it from here.
+val authRedirectScheme = "com.etaylan.listen"
+
 android {
     namespace = "com.erkantaylan.listenalong"
     compileSdk = 37
@@ -32,6 +38,8 @@ android {
         targetSdk = 36
         versionCode = releaseVersion?.let { (x, y, z) -> x * 10000 + y * 100 + z } ?: 1
         versionName = releaseVersion?.let { (x, y, z) -> "$x.$y.$z" } ?: "0.2.0-dev"
+        manifestPlaceholders["authRedirectScheme"] = authRedirectScheme
+        buildConfigField("String", "AUTH_REDIRECT_SCHEME", "\"$authRedirectScheme\"")
         // The only test device is arm64; emulators on this machine are x86_64.
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
@@ -104,6 +112,7 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.session)
     implementation(libs.androidx.media3.datasource.okhttp)
+    implementation(libs.androidx.browser)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

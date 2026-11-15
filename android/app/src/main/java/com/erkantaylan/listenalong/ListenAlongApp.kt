@@ -18,6 +18,12 @@ import com.erkantaylan.listenalong.storage.FileTextStore
 import com.erkantaylan.listenalong.storage.LocalSong
 import com.erkantaylan.listenalong.storage.MediaStoreAudio
 import com.erkantaylan.listenalong.storage.PrefsTextStore
+import com.erkantaylan.listenalong.api.SignInClient
+import com.erkantaylan.listenalong.auth.AuthController
+import com.erkantaylan.listenalong.auth.SessionEndedInterceptor
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import java.io.File
@@ -50,13 +56,37 @@ class AppGraph(context: Context) {
     val sink = MediaStoreAudio(app)
     val connectivity = Connectivity(app)
 
+    /** Process-wide work that must outlive a screen (the sign-in's code exchange). */
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    /**
+     * Sign-in through the central login (auth/AuthController). Development
+     * servers' sessions (INSECURE_DEV_LOGIN) are accepted by debug builds only.
+     */
+    val auth = AuthController(
+        sessions = settings,
+        pendingStore = settings.pendingSignIn,
+        apiFor = { base -> SignInClient(base) },
+        allowDevSignIn = BuildConfig.DEBUG,
+        scope = appScope,
+    )
+
+    /**
+     * Every API call goes through this: a 401 for the session in force signs
+     * the app out (back to "Sign in"); nothing else does, so offline is not
+     * signed out.
+     */
+    private val apiHttp: OkHttpClient = LibraryClient.defaultHttpClient.newBuilder()
+        .addInterceptor(SessionEndedInterceptor(auth::sessionEnded))
+        .build()
+
     @Volatile private var cached: Pair<ServerConfig, LibraryClient>? = null
 
     /** A client for the server in Settings (the default one when nothing was saved). */
     fun client(): LibraryClient {
         val config = settings.config.value
         cached?.let { (forConfig, client) -> if (forConfig == config) return client }
-        return LibraryClient(config.baseUrl, config.token).also { cached = config to it }
+        return LibraryClient(config.baseUrl, config.token, apiHttp).also { cached = config to it }
     }
 
     val downloads = Downloads(
@@ -95,22 +125,24 @@ class AppGraph(context: Context) {
     )
 
     /**
-     * The HTTP client the player streams with. The token is read per request,
-     * so a token changed in Settings applies to the next song at once, and it
+     * The HTTP client the player streams with. The session is read per
+     * request, so signing in again applies to the next song at once, and it
      * is only ever sent to the configured server, never to a redirect target
-     * or a cover-art host.
+     * or a cover-art host. A 401 here signs out too (the interceptor after
+     * the one that adds the header, so it sees it).
      */
     val streamHttp: OkHttpClient = LibraryClient.defaultHttpClient.newBuilder()
         .addInterceptor(Interceptor { chain ->
             val request = chain.request()
             val config = settings.config.value
             val sameServer = request.url.host == config.baseUrl.host && request.url.port == config.baseUrl.port
-            if (sameServer && config.hasToken && request.header("Authorization") == null) {
+            if (sameServer && config.signedIn && request.header("Authorization") == null) {
                 chain.proceed(request.newBuilder().header("Authorization", "Bearer ${config.token!!.trim()}").build())
             } else {
                 chain.proceed(request)
             }
         })
+        .addInterceptor(SessionEndedInterceptor(auth::sessionEnded))
         .build()
 
     val player = PlayerConnection(app)

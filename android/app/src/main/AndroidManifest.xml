@@ -37,7 +37,7 @@
     </queries>
 
     <!-- No backup: the index holds MediaStore URIs that mean nothing on
-         another device, and the token's encryption key cannot be restored. -->
+         another device, and the session's encryption key cannot be restored. -->
     <application
         android:name=".ListenAlongApp"
         android:allowBackup="false"
@@ -57,6 +57,28 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Sign-in: the central login sends the browser back to
+             com.etaylan.listen:/oauth2redirect?code&state (the redirect
+             registered for listen-along; scheme from build.gradle.kts). A path
+             in a filter needs a host, which this URI has not, so the filter is
+             the scheme alone and auth/AuthFlow checks the path and the state.
+             This activity only hands the URI to MainActivity and closes the
+             Custom Tab. Anyone can send it a URI: a code is useless without
+             the PKCE verifier, and a state that is not ours is refused. -->
+        <activity
+            android:name=".auth.AuthRedirectActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="${authRedirectScheme}" />
             </intent-filter>
         </activity>
 

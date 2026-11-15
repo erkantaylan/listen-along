@@ -57,8 +57,12 @@ data class LibraryPage(
     val total: Int = songs.size,
 )
 
+/** `GET /api/me` with the app's session: who is signed in (backend/src/mobileAuth.js). */
 @Serializable
-data class Me(val name: String)
+data class Me(val name: String = "", val user: MeUser? = null)
+
+@Serializable
+data class MeUser(val id: String, val name: String? = null, val status: String? = null)
 
 enum class Visibility(val param: String) {
     PUBLIC("public"),

@@ -30,7 +30,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 data class PlaylistsUi(
-    val hasToken: Boolean = false,
+    val signedIn: Boolean = false,
     val playlists: List<Playlist> = emptyList(),
     val loading: Boolean = false,
     val refreshing: Boolean = false,
@@ -74,7 +74,7 @@ class PlaylistsViewModel(private val graph: AppGraph) : ViewModel() {
 
     private val repo get() = graph.playlists
 
-    private val _list = MutableStateFlow(PlaylistsUi(hasToken = graph.settings.config.value.hasToken))
+    private val _list = MutableStateFlow(PlaylistsUi(signedIn = graph.settings.config.value.signedIn))
     val list: StateFlow<PlaylistsUi> = _list.asStateFlow()
 
     private val _detail = MutableStateFlow<PlaylistDetailUi?>(null)
@@ -95,7 +95,7 @@ class PlaylistsViewModel(private val graph: AppGraph) : ViewModel() {
         refresh(initial = true)
         graph.settings.config.drop(1).distinctUntilChanged().onEach {
             _detail.value = null
-            _list.value = PlaylistsUi(hasToken = it.hasToken)
+            _list.value = PlaylistsUi(signedIn = it.signedIn)
             refresh(initial = true)
         }.launchIn(viewModelScope)
         graph.connectivity.online.drop(1).filter { it }.onEach {
@@ -106,15 +106,15 @@ class PlaylistsViewModel(private val graph: AppGraph) : ViewModel() {
 
     fun refresh(initial: Boolean = false) {
         listJob?.cancel()
-        if (!graph.settings.config.value.hasToken) {
-            _list.value = PlaylistsUi(hasToken = false)
+        if (!graph.settings.config.value.signedIn) {
+            _list.value = PlaylistsUi(signedIn = false)
             return
         }
         if (initial && _list.value.playlists.isEmpty()) {
             repo.cachedPlaylists()?.let { cached -> _list.update { it.copy(playlists = cached) } }
         }
         _list.update {
-            it.copy(hasToken = true, loading = it.playlists.isEmpty(), refreshing = it.playlists.isNotEmpty(), error = null)
+            it.copy(signedIn = true, loading = it.playlists.isEmpty(), refreshing = it.playlists.isNotEmpty(), error = null)
         }
         listJob = viewModelScope.launch {
             try {

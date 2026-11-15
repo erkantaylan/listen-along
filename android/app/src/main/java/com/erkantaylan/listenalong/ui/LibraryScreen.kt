@@ -85,7 +85,7 @@ fun LibraryScreen(
     Column(Modifier.fillMaxSize().background(Palette.page).semantics { testTagsAsResourceId = true }) {
         AppTopBar(
             title = "Library",
-            subtitle = if (state.hasToken && state.total > 0) {
+            subtitle = if (state.signedIn && state.total > 0) {
                 {
                     val count = if (state.songs.size >= state.total) "${state.total} songs"
                                 else "${state.songs.size} of ${state.total} songs"
@@ -93,15 +93,15 @@ fun LibraryScreen(
                 }
             } else null,
         ) {
-            if (state.hasToken) {
+            if (state.signedIn) {
                 SortMenu(state.sort, viewModel::onSortChange)
                 IconAction(AppIcons.Download, "Download all shown", tag = "download-all",
                            enabled = !state.offline && state.total > 0) { viewModel.prepareBulk() }
             }
         }
 
-        if (!state.hasToken) {
-            TokenNeeded(actions)
+        if (!state.signedIn) {
+            SignInNeeded(actions)
             return@Column
         }
 
@@ -349,22 +349,17 @@ private fun SortMenu(sort: SortOrder, onChange: (SortOrder) -> Unit) {
 }
 
 /**
- * First launch, or the token was removed: the library and playlists need an
- * API token, which is made on the web profile page.
+ * First launch, signed out, or the session ended: the library and playlists
+ * need a sign-in. Downloaded songs still play from On device meanwhile.
  */
 @Composable
-fun TokenNeeded(actions: AppActions) {
+fun SignInNeeded(actions: AppActions, what: String = "The music library") {
     EmptyState(
-        title = "Connect your account",
-        body = "The music library needs an API token. Create one under \"CLI tokens\" on your profile at " +
-            "${actions.serverName()}, then paste it in Settings.",
+        title = "Sign in",
+        body = "$what needs your listen-along account. Sign in on ${actions.serverName()}'s sign-in page; " +
+            "songs on this device play without it.",
         icon = AppIcons.Lock,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            PrimaryButton("Open my profile", actions.openProfile, icon = AppIcons.OpenInNew, tag = "open-profile")
-            Box(Modifier.padding(top = 8.dp)) {
-                SecondaryButton("Paste token in Settings", actions.openSettings, tag = "goto-settings")
-            }
-        }
+        PrimaryButton("Sign in", actions.signIn, tag = "sign-in")
     }
 }

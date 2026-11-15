@@ -183,7 +183,8 @@ class PlayerConnection(private val context: Context) {
         PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> {
             val code = (error.cause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)?.responseCode
             when (code) {
-                401, 403 -> "the server rejected the API token"
+                401 -> "signed out: sign in again"
+                403 -> "the server refused it"
                 404 -> "not on the server any more"
                 null -> "server error"
                 else -> "server error $code"

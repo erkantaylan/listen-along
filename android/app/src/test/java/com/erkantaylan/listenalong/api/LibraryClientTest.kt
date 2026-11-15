@@ -106,14 +106,14 @@ class LibraryClientTest {
 
     @Test
     fun `error answers become ApiException with the server's message`() = runTest {
-        server.enqueue(json("""{"error":"Invalid or revoked token"}""", code = 401))
+        server.enqueue(json("""{"error":"Your session has ended, sign in again","code":"SESSION_ENDED"}""", code = 401))
         try {
             client(token = "bad").me()
             fail("expected ApiException")
         } catch (e: ApiException) {
             assertEquals(401, e.code)
-            assertTrue(e.unauthorized)
-            assertEquals("Invalid or revoked token", e.message)
+            assertTrue(e.sessionEnded)
+            assertEquals("Your session has ended, sign in again", e.message)
         }
     }
 
@@ -125,7 +125,7 @@ class LibraryClientTest {
             fail("expected ApiException")
         } catch (e: ApiException) {
             assertEquals(502, e.code)
-            assertFalse(e.unauthorized)
+            assertFalse(e.sessionEnded)
             assertEquals("HTTP 502", e.message)
         }
     }

@@ -23,7 +23,8 @@ import java.util.concurrent.TimeUnit
 
 /** A non-2xx answer from the server, with its status and its `error` text. */
 class ApiException(val code: Int, message: String) : IOException(message) {
-    val unauthorized: Boolean get() = code == 401 || code == 403
+    /** A definite "this session is no good" (only a 401: never a 403, a 5xx or no answer). */
+    val sessionEnded: Boolean get() = code == 401
 }
 
 internal val apiJson = Json {
@@ -37,8 +38,8 @@ internal val apiJson = Json {
  * The listen-along library API.
  *
  * Authentication belongs here and nowhere else: every request this class
- * builds carries the bearer token when one is set, so the downloader never
- * has to know whether the server wants one. Library reads also work without.
+ * builds carries the session token (Bearer) when one is set, so the downloader never
+ * has to know whether the server wants one.
  */
 class LibraryClient(
     val baseUrl: HttpUrl,
@@ -83,7 +84,7 @@ class LibraryClient(
         }
     }
 
-    /** Who the token belongs to. Fails with a 401 [ApiException] for a bad token. */
+    /** Who is signed in. Fails with a 401 [ApiException] when the session has ended. */
     suspend fun me(): Me = withContext(Dispatchers.IO) {
         getJson(endpoint("api/me")) { apiJson.decodeFromString<Me>(it) }
     }
@@ -110,7 +111,7 @@ class LibraryClient(
     // Server side: the playlist routes in backend/src/index.js. A playlist the
     // caller cannot see answers 404 (never 403); errors are { error, code }.
 
-    /** Every public playlist plus the token owner's private ones. */
+    /** Every public playlist plus the signed-in user's private ones. */
     suspend fun playlists(): List<Playlist> = withContext(Dispatchers.IO) {
         getJson(endpoint("api/playlists")) { apiJson.decodeFromString<PlaylistList>(it).playlists }
     }

@@ -35,8 +35,8 @@ sealed interface BulkUi {
 }
 
 data class LibraryUiState(
-    /** False until an API token is set: the server refuses the library without one. */
-    val hasToken: Boolean = false,
+    /** False until signed in: the server refuses the library without a session. */
+    val signedIn: Boolean = false,
     val query: String = "",
     val sort: SortOrder = SortOrder.RECENT,
     /** The "Broken" filter: only songs someone marked as needing replacement. */
@@ -94,7 +94,7 @@ internal fun offlineLibrary(
  */
 class LibraryViewModel(private val graph: AppGraph) : ViewModel() {
 
-    private val _state = MutableStateFlow(LibraryUiState(hasToken = graph.settings.config.value.hasToken))
+    private val _state = MutableStateFlow(LibraryUiState(signedIn = graph.settings.config.value.signedIn))
     val state: StateFlow<LibraryUiState> = _state.asStateFlow()
 
     val downloads: StateFlow<DownloadSnapshot> =
@@ -108,12 +108,12 @@ class LibraryViewModel(private val graph: AppGraph) : ViewModel() {
 
     init {
         reload(initial = true)
-        // A new server (or token) in Settings: start over.
+        // Another server, or signed in / out: start over.
         graph.settings.config
             .drop(1)
             .distinctUntilChanged()
             .onEach { config ->
-                _state.update { it.copy(hasToken = config.hasToken, songs = emptyList(), total = 0) }
+                _state.update { it.copy(signedIn = config.signedIn, songs = emptyList(), total = 0) }
                 reload(initial = true)
             }
             .launchIn(viewModelScope)
@@ -235,16 +235,16 @@ class LibraryViewModel(private val graph: AppGraph) : ViewModel() {
         loadJob?.cancel()
         val gen = ++generation
         val config = graph.settings.config.value
-        if (!config.hasToken) {
+        if (!config.signedIn) {
             _state.update {
-                it.copy(hasToken = false, loading = false, refreshing = false, error = null, offline = false,
+                it.copy(signedIn = false, loading = false, refreshing = false, error = null, offline = false,
                         songs = emptyList(), total = 0)
             }
             return
         }
         val client = graph.client()
         _state.update {
-            it.copy(hasToken = true, loading = initial && it.songs.isEmpty(), refreshing = !initial || it.songs.isNotEmpty(),
+            it.copy(signedIn = true, loading = initial && it.songs.isEmpty(), refreshing = !initial || it.songs.isNotEmpty(),
                     loadingMore = false, error = null)
         }
         val (query, sort) = _state.value.let { it.query to it.sort }
@@ -279,7 +279,8 @@ class LibraryViewModel(private val graph: AppGraph) : ViewModel() {
     }
 
     private fun describe(t: Throwable): String = when {
-        t is ApiException && t.unauthorized -> "The server rejected the API token (${t.code}). Check it in Settings."
+        t is ApiException && t.code == 401 -> "Signed out: sign in again in Settings."
+        t is ApiException && t.code == 403 -> t.message ?: "Not allowed (403)"
         t is ApiException && t.code == 503 -> "The server's library is unavailable (no database)."
         t is ApiException -> "Server error ${t.code}: ${t.message}"
         else -> t.message ?: t::class.simpleName ?: "Unknown error"

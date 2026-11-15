@@ -7,21 +7,29 @@ import androidx.core.content.edit
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.erkantaylan.listenalong.api.ServerUrl
+import com.erkantaylan.listenalong.auth.SessionHolder
+import com.erkantaylan.listenalong.storage.TextStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import okhttp3.HttpUrl
 
-/** Where the library lives, and how to identify to it. */
-data class ServerConfig(val baseUrl: HttpUrl, val token: String?) {
-    val hasToken: Boolean get() = !token.isNullOrBlank()
+/**
+ * Where the library lives, and the session with it: [token] is the app's
+ * own session token from the central login (`lam_...`, backend/src/mobileAuth.js),
+ * sent as `Authorization: Bearer`. [userName] is who signed in, for display.
+ */
+data class ServerConfig(val baseUrl: HttpUrl, val token: String?, val userName: String? = null) {
+    val signedIn: Boolean get() = !token.isNullOrBlank()
 }
 
 /**
- * The server URL in plain preferences; the API token encrypted at rest under
- * a Keystore-backed key, the way kitaplik keeps its Drive credentials.
+ * The server URL in plain preferences; the session token encrypted at rest
+ * under a Keystore-backed key (as kitaplik keeps its Drive credentials). A
+ * session belongs to the server it was made on: another address drops it.
  */
-class SettingsStore(context: Context) {
+class SettingsStore(context: Context) : SessionHolder {
 
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
@@ -35,7 +43,7 @@ class SettingsStore(context: Context) {
         )
     } catch (e: Exception) {
         // A keyset that cannot be opened (restored from another device, a
-        // Keystore reset) must not take the app down; the token is re-entered.
+        // Keystore reset) must not take the app down; the user signs in again.
         Log.w("SettingsStore", "Encrypted prefs unavailable, starting over", e)
         context.deleteSharedPreferences("secrets")
         EncryptedSharedPreferences.create(
@@ -47,22 +55,65 @@ class SettingsStore(context: Context) {
         )
     }
 
+    init {
+        // Builds before the central login kept a pasted CLI token (`la_...`)
+        // here. It is dropped, not used: the app signs in instead. Nothing
+        // else depends on it (downloads, playlists saved for offline stay).
+        if (runCatching { secrets.contains(LEGACY_TOKEN) }.getOrDefault(false)) {
+            runCatching { secrets.edit(commit = true) { remove(LEGACY_TOKEN) } }
+            Log.i("SettingsStore", "Dropped the old API token: sign in instead")
+        }
+    }
+
     private val _config = MutableStateFlow(load())
-    /** Never null: with nothing saved it is [DEFAULT_SERVER] without a token. */
+    /** Never null: with nothing saved it is [DEFAULT_SERVER], signed out. */
     val config: StateFlow<ServerConfig> = _config.asStateFlow()
 
     /** True while a debug-only, in-memory server override is in force (see [overrideForSession]). */
     private val _overridden = MutableStateFlow(false)
     val overridden: StateFlow<Boolean> = _overridden.asStateFlow()
 
-    fun save(baseUrl: HttpUrl, token: String?) {
-        prefs.edit { putString(KEY_URL, baseUrl.toString()) }
-        secrets.edit {
-            val clean = token?.trim()
-            if (clean.isNullOrEmpty()) remove(KEY_TOKEN) else putString(KEY_TOKEN, clean)
+    override val current: ServerConfig get() = _config.value
+
+    /** The sign-in under way (state, nonce, PKCE verifier), encrypted like the session. */
+    val pendingSignIn: TextStore = object : TextStore {
+        override fun read(): String? = runCatching { secrets.getString(KEY_PENDING, null) }.getOrNull()
+        override fun write(value: String) {
+            secrets.edit(commit = true) { if (value.isEmpty()) remove(KEY_PENDING) else putString(KEY_PENDING, value) }
         }
+    }
+
+    /** A new server address. Returns false when it is the same one (the session is kept). */
+    fun saveServer(baseUrl: HttpUrl): Boolean {
+        val changed = baseUrl != _config.value.baseUrl || _overridden.value
+        prefs.edit { putString(KEY_URL, baseUrl.toString()) }
         _overridden.value = false
         _config.value = load()
+        return changed
+    }
+
+    override fun signIn(token: String, userName: String?) {
+        val clean = token.trim()
+        if (_overridden.value) {
+            // The debug override is this process only: so is a session made against it.
+            _config.update { it.copy(token = clean, userName = userName) }
+            return
+        }
+        secrets.edit(commit = true) {
+            putString(KEY_SESSION, clean)
+            putString(KEY_SESSION_SERVER, _config.value.baseUrl.toString())
+            if (userName != null) putString(KEY_SESSION_USER, userName) else remove(KEY_SESSION_USER)
+        }
+        _config.value = load()
+    }
+
+    @Synchronized
+    override fun endSession(token: String): Boolean {
+        val config = _config.value
+        if (config.token == null || config.token != token.trim()) return false
+        if (!_overridden.value) clearSession()
+        _config.value = config.copy(token = null, userName = null)
+        return true
     }
 
     /**
@@ -75,20 +126,36 @@ class SettingsStore(context: Context) {
         _config.value = ServerConfig(baseUrl, token?.trim()?.takeIf { it.isNotEmpty() })
     }
 
+    private fun clearSession() {
+        secrets.edit(commit = true) {
+            remove(KEY_SESSION)
+            remove(KEY_SESSION_SERVER)
+            remove(KEY_SESSION_USER)
+        }
+    }
+
     private fun load(): ServerConfig {
         val url = prefs.getString(KEY_URL, null)?.let(ServerUrl::normalize) ?: DEFAULT_URL
-        return ServerConfig(url, secrets.getString(KEY_TOKEN, null)?.takeIf { it.isNotBlank() })
+        val token = secrets.getString(KEY_SESSION, null)?.takeIf { it.isNotBlank() }
+        val forServer = secrets.getString(KEY_SESSION_SERVER, null)
+        if (token != null && forServer != url.toString()) {
+            // Made on another server: worthless here.
+            clearSession()
+            return ServerConfig(url, null)
+        }
+        return ServerConfig(url, token, if (token != null) secrets.getString(KEY_SESSION_USER, null) else null)
     }
 
     companion object {
         /** The production server; editable in Settings. */
         const val DEFAULT_SERVER = "https://music.etaylan.com"
         private const val KEY_URL = "server_url"
-        private const val KEY_TOKEN = "api_token"
+        private const val KEY_SESSION = "session_token"
+        private const val KEY_SESSION_SERVER = "session_server"
+        private const val KEY_SESSION_USER = "session_user"
+        private const val KEY_PENDING = "pending_sign_in"
+        /** The CLI token older builds stored; removed at start. */
+        private const val LEGACY_TOKEN = "api_token"
         val DEFAULT_URL: HttpUrl = ServerUrl.normalize(DEFAULT_SERVER)!!
-        /** Where users create the API token the app needs. */
-        fun profileUrl(base: HttpUrl): String = ServerUrl.display(base) + "/profile"
     }
-
-
 }

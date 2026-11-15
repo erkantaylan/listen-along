@@ -91,7 +91,7 @@ fun PlaylistsScreen(
     Box(Modifier.fillMaxSize().background(Palette.page).semantics { testTagsAsResourceId = true }) {
         val open = detail
         if (open == null) {
-            PlaylistList(viewModel, online, onNew = { creating = true }, onDialog = { dialog = it })
+            PlaylistList(viewModel, online, actions, onNew = { creating = true }, onDialog = { dialog = it })
         } else {
             BackHandler { if (open.editing) viewModel.finishEditing() else viewModel.close() }
             PlaylistDetail(open, viewModel, snapshot, downloads, online, nowPlaying, actions, onDialog = { dialog = it })
@@ -163,6 +163,7 @@ fun PlaylistsScreen(
 private fun PlaylistList(
     viewModel: PlaylistsViewModel,
     online: Boolean,
+    actions: AppActions,
     onNew: () -> Unit,
     onDialog: (PlaylistDialog) -> Unit,
 ) {
@@ -175,12 +176,12 @@ private fun PlaylistList(
                 { Text("${state.playlists.size} playlists", color = Palette.fg3, fontSize = 12.sp) }
             } else null,
         ) {
-            if (state.hasToken) {
+            if (state.signedIn) {
                 IconAction(AppIcons.Add, "New playlist", tag = "new-playlist", enabled = !readOnly, onClick = onNew)
             }
         }
-        if (!state.hasToken) {
-            TokenNeededSimple()
+        if (!state.signedIn) {
+            SignInNeeded(actions, "Playlists")
             return@Column
         }
         if (state.fromCache) {
@@ -555,15 +556,6 @@ private fun EditableEntryRow(
 private fun OfflineAlert(text: String) {
     Alert(text, AlertKind.WARNING, icon = AppIcons.CloudOff,
           modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp))
-}
-
-@Composable
-private fun TokenNeededSimple() {
-    EmptyState(
-        title = "Connect your account",
-        body = "Playlists need an API token. Add one in Settings.",
-        icon = AppIcons.Lock,
-    )
 }
 
 private fun ago(savedAt: Long?): String =

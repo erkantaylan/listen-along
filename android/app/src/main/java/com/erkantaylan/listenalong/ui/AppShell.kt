@@ -45,8 +45,8 @@ class AppActions(
     val queued: (Int) -> Unit,
     val message: (String) -> Unit,
     val openSettings: () -> Unit,
-    /** The web profile page, where API tokens are made. */
-    val openProfile: () -> Unit,
+    /** Opens the central login's sign-in page in a Custom Tab (auth/AuthController). */
+    val signIn: () -> Unit,
     /** The source repository, the same link as the web footer. */
     val openSource: () -> Unit,
     val openExternal: (LocalSong) -> Unit,

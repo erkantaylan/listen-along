@@ -1,7 +1,9 @@
 package com.erkantaylan.listenalong
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Intent
+import androidx.browser.customtabs.CustomTabsIntent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
@@ -44,7 +46,7 @@ import com.erkantaylan.listenalong.api.ServerUrl
 import com.erkantaylan.listenalong.api.Song
 import com.erkantaylan.listenalong.open.ExternalPlayer
 import com.erkantaylan.listenalong.player.PlayQueue
-import com.erkantaylan.listenalong.settings.SettingsStore
+import com.erkantaylan.listenalong.auth.AuthEvent
 import com.erkantaylan.listenalong.storage.LocalSong
 import com.erkantaylan.listenalong.storage.MediaStoreAudio
 import com.erkantaylan.listenalong.ui.LocalMusicAccess
@@ -87,7 +89,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        applyDebugOverride(intent)
+        // A recreated activity (rotation) gets the same intent again: the
+        // override and a sign-in redirect apply once, on the first create.
+        if (savedInstanceState == null) {
+            applyDebugOverride(intent)
+            handleSignInRedirect(intent)
+        }
         openPlayerRequest = intent?.getBooleanExtra(EXTRA_OPEN_PLAYER, false) == true
 
         setContent {
@@ -110,6 +117,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         applyDebugOverride(intent)
+        handleSignInRedirect(intent)
         if (intent.getBooleanExtra(EXTRA_OPEN_PLAYER, false)) openPlayerRequest = true
     }
 
@@ -118,17 +126,45 @@ class MainActivity : ComponentActivity() {
         graph.player.connect()
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Back from the browser without a redirect (closed, or Back): stop
+        // waiting. A redirect arrives in onNewIntent, before this.
+        graph.auth.browserClosed()
+    }
+
     /**
-     * Debug builds only: `adb shell am start ... --es server http://localhost:8091 --es token devtoken`
-     * points this process at another server without saving it (dev.sh --stub
-     * does this), so testing never overwrites the phone's real settings.
+     * Debug builds only: `adb shell am start ... --es server http://localhost:8091 --es session devtoken`
+     * points this process at another server (and, optionally, a session the
+     * stub accepts) without saving it (dev.sh --stub does this), so testing
+     * never overwrites the phone's real settings or sign-in.
      */
     private fun applyDebugOverride(intent: Intent?) {
         val debuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         val server = intent?.getStringExtra(EXTRA_DEBUG_SERVER) ?: return
         if (!debuggable) return
         val url = ServerUrl.normalize(server) ?: return
-        graph.settings.overrideForSession(url, intent.getStringExtra(EXTRA_DEBUG_TOKEN))
+        graph.settings.overrideForSession(url, intent.getStringExtra(EXTRA_DEBUG_SESSION))
+    }
+
+    /** `com.etaylan.listen:/oauth2redirect?...` from auth/AuthRedirectActivity. */
+    private fun handleSignInRedirect(intent: Intent?) {
+        val data = intent?.dataString ?: return
+        if (graph.auth.handleRedirect(data)) {
+            // Used up: never replayed by a later recreate.
+            setIntent(Intent(intent).setData(null))
+        }
+    }
+
+    /** The central login's page in a Custom Tab (the browser's cookies: one tap when already signed in there). */
+    private fun openSignIn() {
+        val url = graph.auth.begin()
+        try {
+            CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(this, url.toString().toUri())
+        } catch (e: ActivityNotFoundException) {
+            graph.auth.cancel()
+            toast("No browser to sign in with")
+        }
     }
 
     @androidx.compose.runtime.Composable
@@ -136,7 +172,7 @@ class MainActivity : ComponentActivity() {
         val graph = graph
         val scope = rememberCoroutineScope()
         val config by graph.settings.config.collectAsStateWithLifecycle()
-        val firstTab = if (config.hasToken) Tab.LIBRARY else Tab.SETTINGS
+        val firstTab = if (config.signedIn) Tab.LIBRARY else Tab.SETTINGS
         var tab by rememberSaveable { mutableStateOf(firstTab) }
         var showPlayer by rememberSaveable { mutableStateOf(false) }
         var addingToPlaylist by remember { mutableStateOf<List<Song>?>(null) }
@@ -162,6 +198,17 @@ class MainActivity : ComponentActivity() {
         }
         LaunchedEffect(Unit) { playlistsVm.messages.collect { toast(it) } }
         LaunchedEffect(Unit) { graph.player.errors.collect { toast(it) } }
+        LaunchedEffect(Unit) {
+            graph.auth.events.collect { event ->
+                when (event) {
+                    is AuthEvent.SignedIn -> {
+                        tab = Tab.LIBRARY
+                        toast(event.name?.let { "Signed in as $it" } ?: "Signed in")
+                    }
+                    AuthEvent.SessionEnded -> toast("Your session ended. Sign in again in Settings.")
+                }
+            }
+        }
         if (nowPlaying.isEmpty && showPlayer) showPlayer = false
 
         // Files deleted in a file manager or another player while we were
@@ -169,12 +216,12 @@ class MainActivity : ComponentActivity() {
         // The broken-song list: the saved copy for this server at once, then the server's.
         LaunchedEffect(config) {
             graph.reports.loadSaved()
-            if (config.hasToken) runCatching { graph.reports.refresh() }
+            if (config.signedIn) runCatching { graph.reports.refresh() }
             // Another server has another library: compare the folder afresh.
-            if (config.hasToken) foundInFolder(graph.downloads.reclaim(force = true))
+            if (config.signedIn) foundInFolder(graph.downloads.reclaim(force = true))
         }
         LaunchedEffect(online) {
-            if (online && config.hasToken) runCatching { graph.reports.refresh() }
+            if (online && config.signedIn) runCatching { graph.reports.refresh() }
         }
 
         var musicAccess by remember { mutableStateOf(graph.sink.canSeeAllFiles) }
@@ -189,11 +236,11 @@ class MainActivity : ComponentActivity() {
             musicAccess = nowAllowed
             scope.launch {
                 graph.downloads.reconcile()
-                if (graph.settings.config.value.hasToken) {
+                if (graph.settings.config.value.signedIn) {
                     foundInFolder(graph.downloads.reclaim(force = justAllowed))
                 }
             }
-            if (graph.settings.config.value.hasToken) scope.launch { runCatching { graph.reports.refresh() } }
+            if (graph.settings.config.value.signedIn) scope.launch { runCatching { graph.reports.refresh() } }
             onPauseOrDispose { }
         }
 
@@ -290,13 +337,13 @@ class MainActivity : ComponentActivity() {
                         songs = songs,
                         startIndex = index,
                         downloaded = graph.readableDownloads(),
-                        streamUrl = if (graph.settings.config.value.hasToken) { id -> client.fileUrl(id).toString() } else null,
+                        streamUrl = if (graph.settings.config.value.signedIn) { id -> client.fileUrl(id).toString() } else null,
                         online = graph.connectivity.online.value,
                     )
                     when {
                         queue.entries.isEmpty() -> toast(
                             if (!graph.connectivity.online.value) "Offline, and none of these songs are on this device"
-                            else "Nothing to play — add an API token in Settings"
+                            else "Nothing to play — sign in first (Settings)"
                         )
                         else -> {
                             askPermissions(false)
@@ -312,7 +359,7 @@ class MainActivity : ComponentActivity() {
                 queued = { n -> toast(if (n == 1) "1 song queued" else "$n songs queued") },
                 message = ::toast,
                 openSettings = { tab = Tab.SETTINGS },
-                openProfile = { openInBrowser(SettingsStore.profileUrl(graph.settings.config.value.baseUrl)) },
+                signIn = ::openSignIn,
                 openSource = { openInBrowser(AppInfo.SOURCE_URL) },
                 openExternal = openExternal,
                 deleteWithConsent = { song ->
@@ -357,7 +404,7 @@ class MainActivity : ComponentActivity() {
             LocalMusicAccess provides MusicAccessUi(
                 granted = musicAccess,
                 // Worth asking only when nothing is known to be here and a server can match files.
-                offerPrompt = !musicAccess && !musicPromptDismissed && config.hasToken && snapshot.downloaded.isEmpty(),
+                offerPrompt = !musicAccess && !musicPromptDismissed && config.signedIn && snapshot.downloaded.isEmpty(),
                 request = requestMusicAccess,
                 dismiss = dismissMusicPrompt,
             ),
@@ -444,7 +491,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_OPEN_PLAYER = "open_player"
         const val EXTRA_DEBUG_SERVER = "server"
-        const val EXTRA_DEBUG_TOKEN = "token"
+        const val EXTRA_DEBUG_SESSION = "session"
         private const val PREF_PROMPT_DISMISSED = "prompt_dismissed"
         private const val PREF_DECLINED = "declined"
     }

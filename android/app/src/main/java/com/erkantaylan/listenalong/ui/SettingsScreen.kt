@@ -1,6 +1,5 @@
 package com.erkantaylan.listenalong.ui
 
-import android.content.ClipboardManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,11 +10,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -28,7 +24,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
@@ -43,8 +38,8 @@ import com.erkantaylan.listenalong.AppInfo
 import com.erkantaylan.listenalong.BuildConfig
 import com.erkantaylan.listenalong.R
 import com.erkantaylan.listenalong.api.ApiException
-import com.erkantaylan.listenalong.api.LibraryClient
 import com.erkantaylan.listenalong.api.ServerUrl
+import com.erkantaylan.listenalong.auth.SignInUi
 import com.erkantaylan.listenalong.download.DownloadSnapshot
 import com.erkantaylan.listenalong.settings.SettingsStore
 import com.erkantaylan.listenalong.storage.MediaStoreAudio
@@ -60,45 +55,48 @@ private data class CheckLine(val ok: Boolean, val text: String)
 fun SettingsScreen(graph: AppGraph, snapshot: DownloadSnapshot, actions: AppActions) {
     val config by graph.settings.config.collectAsStateWithLifecycle()
     val overridden by graph.settings.overridden.collectAsStateWithLifecycle()
-    val context = LocalContext.current
+    val signIn by graph.auth.ui.collectAsStateWithLifecycle()
 
     var url by rememberSaveable { mutableStateOf(ServerUrl.display(config.baseUrl)) }
-    var token by rememberSaveable { mutableStateOf(config.token.orEmpty()) }
+    var serverNote by remember { mutableStateOf<CheckLine?>(null) }
     var checking by remember { mutableStateOf(false) }
     var lines by remember { mutableStateOf<List<CheckLine>>(emptyList()) }
     val scope = rememberCoroutineScope()
 
     // The config can change under us (the debug override): show what is in force.
-    LaunchedEffect(config) {
-        url = ServerUrl.display(config.baseUrl)
-        token = config.token.orEmpty()
-    }
+    LaunchedEffect(config.baseUrl) { url = ServerUrl.display(config.baseUrl) }
+    LaunchedEffect(config.signedIn) { lines = emptyList() }
 
-    fun saveAndCheck() {
+    fun saveServer() {
         val normalized = ServerUrl.normalize(url)
         if (normalized == null) {
-            lines = listOf(CheckLine(false, "That is not a usable address."))
+            serverNote = CheckLine(false, "That is not a usable address.")
             return
         }
         url = ServerUrl.display(normalized)
-        graph.settings.save(normalized, token)
-        val client = LibraryClient(normalized, token.trim().ifEmpty { null })
+        val wasSignedIn = config.signedIn
+        val changed = graph.settings.saveServer(normalized)
+        serverNote = CheckLine(true, if (changed && wasSignedIn) "Saved. Sign in again on this server." else "Saved.")
+    }
+
+    fun testConnection() {
+        val client = graph.client()
         checking = true
         lines = emptyList()
         scope.launch {
             val result = mutableListOf<CheckLine>()
-            if (token.isNotBlank()) {
-                try {
-                    result += CheckLine(true, "Signed in as ${client.me().name}")
-                } catch (c: CancellationException) {
-                    throw c
-                } catch (t: Throwable) {
-                    result += CheckLine(false,
-                        if (t is ApiException && t.unauthorized) "Token rejected (${t.code}) — create a new one on your profile"
-                        else "Token check failed: ${describe(t)}")
-                }
-            } else {
-                result += CheckLine(false, "No token: the library and playlists need one")
+            try {
+                val me = client.me()
+                val status = me.user?.status
+                result += CheckLine(status != "pending",
+                    "Signed in as ${me.name.ifBlank { "your account" }}" +
+                        if (status == "pending") " (waiting for approval)" else "")
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                result += CheckLine(false,
+                    if (t is ApiException && t.sessionEnded) "The session has ended: sign in again"
+                    else "Account check failed: ${describe(t)}")
             }
             try {
                 val page = client.list(limit = 1)
@@ -121,70 +119,83 @@ fun SettingsScreen(graph: AppGraph, snapshot: DownloadSnapshot, actions: AppActi
             if (overridden) {
                 Alert(
                     "Debug: this session uses ${ServerUrl.display(config.baseUrl)} (from dev.sh). " +
-                        "Your saved server is unchanged; restart the app to go back to it.",
+                        "Your saved server and sign-in are unchanged; restart the app to go back to them.",
                     AlertKind.WARNING, Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
                 )
             }
 
-            if (!config.hasToken) {
-                Card(Modifier.padding(bottom = 12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(AppIcons.Lock, contentDescription = null, tint = Palette.accentFg, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Connect your account", color = Palette.fg, fontSize = 16.sp)
-                    }
+            Card(title = "Account") {
+                val idle = signIn as? SignInUi.Idle
+                if (config.signedIn) {
+                    Text("Signed in as ${config.userName ?: "your account"}", color = Palette.fg, fontSize = 16.sp,
+                         modifier = Modifier.testTag("signed-in-as"))
                     Text(
-                        "1. Open your profile at ${config.baseUrl.host} and create a token under \"CLI tokens\".\n" +
-                            "2. Copy it, come back, and paste it below.\n3. Tap Save and test.",
-                        color = Palette.fg2, fontSize = 14.sp, lineHeight = 21.sp,
-                        modifier = Modifier.padding(top = 8.dp, bottom = 12.dp),
+                        "On ${config.baseUrl.host}. The app keeps only a session of its own, stored encrypted on " +
+                            "this device; it ends when you sign out, after 30 days, or when the server ends it.",
+                        color = Palette.fg3, fontSize = 12.sp, lineHeight = 17.sp, modifier = Modifier.padding(top = 4.dp),
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SecondaryButton("Open my profile", actions.openProfile, icon = AppIcons.OpenInNew, tag = "open-profile")
+                    idle?.message?.let {
+                        Alert(it, if (idle.error) AlertKind.DANGER else AlertKind.INFO, Modifier.padding(top = 10.dp))
+                    }
+                    Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        SecondaryButton(if (checking) "Testing…" else "Test connection", ::testConnection,
+                                        enabled = !checking, tag = "test-connection")
+                        SecondaryButton("Sign out", graph.auth::signOut, outlined = true, tag = "sign-out")
+                    }
+                    lines.forEach { line ->
+                        Text(
+                            (if (line.ok) "✓ " else "✗ ") + line.text,
+                            color = if (line.ok) Palette.success else Palette.danger,
+                            fontSize = 14.sp,
+                            modifier = Modifier.padding(top = 8.dp).testTag(if (line.ok) "check-ok" else "check-fail"),
+                        )
+                    }
+                } else {
+                    Text(
+                        "Sign in with your listen-along account. The sign-in page of ${config.baseUrl.host} opens " +
+                            "in the browser and sends you back here.",
+                        color = Palette.fg2, fontSize = 14.sp, lineHeight = 21.sp,
+                    )
+                    idle?.message?.let {
+                        Alert(it, if (idle.error) AlertKind.DANGER else AlertKind.INFO, Modifier.padding(top = 10.dp))
+                    }
+                    Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        when (signIn) {
+                            SignInUi.InBrowser -> {
+                                PrimaryButton("Waiting for the browser…", {}, enabled = false, tag = "sign-in")
+                                SecondaryButton("Cancel", graph.auth::cancel, outlined = true, tag = "sign-in-cancel")
+                            }
+                            SignInUi.Exchanging -> PrimaryButton("Signing in…", {}, enabled = false, tag = "sign-in")
+                            is SignInUi.Idle -> PrimaryButton("Sign in", actions.signIn, icon = AppIcons.Lock, tag = "sign-in")
+                        }
                     }
                 }
             }
 
+            Spacer(Modifier.height(12.dp))
             Card(title = "Server") {
                 FieldLabel("Address")
                 TextInput(
                     value = url, onValueChange = { url = it },
                     placeholder = SettingsStore.DEFAULT_SERVER, tag = "server-url",
-                    keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next,
-                )
-                FieldLabel("API token", Modifier.padding(top = 14.dp))
-                TextInput(
-                    value = token, onValueChange = { token = it },
-                    placeholder = "Paste the token from your profile", tag = "api-token",
-                    secret = true, imeAction = ImeAction.Done, onSubmit = ::saveAndCheck,
-                    trailing = {
-                        SecondaryButton("Paste", {
-                            val clip = context.getSystemService(ClipboardManager::class.java)
-                            val text = clip?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)
-                                ?.coerceToText(context)?.toString()?.trim()
-                            if (text.isNullOrEmpty()) actions.message("The clipboard is empty") else token = text
-                        }, tag = "paste-token", compact = true, modifier = Modifier.padding(end = 4.dp))
-                    },
+                    keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done, onSubmit = ::saveServer,
                 )
                 Text(
-                    "Sent as \"Authorization: Bearer …\" and stored encrypted on this device. " +
-                        "Create or revoke tokens on your profile page.",
+                    "A sign-in belongs to its server: another address needs signing in again.",
                     color = Palette.fg3, fontSize = 12.sp, lineHeight = 17.sp,
                     modifier = Modifier.padding(top = 8.dp),
                 )
-                Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    PrimaryButton(if (checking) "Checking…" else "Save and test", ::saveAndCheck,
-                                  enabled = !checking, tag = "save")
-                    if (config.hasToken) SecondaryButton("Profile", actions.openProfile, icon = AppIcons.OpenInNew,
-                                                         tag = "open-profile-small", outlined = true)
+                Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    SecondaryButton("Save", ::saveServer, tag = "save-server")
                 }
-                lines.forEach { line ->
+                serverNote?.let { line ->
                     Text(
                         (if (line.ok) "✓ " else "✗ ") + line.text,
                         color = if (line.ok) Palette.success else Palette.danger,
                         fontSize = 14.sp,
-                        modifier = Modifier.padding(top = 8.dp).testTag(if (line.ok) "check-ok" else "check-fail"),
+                        modifier = Modifier.padding(top = 8.dp),
                     )
                 }
             }

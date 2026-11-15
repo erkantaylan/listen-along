@@ -13,8 +13,18 @@ Serves every .m4a / .opus / .ogg / .mp3 under --music as a library song
                                              withdraw your own report (seeded
                                              with one report by "Ayşe")
   GET /api/library/<id>/file                 the bytes, with Range support
-  GET /api/me                                needs --token; 401 otherwise;
-                                             lists upload_formats
+  GET  /auth/mobile/start?state&nonce&code_challenge
+                                             the sign-in "page": a link back
+                                             to the app (as the server's dev
+                                             sign-in, no IdP)
+  POST /auth/mobile/exchange                 code + verifier + nonce -> a
+                                             `lam_` session token (mode dev)
+  POST /auth/mobile/logout                   ends that session
+  POST /stub/end-sessions                    ends every session (the app's
+                                             next request gets 401
+                                             SESSION_ENDED: test sign-out)
+  GET /api/me                                needs a session; 401
+                                             SESSION_ENDED otherwise
   /api/playlists...                          list, songs, create, rename,
                                              visibility, delete, add, remove,
                                              move (in memory, seeded with two
@@ -25,12 +35,16 @@ Metadata comes from the file name, "Artist - Title.ext". Ids are stable
 UUIDs derived from the file path. Standard library only.
 
   python3 tools/stub_server.py --music ~/Music --port 8091 --token devtoken
+                                    # devtoken: a session valid from the start
   python3 tools/stub_server.py --samples      # make a few test songs with ffmpeg
 """
 
 import argparse
+import base64
 import hashlib
+import html
 import json
+import secrets
 import os
 import re
 import shutil
@@ -39,13 +53,10 @@ import sys
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 # As the server serves them (MIME_BY_EXT in backend/src/library.js).
 MIME = {".m4a": "audio/mp4", ".opus": "audio/ogg", ".ogg": "audio/ogg", ".mp3": "audio/mpeg"}
-
-# GET /api/me upload_formats, like the server's UPLOAD_FORMATS.
-UPLOAD_FORMATS = ["m4a", "opus"]
 
 
 def probe_duration(path):
@@ -124,6 +135,20 @@ def make_samples(target):
 
 ME = "stub-user"
 
+# The app's registered redirect (backend/src/mobileAuth.js MOBILE_REDIRECT_URI).
+REDIRECT_URI = "com.etaylan.listen:/oauth2redirect"
+SESSION_ENDED = {"error": "Your session has ended, sign in again", "code": "SESSION_ENDED"}
+STATE_RE = re.compile(r"^[A-Za-z0-9._~-]{16,256}$")
+VERIFIER_RE = re.compile(r"^[A-Za-z0-9._~-]{43,128}$")
+
+
+def b64url(data):
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def s256(verifier):
+    return b64url(hashlib.sha256(verifier.encode()).digest())
+
 
 def seed_playlists(songs):
     """Two playlists: one of ours (private), one of someone else's (public)."""
@@ -156,7 +181,8 @@ def seed_reports(songs):
 
 class Handler(BaseHTTPRequestHandler):
     songs = []
-    token = None
+    sessions = set()   # the `lam_` / --token values that are signed in
+    used_codes = set()
     throttle_kbps = 0
     playlists = {}
     reports = {}  # song id -> [report]
@@ -174,29 +200,72 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def auth(self):
-        """None when no token was sent, True/False for a good/bad one."""
+        """None when no token was sent, True/False for a live/ended session."""
         header = self.headers.get("Authorization")
         if not header:
             return None
-        return self.token is not None and header == f"Bearer {self.token}"
+        return header.startswith("Bearer ") and header[7:].strip() in self.sessions
+
+    def send_html(self, code, title, body):
+        data = (f"<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'>"
+                f"<title>{html.escape(title)}</title><body style='font:16px system-ui;margin:2rem'>"
+                f"<h1>{html.escape(title)}</h1>{body}").encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    # --- the app's sign-in (as the real server's dev sign-in) ----------------
+
+    def mobile_start(self, qs):
+        state, nonce = qs.get("state", [""])[0], qs.get("nonce", [""])[0]
+        challenge = qs.get("code_challenge", [""])[0]
+        if not STATE_RE.match(state) or not STATE_RE.match(nonce) or len(challenge) != 43:
+            return self.send_html(400, "Sign-in link not valid", "<p>Go back to the app and try again.</p>")
+        code = "dev." + b64url(json.dumps({"c": challenge, "n": nonce, "t": time.time()}).encode())
+        link = f"{REDIRECT_URI}?{urlencode({'code': code, 'state': state})}"
+        self.send_html(200, "Stub sign-in", "<p>tools/stub_server.py: no IdP, anyone is " + html.escape(ME) + ".</p>"
+                       f"<p><a id=continue href='{html.escape(link)}'>Continue as {html.escape(ME)}</a></p>")
+
+    def mobile_exchange(self):
+        b = self.read_body() or {}
+        code, verifier, nonce, state = b.get("code"), b.get("code_verifier"), b.get("nonce"), b.get("state")
+        if not all(isinstance(x, str) for x in (code, verifier, nonce, state)) \
+                or not VERIFIER_RE.match(verifier) or not STATE_RE.match(nonce) or not STATE_RE.match(state):
+            return self.send_json(400, {"error": "The sign-in request is not valid", "code": "invalid_request"})
+        try:
+            data = json.loads(base64.urlsafe_b64decode(code[4:] + "=" * (-len(code[4:]) % 4)))
+        except Exception:
+            data = None
+        if (not code.startswith("dev.") or not isinstance(data, dict) or code in self.used_codes
+                or data.get("n") != nonce or data.get("c") != s256(verifier) or time.time() - data.get("t", 0) > 600):
+            return self.send_json(400, {"error": "Sign-in did not work, try again", "code": "signin_failed"})
+        Handler.used_codes.add(code)
+        token = "lam_" + secrets.token_urlsafe(32)
+        Handler.sessions.add(token)
+        return self.send_json(200, {"token": token, "token_type": "Bearer", "mode": "dev",
+                                    "expires_at": int((time.time() + 30 * 86400) * 1000),
+                                    "user": {"id": "u-me", "name": ME, "status": "approved"}})
 
     def do_GET(self):
         url = urlparse(self.path)
         parts = [p for p in url.path.split("/") if p]
+        if parts == ["auth", "mobile", "start"]:
+            return self.mobile_start(parse_qs(url.query))
         authed = self.auth()
         if authed is False:
-            return self.send_json(401, {"error": "Invalid or revoked token"})
+            return self.send_json(401, SESSION_ENDED)
 
         if parts == ["api", "me"]:
             if not authed:
-                return self.send_json(401, {"error": "Missing API token"})
-            return self.send_json(200, {"name": ME, "user": {"id": "u-me", "name": ME},
-                                        "token": {"label": "stub", "legacy": False},
-                                        "upload_formats": UPLOAD_FORMATS})
+                return self.send_json(401, SESSION_ENDED)
+            return self.send_json(200, {"name": ME, "user": {"id": "u-me", "name": ME, "status": "approved"},
+                                        "session": {"kind": "app"}})
 
         if parts[:2] == ["api", "playlists"]:
             if not authed:
-                return self.send_json(401, {"error": "Authentication required"})
+                return self.send_json(401, SESSION_ENDED)
             if len(parts) == 2:
                 infos = [self.playlist_info(p) for p in self.playlists.values()
                          if p["visibility"] == "public" or p["ownerId"] == "u-me"]
@@ -248,7 +317,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def report_write(self, method, song_id):
         if self.auth() is not True:
-            return self.send_json(401, {"error": "Authentication required"})
+            return self.send_json(401, SESSION_ENDED)
         song = next((x for x in self.songs if x["id"] == song_id), None)
         if song is None:
             return self.send_json(404, {"error": "Song not found", "code": "NOT_FOUND"})
@@ -312,13 +381,22 @@ class Handler(BaseHTTPRequestHandler):
         parts = [p for p in urlparse(self.path).path.split("/") if p]
         if len(parts) == 4 and parts[:2] == ["api", "library"] and parts[3] == "report" and method in ("POST", "DELETE"):
             return self.report_write(method, parts[2])
+        if method == "POST" and parts == ["auth", "mobile", "exchange"]:
+            return self.mobile_exchange()
+        if method == "POST" and parts == ["auth", "mobile", "logout"]:
+            header = self.headers.get("Authorization") or ""
+            Handler.sessions.discard(header[7:].strip())
+            return self.send_json(200, {"success": True})
+        if method == "POST" and parts == ["stub", "end-sessions"]:
+            Handler.sessions.clear()
+            return self.send_json(200, {"success": True})
         authed = self.auth()
         if authed is False:
-            return self.send_json(401, {"error": "Invalid or revoked token"})
+            return self.send_json(401, SESSION_ENDED)
         if parts[:2] != ["api", "playlists"]:
             return self.send_json(404, {"error": "Not found"})
         if not authed:
-            return self.send_json(401, {"error": "Authentication required"})
+            return self.send_json(401, SESSION_ENDED)
         body = self.read_body()
         if body is None:
             return self.send_json(400, {"error": "Bad JSON"})
@@ -456,7 +534,7 @@ def main():
     parser.add_argument("--music", default=default_music, help="folder of .m4a/.opus/.ogg/.mp3 files")
     parser.add_argument("--port", type=int, default=8091)
     parser.add_argument("--bind", default="127.0.0.1")
-    parser.add_argument("--token", help="accept this API token (enables /api/me)")
+    parser.add_argument("--token", help="a session token that is signed in from the start (dev.sh passes devtoken)")
     parser.add_argument("--throttle", type=int, default=0, metavar="KBPS",
                         help="slow file transfers down, to watch progress and test cancelling")
     parser.add_argument("--samples", action="store_true", help="create sample songs in --music first")
@@ -471,7 +549,7 @@ def main():
     Handler.songs = scan(music)
     Handler.playlists = seed_playlists(Handler.songs)
     Handler.reports = seed_reports(Handler.songs)
-    Handler.token = args.token
+    Handler.sessions = {args.token} if args.token else set()
     Handler.throttle_kbps = args.throttle
     print(f"stub: {len(Handler.songs)} songs from {music} on http://{args.bind}:{args.port}", flush=True)
     ThreadingHTTPServer((args.bind, args.port), Handler).serve_forever()

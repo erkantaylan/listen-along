@@ -13,11 +13,11 @@ main action of each screen and the play button.
 ## Getting started
 
 The app talks to **https://music.etaylan.com** out of the box (change it in
-Settings). The library and playlists need an **API token**: on first launch
-the app opens Settings and walks you through it — open your profile on the
-web (**Open my profile**), create a token under "CLI tokens", copy it, tap
-**Paste**, then **Save and test**. The token is sent as
-`Authorization: Bearer …` and stored encrypted.
+Settings). The library and playlists need you to **sign in**: on first launch
+the app opens Settings; tap **Sign in**. The central login's page
+(id.etaylan.com) opens in a Custom Tab, the browser comes back to the app by
+itself, and you are in (one tap when that browser is already signed in
+there). The same account rules as the web apply (see [Signing in](#signing-in)).
 
 ## What it does
 
@@ -59,9 +59,49 @@ web (**Open my profile**), create a token under "CLI tokens", copy it, tap
   YouTube-only queue entries) are listed but cannot be played.
 - **On device**: the downloaded songs (play, shuffle, add to playlist, open in
   another app, delete) and the download queue while it runs.
-- **Settings**: server address, API token (Paste button), **Save and test**
-  (`/api/me` and `/api/library`), storage stats, and the app version
-  (`versionName`) with a link to the source on GitHub.
+- **Settings**: **Account** (Sign in, or who is signed in, **Test
+  connection** (`/api/me` and `/api/library`) and **Sign out**), the server
+  address, storage stats, and the app version (`versionName`) with a link to
+  the source on GitHub.
+
+## Signing in
+
+The app signs in through the owner's central login the way the web does
+(server side: `backend/src/mobileAuth.js`, CENTRAL-LOGIN.md "The Android
+app"). It never asks for a token and never holds the central login's tokens.
+
+- **Sign in** makes a PKCE verifier, `state` and `nonce` (`auth/AuthFlow`;
+  kept encrypted until the browser comes back, so it survives the app being
+  killed meanwhile) and opens `<server>/auth/mobile/start` in a Custom Tab.
+  The server sends it on to the central login; the login sends the browser to
+  `com.etaylan.listen:/oauth2redirect?code&state`, which Android hands to
+  `auth/AuthRedirectActivity` (that scheme is the redirect registered for
+  listen-along at the central login; `build.gradle.kts` puts it in the
+  manifest and `BuildConfig`, and it is not the applicationId). A `state`
+  that is not the app's own is refused.
+- The app sends the code, the verifier and the nonce to
+  `/auth/mobile/exchange`; the server exchanges the code, checks the
+  id_token, finds the account by the same rules as the web, and answers with
+  the app's own session token (`lam_…`). It is stored encrypted
+  (EncryptedSharedPreferences, `settings/SettingsStore`) for the server it
+  was made on (another address drops it) and sent as `Authorization: Bearer`.
+- **Signed out** happens only on a **401** from the server
+  (`auth/SessionEndedInterceptor` on every API and streaming call: the
+  session ended, expired after 30 days, was signed out, or the account was
+  disabled centrally or rejected in `/dashboard`). Then the app shows **Sign
+  in** again and says why. Offline, a timeout, a 5xx or a 403 never sign you
+  out: downloaded songs keep playing.
+- **Sign out** (Settings → Account) forgets the session at once and tells
+  the server when it can be reached. It does not sign you out of the central
+  login in the browser, so signing in again is one tap.
+- The state machine (`auth/AuthController`) and the protocol (`AuthFlow`,
+  `api/SignInClient`, the interceptor) are unit tested.
+- **Upgrading** from a version that used an API token: the saved token is
+  deleted at the first start (it still works for the CLI until you revoke it
+  on your profile page: CLI tokens); downloads, saved playlists and settings
+  are kept; sign in once.
+- A pending account can sign in; the library and playlists then say the
+  account is waiting for approval, as on the web.
 
 ## Player
 
@@ -82,7 +122,7 @@ through the same session (see [Android Auto](#android-auto)).
 - Each queued song is resolved once (`player/PlayQueue`): a downloaded song
   plays from its MediaStore file, anything else streams from
   `/api/library/:id/file` through an OkHttp client whose interceptor adds the
-  Bearer token, only for the configured server. Range requests make seeking
+  session (Bearer), only for the configured server. Range requests make seeking
   in a stream cheap.
 - A song that fails (deleted file, 404, connection lost) is skipped and a
   toast says why. A stream that fails because the server cannot be reached
@@ -115,7 +155,7 @@ through the same session (see [Android Auto](#android-auto)).
   you opened (`playlists/PlaylistCache`, JSON files under the app's files
   dir, per server). Offline, or when the server answers 5xx, those are shown
   read-only with "Offline — saved copy from …"; editing actions are disabled.
-  A 4xx is not hidden behind the cache: a rejected token is shown, and a
+  A 4xx is not hidden behind the cache: an ended session is shown, and a
   playlist that answers 404 is forgotten.
 - **Broken songs**: the list of reported songs (`reports/ReportStore`) is
   saved per server, so the warning icons and the Broken filter (over the
@@ -186,7 +226,7 @@ rules as the app (`PlayQueue.build`: downloaded songs from the file, the rest
 streamed, offline only the downloaded ones). Downloaded songs carry the car's
 download mark. The data comes from the same places as the app's screens —
 `PlaylistRepository` (saved copies offline), the download index, the library
-API with the Bearer token — and nothing waits on the network when offline:
+API with the session — and nothing waits on the network when offline:
 playlists come from the saved copies (only those opened in the app before),
 *Recently added* shows the downloads, and songs that are not on the phone
 are left out of the lists. Browsing is allowed for this app, Android Auto /
@@ -207,7 +247,7 @@ you allow them, once, on the phone:
 5. Disconnect and reconnect the phone (or restart Android Auto) so the car's
    launcher picks it up.
 
-Playlists appear once the app has a server and token (Settings in the app);
+Playlists appear once the app is signed in (Settings in the app);
 for offline playlists, open them once in the app while online. To test without
 a car, use the Desktop Head Unit (DHU) from the SDK's extras, with "Start head
 unit server" in the same developer settings.
@@ -224,7 +264,7 @@ cd android
 ```
 
 Users get the app from the **`/app` page** of the web app (download, install
-steps, connecting with a token), which offers the latest GitHub Release.
+steps, signing in), which offers the latest GitHub Release.
 
 `dev.sh` finds a JDK (JAVA_HOME if it is ≥ 17, else 17, else 21+ under
 `/usr/lib/jvm`) and the SDK (`ANDROID_HOME`, else `~/Android/Sdk`) by itself;
@@ -258,8 +298,9 @@ APK, checks its certificate and version, and publishes a GitHub Release with
   API models; the unit tests run unminified.
 - The release is `com.erkantaylan.listenalong`, the debug build
   `com.erkantaylan.listenalong.debug`, with different keys. They install side by side
-  and share no token, settings or download index. Moving to the release
-  means connecting it again; with music access, *Find songs already in the folder*
+  and share no session, settings or download index. Both register the sign-in
+  scheme, so with both installed Android asks which one gets the sign-in: pick
+  the one you started from. Moving to the release means signing in again; with music access, *Find songs already in the folder*
   picks up the files.
 
 ## Dev loop
@@ -274,8 +315,12 @@ ANDROID_SERIAL=emulator-5554 ./dev.sh --stub   # pick the device explicitly
 
 `tools/stub_server.py` (Python standard library only) stands in for the real
 server, which needs PostgreSQL. It serves every `.m4a`/`.opus`/`.ogg`/`.mp3`
-in a folder through the same API — search, paging, sort, `Range`, `/api/me`
-(with `upload_formats`) — plus
+in a folder through the same API — search, paging, sort, `Range`, `/api/me` —
+the app's sign-in (`/auth/mobile/start` shows a "Continue as stub-user" link,
+`/auth/mobile/exchange` checks the verifier and nonce and hands out a `lam_`
+session, `/auth/mobile/logout`; an unknown session answers 401
+`SESSION_ENDED`, and `POST /stub/end-sessions` ends them all, to try the
+signed-out path), plus
 in-memory playlists seeded with one private playlist of yours and one public
 playlist of someone else's (with a YouTube-only entry), with the server's
 owner rules (`canEdit` too) and error answers, and broken-song reports
@@ -285,14 +330,24 @@ ffmpeg (m4a, one Ogg Opus, one mp3); `--throttle KBPS` slows transfers down.
 
 `./dev.sh --stub` starts it, tunnels it to the phone's `localhost:8091` with
 `adb reverse`, and launches the app with `--es server http://localhost:8091
---es token devtoken`. Debug builds take those intent extras as an
-**in-memory** override for that process (Settings shows a notice): the server
-and token saved on the phone are never touched. Restart the app normally to
-go back to them.
+--es session devtoken` (a session the stub accepts from the start). Debug
+builds take those intent extras as an **in-memory** override for that process
+(Settings shows a notice): the server and the sign-in saved on the phone are
+never touched, and a sign-in made against the stub stays in memory too.
+Restart the app normally to go back to them. Sign out and Sign in work against
+the stub (its page, then back to the app).
+
+Against a local server with the dev sign-in (`INSECURE_DEV_LOGIN=1`, see
+CLAUDE.md), `adb reverse tcp:3000 tcp:3000` and launch with `--es server
+http://localhost:3000`: Sign in shows "Continue as Dev User" (or another
+account by `users.id`). That session says `mode: dev`, which only debug builds
+accept; release builds refuse it, and production servers cannot run the dev
+sign-in at all. With the fake IdP (`node src/fakeOidcIssuer.js`) instead, the
+real protocol runs; reverse its port too.
 
 Cleartext HTTP is allowed only for `localhost`, `127.0.0.1` and `10.0.2.2`
 (see `res/xml/network_security_config.xml`). A real server must use HTTPS,
-because the token travels with every request.
+because the session token travels with every request.
 
 Compose test tags are exposed as resource ids (`tab:playlists`,
 `song:<id>`, `playlist:<id>`, `mini-player`, `player:toggle`, …), so
@@ -302,8 +357,11 @@ Compose test tags are exposed as resource ids (`tab:playlists`,
 
 ```
 app/src/main/java/com/erkantaylan/listenalong/
-├── api/         LibraryClient (OkHttp): library, /api/me, playlists; models
-├── settings/    server URL (default music.etaylan.com) + encrypted token
+├── api/         LibraryClient (OkHttp): library, /api/me, playlists; models;
+│                SignInClient (exchange, sign-out)
+├── auth/        AuthFlow (PKCE, redirect), AuthController (the sign-in state
+│                machine), SessionEndedInterceptor, AuthRedirectActivity
+├── settings/    server URL (default music.etaylan.com) + encrypted session
 ├── playlists/   PlaylistRepository + PlaylistCache (offline copies),
 │                PlaylistEdits (edit mode: drag reorder, remove + Undo)
 ├── reports/     ReportStore (broken-song reports, saved per server), ReportReasons
@@ -334,6 +392,8 @@ tests against MockWebServer.
   the YouTube thumbnail or the file); a playlist that was never opened in the
   app is empty in the car while offline; no "Broken" marks or playlist
   editing in the car.
+- A session lasts 30 days from sign-in (as on the web), then the app asks you
+  to sign in again.
 - There is no live socket: reports made elsewhere show up on the next
   refresh (resume, pull-to-refresh, reconnect), not instantly.
 - Edit mode assumes nobody else edits the same playlist at the same time;

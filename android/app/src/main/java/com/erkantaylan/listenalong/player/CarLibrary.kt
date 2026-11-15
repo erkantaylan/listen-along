@@ -255,7 +255,7 @@ class CarLibrary(
     }
 
     private fun streamUrl(): ((String) -> String)? {
-        if (!graph.settings.config.value.hasToken) return null
+        if (!graph.settings.config.value.signedIn) return null
         val client = graph.client()
         return { id -> client.fileUrl(id).toString() }
     }

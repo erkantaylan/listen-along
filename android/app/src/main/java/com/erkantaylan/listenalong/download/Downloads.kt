@@ -254,7 +254,7 @@ class Downloads(
 
     private fun describe(t: Throwable): String = when {
         t is ApiException && t.code == 404 -> "Not on the server any more"
-        t is ApiException && t.unauthorized -> "Token rejected (${t.code})"
+        t is ApiException && t.code == 401 -> "Signed out: sign in again"
         t is ApiException -> "Server error: ${t.message}"
         else -> t.message ?: t::class.simpleName ?: "Download failed"
     }
