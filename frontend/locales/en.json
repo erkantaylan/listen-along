@@ -628,6 +628,17 @@
     "close": "Close",
     "speed": "Speed",
     "reset": "Reset",
-    "speedFollowing": "While you listen along with someone, music plays at 1×. Your speed comes back when you stop."
+    "speedFollowing": "While you listen along with someone, music plays at 1×. Your speed comes back when you stop.",
+    "sleep": "Sleep timer",
+    "sleepOff": "Off",
+    "sleepIn": "Stops in {time}",
+    "sleepAtEnd": "Stops at the end of this song",
+    "sleepCancel": "Cancel timer",
+    "sleepEndOfSong": "End of song",
+    "minutes": "{n} min",
+    "sleepCustom": "Or after (minutes, or h:mm)",
+    "sleepStart": "Start",
+    "sleepInvalid": "Enter 1 to {max} minutes, or hours:minutes like 1:30.",
+    "sleepDone": "Sleep timer: playback paused"
   }
 }

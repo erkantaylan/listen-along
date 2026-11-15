@@ -628,6 +628,17 @@
     "close": "Kapat",
     "speed": "Hız",
     "reset": "Sıfırla",
-    "speedFollowing": "Biriyle birlikte dinlerken müzik 1× çalar. Durdurduğunda kendi hızın geri gelir."
+    "speedFollowing": "Biriyle birlikte dinlerken müzik 1× çalar. Durdurduğunda kendi hızın geri gelir.",
+    "sleep": "Uyku zamanlayıcısı",
+    "sleepOff": "Kapalı",
+    "sleepIn": "{time} sonra durur",
+    "sleepAtEnd": "Bu şarkının sonunda durur",
+    "sleepCancel": "Zamanlayıcıyı iptal et",
+    "sleepEndOfSong": "Şarkı bitince",
+    "minutes": "{n} dk",
+    "sleepCustom": "Ya da şu kadar sonra (dakika ya da s:dd)",
+    "sleepStart": "Başlat",
+    "sleepInvalid": "1 ile {max} arasında dakika gir ya da 1:30 gibi saat:dakika yaz.",
+    "sleepDone": "Uyku zamanlayıcısı: çalma duraklatıldı"
   }
 }

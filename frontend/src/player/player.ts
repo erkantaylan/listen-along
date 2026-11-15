@@ -23,6 +23,8 @@
 //   player.replaceQueue(ctx, songs)      new order for a context that is no lobby (ignored unless it is current)
 //   player.setRefill(fn)                 fn(context, track) -> songs | null: what comes after the last song (Radio)
 //   player.setSkip(fn)                   fn(track) -> true for a song next / previous go past (it failed to play, playback-failures.ts)
+//   player.setEndHook(fn)                fn() -> true when it handled a song's end itself (the sleep timer's "end of song")
+//   player.finishTrack()                 the song came to its end: what the 'ended' event does
 //   player.playIndex(i) / playTrack(track, { position, autoplay })
 //   player.play() / pause() / toggle() / next() / previous() / seek(seconds) / stop()
 //     (these are the listener's own actions: each one ends a driver; the
@@ -95,6 +97,8 @@ export interface PlayerDriver {
 export type RefillFn = (context: PlayerContext | null, track: Track | null) => Track[] | null | undefined;
 /** player.setSkip: true for a song next / previous go past. */
 export type SkipFn = (track: Track) => boolean;
+/** player.setEndHook: true when it took care of the end of the song (nothing else happens then). */
+export type EndHook = () => boolean;
 
 // socket library:updated { details } / { replaced } (types.ts LibraryUpdatedPayload).
 type DetailsChange = Extract<LibraryUpdatedPayload, { details: unknown }>['details'];
@@ -107,6 +111,7 @@ let track: Track | null = null;
 let driver: PlayerDriver | null = null;
 let refill: RefillFn | null = null;
 let skip: SkipFn | null = null;
+let endHook: EndHook | null = null;
 
 const audio = () => elements.audioPlayer;
 
@@ -210,6 +215,21 @@ export const player = {
   setRefill(fn: RefillFn | null | undefined): void { refill = fn || null; },
 
   setSkip(fn: SkipFn | null | undefined): void { skip = fn || null; },
+
+  setEndHook(fn: EndHook | null | undefined): void { endHook = fn || null; },
+
+  // The song came to its end: a driver decides what follows (listen-along waits
+  // for the leader's next song), else the next song plays as repeat / shuffle /
+  // Radio's refill say. The 'ended' event lands here.
+  finishTrack(): void {
+    if (endHook) {
+      let handled = false;
+      try { handled = endHook(); } catch (err) { console.error('player end hook failed:', err); }
+      if (handled) return;
+    }
+    if (driver && driver.onEnded) driver.onEnded();
+    else if (!driver) this.next({ auto: true });
+  },
 
   // Play `index` of a context's songs; switches the context when it is another one.
   playFrom(ctx: PlayerContextInput | null | undefined, songs: Track[], index: number): void {
@@ -370,10 +390,7 @@ export const player = {
 export function setupPlayer(): void {
   const a = audio();
   setupOneTabPlayback(a);
-  a.addEventListener('ended', () => {
-    if (driver && driver.onEnded) driver.onEnded();
-    else if (!driver) player.next({ auto: true });
-  });
+  a.addEventListener('ended', () => player.finishTrack());
   a.addEventListener('seeked', () => emit('seeked', a.currentTime));
   a.addEventListener('play', () => emit('state', { playing: true }));
   a.addEventListener('pause', () => emit('state', { playing: false }));
