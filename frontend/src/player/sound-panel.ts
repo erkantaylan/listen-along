@@ -1,7 +1,8 @@
 // The sound panel (DESIGN.md "Sound panel"): the player bar's #sound-btn opens
 // #sound-panel, a popover above the bar's right end on desktop and a sheet
 // above the bar on phones. It holds the listener's own settings (sound.ts):
-// speed, and the sleep timer (sleep-timer.ts, not a stored setting). Not
+// speed, the sleep timer (sleep-timer.ts, not a stored setting), the
+// equalizer and the volume boost (audio-graph.ts). Not
 // modal: Escape, the close button, the sound button or a click outside
 // closes it, and focus goes back to the sound button.
 import { byId } from '../shared/dom.ts';
@@ -11,6 +12,8 @@ import { SPEED_STEPS, DEFAULT_SPEED, formatSpeed, speedAt, speedIndex } from './
 import { listenState, onListenChange } from '../features/social/listen-along.ts';
 import { sleepTimer, sleepIn, sleepAtEndOfSong, cancelSleep, onSleepChange } from './sleep-timer.ts';
 import { formatCountdown, parseCustomMinutes, remainingMs, MAX_CUSTOM_MIN } from './sleep-timer-rules.ts';
+import { EQ_BANDS, EQ_MAX_DB, EQ_MIN_DB, EQ_STEP_DB, BOOST_MAX, BOOST_STEP, formatBand, formatDb, gainsFor, isEqChoice, normalizeBoost, withBand } from './equalizer-rules.ts';
+import { effectsAllowed, effectsStatus, isMobileDevice, onGraphChange, primeAudioGraph } from './audio-graph.ts';
 
 const lang = (): string => (window.i18n && window.i18n.getLanguage ? window.i18n.getLanguage() : 'en');
 
@@ -22,7 +25,67 @@ function button(): HTMLButtonElement { return byId<HTMLButtonElement>('sound-btn
 /** Is anything on that changes how music sounds (the button's dot)? */
 function effectsActive(): boolean {
   const s = soundSettings();
-  return s.speed !== DEFAULT_SPEED;
+  const fx = effectsStatus();
+  return s.speed !== DEFAULT_SPEED || fx === 'on' || fx === 'waiting';
+}
+
+function bandsHtml(): string {
+  return EQ_BANDS.map((hz, i) => `
+    <div class="sound-band">
+      <span class="sound-band-hz" aria-hidden="true">${formatBand(hz)}</span>
+      <div class="form-range"><input type="range" class="form-range-input" data-band="${i}" min="${EQ_MIN_DB}" max="${EQ_MAX_DB}" step="${EQ_STEP_DB}" value="0" aria-label="${hz >= 1000 ? `${hz / 1000} kHz` : `${hz} Hz`}"></div>
+      <span class="sound-band-db" data-band-db="${i}" aria-hidden="true">0 dB</span>
+    </div>`).join('');
+}
+
+function renderEffects(): void {
+  const s = soundSettings();
+  const mobile = isMobileDevice();
+  const allowed = effectsAllowed();
+  byId('sound-mobile').hidden = !mobile;
+  byId<HTMLInputElement>('sound-mobile-on').checked = s.effectsOnMobile;
+
+  const on = byId<HTMLInputElement>('sound-eq-on');
+  on.checked = s.eqOn;
+  on.disabled = !allowed;
+  const preset = byId<HTMLSelectElement>('sound-eq-preset');
+  preset.value = s.eqPreset;
+  preset.disabled = !allowed;
+  const gains = gainsFor(s.eqPreset, s.eqCustom);
+  byId<HTMLButtonElement>('sound-eq-reset').disabled = !allowed || gains.every((g) => g === 0);
+  const bands = byId('sound-eq-bands');
+  bands.classList.toggle('is-off', !s.eqOn);
+  for (const input of bands.querySelectorAll<HTMLInputElement>('[data-band]')) {
+    const i = Number(input.dataset.band);
+    const g = gains[i];
+    if (document.activeElement !== input || Number(input.value) !== g) input.value = String(g);
+    input.disabled = !allowed;
+    input.setAttribute('aria-valuetext', formatDb(g, lang()));
+    const pos = ((g - EQ_MIN_DB) / (EQ_MAX_DB - EQ_MIN_DB)) * 100;
+    input.style.setProperty('--band-lo', `${Math.min(50, pos)}%`);
+    input.style.setProperty('--band-hi', `${Math.max(50, pos)}%`);
+    const label = bands.querySelector(`[data-band-db="${i}"]`);
+    if (label) label.textContent = formatDb(g, lang());
+  }
+
+  const boost = byId<HTMLInputElement>('sound-boost');
+  boost.max = String(BOOST_MAX);
+  boost.step = String(BOOST_STEP);
+  boost.value = String(s.boost);
+  boost.disabled = !allowed;
+  boost.setAttribute('aria-valuetext', `+${s.boost}%`);
+  syncRangeFill(boost);
+  byId('sound-boost-value').textContent = `+${s.boost}%`;
+  byId<HTMLButtonElement>('sound-boost-reset').disabled = !allowed || s.boost === 0;
+
+  const status = byId('sound-effects-status');
+  const fx = effectsStatus();
+  const text = fx === 'unsupported' ? t('sound.fxUnsupported', 'This browser cannot apply the equalizer or the boost.')
+    : fx === 'blocked' ? t('sound.fxBlocked', 'The equalizer and the boost are off on this device.')
+      : fx === 'waiting' ? t('sound.fxWaiting', 'The effects start with your next tap or key press.')
+        : '';
+  status.textContent = text;
+  status.hidden = !text;
 }
 
 function render(): void {
@@ -39,6 +102,7 @@ function render(): void {
   byId('sound-speed-note').hidden = !following;
 
   renderSleep();
+  renderEffects();
 
   const active = effectsActive();
   const sleeping = sleepTimer().kind !== 'off';
@@ -146,6 +210,30 @@ export function setupSoundPanel(): void {
   });
   minutes.addEventListener('input', () => { error.hidden = true; minutes.removeAttribute('aria-invalid'); });
   onSleepChange(render);
+
+  // Equalizer and boost. Every change here is a user gesture: the audio
+  // context may start now (audio-graph.ts).
+  const bands = byId('sound-eq-bands');
+  bands.innerHTML = bandsHtml();
+  const fx = (patch: Parameters<typeof updateSound>[0]) => { updateSound(patch); primeAudioGraph(); };
+  byId<HTMLInputElement>('sound-mobile-on').addEventListener('change', (e) => fx({ effectsOnMobile: (e.target as HTMLInputElement).checked }));
+  byId<HTMLInputElement>('sound-eq-on').addEventListener('change', (e) => fx({ eqOn: (e.target as HTMLInputElement).checked }));
+  byId<HTMLSelectElement>('sound-eq-preset').addEventListener('change', (e) => {
+    const v = (e.target as HTMLSelectElement).value;
+    // Choosing a preset turns the equalizer on.
+    if (isEqChoice(v)) fx({ eqPreset: v, eqOn: true });
+  });
+  bands.addEventListener('input', (e) => {
+    const input = e.target as HTMLInputElement;
+    if (!input.dataset.band) return;
+    const s = soundSettings();
+    fx({ ...withBand(s.eqPreset, s.eqCustom, Number(input.dataset.band), Number(input.value)), eqOn: true });
+  });
+  byId('sound-eq-reset').addEventListener('click', () => fx({ eqPreset: 'flat' }));
+  const boost = byId<HTMLInputElement>('sound-boost');
+  boost.addEventListener('input', () => fx({ boost: normalizeBoost(boost.value) }));
+  byId('sound-boost-reset').addEventListener('click', () => fx({ boost: 0 }));
+  onGraphChange(render);
 
   onSoundChange(render);
   onListenChange(render);

@@ -639,6 +639,27 @@
     "sleepCustom": "Ya da şu kadar sonra (dakika ya da s:dd)",
     "sleepStart": "Başlat",
     "sleepInvalid": "1 ile {max} arasında dakika gir ya da 1:30 gibi saat:dakika yaz.",
-    "sleepDone": "Uyku zamanlayıcısı: çalma duraklatıldı"
+    "sleepDone": "Uyku zamanlayıcısı: çalma duraklatıldı",
+    "eq": "Ekolayzır",
+    "eqPreset": "Hazır ayar",
+    "preset": {
+      "flat": "Düz",
+      "bass": "Bas güçlendirme",
+      "treble": "Tiz güçlendirme",
+      "vocal": "Vokal / konuşma",
+      "rock": "Rock",
+      "electronic": "Elektronik",
+      "acoustic": "Klasik / akustik",
+      "laptop": "Küçük hoparlör (dizüstü)",
+      "custom": "Özel"
+    },
+    "boost": "Ses yükseltme",
+    "boostNote": "Sessiz şarkılar için iki katına kadar yüksek. Bir sınırlayıcı yüksek yerlerin bozulmasını önler.",
+    "mobileNote": "Telefon ve tabletlerde ekolayzır ve ses yükseltme, ekran kilitlenince ya da tarayıcı arka plandayken müziği durdurabilir.",
+    "mobileOn": "Bu cihazda yine de kullan",
+    "fxUnsupported": "Bu tarayıcı ekolayzırı ve ses yükseltmeyi uygulayamıyor.",
+    "fxBlocked": "Ekolayzır ve ses yükseltme bu cihazda kapalı.",
+    "fxWaiting": "Efektler bir sonraki dokunuşunda ya da tuşa basışında başlar.",
+    "sleepPlaceholder": "ör. 20"
   }
 }

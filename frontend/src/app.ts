@@ -8,6 +8,7 @@ import { setupPlayerBar, setupPlayerBarControls, refreshPlayerBar } from './play
 import { setupSpeed } from './player/speed.ts';
 import { setupSoundPanel } from './player/sound-panel.ts';
 import { setupSleepTimer } from './player/sleep-timer.ts';
+import { setupAudioGraph } from './player/audio-graph.ts';
 import { checkAuth, setupLoginView, showPendingCard, setupProfilePage, loadProfilePage } from './features/account/auth.ts';
 import { setupSocial, applySocialRoute, toggleSocial, refreshPeople, reportNowPlaying as reportPresence } from './features/social/social.ts';
 import type { SocialOptions } from './features/social/social.ts';
@@ -294,9 +295,11 @@ function initAuthenticatedApp(): void {
   setupPlayer();
   setupPlaybackFailures();
   setupPlayerBarControls();
-  // The listener's own sound settings (sound panel): speed, the sleep timer.
+  // The listener's own sound settings (sound panel): speed, the sleep timer,
+  // the equalizer and the volume boost.
   setupSpeed();
   setupSleepTimer();
+  setupAudioGraph();
   setupSoundPanel();
   setupRadio();
   setupArtists({ play: playArtistFromTop });

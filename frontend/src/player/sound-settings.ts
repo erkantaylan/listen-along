@@ -6,6 +6,8 @@
 // or newer value never breaks the player — every field falls back to its
 // default on its own. Tested in sound-settings.test.ts.
 import { DEFAULT_SPEED, normalizeSpeed } from './speed-rules.ts';
+import { FLAT_GAINS, isEqChoice, normalizeBoost, normalizeGains } from './equalizer-rules.ts';
+import type { EqChoice } from './equalizer-rules.ts';
 
 export const SOUND_STORAGE_KEY = 'listen-sound';
 export const SOUND_SETTINGS_VERSION = 1;
@@ -14,11 +16,24 @@ export interface SoundSettings {
   v: number;
   /** Playback speed, one of SPEED_STEPS. */
   speed: number;
+  /** The equalizer's switch, its preset (or 'custom'), and the listener's own curve. */
+  eqOn: boolean;
+  eqPreset: EqChoice;
+  eqCustom: number[];
+  /** Volume boost, 0..100 %. */
+  boost: number;
+  /** Phones and tablets: the listener chose to use effects anyway (audio-graph.ts). */
+  effectsOnMobile: boolean;
 }
 
 export const DEFAULT_SOUND: Readonly<SoundSettings> = Object.freeze({
   v: SOUND_SETTINGS_VERSION,
   speed: DEFAULT_SPEED,
+  eqOn: false,
+  eqPreset: 'flat',
+  eqCustom: [...FLAT_GAINS],
+  boost: 0,
+  effectsOnMobile: false,
 });
 
 /** Anything (a parsed JSON value, a patch merged over the current settings) -> valid settings. */
@@ -27,6 +42,11 @@ export function normalizeSoundSettings(input: unknown): SoundSettings {
   return {
     v: SOUND_SETTINGS_VERSION,
     speed: 'speed' in o ? normalizeSpeed(o.speed) : DEFAULT_SPEED,
+    eqOn: o.eqOn === true,
+    eqPreset: isEqChoice(o.eqPreset) ? o.eqPreset : 'flat',
+    eqCustom: normalizeGains(o.eqCustom),
+    boost: normalizeBoost(o.boost),
+    effectsOnMobile: o.effectsOnMobile === true,
   };
 }
 

@@ -1082,11 +1082,50 @@
         <form id="sound-sleep-custom" class="sound-sleep-custom" novalidate>
           <label for="sound-sleep-minutes" class="sound-note" data-i18n="sound.sleepCustom">Or after (minutes, or h:mm)</label>
           <div class="input-group">
-            <input id="sound-sleep-minutes" class="form-control" type="text" inputmode="numeric" maxlength="5" autocomplete="off" placeholder="20" aria-describedby="sound-sleep-error">
+            <input id="sound-sleep-minutes" class="form-control" type="text" inputmode="numeric" maxlength="5" autocomplete="off" placeholder="e.g. 20" data-i18n-placeholder="sound.sleepPlaceholder" aria-describedby="sound-sleep-error">
             <button class="btn" type="submit" data-i18n="sound.sleepStart">Start</button>
           </div>
           <p id="sound-sleep-error" class="sound-error" role="alert" hidden></p>
         </form>
+      </section>
+      <section class="sound-section" aria-labelledby="sound-eq-label">
+        <!-- Phones and tablets: effects need an opt-in (audio-graph.js). -->
+        <div id="sound-mobile" class="sound-mobile" hidden>
+          <p class="sound-note mt-0" data-i18n="sound.mobileNote">On phones and tablets, the equalizer and volume boost can stop the music when the screen locks or the browser is in the background.</p>
+          <div class="sound-row">
+            <div class="switch"><input type="checkbox" id="sound-mobile-on" role="switch"></div>
+            <label for="sound-mobile-on" class="sound-label" data-i18n="sound.mobileOn">Use them on this device anyway</label>
+          </div>
+        </div>
+        <div class="sound-row">
+          <div class="switch"><input type="checkbox" id="sound-eq-on" role="switch"></div>
+          <label id="sound-eq-label" for="sound-eq-on" class="sound-label" data-i18n="sound.eq">Equalizer</label>
+          <span class="sound-value"></span>
+          <button id="sound-eq-reset" class="btn-text theme-secondary btn-xs" type="button" data-i18n="sound.reset">Reset</button>
+        </div>
+        <label for="sound-eq-preset" class="sound-note sound-sublabel" data-i18n="sound.eqPreset">Preset</label>
+        <select id="sound-eq-preset" class="form-control sound-select">
+          <option value="flat" data-i18n="sound.preset.flat">Flat</option>
+          <option value="bass" data-i18n="sound.preset.bass">Bass boost</option>
+          <option value="treble" data-i18n="sound.preset.treble">Treble boost</option>
+          <option value="vocal" data-i18n="sound.preset.vocal">Vocal / speech</option>
+          <option value="rock" data-i18n="sound.preset.rock">Rock</option>
+          <option value="electronic" data-i18n="sound.preset.electronic">Electronic</option>
+          <option value="acoustic" data-i18n="sound.preset.acoustic">Classical / acoustic</option>
+          <option value="laptop" data-i18n="sound.preset.laptop">Small speakers (laptop)</option>
+          <option value="custom" data-i18n="sound.preset.custom">Custom</option>
+        </select>
+        <div id="sound-eq-bands" class="sound-bands" role="group" aria-labelledby="sound-eq-label"></div>
+      </section>
+      <section class="sound-section" aria-labelledby="sound-boost-label">
+        <div class="sound-row">
+          <label id="sound-boost-label" for="sound-boost" class="sound-label" data-i18n="sound.boost">Volume boost</label>
+          <output id="sound-boost-value" for="sound-boost" class="sound-value">+0%</output>
+          <button id="sound-boost-reset" class="btn-text theme-secondary btn-xs" type="button" data-i18n="sound.reset">Reset</button>
+        </div>
+        <div class="form-range"><input type="range" id="sound-boost" class="form-range-input" min="0" max="100" step="5" value="0" aria-describedby="sound-boost-note"></div>
+        <p id="sound-boost-note" class="sound-note" data-i18n="sound.boostNote">Up to twice as loud, for quiet songs. A limiter keeps loud parts from distorting.</p>
+        <p id="sound-effects-status" class="sound-note sound-status" role="status" hidden></p>
       </section>
     </div>
   </section>

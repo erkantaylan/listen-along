@@ -888,6 +888,23 @@
   .sound-sleep-custom .form-control { min-width: 0; }
   .sound-sleep-custom .sound-note { display: block; margin: 0 0 0.25rem; }
   .sound-error { margin: 0.25rem 0 0; font-size: var(--bs-font-size-xs); color: var(--app-danger); }
+  .sound-sublabel { display: block; margin: 0.5rem 0 0.25rem; }
+  .sound-select { width: 100%; }
+  .sound-mobile { margin-bottom: 0.5rem; }
+  .sound-status { color: var(--app-warning); }
+  /* Equalizer bands: one row each (frequency, slider, gain). The slider's fill
+     runs from 0 dB in the middle to the value, not from the left end. */
+  .sound-bands { display: grid; gap: 0.125rem; margin-top: 0.5rem; }
+  .sound-band { display: grid; grid-template-columns: 2.25rem minmax(0, 1fr) 3.75rem; gap: 0.5rem; align-items: center; }
+  .sound-band-hz { font-size: var(--bs-font-size-xs); color: var(--app-text-muted); text-align: end; font-variant-numeric: tabular-nums; }
+  .sound-band-db { font-size: var(--bs-font-size-xs); color: var(--app-text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .sound-band .form-range-input::-webkit-slider-runnable-track {
+    background-image: linear-gradient(to right, transparent var(--band-lo, 50%), var(--bs-range-track-fill-bg) var(--band-lo, 50%), var(--bs-range-track-fill-bg) var(--band-hi, 50%), transparent var(--band-hi, 50%));
+  }
+  .sound-band .form-range-input::-moz-range-track {
+    background-image: linear-gradient(to right, transparent var(--band-lo, 50%), var(--bs-range-track-fill-bg) var(--band-lo, 50%), var(--bs-range-track-fill-bg) var(--band-hi, 50%), transparent var(--band-hi, 50%));
+  }
+  .sound-bands.is-off .sound-band { opacity: 0.6; }
   @media (width < 576px) {
     .sound-panel {
       right: var(--app-gap);
