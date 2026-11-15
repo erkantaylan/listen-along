@@ -17,6 +17,21 @@ services:
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
       - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
       - SESSION_SECRET=${SESSION_SECRET}
+      - BASE_URL=${BASE_URL:-}
+      # Central login (OIDC, see CENTRAL-LOGIN.md). Setting OIDC_ISSUER and
+      # OIDC_CLIENT_ID replaces Google / GitHub sign-in; leave both empty for the
+      # old login (unsetting them is the rollback). Needs BASE_URL and
+      # SESSION_SECRET. listen-along is a public client: no secret needed.
+      - OIDC_ISSUER=${OIDC_ISSUER:-}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-}
+      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET:-}
+      - OIDC_SCOPES=${OIDC_SCOPES:-}
+      - OIDC_PROVIDER_MAP=${OIDC_PROVIDER_MAP:-}
+      - OIDC_RECHECK_SECONDS=${OIDC_RECHECK_SECONDS:-}
+      - OIDC_MAX_UNVERIFIED_SECONDS=${OIDC_MAX_UNVERIFIED_SECONDS:-}
+      # open | closed (empty = open): whether central login may create new
+      # accounts until an admin saves the switch in /dashboard (then that wins).
+      - REGISTRATIONS_DEFAULT=${REGISTRATIONS_DEFAULT:-}
       - ADMIN_USER=${ADMIN_USER:-}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
     volumes:

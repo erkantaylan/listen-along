@@ -134,7 +134,14 @@
     "pending": "Pending",
     "error": "Error",
     "totalDuration": "Total Duration",
-    "noCachedSongs": "No cached songs"
+    "noCachedSongs": "No cached songs",
+    "registrationsOpen": "Allow new accounts",
+    "registrationsHint": "When off, someone signing in through the central login who has no account here is turned away. Existing accounts keep working.",
+    "registrationsNotCentral": "Central login is not configured yet: this takes effect once it is. Google and GitHub sign-in are not affected.",
+    "registrationsOpened": "New accounts are allowed",
+    "registrationsClosed": "New accounts are turned away",
+    "registrationsFailed": "Could not change the setting",
+    "registrationsFromEnv": "Not saved yet: this is the server's default (REGISTRATIONS_DEFAULT). Changing it here saves it, and the saved value wins from then on."
   },
   "toast": {
     "connectionLost": "Connection lost. Reconnecting...",
@@ -560,5 +567,15 @@
     "fromSearch": "Search “{query}”",
     "libraryRate": "Too many searches just now. Wait a moment, then try again.",
     "importCreatedFailed": "Made “{name}”, but its songs could not be queued: {error}. Import again into it."
+  },
+  "login": {
+    "signIn": "Sign in",
+    "error": {
+      "accountDisabled": "Your account has been disabled. If you think this is a mistake, contact the administrator.",
+      "registrationsClosed": "Registrations are closed: there is no listen-along account for you, and new ones are not being created right now.",
+      "failed": "Sign-in did not work. Please try again.",
+      "unavailable": "The sign-in service cannot be reached right now. Please try again in a moment.",
+      "linkConflict": "Your sign-in could not be linked to an account here. Please contact the administrator."
+    }
   }
 }

@@ -1,10 +1,21 @@
 /**
- * Who is making a request, and what they may reach.
+ * Who is making a request, and what they may reach. The one place that turns
+ * a request (or a socket handshake's headers) into a user id: resolve(),
+ * userIdFor(), identify().
  *
- * Identity is the HMAC-signed `listen_auth` cookie set after an OAuth login
- * (Google / GitHub, see index.js): `<base64url {id, t}>.<sig>`. `id` is
- * users.id, `t` the login time. The cookie lives 30 days and so does the token:
- * an older token is refused even if a client kept the cookie.
+ * Two modes, fixed at boot:
+ *
+ * - Legacy (no central login configured): identity is the HMAC-signed
+ *   `listen_auth` cookie set after an OAuth login (Google / GitHub, see
+ *   index.js): `<base64url {id, t}>.<sig>`. `id` is users.id, `t` the login
+ *   time. The cookie lives 30 days and so does the token: an older token is
+ *   refused even if a client kept the cookie.
+ * - Central login (`sessions` given, OIDC_ISSUER + OIDC_CLIENT_ID set):
+ *   identity is the opaque `la_session` cookie, looked up server-side and
+ *   re-checked with the IdP (oidcSessions.js). The old `listen_auth` cookie is
+ *   NOT a login in this mode: userIdFromHeaders() always answers null and
+ *   nothing reads it (the OIDC callback only clears it; it plays no part in
+ *   linking accounts).
  *
  * Account status (users.status) decides how far a logged-in user gets:
  *
@@ -80,7 +91,11 @@ const PUBLIC_EXACT = new Set([
   '/api/admin/status',
   '/api/admin/login',
   '/api/admin/logout',
+  // Central login (OIDC) round trip; 404 unless it is configured.
+  '/auth/oidc/login',
+  '/auth/oidc/callback',
   // OAuth round trips. The /link routes check the login themselves.
+  // 404 while central login is configured.
   '/auth/google',
   '/auth/google/callback',
   '/auth/github',
@@ -136,9 +151,12 @@ function policyFor(p) {
  * @param db      db module (isAvailable/query)
  * @param cacheMs how long an account lookup is reused (status changes call
  *                invalidate(), so this only bounds staleness elsewhere)
+ * @param sessions central-login mode: createOidcSessions() (resolveHeaders);
+ *                omitted = legacy mode
  */
-function createUserAuth({ secret, db, cacheMs = 5000 }) {
+function createUserAuth({ secret, db, cacheMs = 5000, sessions = null }) {
   if (!secret) throw new Error('createUserAuth: secret is required');
+  const centralMode = !!sessions;
 
   const sign = (payload) => crypto.createHmac('sha256', secret).update(payload).digest('base64url');
 
@@ -164,7 +182,15 @@ function createUserAuth({ secret, db, cacheMs = 5000 }) {
     return data;
   }
 
+  /** users.id from a valid legacy `listen_auth` cookie. Always null in central-login mode. */
   function userIdFromHeaders(headers) {
+    if (centralMode) return null;
+    return legacyUserIdFromHeaders(headers);
+  }
+
+  // The legacy cookie's users.id (legacy mode only: resolve() and
+  // userIdFromHeaders() never call this in central-login mode).
+  function legacyUserIdFromHeaders(headers) {
     const raw = parseCookie(headers && headers.cookie, COOKIE_NAME);
     if (!raw) return null;
     let token = raw;
@@ -208,12 +234,41 @@ function createUserAuth({ secret, db, cacheMs = 5000 }) {
     else cache.delete(String(userId));
   }
 
-  /** { userId, account } for a request, looked up once per request. */
+  /**
+   * Who the headers (a request's, or a socket handshake's) belong to:
+   * { userId, sessionId } or null. sessionId is the central-login session's
+   * id hash (null in legacy mode). Says nothing about the account's status.
+   * Central-login mode may re-check the session with the IdP here (at most
+   * every few minutes; see oidcSessions.js). Throws on a storage error.
+   */
+  async function resolve(headers) {
+    if (!centralMode) {
+      const userId = legacyUserIdFromHeaders(headers);
+      return userId ? { userId, sessionId: null } : null;
+    }
+    const s = await sessions.resolveHeaders(headers);
+    return s ? { userId: String(s.userId), sessionId: s.idHash } : null;
+  }
+
+  /** resolve() for a request, once per request. */
+  async function who(req) {
+    if (req._listenWho === undefined) req._listenWho = await resolve(req.headers);
+    return req._listenWho;
+  }
+
+  /** The caller's users.id (signed in; status not checked), or null. */
+  async function userIdFor(req) {
+    const w = await who(req);
+    return w ? w.userId : null;
+  }
+
+  /** { userId, account, sessionId } for a request, looked up once per request. */
   async function identify(req) {
     if (req._listenAuth) return req._listenAuth;
-    const userId = userIdFromHeaders(req.headers);
+    const w = await who(req);
+    const userId = w ? w.userId : null;
     const account = userId ? await getAccount(userId) : null;
-    req._listenAuth = { userId: account ? userId : null, account };
+    req._listenAuth = { userId: account ? userId : null, account, sessionId: account && w ? w.sessionId : null };
     return req._listenAuth;
   }
 
@@ -232,9 +287,12 @@ function createUserAuth({ secret, db, cacheMs = 5000 }) {
   }
 
   return {
+    centralMode,
     createToken,
     verifyToken,
     userIdFromHeaders,
+    resolve,
+    userIdFor,
     getAccount,
     invalidate,
     identify,

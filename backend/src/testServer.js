@@ -35,9 +35,41 @@ function freePort() {
   });
 }
 
-/** Start src/index.js; resolves once it listens. DATABASE_URL only if given. */
-async function startServer(extraEnv = {}) {
+/**
+ * Central-login mode's counterpart of cookieFor: a server-side session for
+ * users.id `userId`, inserted straight into `user_sessions` (no IdP round
+ * trip; no refresh token, so it is never re-checked and lasts until
+ * OIDC_MAX_UNVERIFIED_SECONDS, 24 h by default). `pg` is a connected pg Client
+ * or a connection string. Returns the `la_session=...` cookie.
+ */
+async function centralSessionCookie(pg, userId, { sub = `dev-${userId}`, now = Date.now() } = {}) {
+  let client = pg;
+  if (typeof pg === 'string') {
+    const { Client } = require('pg');
+    client = new Client({ connectionString: pg });
+    await client.connect();
+  }
+  try {
+    const raw = crypto.randomBytes(32).toString('base64url');
+    const idHash = crypto.createHash('sha256').update(raw).digest('hex');
+    await client.query(
+      `INSERT INTO user_sessions (id_hash, user_id, oidc_sub, created_at, last_checked_at, expires_at)
+       VALUES ($1, $2, $3, $4, $4, $5)`,
+      [idHash, userId, sub, now, now + 30 * 24 * 60 * 60 * 1000]
+    );
+    return `la_session=${raw}`;
+  } finally {
+    if (client !== pg) await client.end();
+  }
+}
+
+/**
+ * Start src/index.js; resolves once it listens. DATABASE_URL only if given.
+ * `extraEnv` may be a function of the port (for BASE_URL in central-login tests).
+ */
+async function startServer(extraEnvOrFn = {}) {
   const port = await freePort();
+  const extraEnv = typeof extraEnvOrFn === 'function' ? extraEnvOrFn(port) : extraEnvOrFn;
   const env = {
     ...process.env, PORT: String(port), SESSION_SECRET: SECRET, NODE_ENV: 'test', ADMIN_PASSWORD,
     PRESENCE_GRACE_MS: '0', FRONTEND_PATH: FRONTEND,
@@ -47,17 +79,18 @@ async function startServer(extraEnv = {}) {
   const proc = spawn(process.execPath, [path.join(__dirname, 'index.js')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
   proc.stderr.on('data', (d) => { log += d; });
+  proc.stdout.on('data', (d) => { log += d; });
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`server did not start\n${log}`)), 30_000);
     proc.stdout.on('data', (d) => { if (/Server running on port/.test(String(d))) { clearTimeout(timer); resolve(); } });
-    proc.on('exit', (code) => reject(new Error(`server exited (${code})\n${log}`)));
+    proc.on('exit', (code) => { clearTimeout(timer); reject(Object.assign(new Error(`server exited (${code})\n${log}`), { exitCode: code, log })); });
   });
   const stop = () => new Promise((resolve) => {
     if (proc.exitCode !== null) return resolve();
     proc.once('exit', () => resolve());
     proc.kill('SIGKILL');
   });
-  return { proc, base: `http://127.0.0.1:${port}`, stop };
+  return { proc, base: `http://127.0.0.1:${port}`, port, stop, log: () => log };
 }
 
 /** JSON request helper: req(method, url, { cookie, headers, body }). */
@@ -74,4 +107,4 @@ function requester(base) {
   };
 }
 
-module.exports = { SECRET, ADMIN_PASSWORD, cookieFor, adminCookie, freePort, startServer, requester };
+module.exports = { SECRET, ADMIN_PASSWORD, cookieFor, centralSessionCookie, adminCookie, freePort, startServer, requester };

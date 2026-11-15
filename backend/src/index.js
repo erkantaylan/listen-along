@@ -20,7 +20,12 @@ const { createTokenRouter } = require('./tokenRoutes');
 const tokens = require('./tokens');
 const clientIpSetup = require('./clientIp');
 const adminAuth = require('./adminAuth');
-const { apiLimiter } = require('./rateLimits');
+const { apiLimiter, make: makeLimiter } = require('./rateLimits');
+const { readOidcConfig } = require('./oidcConfig');
+const { createOidcClient, FLOW_COOKIE_PATH: OIDC_FLOW_PATH, FLOW_MAX_AGE_MS: OIDC_FLOW_MAX_AGE_MS } = require('./oidc');
+const { createSessionStore, createOidcSessions } = require('./oidcSessions');
+const { linkCentralIdentity } = require('./oidcLink');
+const { createSettings, parseRegistrationsDefault } = require('./settings');
 const { createResolver } = require('./songResolver');
 const { createPicker, cleanPicks } = require('./picker');
 const covers = require('./covers');
@@ -93,9 +98,39 @@ const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const BASE_URL = process.env.BASE_URL || FRONTEND_URL;
 
-// Who is calling: the signed listen_auth cookie + the account's status
+// Central login (OIDC, see oidcConfig.js): when OIDC_ISSUER + OIDC_CLIENT_ID
+// are set it REPLACES Google / GitHub sign-in; unset, nothing below changes.
+// A half or broken configuration stops the server here, on purpose.
+let OIDC;
+let REGISTRATIONS_DEFAULT_OPEN;
+try {
+  OIDC = readOidcConfig(process.env);
+  // Registrations before an admin has saved the switch (settings.js).
+  REGISTRATIONS_DEFAULT_OPEN = parseRegistrationsDefault(process.env);
+} catch (err) {
+  console.error(`[oidc] ${err.message}`);
+  process.exit(1);
+}
+// DATABASE_URL set but no pool = an outage: central login then fails closed
+// (no in-memory users or sessions; those are for the no-database dev mode).
+const DB_EXPECTED = !!(process.env.DATABASE_URL && process.env.DATABASE_URL.trim());
+const settings = createSettings({ db, dbExpected: DB_EXPECTED, defaults: { registrations_open: REGISTRATIONS_DEFAULT_OPEN } });
+const oidcClient = OIDC.enabled ? createOidcClient(OIDC, { secret: SESSION_SECRET }) : null;
+const sessionStore = OIDC.enabled ? createSessionStore({ db, secret: SESSION_SECRET, dbExpected: DB_EXPECTED }) : null;
+const oidcSessions = OIDC.enabled ? createOidcSessions({
+  store: sessionStore,
+  client: oidcClient,
+  cfg: OIDC,
+  cookieName: OIDC.sessionCookie,
+  // A session ended by a re-check (the IdP refused, expired, unverified too
+  // long): its sockets go too.
+  onEnded: (idHash) => io.in(sessionRoom(idHash)).disconnectSockets(true),
+}) : null;
+
+// Who is calling: the signed listen_auth cookie (legacy) or the la_session
+// server-side session (central login) + the account's status
 // (approved / pending / denied). See userAuth.js for the levels.
-const userAuth = createUserAuth({ secret: SESSION_SECRET, db });
+const userAuth = createUserAuth({ secret: SESSION_SECRET, db, sessions: oidcSessions });
 
 // OAuth CSRF state for account linking. Signed under its own label: the
 // payload has the same shape as a login token, and the state travels in URLs
@@ -155,7 +190,7 @@ app.use((req, res, next) => {
   const start = Date.now();
   let logged = false;
   const pending = setTimeout(() => {
-    console.warn(`[http] PENDING ${req.method} ${req.originalUrl} still running after 15s`);
+    console.warn(`[http] PENDING ${req.method} ${req.path === '/auth/oidc/callback' ? req.path : req.originalUrl} still running after 15s`);
   }, 15000);
   const finish = (aborted) => {
     if (logged) return;
@@ -164,7 +199,9 @@ app.use((req, res, next) => {
     const ms = Date.now() - start;
     const status = aborted ? 'ABORTED' : res.statusCode;
     const slow = ms > 5000 ? ' SLOW' : '';
-    const line = `[http] ${req.method} ${req.originalUrl} ${status} ${ms}ms${slow}`;
+    // The central login's callback carries a one-time code: not in the log.
+    const shownUrl = req.path === '/auth/oidc/callback' ? `${req.path}?…` : req.originalUrl;
+    const line = `[http] ${req.method} ${shownUrl} ${status} ${ms}ms${slow}`;
     if (aborted || res.statusCode >= 500 || ms > 5000) console.warn(line);
     else console.log(line);
   };
@@ -619,13 +656,14 @@ function evictNonOwners(lobbyId, ownerId) {
 // answering 401. A Bearer token (CLI) was verified by the auth guard
 // (req.apiUser): it acts as the token's owner, or — for a legacy ownerless
 // token — as an ownerless member (playlistAccess viewer rules). Otherwise the
-// signed listen_auth cookie (the guard already required an approved account).
+// signed-in web user (listen_auth cookie, or the central-login session; the
+// guard already required an approved account).
 async function requireViewer(req, res) {
   if (req.apiUser) {
     const { userId, name } = req.apiUser;
     return { userId: userId || null, legacy: !userId, name: name || null };
   }
-  const userId = getAuthUserId(req);
+  const userId = await getAuthUserId(req);
   if (!userId) {
     res.status(401).json({ error: 'Authentication required' });
     return null;
@@ -1189,6 +1227,132 @@ function setAuthCookieAndRedirect(req, res, user) {
   res.redirect(takeNextPath(req, res));
 }
 
+// ==========================================
+// Central login (OIDC): oidc.js, oidcSessions.js, oidcLink.js
+// ==========================================
+// Only while OIDC_ISSUER + OIDC_CLIENT_ID are set. Then the Google / GitHub
+// login and link routes below are gone (404): no mixed mode.
+
+const secureCookies = process.env.NODE_ENV === 'production';
+// Where a failed or refused sign-in lands: the login page, with a code its
+// script turns into a sentence (never anything from the IdP or the request).
+const loginError = (code) => `/login?error=${code}`;
+// Central-login cookies: __Host-la_session / __Host-la_oidc_flow when Secure
+// (production), la_session / la_oidc_flow on plain http (oidcConfig.js).
+const centralCookie = (extra = {}) => ({ httpOnly: true, secure: secureCookies, sameSite: 'lax', path: '/', ...extra });
+
+if (OIDC.enabled) {
+  app.use(['/auth/google', '/auth/github'], (req, res) => res.status(404).json({ error: 'Not found' }));
+
+  // Sign-in round trips per client address (the project's limiter, rateLimits.js).
+  const authLimit = Number.parseInt(process.env.AUTH_RATE_LIMIT, 10);
+  const oidcLimiter = makeLimiter(Number.isFinite(authLimit) && authLimit > 0 ? authLimit : 30, 60 * 1000, { message: 'Too many sign-in attempts, try again in a minute' });
+
+  // A claim the IdP should send (scope `upstream`) but does not: the IdP's
+  // mapping is missing, so existing accounts cannot be matched by rule b.
+  let missingUpstream = 0;
+
+  // Start: state, nonce and PKCE verifier go into the encrypted flow cookie;
+  // ?next must be a same-origin path, else home.
+  app.get('/auth/oidc/login', oidcLimiter, async (req, res) => {
+    const next = isSafeNextPath(req.query.next) ? req.query.next : '/';
+    try {
+      const { url, flowCookie } = await oidcClient.startLogin({ next });
+      res.cookie(OIDC.flowCookie, flowCookie, centralCookie({ maxAge: OIDC_FLOW_MAX_AGE_MS, path: OIDC_FLOW_PATH }));
+      res.set('Cache-Control', 'no-store');
+      res.redirect(url);
+    } catch (err) {
+      console.error(`[oidc] could not start a sign-in: ${err.message}`);
+      res.redirect(loginError('signin_unavailable'));
+    }
+  });
+
+  app.get('/auth/oidc/callback', oidcLimiter, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const flow = oidcClient.openFlow(parseCookie(req.headers.cookie, OIDC.flowCookie));
+    // The flow cookie is single-use, whatever happens next.
+    res.clearCookie(OIDC.flowCookie, centralCookie({ path: OIDC_FLOW_PATH }));
+    // An old login cookie is no login in this mode and plays no part in
+    // linking: it is just cleared.
+    if (parseCookie(req.headers.cookie, AUTH_COOKIE)) res.clearCookie(AUTH_COOKIE, { path: '/' });
+
+    const qs = req.originalUrl.indexOf('?');
+    let result;
+    try {
+      result = await oidcClient.finishLogin(qs >= 0 ? req.originalUrl.slice(qs + 1) : '', flow);
+    } catch (err) {
+      console.warn(`[oidc] sign-in rejected (${err.kind || 'error'}): ${err.message}`);
+      return res.redirect(loginError(err.kind === 'unavailable' ? 'signin_unavailable' : 'signin_failed'));
+    }
+    const { claims } = result;
+    const short = (x) => `${String(x).slice(0, 8)}…`;
+
+    // Database configured but not there: refuse, rather than inventing an
+    // in-memory account (that is only for the no-database dev mode).
+    if (DB_EXPECTED && !db.isAvailable()) {
+      console.error('central-login: REFUSED sign-in: DATABASE_URL is set but the database is unavailable');
+      return res.redirect(loginError('signin_unavailable'));
+    }
+
+    let upstreamNote = Array.isArray(claims.upstream_identities) ? String(claims.upstream_identities.length) : 'none';
+    if (OIDC.upstreamExpected && !Object.prototype.hasOwnProperty.call(claims, 'upstream_identities')) {
+      missingUpstream++;
+      upstreamNote = `MISSING(#${missingUpstream})`;
+      if (missingUpstream === 1) {
+        console.warn('central-login: WARNING the id_token has no upstream_identities although OIDC_SCOPES asks for "upstream": the IdP mapping is missing, so existing accounts cannot be found by their Google / GitHub account (rule b). Keep registrations closed until this is fixed.');
+      }
+    }
+
+    let linked;
+    try {
+      if (db.isAvailable()) {
+        linked = await linkCentralIdentity({
+          db, claims, providerMap: OIDC.providerMap,
+          registrationsOpen: () => settings.registrationsOpen(),
+        });
+      } else if (await settings.registrationsOpen()) {
+        // No database at all: no users table; the central sub is the user id
+        // (as a signed cookie's id was), and every account counts as approved.
+        linked = { outcome: 'ok', rule: 'e', created: true, user: { id: claims.sub, status: 'approved' } };
+      } else {
+        linked = { outcome: 'refused', rule: 'e', reason: 'registrations_closed' };
+      }
+    } catch (err) {
+      console.error(`central-login: linking failed sub=${short(claims.sub)}: ${err.message}`);
+      return res.redirect(loginError('signin_failed'));
+    }
+    // One greppable line per sign-in: which rule, which user.
+    if (linked.outcome !== 'ok') {
+      console.log(`central-login: refused rule=${linked.rule || '-'} reason=${linked.reason} user=${linked.user ? linked.user.id : '-'} sub=${short(claims.sub)} upstream=${upstreamNote}`);
+      return res.redirect(loginError(linked.reason));
+    }
+    const how = linked.created ? 'created' : linked.rule === 'a' ? 'signed-in' : 'linked';
+    console.log(`central-login: link rule=${linked.rule} user=${linked.user.id} ${how} sub=${short(claims.sub)} upstream=${upstreamNote}`);
+
+    try {
+      // A session this browser already had (another account, or the same one)
+      // is replaced, not left behind on the server.
+      const previous = oidcSessions.idHashFromHeaders(req.headers);
+      if (previous) {
+        await sessionStore.remove(previous);
+        io.in(sessionRoom(previous)).disconnectSockets(true);
+      }
+      const roles = Array.isArray(claims.roles) ? claims.roles.filter((r) => typeof r === 'string') : [];
+      if (!result.refreshToken) console.warn('[oidc] the IdP sent no refresh token (offline_access not granted?): this session cannot be re-checked and ends after OIDC_MAX_UNVERIFIED_SECONDS');
+      const s = await sessionStore.create({
+        userId: linked.user.id, sub: claims.sub, refreshToken: result.refreshToken, idToken: result.idToken, roles,
+      });
+      userAuth.invalidate(String(linked.user.id));
+      res.cookie(OIDC.sessionCookie, s.rawId, centralCookie({ maxAge: s.maxAgeMs }));
+      res.clearCookie(NEXT_COOKIE, { path: '/' });
+      res.redirect(isSafeNextPath(flow.next) ? flow.next : '/');
+    } catch (err) {
+      console.error(`[oidc] could not open a session: ${err.message}`);
+      res.redirect(loginError('signin_failed'));
+    }
+  });
+}
+
 // Google OAuth
 app.get('/auth/google', (req, res) => {
   if (!GOOGLE_CLIENT_ID) {
@@ -1304,7 +1468,11 @@ app.get('/auth/github/callback', async (req, res) => {
 
 // Auth status endpoint
 app.get('/api/auth/me', async (req, res) => {
-  const userId = getAuthUserId(req);
+  let userId;
+  try { userId = await getAuthUserId(req); } catch (err) {
+    console.error('Auth check error:', err.message);
+    return res.json({ authenticated: false });
+  }
   if (!userId || !db.isAvailable()) {
     return res.json({ authenticated: false });
   }
@@ -1333,11 +1501,30 @@ app.get('/api/auth/me', async (req, res) => {
   }
 });
 
-// Logout endpoint
-app.post('/api/auth/logout', (req, res) => {
+// Logout endpoint. Central login: the server-side session goes first (its
+// sockets too), then the answer names the IdP's end-session URL (with
+// id_token_hint and the registered post-logout redirect "/") for the browser
+// to visit; without one the page just reloads.
+app.post('/api/auth/logout', async (req, res) => {
   res.clearCookie(AUTH_COOKIE, { path: '/' });
   res.clearCookie(NEXT_COOKIE, { path: '/' });
-  res.json({ success: true });
+  if (!OIDC.enabled) return res.json({ success: true });
+  res.clearCookie(OIDC.sessionCookie, centralCookie());
+  let idToken = null;
+  try {
+    const idHash = oidcSessions.idHashFromHeaders(req.headers);
+    if (idHash) {
+      const s = await oidcSessions.check(idHash, { recheckIfDue: false });
+      if (s) idToken = s.idToken;
+      await sessionStore.remove(idHash);
+      io.in(sessionRoom(idHash)).disconnectSockets(true);
+    }
+  } catch (err) {
+    console.error('[oidc] logout could not remove the session:', err.message);
+    return res.status(503).json({ error: 'Could not sign out, try again' });
+  }
+  const redirect = idToken ? await oidcClient.endSessionUrl(idToken) : null;
+  res.json({ success: true, redirect: redirect || '/' });
 });
 
 // Admin: list pending users (dashboard auth)
@@ -1360,7 +1547,7 @@ app.post('/api/auth/users/:userId/status', adminAuth.requireAdmin, express.json(
   }
   try {
     await db.query('UPDATE users SET status = $1, updated_at = $2 WHERE id = $3', [status, Date.now(), req.params.userId]);
-    accountStatusChanged(req.params.userId, status);
+    await accountStatusChanged(req.params.userId, status);
     res.json({ success: true });
   } catch (err) {
     console.error('Update user status error:', err.message);
@@ -1370,17 +1557,31 @@ app.post('/api/auth/users/:userId/status', adminAuth.requireAdmin, express.json(
 
 // An admin changed an account's status: forget the cached status at once, and
 // a denied / rejected account loses its open sockets (the handshake refuses
-// new ones).
-function accountStatusChanged(userId, status) {
+// new ones) and, with central login, every session (so it is signed out
+// everywhere; signing in again is refused while it stays blocked). Its CLI
+// tokens stop by themselves (tokens.verifyToken needs an approved owner).
+async function accountStatusChanged(userId, status) {
   userAuth.invalidate(userId);
   if (social) social.profileChanged(String(userId));
-  if (isBlocked(status)) io.in(userRoom(String(userId))).disconnectSockets(true);
+  if (!isBlocked(status)) return;
+  io.in(userRoom(String(userId))).disconnectSockets(true);
+  if (sessionStore) {
+    try {
+      const gone = await sessionStore.removeForUser(String(userId));
+      for (const h of gone) io.in(sessionRoom(h)).disconnectSockets(true);
+      if (gone.length) console.log(`[oidc] user ${userId} is ${status}: ${gone.length} session(s) ended`);
+    } catch (err) {
+      // Still locked out: every request checks the status.
+      console.error(`[oidc] could not end the sessions of user ${userId}:`, err.message);
+    }
+  }
 }
 
-// The users.id from a valid (signed, unexpired) listen_auth cookie, or null.
-// Only proves who it is; the guard / userAuth.getAccount check the status.
+// The caller's users.id: the signed listen_auth cookie (legacy) or the
+// central-login session; null when nobody is signed in. Only proves who it
+// is; the guard / userAuth.getAccount check the status.
 function getAuthUserId(req) {
-  return userAuth.userIdFromHeaders(req.headers);
+  return userAuth.userIdFor(req);
 }
 
 // Tear down a lobby everywhere: notify + disconnect members, clear
@@ -1560,7 +1761,7 @@ async function handleLibrarySongAdded(librarySong, fulfilled = []) {
 
 // Get current user's profile with linked providers
 app.get('/api/profile', async (req, res) => {
-  const userId = getAuthUserId(req);
+  const userId = await getAuthUserId(req);
   if (!userId || !db.isAvailable()) {
     return res.status(401).json({ error: 'Authentication required' });
   }
@@ -1602,7 +1803,7 @@ app.get('/api/profile', async (req, res) => {
 
 // Update profile (display name, emoji)
 app.put('/api/profile', express.json(), async (req, res) => {
-  const userId = getAuthUserId(req);
+  const userId = await getAuthUserId(req);
   if (!userId || !db.isAvailable()) {
     return res.status(401).json({ error: 'Authentication required' });
   }
@@ -1629,7 +1830,10 @@ app.put('/api/profile', express.json(), async (req, res) => {
 
 // Unlink a provider from account
 app.delete('/api/profile/providers/:provider', async (req, res) => {
-  const userId = getAuthUserId(req);
+  // Linked Google / GitHub accounts are what central login matches on; with
+  // central login on there is no linking UI and nothing to disconnect.
+  if (OIDC.enabled) return res.status(404).json({ error: 'Not found' });
+  const userId = await getAuthUserId(req);
   if (!userId || !db.isAvailable()) {
     return res.status(401).json({ error: 'Authentication required' });
   }
@@ -1673,11 +1877,11 @@ app.delete('/api/profile/providers/:provider', async (req, res) => {
 });
 
 // OAuth linking routes — when user is already logged in and wants to connect another provider
-app.get('/auth/google/link', (req, res) => {
+app.get('/auth/google/link', async (req, res) => {
   if (!GOOGLE_CLIENT_ID) {
     return res.status(503).json({ error: 'Google OAuth not configured' });
   }
-  const userId = getAuthUserId(req);
+  const userId = await getAuthUserId(req);
   if (!userId) return res.redirect('/');
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
@@ -1697,7 +1901,7 @@ app.get('/auth/google/link/callback', async (req, res) => {
   const userId = verifyOAuthState(state);
   if (!userId) return res.redirect('/?error=link_failed');
   // Verify the user making the request is the one who started the link
-  const authUserId = getAuthUserId(req);
+  const authUserId = await getAuthUserId(req);
   if (!authUserId || authUserId !== userId) return res.redirect('/?error=link_failed');
   try {
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
@@ -1727,11 +1931,11 @@ app.get('/auth/google/link/callback', async (req, res) => {
   }
 });
 
-app.get('/auth/github/link', (req, res) => {
+app.get('/auth/github/link', async (req, res) => {
   if (!GITHUB_CLIENT_ID) {
     return res.status(503).json({ error: 'GitHub OAuth not configured' });
   }
-  const userId = getAuthUserId(req);
+  const userId = await getAuthUserId(req);
   if (!userId) return res.redirect('/');
   const params = new URLSearchParams({
     client_id: GITHUB_CLIENT_ID,
@@ -1747,7 +1951,7 @@ app.get('/auth/github/link/callback', async (req, res) => {
   if (!code || !state) return res.redirect('/?error=link_failed');
   const userId = verifyOAuthState(state);
   if (!userId) return res.redirect('/?error=link_failed');
-  const authUserId = getAuthUserId(req);
+  const authUserId = await getAuthUserId(req);
   if (!authUserId || authUserId !== userId) return res.redirect('/?error=link_failed');
   try {
     const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
@@ -1889,12 +2093,38 @@ app.get('/api/dashboard/users', adminAuth.requireAdmin, async (req, res) => {
 
   try {
     const result = await db.query(
-      'SELECT id, user_id, username, emoji, email, avatar_url, provider, status, created_at, updated_at FROM users ORDER BY created_at DESC'
+      'SELECT id, user_id, username, emoji, email, avatar_url, provider, status, created_at, updated_at, (oidc_sub IS NOT NULL) AS central FROM users ORDER BY created_at DESC'
     );
     res.json({ users: result.rows });
   } catch (err) {
     console.error('List users error:', err.message);
     res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+// Sign-in settings (dashboard only; settings.js). registrations_open: whether a
+// central identity that matches no account gets a new one. Stored in the
+// database (in memory without one), read at every sign-in: no restart. Until
+// saved, REGISTRATIONS_DEFAULT decides (`source: 'default'`).
+app.get('/api/admin/settings', apiLimiter, adminAuth.requireAdmin, async (req, res) => {
+  try {
+    const r = await settings.read('registrations_open');
+    res.json({ registrations_open: r.value !== false, source: r.source, central_login: OIDC.enabled });
+  } catch (err) {
+    console.error('Read settings error:', err.message);
+    res.status(500).json({ error: 'Failed to read settings' });
+  }
+});
+app.put('/api/admin/settings', apiLimiter, adminAuth.requireAdmin, express.json(), async (req, res) => {
+  const value = req.body && req.body.registrations_open;
+  if (typeof value !== 'boolean') return res.status(400).json({ error: 'registrations_open must be true or false' });
+  try {
+    await settings.set('registrations_open', value);
+    console.log(`[admin] registrations ${value ? 'opened' : 'closed'}`);
+    res.json({ registrations_open: value, source: 'saved', central_login: OIDC.enabled });
+  } catch (err) {
+    console.error('Update settings error:', err.message);
+    res.status(500).json({ error: 'Failed to update settings' });
   }
 });
 
@@ -1908,7 +2138,7 @@ app.put('/api/dashboard/users/:id/approve', adminAuth.requireAdmin, async (req, 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
-    accountStatusChanged(req.params.id, 'approved');
+    await accountStatusChanged(req.params.id, 'approved');
     res.json({ success: true, user: result.rows[0] });
   } catch (err) {
     console.error('Approve user error:', err.message);
@@ -1926,7 +2156,7 @@ app.put('/api/dashboard/users/:id/reject', adminAuth.requireAdmin, async (req, r
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
-    accountStatusChanged(req.params.id, 'rejected');
+    await accountStatusChanged(req.params.id, 'rejected');
     res.json({ success: true, user: result.rows[0] });
   } catch (err) {
     console.error('Reject user error:', err.message);
@@ -2002,6 +2232,8 @@ app.get('/login', async (req, res) => {
 
 // Auth providers info (which providers are configured)
 app.get('/api/auth/providers', (req, res) => {
+  // Central login replaces both providers: one "Sign in" button.
+  if (OIDC.enabled) return res.json({ google: false, github: false, central: true });
   res.json({
     google: !!GOOGLE_CLIENT_ID,
     github: !!GITHUB_CLIENT_ID
@@ -2018,6 +2250,8 @@ app.get('/', (req, res) => {
 // denied account can be disconnected everywhere).
 const APP_ROOM = 'app';
 const userRoom = (id) => `user:${id}`;
+// Central login: every socket of one session (keyed by the session id's hash).
+function sessionRoom(idHash) { return `session:${idHash}`; }
 
 // The downloads activity log, live (activityFeed.js; fed by emitJob above).
 const activityFeed = createActivityFeed({
@@ -2051,16 +2285,25 @@ function socketOriginAllowed(headers) {
 // Socket.IO handshake: only a logged-in account that is not denied / rejected may
 // connect. Pending accounts connect for the global chat and people panel;
 // every playlist/queue event checks for an approved account itself.
+// Who the handshake is comes from userAuth.resolve(): the listen_auth cookie
+// (legacy) or the central-login session (la_session), the same as for HTTP.
+// A central-login socket also joins its session's room, so ending that
+// session (logout, a failed re-check, a ban) cuts it.
 io.use((socket, next) => {
   const headers = socket.request.headers || {};
   if (!socketOriginAllowed(headers)) return next(new Error('Origin not allowed'));
-  const userId = userAuth.userIdFromHeaders(headers);
-  if (!userId) return next(new Error('Authentication required'));
-  userAuth.getAccount(userId).then((account) => {
+  userAuth.resolve(headers).then(async (who) => {
+    if (!who) return next(new Error('Authentication required'));
+    const { userId, sessionId } = who;
+    const account = await userAuth.getAccount(userId);
     if (!account) return next(new Error('Authentication required'));
     if (isBlocked(account.status)) return next(new Error('Access denied'));
     socket.data.userId = userId;
     socket.join(userRoom(userId));
+    if (sessionId) {
+      socket.data.sessionId = sessionId;
+      socket.join(sessionRoom(sessionId));
+    }
     if (account.status === 'approved') socket.join(APP_ROOM);
     next();
   }).catch((err) => {
@@ -2068,6 +2311,22 @@ io.use((socket, next) => {
     next(new Error('Could not check your account, try again'));
   });
 });
+
+// Central login: sockets live for hours, so their sessions are re-checked on
+// a timer too (oidcSessions.check refreshes only when due). A session that
+// ends takes its sockets with it (onEnded above).
+if (OIDC.enabled) {
+  const SOCKET_CHECK_MS = Math.max(5_000, Math.min(60_000, OIDC.recheckMs));
+  setInterval(() => {
+    const ids = new Set();
+    for (const s of io.sockets.sockets.values()) if (s.data.sessionId) ids.add(s.data.sessionId);
+    for (const id of ids) {
+      oidcSessions.check(id).then((live) => {
+        if (!live) io.in(sessionRoom(id)).disconnectSockets(true);
+      }).catch((err) => console.error('[oidc] socket session check failed:', err.message));
+    }
+  }, SOCKET_CHECK_MS).unref();
+}
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {
@@ -2080,8 +2339,9 @@ io.on('connection', (socket) => {
   let currentLobby = null;
   let viewingLobby = null;
 
-  // Who this socket is: the users.id from the signed listen_auth cookie sent
-  // with the handshake (set by io.use above; never a client-supplied id).
+  // Who this socket is: the users.id from the handshake's login cookie
+  // (listen_auth, or the central-login session; set by io.use above; never a
+  // client-supplied id).
   const userId = socket.data.userId;
 
   // Global chat + people panel (presence, now playing): see social.js.
@@ -2628,6 +2888,22 @@ let listenAlong = null;
 async function start() {
   // Initialize database if DATABASE_URL is set
   const dbAvailable = await db.init();
+
+  // Central login: metadata that cannot work stops the server; an IdP that
+  // cannot be reached right now does not (sign-in retries discovery).
+  if (OIDC.enabled) {
+    try {
+      await oidcClient.bootCheck();
+    } catch (err) {
+      console.error(`[oidc] ${err.message}`);
+      process.exit(1);
+    }
+    const purge = () => sessionStore.purgeExpired()
+      .then((n) => { if (n) console.log(`[oidc] ${n} expired session(s) removed`); })
+      .catch((err) => console.error('[oidc] session purge failed:', err.message));
+    purge();
+    setInterval(purge, 60 * 60 * 1000).unref();
+  }
 
   social = createSocial({
     io,

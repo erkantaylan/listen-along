@@ -489,12 +489,49 @@ async function createTables() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_playlist_pins_lobby ON playlist_pins(lobby_id)`);
 
-  // Migrate existing users' provider data into user_providers junction table
+  // Central login (OIDC; oidcLink.js, oidcSessions.js, settings.js). Added
+  // after release, so explicit migrations. Unused until OIDC_ISSUER is set.
+  // users.oidc_sub: the central identity's `sub` once linked; unique, so one
+  // sub is never linked to two users (NULLs do not clash).
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS oidc_sub TEXT`).catch(() => {});
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc_sub ON users(oidc_sub)`)
+    .catch((err) => console.error('Could not create idx_users_oidc_sub:', err.message));
+  // Server-side sessions: only the SHA-256 of the cookie's id is stored; the
+  // tokens are AES-256-GCM encrypted (secretBox.js). Go with the user.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_sessions (
+      id_hash CHAR(64) PRIMARY KEY,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      oidc_sub TEXT NOT NULL,
+      refresh_token_enc TEXT,
+      id_token_enc TEXT,
+      roles JSONB NOT NULL DEFAULT '[]'::jsonb,
+      created_at BIGINT NOT NULL,
+      last_checked_at BIGINT NOT NULL,
+      expires_at BIGINT NOT NULL
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_sessions_expires ON user_sessions(expires_at)`);
+  // App-wide switches an admin flips at run time (settings.js), e.g.
+  // registrations_open. A missing row means the default.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key VARCHAR(64) PRIMARY KEY,
+      value JSONB NOT NULL,
+      updated_at BIGINT NOT NULL
+    )
+  `);
+
+  // Migrate existing users' provider data into user_providers junction table.
+  // Only real legacy providers: accounts made by central login carry
+  // provider 'oidc' (provider_id = the central sub), which must never look like
+  // a Google / GitHub login, also after a rollback to legacy mode.
   await pool.query(`
     INSERT INTO user_providers (user_id, provider, provider_id, email, name, avatar_url, linked_at)
     SELECT id, provider, provider_id, email, name, avatar_url, COALESCE(created_at, $1)
     FROM users
-    WHERE provider IS NOT NULL AND provider != 'local'
+    WHERE provider IS NOT NULL AND provider NOT IN ('local', 'oidc')
       AND provider_id IS NOT NULL
       AND NOT EXISTS (
         SELECT 1 FROM user_providers up WHERE up.user_id = users.id AND up.provider = users.provider

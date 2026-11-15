@@ -352,16 +352,54 @@ where lobby persistence broke entirely on deployed instances.
 
 ## User Identity
 
-- Users are OAuth accounts (Google / GitHub, `users` + `user_providers`). Login
-  sets an HMAC-signed `listen_auth` cookie holding `users.id` (30 days,
-  `SESSION_SECRET`); `backend/src/userAuth.js` verifies it, and each socket
-  reads it from its handshake (`socket.data.userId`). Never trust a user id or
+- Two sign-in modes, fixed at boot. **Legacy** (no `OIDC_*` set): users are OAuth
+  accounts (Google / GitHub, `users` + `user_providers`); login sets an
+  HMAC-signed `listen_auth` cookie holding `users.id` (30 days, `SESSION_SECRET`).
+  **Central login** (`OIDC_ISSUER` + `OIDC_CLIENT_ID` set; CENTRAL-LOGIN.md):
+  REPLACES Google / GitHub (their login + link routes 404, one "Sign in" button,
+  `/api/auth/providers` says `central`); the owner's authentik over OIDC
+  (`oidc.js`: code + PKCE S256 + state + nonce, openid-client v6 with
+  `enableNonRepudiationChecks`, redirect URI from `BASE_URL`, never the Host
+  header; `aud` exactly the client, no foreign `azp`); a server-side session
+  (`oidcSessions.js`, table `user_sessions`: the session cookie's SHA-256, refresh
+  token + id_token AES-GCM encrypted via `secretBox.js`, 30 days; cookies
+  `__Host-la_session` / `__Host-la_oidc_flow` when Secure (production), plain
+  `la_session` / `la_oidc_flow` on http: names from `oidcConfig.js`) re-checked
+  with the refresh token every `OIDC_RECHECK_SECONDS` (3 s timeout; only
+  `invalid_grant` or an invalid / foreign id_token ends session + sockets; other
+  OAuth errors = kept + `CONFIGURATION PROBLEM` log; IdP silent = kept with
+  backoff, ends after `OIDC_MAX_UNVERIFIED_SECONDS`, 24 h). In that mode the old
+  `listen_auth` cookie is NEVER a session (`userIdFromHeaders` answers null) and
+  plays NO part in linking: the callback only clears it (do not add an
+  old-cookie link rule back: it hands accounts to whoever signs in on that
+  browser). Linking (`oidcLink.js`, `users.oidc_sub` unique): a. sub, b.
+  `upstream_identities` vs user_providers / users.provider (earliest of several,
+  logged; any match already linked to another sub = refused `link_conflict`,
+  never a new account), c. `email_verified === true` and exactly one unlinked
+  user with that address from GOOGLE only (legacy GitHub addresses were stored
+  unverified), e. new `approved` user unless registrations are closed
+  (`settings.js`, `app_settings.registrations_open`, dashboard switch,
+  `GET|PUT /api/admin/settings`; until saved, `REGISTRATIONS_DEFAULT=open|closed`
+  decides, then the saved value wins). One `central-login: link rule=<x>
+  user=<id> ...` / `central-login: refused ...` log line per sign-in. A denied /
+  rejected user is refused at sign-in. `DATABASE_URL` set but no pool = sign-in
+  and sessions fail closed (memory only without any database). Accounts created
+  by central login have provider `oidc`; the db.js user_providers backfill must
+  skip them.
+  Half / broken config stops the boot; an unreachable IdP does not.
+- `backend/src/userAuth.js` is the one place that turns a request or a socket
+  handshake into a user: `resolve(headers)` / `userIdFor(req)` / `identify(req)`
+  (both modes); each socket gets `socket.data.userId` (and, with central login,
+  `socket.data.sessionId` + the `session:<hash>` room). Never trust a user id or
   name sent by the client.
 - `users.status` decides access: `approved` = everything; `pending` = chat /
   people panel and own profile only; `denied` / `rejected` = nothing (sockets
   refused). The auth guard in `index.js` is deny-by-default (`policyFor()` in
   userAuth.js). Only an admin changes a status — db.js must never rewrite
-  statuses on boot (a restart once promoted every pending user).
+  statuses on boot (a restart once promoted every pending user). Blocking an
+  account (`accountStatusChanged`) disconnects its sockets and, with central
+  login, deletes all its sessions; its CLI tokens stop by themselves. The
+  central `roles` claim gates nothing (stored with the session for later).
 - The CLI (`la`) authenticates with `Authorization: Bearer la_...` tokens
   (`tokens.js`). Each token belongs to a user (`api_tokens.user_id`): approved
   users create / revoke their own on the profile page (`/api/tokens`,
@@ -383,7 +421,10 @@ where lobby persistence broke entirely on deployed instances.
   the same secret, e.g. `node -e "console.log(require('./src/userAuth')
   .createUserAuth({secret:'dev',db:null}).createToken('<users.id>'))"` → set it
   as `listen_auth` (see `testServer.js` `cookieFor`). Without a database any
-  validly signed cookie counts as an approved account.
+  validly signed cookie counts as an approved account. That is legacy mode only;
+  with central login use `testServer.js` `centralSessionCookie(DATABASE_URL,
+  '<users.id>')` (inserts a `user_sessions` row, prints `la_session=...`), and
+  `central-login.test.js` drives the real flow against `fakeOidcIssuer.js`.
 
 ## Testing
 

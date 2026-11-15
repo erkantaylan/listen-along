@@ -30,7 +30,12 @@
           <img class="app-logo d-block mx-auto mb-4" src="/icon-192.png" alt="">
           <h1 class="h4 mb-2">listen-along</h1>
           <p class="fg-3 mb-6 login-subtitle">Sign in to listen with friends</p>
+          <p id="login-error" class="alert theme-danger mb-4 text-start login-error" role="alert" hidden></p>
           <div class="vstack gap-3 login-buttons">
+            <!-- Central login (OIDC): replaces Google / GitHub when it is configured (/api/auth/providers says central). -->
+            <button id="central-login-btn" class="btn-solid theme-primary btn-lg w-100 login-btn" type="button" hidden>
+              <span data-i18n="login.signIn">Sign in</span>
+            </button>
             <button id="google-login-btn" class="btn-outline theme-secondary btn-lg w-100 login-btn" type="button" hidden>
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
@@ -529,10 +534,20 @@
 
         <section class="dashboard-section" data-section="users">
           <h2 class="h5 mb-4 section-heading">User Management</h2>
+          <!-- Sign-in switch (settings.js, PUT /api/admin/settings): stored in the database, applies at the next sign-in. -->
+          <div id="dashboard-registrations" class="card card-body mb-4 dashboard-registrations" hidden>
+            <div class="form-field">
+              <div class="switch"><input type="checkbox" id="registrations-open" role="switch" aria-describedby="registrations-open-hint"></div>
+              <label for="registrations-open" class="fw-medium" data-i18n="dashboard.registrationsOpen">Allow new accounts</label>
+              <p id="registrations-open-hint" class="fs-sm fg-3 mb-0 dashboard-registrations-hint" data-i18n="dashboard.registrationsHint">When off, someone signing in through the central login who has no account here is turned away. Existing accounts keep working.</p>
+              <p id="registrations-source" class="fs-sm fg-3 mb-0" data-i18n="dashboard.registrationsFromEnv" hidden>Not saved yet: this is the server's default (REGISTRATIONS_DEFAULT). Changing it here saves it, and the saved value wins from then on.</p>
+              <p id="registrations-not-central" class="fs-sm fg-3 mb-0" data-i18n="dashboard.registrationsNotCentral" hidden>Central login is not configured yet: this takes effect once it is. Google and GitHub sign-in are not affected.</p>
+            </div>
+          </div>
           <div class="d-flex flex-wrap gap-2 mb-4 users-stats-inline">
             <span class="badge badge-subtle theme-success user-approved"><span id="users-approved">0</span> approved</span>
             <span class="badge badge-subtle theme-warning user-pending"><span id="users-pending">0</span> pending</span>
-            <span class="badge badge-subtle theme-danger user-rejected"><span id="users-rejected">0</span> rejected</span>
+            <span class="badge badge-subtle theme-danger user-rejected"><span id="users-rejected">0</span> rejected or denied</span>
           </div>
           <div class="d-flex flex-wrap gap-2 mb-4 users-controls">
             <input type="search" id="users-search" class="form-control flex-grow-1 w-auto" placeholder="Search users..." aria-label="Search users">
@@ -540,7 +555,7 @@
               <option value="all">All users</option>
               <option value="pending">Pending</option>
               <option value="approved">Approved</option>
-              <option value="rejected">Rejected</option>
+              <option value="rejected">Rejected or denied</option>
             </select>
           </div>
           <ul id="dashboard-user-list" class="list-group dashboard-user-list">
@@ -661,7 +676,7 @@
           <p id="language-selector-hint" class="form-text fs-sm fg-3 mt-2 mb-0" data-i18n="language.hint">Saved in this browser</p>
         </div>
       </div>
-      <div class="card mb-4">
+      <div id="profile-providers-card" class="card mb-4">
         <div class="card-header">
           <h2 class="h6 mb-0">Connected Accounts</h2>
         </div>

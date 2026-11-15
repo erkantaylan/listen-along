@@ -2,6 +2,10 @@
 
 Listen Along uses Google and GitHub OAuth for authentication. You need to create OAuth apps on both platforms to get the required credentials.
 
+> **Central login.** When `OIDC_ISSUER` and `OIDC_CLIENT_ID` are set, sign-in goes through the
+> owner's central login (OIDC) instead, and the Google / GitHub routes below are switched off. See
+> [CENTRAL-LOGIN.md](CENTRAL-LOGIN.md). Everything on this page applies while those two are unset.
+
 ## Environment Variables
 
 Add these to your `.env` file in the `backend/` directory:

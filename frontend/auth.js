@@ -1,6 +1,6 @@
 // Authentication, registration, and profile management
 import { state, elements, socket, auth, STORAGE_KEYS, AVATAR_EMOJIS, storageSet } from './state.js';
-import { showView, showToast, escapeHtml, navigateTo } from './ui.js';
+import { showView, showToast, escapeHtml, navigateTo, t } from './ui.js';
 import { announceProfile } from './social.js';
 import { resetPlaybackFailures } from './playback-failures.js';
 import { setupProfileTokens, loadProfileTokens } from './profile-tokens.js';
@@ -58,10 +58,56 @@ function loginNextQuery() {
   return !next || next === '/' || next.startsWith('/login') ? '' : `?next=${encodeURIComponent(next)}`;
 }
 
+// Why a central sign-in came back to /login (?error=<code>, set by the server;
+// only these codes are shown, as fixed sentences).
+const LOGIN_ERRORS = {
+  account_disabled: ['login.error.accountDisabled', 'Your account has been disabled. If you think this is a mistake, contact the administrator.', 'theme-danger'],
+  registrations_closed: ['login.error.registrationsClosed', 'Registrations are closed: there is no listen-along account for you, and new ones are not being created right now.', 'theme-warning'],
+  signin_failed: ['login.error.failed', 'Sign-in did not work. Please try again.', 'theme-danger'],
+  signin_unavailable: ['login.error.unavailable', 'The sign-in service cannot be reached right now. Please try again in a moment.', 'theme-warning'],
+  link_conflict: ['login.error.linkConflict', 'Your sign-in could not be linked to an account here. Please contact the administrator.', 'theme-danger'],
+};
+
+function showLoginError() {
+  const el = document.getElementById('login-error');
+  if (!el || window.location.pathname !== '/login') return;
+  const entry = LOGIN_ERRORS[new URLSearchParams(window.location.search).get('error')];
+  if (!entry) return;
+  const [key, fallback, theme] = entry;
+  el.textContent = t(key, fallback);
+  el.classList.remove('theme-danger', 'theme-warning');
+  el.classList.add(theme);
+  el.hidden = false;
+  const relabel = () => { el.textContent = t(key, fallback); };
+  window.addEventListener('languageChanged', relabel);
+}
+
+// The browser leaves for the central login's end-session page when the server
+// names one (central login), else the page reloads.
+export async function signOut() {
+  let redirect = null;
+  try {
+    const res = await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+    const data = await res.json().catch(() => ({}));
+    if (typeof data.redirect === 'string' && /^(https?:\/\/|\/(?![\/\\]))/.test(data.redirect)) redirect = data.redirect;
+  } catch { /* signed out locally anyway */ }
+  auth.authenticated = false;
+  auth.user = null;
+  return redirect;
+}
+
 export async function setupLoginView() {
+  showLoginError();
   try {
     const res = await fetch('/api/auth/providers');
     const providers = await res.json();
+    const centralBtn = document.getElementById('central-login-btn');
+    if (providers.central && centralBtn) {
+      // Central login replaces Google / GitHub: one button, no other provider.
+      centralBtn.hidden = false;
+      centralBtn.addEventListener('click', () => { window.location.href = '/auth/oidc/login' + loginNextQuery(); });
+      return setupLoginLogout();
+    }
     const googleBtn = document.getElementById('google-login-btn');
     const githubBtn = document.getElementById('github-login-btn');
     const noProviders = document.getElementById('login-no-providers');
@@ -80,14 +126,16 @@ export async function setupLoginView() {
     if (googleBtn) { googleBtn.hidden = false; googleBtn.addEventListener('click', () => { window.location.href = '/auth/google' + loginNextQuery(); }); }
     if (githubBtn) { githubBtn.hidden = false; githubBtn.addEventListener('click', () => { window.location.href = '/auth/github' + loginNextQuery(); }); }
   }
+  setupLoginLogout();
+}
 
+function setupLoginLogout() {
   const logoutBtn = document.getElementById('login-logout-btn');
   if (logoutBtn) {
     logoutBtn.addEventListener('click', async () => {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
-      auth.authenticated = false;
-      auth.user = null;
+      const redirect = await signOut();
       resetPlaybackFailures();
+      if (redirect && redirect !== '/') { window.location.href = redirect; return; }
       showLoginCard();
       showView('login');
     });
@@ -125,7 +173,8 @@ export function showPendingCard() {
         userInfo.appendChild(img);
       }
       const span = document.createElement('span');
-      span.textContent = `${auth.user.name || auth.user.email || 'User'} (${auth.user.provider})`;
+      const via = auth.user.provider && auth.user.provider !== 'oidc' ? ` (${auth.user.provider})` : '';
+      span.textContent = `${auth.user.name || auth.user.email || 'User'}${via}`;
       userInfo.appendChild(span);
     }
   }
@@ -140,10 +189,9 @@ export function setupProfilePage() {
   if (backBtn) backBtn.addEventListener('click', () => navigateTo('/'));
   if (logoutBtn) {
     logoutBtn.addEventListener('click', async () => {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
-      auth.authenticated = false;
-      auth.user = null;
-      window.location.reload();
+      const redirect = await signOut();
+      if (redirect && redirect !== '/') window.location.href = redirect;
+      else window.location.reload();
     });
   }
 
@@ -251,6 +299,10 @@ function renderProvidersList(container, providers) {
   fetch('/api/auth/providers')
     .then(r => r.json())
     .then(available => {
+      // Central login: accounts are linked there, not here.
+      const card = document.getElementById('profile-providers-card');
+      if (card) card.hidden = !!available.central;
+      if (available.central) return;
       let html = '';
       for (const p of providers) {
         const config = providerConfigs[p.provider];

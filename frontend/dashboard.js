@@ -77,6 +77,7 @@ function showDashboard() {
   statsTimer = setInterval(fetchDashboardStats, 2000);
   setDashboardInterval(statsTimer);
   fetchDashboardUsers();
+  loadRegistrationsSwitch();
   startAdminSections({ unauthorized: showLogin });
   onAdminReady();
 }
@@ -206,9 +207,64 @@ export function fetchDashboardUsers() {
     .catch(err => console.error('Failed to fetch users:', err));
 }
 
+// "Allow new accounts" (registrations_open): who signs in through the central
+// login without an account here gets one, or is turned away. Stored on the
+// server; takes effect at the next sign-in.
+let registrationsWired = false;
+// Never saved: the value is REGISTRATIONS_DEFAULT from the server's environment.
+function showRegistrationsSource(source) {
+  const el = $('registrations-source');
+  if (el) el.hidden = source !== 'default';
+}
+async function loadRegistrationsSwitch() {
+  const card = $('dashboard-registrations');
+  const input = $('registrations-open');
+  if (!card || !input) return;
+  try {
+    const res = await fetch('/api/admin/settings', { credentials: 'same-origin' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    input.checked = data.registrations_open !== false;
+    $('registrations-not-central').hidden = !!data.central_login;
+    showRegistrationsSource(data.source);
+    card.hidden = false;
+  } catch (err) {
+    console.error('Failed to load sign-in settings:', err);
+    return;
+  }
+  if (registrationsWired) return;
+  registrationsWired = true;
+  input.addEventListener('change', async () => {
+    const want = input.checked;
+    input.disabled = true;
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'PUT', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ registrations_open: want }),
+      });
+      if (res.status === 401) { showLogin(); return; }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      input.checked = data.registrations_open !== false;
+      showRegistrationsSource(data.source);
+      showToast(input.checked ? t('dashboard.registrationsOpened', 'New accounts are allowed') : t('dashboard.registrationsClosed', 'New accounts are turned away'), 'success');
+    } catch (err) {
+      console.error('Failed to save sign-in settings:', err);
+      input.checked = !want;
+      showToast(t('dashboard.registrationsFailed', 'Could not change the setting'), 'error');
+    } finally {
+      input.disabled = false;
+    }
+  });
+}
+
+// Denied and rejected are both "blocked" (no access, signed out everywhere).
+const statusGroup = (s) => (s === 'denied' ? 'rejected' : s);
+
 function updateUserStats() {
   const counts = { approved: 0, pending: 0, rejected: 0 };
-  for (const u of dashboardUsers) { if (counts[u.status] !== undefined) counts[u.status]++; }
+  for (const u of dashboardUsers) { const g = statusGroup(u.status); if (counts[g] !== undefined) counts[g]++; }
   if (elements.usersApproved) elements.usersApproved.textContent = counts.approved;
   if (elements.usersPending) elements.usersPending.textContent = counts.pending;
   if (elements.usersRejected) elements.usersRejected.textContent = counts.rejected;
@@ -219,13 +275,13 @@ export function renderDashboardUserList() {
   const searchTerm = (elements.usersSearch ? elements.usersSearch.value : '').toLocaleLowerCase('tr');
   const filterStatus = elements.usersFilter ? elements.usersFilter.value : 'all';
   let filtered = dashboardUsers;
-  if (filterStatus !== 'all') filtered = filtered.filter(u => u.status === filterStatus);
+  if (filterStatus !== 'all') filtered = filtered.filter(u => statusGroup(u.status) === filterStatus);
   if (searchTerm) filtered = filtered.filter(u => (u.username || '').toLocaleLowerCase('tr').includes(searchTerm) || (u.name || '').toLocaleLowerCase('tr').includes(searchTerm) || (u.email || '').toLocaleLowerCase('tr').includes(searchTerm) || (u.user_id || '').toLocaleLowerCase('tr').includes(searchTerm));
   if (filtered.length === 0) { elements.dashboardUserList.innerHTML = '<li class="list-group-item app-empty dashboard-empty">No users found</li>'; return; }
   elements.dashboardUserList.innerHTML = filtered.map(user => {
     const date = new Date(parseInt(user.created_at)).toLocaleDateString();
     const showApprove = user.status !== 'approved';
-    const showReject = user.status !== 'rejected';
+    const showReject = user.status !== 'rejected' && user.status !== 'denied';
     const avatarHtml = user.avatar_url
       ? `<img class="app-thumb rounded-pill dashboard-user-avatar-img" src="${escapeHtml(user.avatar_url)}" alt="" loading="lazy">`
       : `<div class="app-thumb rounded-pill dashboard-user-avatar">${escapeHtml(user.emoji || '\uD83C\uDFB5')}</div>`;
@@ -235,7 +291,7 @@ export function renderDashboardUserList() {
       ${avatarHtml}
       <div class="min-w-0 flex-grow-1 dashboard-user-info">
         <div class="fw-medium text-truncate dashboard-user-name">${escapeHtml(displayName)}${subName}</div>
-        <div class="fs-xs fg-3 text-truncate dashboard-user-meta">${escapeHtml(user.email || user.user_id)} &middot; ${user.provider || 'local'} &middot; ${date}</div>
+        <div class="fs-xs fg-3 text-truncate dashboard-user-meta">${escapeHtml(user.email || user.user_id || '')} &middot; ${escapeHtml(user.provider || 'local')}${user.central ? ' &middot; central login' : ''} &middot; ${date}</div>
       </div>
       <span class="badge badge-subtle ${({ approved: 'theme-success', pending: 'theme-warning', rejected: 'theme-danger', denied: 'theme-danger' })[user.status] || 'theme-secondary'} dashboard-user-status status-${user.status}">${user.status}</span>
       <div class="d-flex gap-2 dashboard-user-actions">

@@ -134,7 +134,14 @@
     "pending": "Bekliyor",
     "error": "Hata",
     "totalDuration": "Toplam Süre",
-    "noCachedSongs": "Önbellekte şarkı yok"
+    "noCachedSongs": "Önbellekte şarkı yok",
+    "registrationsOpen": "Yeni hesaplara izin ver",
+    "registrationsHint": "Kapalıyken, merkezi girişle giriş yapan ama burada hesabı olmayan kişiler geri çevrilir. Mevcut hesaplar çalışmaya devam eder.",
+    "registrationsNotCentral": "Merkezi giriş henüz yapılandırılmadı: bu ayar o zaman geçerli olur. Google ve GitHub ile giriş etkilenmez.",
+    "registrationsOpened": "Yeni hesaplara izin veriliyor",
+    "registrationsClosed": "Yeni hesaplar geri çevriliyor",
+    "registrationsFailed": "Ayar değiştirilemedi",
+    "registrationsFromEnv": "Henüz kaydedilmedi: bu, sunucunun varsayılanı (REGISTRATIONS_DEFAULT). Burada değiştirmek onu kaydeder ve o andan itibaren kaydedilen değer geçerlidir."
   },
   "toast": {
     "connectionLost": "Bağlantı kesildi. Yeniden bağlanılıyor...",
@@ -560,5 +567,15 @@
     "fromSearch": "Arama “{query}”",
     "libraryRate": "Şu an çok fazla arama yapıldı. Biraz bekleyip yeniden dene.",
     "importCreatedFailed": "“{name}” oluşturuldu ama şarkıları sıraya alınamadı: {error}. Yeniden içine aktar."
+  },
+  "login": {
+    "signIn": "Giriş yap",
+    "error": {
+      "accountDisabled": "Hesabınız devre dışı bırakıldı. Bir yanlışlık olduğunu düşünüyorsanız yöneticiye başvurun.",
+      "registrationsClosed": "Kayıtlar kapalı: size ait bir listen-along hesabı yok ve şu anda yeni hesap açılmıyor.",
+      "failed": "Giriş yapılamadı. Lütfen tekrar deneyin.",
+      "unavailable": "Giriş hizmetine şu anda ulaşılamıyor. Lütfen biraz sonra tekrar deneyin.",
+      "linkConflict": "Girişiniz buradaki bir hesaba bağlanamadı. Lütfen yöneticiye başvurun."
+    }
   }
 }
