@@ -1,14 +1,14 @@
-// Artist credits -> individual artists (artistCredits.js), for the Artists pages.
-const { describe, it } = require('node:test');
-const assert = require('node:assert/strict');
-const { splitArtistCredit, knownArtistKeys, artistNameKey, BANDS } = require('./artistCredits');
-const { normalizeArtist, metaKey, META_KEY_VERSION } = require('./songMatch');
+// Artist credits -> individual artists (artistCredits.ts), for the Artists pages.
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { splitArtistCredit, knownArtistKeys, artistNameKey, BANDS } from './artistCredits.ts';
+import { normalizeArtist, metaKey, META_KEY_VERSION } from '../../songMatch.js';
 
-const names = (credit, known = []) => {
+const names = (credit: string | null, known: string[] = []) => {
   const set = new Set(known.map(artistNameKey));
   return splitArtistCredit(credit, (k) => set.has(k)).map((a) => a.name);
 };
-const keys = (credit, known = []) => {
+const keys = (credit: string, known: string[] = []) => {
   const set = new Set(known.map(artistNameKey));
   return splitArtistCredit(credit, (k) => set.has(k)).map((a) => a.key);
 };
@@ -165,7 +165,7 @@ describe('artistCredits: knownArtistKeys', () => {
   it('end to end: a library where Barış Manço has songs of his own', () => {
     const credits = ['Barış Manço', 'Barış Manço & Kurtalan Ekspres', 'Simon & Garfunkel', 'Paul Simon'];
     const known = knownArtistKeys(credits);
-    const split = (c) => splitArtistCredit(c, (k) => known.has(k)).map((a) => a.name);
+    const split = (c: string) => splitArtistCredit(c, (k) => known.has(k)).map((a) => a.name);
     assert.deepEqual(split('Barış Manço & Kurtalan Ekspres'), ['Barış Manço', 'Kurtalan Ekspres']);
     assert.deepEqual(split('Simon & Garfunkel'), ['Simon & Garfunkel']);
   });

@@ -1,25 +1,30 @@
-// Artists (artists.js): the grouping rule on its own, then the API against the
+// Artists (artists.ts): the grouping rule on its own, then the API against the
 // real server on Postgres (testcontainers): who gets in, broken songs, lean rows.
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const { execSync } = require('node:child_process');
-const crypto = require('node:crypto');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const { cookieFor, startServer, requester } = require('./testServer');
-const { policyFor } = require('./userAuth');
-const { groupArtists, listArtists } = require('./artists');
-const { normalizeReport, viewNowPlaying } = require('./presence');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { execSync } from 'node:child_process';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import pg from 'pg';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { cookieFor, startServer, requester } from '../../testServer.js';
+import { policyFor } from '../../userAuth.js';
+import { groupArtists, listArtists } from './artists.ts';
+import type { ArtistSummary, GroupableRow } from './artists.ts';
+import type { StationSong } from '../radio/index.ts';
+import { normalizeReport, viewNowPlaying } from '../../presence.js';
 
-let PostgreSqlContainer;
-try { PostgreSqlContainer = require('@testcontainers/postgresql').PostgreSqlContainer; } catch {}
-const has = (cmd) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
+let PostgreSqlContainer: typeof import('@testcontainers/postgresql').PostgreSqlContainer | undefined;
+try { ({ PostgreSqlContainer } = await import('@testcontainers/postgresql')); } catch {}
+const has = (cmd: string) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
 const skip = !PostgreSqlContainer ? 'testcontainers package not installed'
   : !has('docker info') ? 'Docker not available' : false;
 
 let n = 0;
-const row = (artist, extra = {}) => ({ id: `id${++n}`, title: `Song ${n}`, artist, duration_sec: 100, youtube_id: null, created_at: new Date(n * 1000), ...extra });
+type TestRow = GroupableRow & { id: string; title: string };
+const row = (artist: string, extra: Partial<TestRow> = {}): TestRow => ({ id: `id${++n}`, title: `Song ${n}`, artist, duration_sec: 100, youtube_id: null, created_at: new Date(n * 1000), ...extra });
 
 describe('artists: grouping', () => {
   it('one artist whatever the spelling, channel suffix or featured guest', () => {
@@ -28,9 +33,9 @@ describe('artists: grouping', () => {
       row('Barış Manço & Kurtalan Ekspres'), row('The Beatles'), row('Beatles'),
     ]);
     assert.deepEqual([...groups.keys()].sort(), ['barismanco', 'beatles', 'kurtalanekspres', 'someone']);
-    assert.equal(groups.get('barismanco').count, 5);
-    assert.equal(groups.get('beatles').count, 2);
-    assert.equal(groups.get('kurtalanekspres').name, 'Kurtalan Ekspres');
+    assert.equal(groups.get('barismanco')!.count, 5);
+    assert.equal(groups.get('beatles')!.count, 2);
+    assert.equal(groups.get('kurtalanekspres')!.name, 'Kurtalan Ekspres');
   });
 
   it('a song with several artists is on each one\'s page, with its full credit', () => {
@@ -38,25 +43,25 @@ describe('artists: grouping', () => {
     const duet = row('RAYE, 070 Shake', { title: 'Escapism.' });
     const groups = groupArtists([raye, duet, row('Earth, Wind & Fire'), row('Earth, Wind & Fire, The Emotions'),
       row('Simon & Garfunkel'), row('Tyler, The Creator, Kali Uchis')]);
-    assert.deepEqual(groups.get('raye').rows, [raye, duet]);
-    assert.deepEqual(groups.get('070shake').rows, [duet]);
-    assert.equal(groups.get('070shake').rows[0].artist, 'RAYE, 070 Shake');
-    assert.equal(groups.get('earthwindandfire').count, 2);
-    assert.equal(groups.get('earthwindandfire').name, 'Earth, Wind & Fire');
-    assert.equal(groups.get('emotions').name, 'The Emotions');
-    assert.equal(groups.get('simonandgarfunkel').name, 'Simon & Garfunkel');
+    assert.deepEqual(groups.get('raye')!.rows, [raye, duet]);
+    assert.deepEqual(groups.get('070shake')!.rows, [duet]);
+    assert.equal(groups.get('070shake')!.rows[0].artist, 'RAYE, 070 Shake');
+    assert.equal(groups.get('earthwindandfire')!.count, 2);
+    assert.equal(groups.get('earthwindandfire')!.name, 'Earth, Wind & Fire');
+    assert.equal(groups.get('emotions')!.name, 'The Emotions');
+    assert.equal(groups.get('simonandgarfunkel')!.name, 'Simon & Garfunkel');
     assert.ok(!groups.has('simon') && !groups.has('earth') && !groups.has('tyler'));
-    assert.equal(groups.get('tylerthecreator').count, 1);
+    assert.equal(groups.get('tylerthecreator')!.count, 1);
     // A credit naming the same artist twice counts the song once.
-    assert.equal(groupArtists([row('RAYE, raye')]).get('raye').count, 1);
+    assert.equal(groupArtists([row('RAYE, raye')]).get('raye')!.count, 1);
   });
 
   it('names the artist the way most of its songs do, without channel suffixes', () => {
     const groups = groupArtists([row('TarkanVEVO'), row('Tarkan - Topic'), row('tarkan'), row('Tarkan')]);
-    assert.equal(groups.get('tarkan').name, 'Tarkan');
+    assert.equal(groups.get('tarkan')!.name, 'Tarkan');
     const more = groupArtists([row('Sezen Aksu - Topic'), row('AdeleVEVO'), row('Duman Official'), row('RAYE, Sezen Aksu - Topic')]);
-    assert.deepEqual(['sezenaksu', 'adele', 'duman'].map((k) => more.get(k).name), ['Sezen Aksu', 'Adele', 'Duman']);
-    assert.equal(more.get('sezenaksu').count, 2);
+    assert.deepEqual(['sezenaksu', 'adele', 'duman'].map((k) => more.get(k)!.name), ['Sezen Aksu', 'Adele', 'Duman']);
+    assert.equal(more.get('sezenaksu')!.count, 2);
   });
 
   it('adds up lengths, takes the newest YouTube cover, and skips artists that normalize to nothing', () => {
@@ -67,7 +72,7 @@ describe('artists: grouping', () => {
       row('---'), row(''),
     ]);
     assert.deepEqual([...groups.keys()], ['duman']);
-    const d = groups.get('duman');
+    const d = groups.get('duman')!;
     assert.equal(d.duration_sec, 180);
     assert.equal(d.cover_youtube_id, 'new');
   });
@@ -90,27 +95,27 @@ describe('artists: policy and presence', () => {
 
   it('an artist context keeps a checked key and the name, and nothing else', () => {
     const report = { track: { title: 'Şımarık' }, context: { type: 'artist', key: 'tarkan', name: ' Tarkan ', lobbyId: 'abc' }, playing: true };
-    assert.deepEqual(normalizeReport(report).context, { type: 'artist', key: 'tarkan', name: 'Tarkan' });
-    assert.deepEqual(viewNowPlaying(normalizeReport(report), () => null).context, { type: 'artist', key: 'tarkan', name: 'Tarkan' });
+    assert.deepEqual(normalizeReport(report)!.context, { type: 'artist', key: 'tarkan', name: 'Tarkan' });
+    assert.deepEqual(viewNowPlaying(normalizeReport(report)!, () => null)!.context, { type: 'artist', key: 'tarkan', name: 'Tarkan' });
     for (const key of ['', 'a b', '../x', 'x'.repeat(201), 42, null]) {
-      assert.equal(normalizeReport({ ...report, context: { type: 'artist', key, name: 'X' } }).context, null, String(key));
+      assert.equal(normalizeReport({ ...report, context: { type: 'artist', key, name: 'X' } })!.context, null, String(key));
     }
-    assert.deepEqual(normalizeReport({ ...report, context: { type: 'artist', key: 'çağan' } }).context, { type: 'artist', key: 'çağan', name: null });
+    assert.deepEqual(normalizeReport({ ...report, context: { type: 'artist', key: 'çağan' } })!.context, { type: 'artist', key: 'çağan', name: null });
   });
 });
 
 describe('artists API', { skip, timeout: 180_000 }, () => {
-  let container;
-  let pg;
-  let srv;
-  let req;
-  let tmp;
-  const cookies = {};
-  const ids = {};
+  let container: StartedPostgreSqlContainer | undefined;
+  let db: pg.Client | undefined;
+  let srv: Awaited<ReturnType<typeof startServer>> | undefined;
+  let req: ReturnType<typeof requester>;
+  let tmp: string | undefined;
+  const cookies: Record<string, string> = {};
+  const ids: Record<string, string> = {};
 
-  async function addSong(title, artist, duration, youtubeId = null) {
+  async function addSong(title: string, artist: string, duration: number | null, youtubeId: string | null = null) {
     const id = crypto.randomUUID();
-    await pg.query(
+    await db!.query(
       `INSERT INTO library_songs (id, title, artist, duration_sec, file_path, mime_type, size_bytes, sha256, youtube_id, uploaded_by)
        VALUES ($1, $2, $3, $4, $5, 'audio/mp4', 1, $6, $7, 'test')`,
       [id, title, artist, duration, `/tmp/${id}.m4a`, crypto.createHash('sha256').update(id).digest('hex'), youtubeId]
@@ -119,17 +124,16 @@ describe('artists API', { skip, timeout: 180_000 }, () => {
   }
 
   before(async () => {
-    container = await new PostgreSqlContainer('postgres:16-alpine')
+    container = await new PostgreSqlContainer!('postgres:16-alpine')
       .withDatabase('listen_artists').withUsername('test').withPassword('test').start();
     const url = container.getConnectionUri();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'la-artists-'));
     srv = await startServer({ DATABASE_URL: url, SONGS_PATH: path.join(tmp, 'songs'), COVERS_DIR: path.join(tmp, 'covers') });
     req = requester(srv.base);
-    const { Client } = require('pg');
-    pg = new Client({ connectionString: url });
-    await pg.connect();
+    db = new pg.Client({ connectionString: url });
+    await db.connect();
     for (const [key, status] of [['alice', 'approved'], ['bob', 'approved'], ['pat', 'pending'], ['dan', 'denied']]) {
-      const r = await pg.query(
+      const r = await db.query(
         `INSERT INTO users (provider, provider_id, name, display_name, status, created_at) VALUES ('github', $1, $2, $2, $3, 1) RETURNING id`,
         [key, key, status]
       );
@@ -145,18 +149,18 @@ describe('artists API', { skip, timeout: 180_000 }, () => {
   it('a song crediting several artists is on each page, showing the full credit', async () => {
     const duet = await addSong('Düet', 'Barış Manço, Kurtalan Ekspres', 60);
     const list = (await req('GET', '/api/artists', { cookie: cookies.alice })).body.artists;
-    assert.equal(list.find((a) => a.key === 'barismanco').count, 4);
-    assert.equal(list.find((a) => a.key === 'kurtalanekspres').count, 1);
+    assert.equal(list.find((a: ArtistSummary) => a.key === 'barismanco').count, 4);
+    assert.equal(list.find((a: ArtistSummary) => a.key === 'kurtalanekspres').count, 1);
     const ke = await req('GET', '/api/artists/kurtalanekspres/songs', { cookie: cookies.alice });
     assert.equal(ke.status, 200);
     assert.equal(ke.body.name, 'Kurtalan Ekspres');
-    assert.deepEqual(ke.body.songs.map((s) => [s.title, s.artist]), [['Düet', 'Barış Manço, Kurtalan Ekspres']]);
-    await pg.query('DELETE FROM library_songs WHERE id = $1', [duet]);
+    assert.deepEqual(ke.body.songs.map((s: StationSong) => [s.title, s.artist]), [['Düet', 'Barış Manço, Kurtalan Ekspres']]);
+    await db!.query('DELETE FROM library_songs WHERE id = $1', [duet]);
   });
 
   after(async () => {
     if (srv) await srv.stop();
-    if (pg) await pg.end();
+    if (db) await db.end();
     if (container) await container.stop();
     if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
   });
@@ -170,7 +174,7 @@ describe('artists API', { skip, timeout: 180_000 }, () => {
     for (const page of ['/artists', '/artist/barismanco']) {
       const res = await req('GET', page);
       assert.equal(res.status, 302);
-      assert.match(res.headers.get('location'), /^\/login/);
+      assert.match(res.headers.get('location') ?? '', /^\/login/);
       assert.equal((await req('GET', page, { cookie: cookies.alice })).status, 200);
     }
   });
@@ -198,7 +202,7 @@ describe('artists API', { skip, timeout: 180_000 }, () => {
     assert.equal(res.status, 200);
     assert.equal(res.body.name, 'Barış Manço');
     assert.equal(res.body.count, 3);
-    assert.deepEqual(res.body.songs.map((s) => s.title), ['Ahmet Bey', 'Çoban', 'Zeytin']);
+    assert.deepEqual(res.body.songs.map((s: StationSong) => s.title), ['Ahmet Bey', 'Çoban', 'Zeytin']);
     assert.deepEqual(Object.keys(res.body.songs[0]).sort(), ['artist', 'duration_sec', 'file_version', 'id', 'title', 'youtube_id']);
     assert.equal((await req('GET', '/api/artists/nobody/songs', { cookie: cookies.alice })).status, 404);
     assert.equal((await req('GET', `/api/artists/${'x'.repeat(201)}/songs`, { cookie: cookies.alice })).status, 404);
@@ -214,8 +218,8 @@ describe('artists API', { skip, timeout: 180_000 }, () => {
     assert.equal((await req('POST', `/api/library/${duman}/report`, { cookie: cookies.bob, body: { reason: 'Bad audio' } })).status, 201);
     assert.equal((await req('POST', `/api/library/${ids.zeytin}/report`, { cookie: cookies.bob, body: { reason: 'Cut off' } })).status, 201);
     const list = (await req('GET', '/api/artists', { cookie: cookies.alice })).body.artists;
-    assert.ok(!list.some((a) => a.key === 'duman'));
-    const baris = list.find((a) => a.key === 'barismanco');
+    assert.ok(!list.some((a: ArtistSummary) => a.key === 'duman'));
+    const baris = list.find((a: ArtistSummary) => a.key === 'barismanco');
     assert.equal(baris.count, 2);
     assert.equal(baris.cover_youtube_id, null);
     assert.equal((await req('GET', '/api/artists/duman/songs', { cookie: cookies.alice })).status, 404);
@@ -224,7 +228,7 @@ describe('artists API', { skip, timeout: 180_000 }, () => {
   });
 
   it('handles 2,500 songs quickly', async () => {
-    await pg.query(
+    await db!.query(
       `INSERT INTO library_songs (id, title, artist, duration_sec, file_path, mime_type, size_bytes, sha256, uploaded_by)
        SELECT gen_random_uuid(), 'Song ' || g, 'Artist ' || (g % 400), 180, '/tmp/f' || g || '.m4a', 'audio/mp4', 1, md5(g::text) || md5(g::text), 'test'
        FROM generate_series(1, 2500) g`

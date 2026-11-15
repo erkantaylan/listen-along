@@ -43,7 +43,7 @@ const { createWorkerHub } = require('./workerHub');
 const { createJobRouter } = require('./jobRoutes');
 const { createActivityFeed } = require('./activityFeed');
 const { createStationRouter } = require('./features/radio/index.ts');
-const { createArtistRouter } = require('./artists');
+const { createArtistRouter } = require('./features/artists/index.ts');
 const { createInfoRouter, createPageRouter } = require('./appRoutes');
 const { createMediaRouter } = require('./mediaRoutes');
 const { createProfileRouter } = require('./profileRoutes');
@@ -235,7 +235,7 @@ app.use(createLibraryRouter({
 // Radio stations (features/radio). Approved accounts only, by the guard's default.
 app.use(createStationRouter());
 
-// Artists: read-only song lists per library artist (artists.js). Approved accounts only, by the guard's default.
+// Artists: read-only song lists per library artist (features/artists). Approved accounts only, by the guard's default.
 app.use(createArtistRouter());
 
 // The caller's own CLI tokens (profile page). Approved accounts only.

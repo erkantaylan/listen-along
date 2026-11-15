@@ -275,10 +275,10 @@ where lobby persistence broke entirely on deployed instances.
   playing song and puts new songs after it). Presence reports `{ type: 'radio' }`.
   Followers need nothing: `listen:sync` carries the song alone.
 - **Artists** (landing shelf, `/artists`, `/artist/<key>`): read-only song lists
-  per library artist, nothing stored. `artists.js` (`GET /api/artists`,
+  per library artist, nothing stored. `backend/src/features/artists/` (`GET /api/artists`,
   `GET /api/artists/:key/songs`, approved accounts by the guard's default, no
   tokens) puts a song on the page of EVERY artist its credit names, like
-  Spotify: `artistCredits.js` (pure, tested) splits a credit (always on ",",
+  Spotify: `artistCredits.ts` (pure, tested) splits a credit (always on ",",
   feat. / ft. / featuring, vs., lower-case x, ";", " / "; on "&" / "and" / "ve"
   only next to an artist known on their own elsewhere in the library and not
   before "the …" / "Sons"; names in its `BANDS` list never split) and keys each

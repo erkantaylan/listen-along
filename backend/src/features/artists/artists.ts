@@ -2,7 +2,7 @@
  * Artists: every artist in the music library as a read-only list of songs
  * (the landing page's "Artists" shelf, /artists and /artist/<key>). Nothing is
  * stored: an artist is every song whose credit names them. A credit is split
- * into its artists by artistCredits.js ("RAYE, 070 Shake" is on RAYE's page
+ * into its artists by artistCredits.ts ("RAYE, 070 Shake" is on RAYE's page
  * and on 070 Shake's; "Earth, Wind & Fire" stays one band), and each artist's
  * key is artistCredits.artistNameKey (folded, channel suffixes dropped, no
  * spaces), so "Barış Manço", "barismanco" and "Barış Manço - Topic" are one
@@ -20,42 +20,81 @@
  * Approved accounts only: the guard's default for /api/... (policyFor in
  * userAuth.js); CLI tokens do not get in.
  */
-const express = require('express');
-const db = require('./db');
-const { OPEN_REPORT_EXISTS_SQL } = require('./songReports');
-const { splitArtistCredit, knownArtistKeys, MAX_KEY } = require('./artistCredits');
-const { toStationSong } = require('./features/radio/index.ts');
+import express from 'express';
+import type { Request, Response, Router } from 'express';
+import dbModule from '../../db.js';
+import { OPEN_REPORT_EXISTS_SQL } from '../../songReports.js';
+import { splitArtistCredit, knownArtistKeys, MAX_KEY } from './artistCredits.ts';
+import type { CreditedArtist } from './artistCredits.ts';
+// The radio's lean song row. A feature importing another feature: the row
+// belongs with the library (core) once it moves.
+import { toStationSong } from '../radio/index.ts';
+import type { StationSong, StationSongRow } from '../radio/index.ts';
+import type { Db, LibrarySongRow } from '../../shared/types.ts';
+
+// The live module object: tests replace its functions.
+const db: Db = dbModule;
+
+/** The library columns the artist pages read. */
+export type ArtistSongRow = StationSongRow & Pick<LibrarySongRow, 'created_at'>;
+
+/** One artist: every song its credit names it in (rows), and what the list shows of it. */
+export interface ArtistGroup<R extends GroupableRow = ArtistSongRow> extends ArtistSummary {
+  rows: R[];
+}
+
+/** One artist in GET /api/artists. */
+export interface ArtistSummary {
+  key: string;
+  name: string;
+  count: number;
+  duration_sec: number;
+  cover_youtube_id: string | null;
+}
+
+/** GET /api/artists/:key/songs */
+export interface ArtistSongs extends ArtistSummary {
+  songs: StationSong[];
+}
+
+/** What groupArtists reads of a row (the tests pass a few fields only). */
+export interface GroupableRow {
+  artist?: string | null;
+  duration_sec?: number | string | null;
+  youtube_id?: string | null;
+  created_at?: Date | string | number | null;
+}
 
 /**
  * Every distinct credit of the library -> its artists ([{ key, name }]). A
  * library repeats the same few hundred credit strings, so each is split once;
  * "&" splits depend on the whole library (artistCredits.knownArtistKeys).
  */
-function creditArtists(rows) {
-  const credits = new Map();
+function creditArtists(rows: GroupableRow[]): Map<string, CreditedArtist[]> {
+  const credits = new Map<string, CreditedArtist[] | null>();
   for (const row of rows) credits.set(String(row.artist ?? ''), null);
   const known = knownArtistKeys(credits.keys());
-  const isKnown = (key) => known.has(key);
+  const isKnown = (key: string) => known.has(key);
   for (const credit of credits.keys()) credits.set(credit, splitArtistCredit(credit, isKnown));
-  return credits;
+  return credits as Map<string, CreditedArtist[]>;
 }
 
-const byTitle = (a, b) => String(a.title).localeCompare(String(b.title), 'tr', { sensitivity: 'base', numeric: true })
+const byTitle = (a: StationSongRow, b: StationSongRow) => String(a.title).localeCompare(String(b.title), 'tr', { sensitivity: 'base', numeric: true })
   || String(a.id).localeCompare(String(b.id));
 
 /**
  * rows (library_songs: id, youtube_id, title, artist, duration_sec, sha256,
  * created_at) -> Map key -> { key, name, count, duration_sec, cover_youtube_id, rows }.
- * A song is in the group of every artist its credit names (artistCredits.js)
+ * A song is in the group of every artist its credit names (artistCredits.ts)
  * and keeps its full credit; songs whose credit names nobody are left out.
  * The name is the spelling most of the artist's songs use (ties: the
  * shorter, then A-Z); the cover is the newest song with a YouTube id.
  */
-function groupArtists(rows) {
+export function groupArtists<R extends GroupableRow>(rows: R[]): Map<string, ArtistGroup<R>> {
   const credits = creditArtists(rows);
-  const groups = new Map();
+  const groups = new Map<string, { key: string; names: Map<string, number>; rows: R[]; duration_sec: number; cover: { id: string; at: number } | null }>();
   for (const row of rows) {
-    for (const { key, name } of credits.get(String(row.artist ?? ''))) {
+    for (const { key, name } of credits.get(String(row.artist ?? '')) as CreditedArtist[]) {
       let g = groups.get(key);
       if (!g) {
         g = { key, names: new Map(), rows: [], duration_sec: 0, cover: null };
@@ -70,7 +109,7 @@ function groupArtists(rows) {
       }
     }
   }
-  const out = new Map();
+  const out = new Map<string, ArtistGroup<R>>();
   for (const g of groups.values()) {
     const name = [...g.names.entries()]
       .sort((a, b) => (b[1] - a[1]) || (a[0].length - b[0].length) || a[0].localeCompare(b[0], 'tr'))[0][0];
@@ -86,32 +125,32 @@ function groupArtists(rows) {
   return out;
 }
 
-const summaryOf = ({ key, name, count, duration_sec, cover_youtube_id }) => ({ key, name, count, duration_sec, cover_youtube_id });
+const summaryOf = ({ key, name, count, duration_sec, cover_youtube_id }: ArtistSummary): ArtistSummary => ({ key, name, count, duration_sec, cover_youtube_id });
 
 /** Artists, most songs first, then A-Z (Turkish alphabet). */
-function listArtists(groups) {
+export function listArtists(groups: Map<string, ArtistSummary>): ArtistSummary[] {
   return [...groups.values()]
     .sort((a, b) => (b.count - a.count) || a.name.localeCompare(b.name, 'tr', { sensitivity: 'base', numeric: true }) || a.key.localeCompare(b.key))
     .map(summaryOf);
 }
 
-async function loadGroups() {
-  const r = await db.query(
+async function loadGroups(): Promise<Map<string, ArtistGroup>> {
+  const r = await db.query<ArtistSongRow>(
     `SELECT id, youtube_id, title, artist, duration_sec, sha256, created_at FROM library_songs WHERE NOT ${OPEN_REPORT_EXISTS_SQL}`
   );
   return groupArtists(r.rows);
 }
 
-function createArtistRouter() {
+export function createArtistRouter(): Router {
   const router = express.Router();
-  const route = (load) => async (req, res) => {
+  const route = <B>(load: (req: Request<{ key?: string }>) => Promise<B | null>) => async (req: Request<{ key?: string }>, res: Response) => {
     if (!db.isAvailable()) return res.status(503).json({ error: 'The music library needs a database' });
     try {
       const body = await load(req);
       if (!body) return res.status(404).json({ error: 'Unknown artist' });
       res.json(body);
     } catch (err) {
-      console.error('[artists] error:', err.message);
+      console.error('[artists] error:', (err as Error).message);
       res.status(500).json({ error: 'Failed to load artists' });
     }
   };
@@ -119,7 +158,7 @@ function createArtistRouter() {
     const artists = listArtists(await loadGroups());
     return { count: artists.length, artists };
   }));
-  router.get('/api/artists/:key/songs', route(async (req) => {
+  router.get('/api/artists/:key/songs', route(async (req): Promise<ArtistSongs | null> => {
     const key = String(req.params.key || '');
     if (!key || key.length > MAX_KEY) return null;
     const g = (await loadGroups()).get(key);
@@ -128,5 +167,3 @@ function createArtistRouter() {
   }));
   return router;
 }
-
-module.exports = { createArtistRouter, groupArtists, listArtists };

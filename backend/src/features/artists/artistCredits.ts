@@ -1,5 +1,5 @@
 /**
- * Artist credits -> individual artists, for the Artists pages (artists.js).
+ * Artist credits -> individual artists, for the Artists pages (artists.ts).
  * Pure, no DB. A song crediting several artists is listed on each one's page,
  * as on Spotify. This is NOT duplicate detection: songMatch.normalizeArtist
  * (the primary artist only, part of meta_key) stays as it is.
@@ -32,13 +32,19 @@
  * no leading "the" — for a single artist the same key normalizeArtist gives,
  * so /artist/barismanco keeps working.
  */
-const { fold } = require('./songMatch');
+import { fold } from '../../songMatch.js';
 
-const MAX_KEY = 200;
+export const MAX_KEY = 200;
+
+/** One artist of a credit: its key (artistNameKey) and its name as written, channel suffixes dropped. */
+export interface CreditedArtist {
+  key: string;
+  name: string;
+}
 
 // Band names containing a separator, compared by key. Only names the rules
 // above would get wrong: "X & the Ys", "X & Sons" and the like need no entry.
-const BANDS = [
+export const BANDS: string[] = [
   'Earth, Wind & Fire', 'Tyler, The Creator', 'Crosby, Stills, Nash & Young', 'Crosby, Stills & Nash',
   'Emerson, Lake & Palmer', 'Blood, Sweat & Tears', 'Peter, Paul and Mary', 'Lambert, Hendricks & Ross',
   'Dave Dee, Dozy, Beaky, Mick & Tich', 'Simon & Garfunkel', 'Hall & Oates', 'Daryl Hall & John Oates',
@@ -55,18 +61,18 @@ const TAIL_ALONE = new Set([
   'company', 'co', 'men', 'boys', 'girls', 'dostlar', 'arkadaslari', 'orkestrasi', 'orkestra', 'grubu',
 ]);
 
-function squash(s) {
+function squash(s: string): string {
   return s.replace(/&/g, ' and ').replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim();
 }
 
 /** One artist's key: "Barış Manço" -> "barismanco", "The Beatles" -> "beatles". */
-function artistNameKey(name) {
+export function artistNameKey(name: string): string {
   return squash(fold(name)).replace(/^the /, '').replace(/ /g, '').slice(0, MAX_KEY);
 }
 
 const BAND_KEYS = new Set(BANDS.map(artistNameKey));
 
-function stripSuffixes(s) {
+function stripSuffixes(s: string): string {
   return s.trim()
     .replace(/\s*-\s*topic$/i, '')
     .replace(/\s*vevo$/i, '')
@@ -82,10 +88,16 @@ const X_RE = /(?<=[\p{L}\p{N}.)])\s+[x×]\s+(?=[\p{L}\p{N}])/u;
 // "," (step 5) or "&" / "and" / "ve" (step 6), captured so we know which.
 const LIST_RE = /(\s*,\s*|\s+&\s+|\s+and\s+|\s+ve\s+)/i;
 
+/** A run of a strong piece and the separator before it (null for the first). */
+interface Unit {
+  text: string;
+  sep: string | null;
+}
+
 /** Step 2: the credit without brackets, plus the bracketed credits. */
-function takeBrackets(credit) {
-  const extra = [];
-  const rest = credit.replace(/[(\[{]([^()\[\]{}]*)[)\]}]/g, (m, inner) => {
+function takeBrackets(credit: string): string[] {
+  const extra: string[] = [];
+  const rest = credit.replace(/[(\[{]([^()\[\]{}]*)[)\]}]/g, (m, inner: string) => {
     const f = FEAT_INNER_RE.exec(inner.trim());
     if (f) extra.push(f[1]);
     return ' ';
@@ -98,11 +110,11 @@ function takeBrackets(credit) {
  * is the separator before the unit (null for the first). Runs of tokens that
  * spell a name in BANDS are merged into one unit first (longest run wins).
  */
-function units(piece) {
+function units(piece: string): Unit[] {
   const parts = piece.split(LIST_RE);
-  const tokens = [];
+  const tokens: Unit[] = [];
   for (let i = 0; i < parts.length; i += 2) tokens.push({ text: parts[i], sep: i ? parts[i - 1] : null });
-  const out = [];
+  const out: Unit[] = [];
   for (let i = 0; i < tokens.length;) {
     let end = i;
     for (let j = tokens.length - 1; j > i; j--) {
@@ -116,21 +128,21 @@ function units(piece) {
   return out.filter((u) => u.text.trim());
 }
 
-const isComma = (sep) => sep.trim() === ',';
+const isComma = (sep: string): boolean => sep.trim() === ',';
 
-function isBandTail(text) {
+function isBandTail(text: string): boolean {
   const words = squash(fold(text)).split(' ').filter(Boolean);
   if (!words.length) return true;
   return TAIL_WORDS.has(words[0]) || (words.length === 1 && TAIL_ALONE.has(words[0]));
 }
 
-function cleanName(text) {
+function cleanName(text: string): string {
   return stripSuffixes(text.replace(/[(\[{][^()\[\]{}]*[)\]}]/g, ' ').replace(/\s+/g, ' ')) || text.trim();
 }
 
 /** Steps 1-3: the credit as strong pieces (bracketed credits included). */
-function strongPieces(credit) {
-  const out = [];
+function strongPieces(credit: unknown): string[] {
+  const out: string[] = [];
   for (const part of takeBrackets(stripSuffixes(String(credit ?? '')))) {
     for (const piece of part.split(STRONG_RE).flatMap((p) => p.split(X_RE))) {
       if (piece && piece.trim()) out.push(stripSuffixes(piece));
@@ -143,14 +155,13 @@ function strongPieces(credit) {
  * The individual artists a library knows on their own (step 6): every credit
  * cut at the always-split separators only; a part still holding "&" / "and"
  * / "ve" (and not a name in BANDS) is not an individual, so it does not count.
- * @param {Iterable<string>} credits
- * @returns {Set<string>} keys
+ * @returns keys
  */
-function knownArtistKeys(credits) {
-  const known = new Set();
+export function knownArtistKeys(credits: Iterable<string>): Set<string> {
+  const known = new Set<string>();
   for (const credit of credits) {
     for (const piece of strongPieces(credit)) {
-      let group = [];
+      let group: Unit[] = [];
       const flush = () => {
         if (group.length === 1) {
           const key = artistNameKey(cleanName(group[0].text));
@@ -171,25 +182,26 @@ function knownArtistKeys(credits) {
 /**
  * A credit -> its artists, in credit order, one per key:
  * [{ key, name }] (name: as written, channel suffixes dropped).
- * @param {string} credit
- * @param {(key: string) => boolean} [isKnown] known individual artists (knownArtistKeys)
+ * @param isKnown known individual artists (knownArtistKeys)
  */
-function splitArtistCredit(credit, isKnown = () => false) {
-  const names = [];
+export function splitArtistCredit(credit: string | null | undefined, isKnown: (key: string) => boolean = () => false): CreditedArtist[] {
+  const names: string[] = [];
   for (const piece of strongPieces(credit)) {
-    let current = null; // the artist being built
-    let last = null;    // its last unit: the left side of an "&"
-    const known = (text) => isKnown(artistNameKey(cleanName(text)));
+    let current: string | null = null; // the artist being built
+    let last: string | null = null;    // its last unit: the left side of an "&"
+    const known = (text: string) => isKnown(artistNameKey(cleanName(text)));
     for (const u of units(piece)) {
       if (current === null) { current = last = u.text; continue; }
-      const split = isComma(u.sep) || (!isBandTail(u.text) && (known(u.text) || known(last)));
-      if (split) { names.push(current); current = u.text; } else current += u.sep + u.text;
+      // After the first unit every unit has its separator, and `last` is set.
+      const sep = u.sep as string;
+      const split = isComma(sep) || (!isBandTail(u.text) && (known(u.text) || known(last as string)));
+      if (split) { names.push(current); current = u.text; } else current += sep + u.text;
       last = u.text;
     }
     if (current !== null) names.push(current);
   }
-  const seen = new Set();
-  const out = [];
+  const seen = new Set<string>();
+  const out: CreditedArtist[] = [];
   for (const raw of names) {
     const name = cleanName(raw);
     const key = artistNameKey(name);
@@ -199,5 +211,3 @@ function splitArtistCredit(credit, isKnown = () => false) {
   }
   return out;
 }
-
-module.exports = { splitArtistCredit, knownArtistKeys, artistNameKey, BANDS, MAX_KEY };
