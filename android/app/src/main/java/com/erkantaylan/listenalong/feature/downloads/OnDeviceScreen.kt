@@ -70,7 +70,7 @@ fun OnDeviceScreen(
     val asSongs = remember(songs) { state.asSongs }
     val totalBytes = state.totalBytes
 
-    Column(Modifier.fillMaxSize().background(Palette.page).semantics { testTagsAsResourceId = true }) {
+    Column(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }) {
         AppTopBar(
             title = "On device",
             subtitle = {
@@ -144,6 +144,7 @@ fun OnDeviceScreen(
                         durationSec = song.durationSec,
                         download = null,
                         current = nowPlaying.songId == song.songId,
+                        currentPlaying = nowPlaying.isPlaying,
                         extraMeta = "${song.displayName.substringAfterLast('.', "").uppercase()} · ${formatBytes(song.bytes)}",
                         onClick = { actions.play(asSongs, i, "On device", false) },
                         reportSong = asSongs[i],

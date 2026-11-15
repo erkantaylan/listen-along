@@ -7,6 +7,11 @@ import com.erkantaylan.listenalong.core.designsystem.ListGroupItem
 import com.erkantaylan.listenalong.core.designsystem.PrimaryButton
 import com.erkantaylan.listenalong.core.designsystem.SecondaryButton
 import com.erkantaylan.listenalong.core.designsystem.Thumb
+import com.erkantaylan.listenalong.core.designsystem.DownloadMark
+import com.erkantaylan.listenalong.core.designsystem.DownloadMarkIcon
+import com.erkantaylan.listenalong.core.designsystem.EqualizerIcon
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.text.font.FontWeight
 import com.erkantaylan.listenalong.core.designsystem.TitleAndMeta
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
@@ -64,6 +69,10 @@ fun SongRow(
     reportable: Boolean = reportSong != null,
     /** Extra muted lines under the row (the Broken list's reasons). */
     detail: String? = null,
+    /** The current row's song is sounding (its equaliser moves); paused, it stands still. */
+    currentPlaying: Boolean = true,
+    /** The row's cover (default: the placeholder). */
+    art: @Composable (Modifier) -> Unit = { Thumb(it) },
     menu: (@Composable ColumnScope.(dismiss: () -> Unit) -> Unit)? = null,
 ) {
     var sheet by remember { mutableStateOf(false) }
@@ -78,7 +87,7 @@ fun SongRow(
         index, count, modifier = Modifier.testTag(tag), current = current, onClick = onClick,
         onLongClick = if (fullMenu != null) { { sheet = true } } else null,
     ) {
-        Thumb(playing = current)
+        art(Modifier.alpha(if (enabled) 1f else 0.45f))
         val meta = listOfNotNull(
             artist.takeIf { it.isNotBlank() && it != "Unknown" },
             formatDuration(durationSec).takeIf { it.isNotEmpty() },
@@ -88,10 +97,13 @@ fun SongRow(
             title = title.ifBlank { "Untitled" },
             meta = meta,
             titleColor = when {
-                !enabled -> Palette.fg4
                 current -> Palette.accentFgStrong
+                !enabled -> Palette.fg3
                 else -> Palette.fg
             },
+            titleWeight = if (current) FontWeight.SemiBold else FontWeight.Normal,
+            titleLeading = if (current) { { EqualizerIcon(playing = currentPlaying) } } else null,
+            metaLeading = if (download is DownloadState.Done) { { DownloadMarkIcon(DownloadMark.Downloaded, size = 14.dp, label = "On this device") } } else null,
             extra = if (download != null || detail != null) {
                 {
                     download?.let { DownloadLine(it) }
@@ -139,7 +151,7 @@ fun DownloadButton(state: DownloadState, onDownload: (() -> Unit)?, onCancel: ((
         }
         is DownloadState.Queued, is DownloadState.InProgress -> {
             val fraction = (state as? DownloadState.InProgress)?.fraction
-            IconButton(onClick = { onCancel?.invoke() }, modifier = Modifier.size(40.dp).testTag("cancel-download")) {
+            IconButton(onClick = { onCancel?.invoke() }, modifier = Modifier.size(48.dp).testTag("cancel-download")) {
                 Box(contentAlignment = Alignment.Center) {
                     if (fraction != null) {
                         CircularProgressIndicator(
@@ -155,10 +167,8 @@ fun DownloadButton(state: DownloadState, onDownload: (() -> Unit)?, onCancel: ((
                 }
             }
         }
-        is DownloadState.Done -> Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
-            Icon(AppIcons.DownloadDone, contentDescription = "On this device", tint = Palette.success,
-                 modifier = Modifier.size(20.dp).testTag("downloaded"))
-        }
+        // On the phone: the downloaded mark in the row's muted line says it (Spotify's green circle).
+        is DownloadState.Done -> Unit
     }
 }
 

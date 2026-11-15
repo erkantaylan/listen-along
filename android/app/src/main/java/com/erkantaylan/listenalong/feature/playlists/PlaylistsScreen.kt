@@ -1,5 +1,14 @@
 package com.erkantaylan.listenalong.feature.playlists
 
+import com.erkantaylan.listenalong.core.designsystem.CoverTile
+import com.erkantaylan.listenalong.core.designsystem.Dimens
+import com.erkantaylan.listenalong.core.designsystem.EqualizerIcon
+import com.erkantaylan.listenalong.core.designsystem.Segment
+import com.erkantaylan.listenalong.core.designsystem.SegmentedControl
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.graphics.Color
 import com.erkantaylan.listenalong.core.designsystem.ButtonShape
 import com.erkantaylan.listenalong.core.designsystem.CardShape
 import com.erkantaylan.listenalong.core.designsystem.DialogDismiss
@@ -108,6 +117,7 @@ internal sealed interface PlaylistDialog {
 fun PlaylistsScreen(
     viewModel: PlaylistsViewModel,
     online: Boolean,
+    nowPlaying: NowPlaying,
     actions: AppActions,
     onOpenPlaylist: (String) -> Unit,
 ) {
@@ -115,8 +125,8 @@ fun PlaylistsScreen(
     var creating by remember { mutableStateOf(false) }
     LaunchedEffect(viewModel) { viewModel.opened.collect { onOpenPlaylist(it) } }
 
-    Box(Modifier.fillMaxSize().background(Palette.page).semantics { testTagsAsResourceId = true }) {
-        PlaylistList(viewModel, online, actions, onNew = { creating = true }, onOpen = onOpenPlaylist, onDialog = { dialog = it })
+    Box(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }) {
+        PlaylistList(viewModel, online, nowPlaying, actions, onNew = { creating = true }, onOpen = onOpenPlaylist, onDialog = { dialog = it })
     }
 
     if (creating) {
@@ -197,6 +207,7 @@ internal fun PlaylistDialogHost(
 private fun PlaylistList(
     viewModel: PlaylistsViewModel,
     online: Boolean,
+    nowPlaying: NowPlaying,
     actions: AppActions,
     onNew: () -> Unit,
     onOpen: (String) -> Unit,
@@ -237,14 +248,38 @@ private fun PlaylistList(
                 onRefresh = { viewModel.refresh() },
                 modifier = Modifier.fillMaxSize(),
             ) {
-                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 12.dp, bottom = 16.dp)) {
+                val shown = state.shown
+                LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 4.dp, bottom = 16.dp)) {
+                    item(key = "filters") {
+                        SegmentedControl(
+                            segments = OwnerFilter.entries.map { Segment(it.label, "filter:${it.name.lowercase()}") },
+                            selected = state.filter.ordinal,
+                            onSelect = { viewModel.setFilter(OwnerFilter.entries[it]) },
+                            fill = true,
+                            modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+                        )
+                    }
                     if (state.error != null) {
                         item(key = "error") {
                             Alert(state.error!!, AlertKind.DANGER, Modifier.padding(start = 12.dp, end = 12.dp, bottom = 10.dp))
                         }
                     }
-                    itemsIndexed(state.playlists, key = { _, p -> p.id }) { i, playlist ->
-                        PlaylistRow(i, state.playlists.size, playlist, readOnly,
+                    if (shown.isEmpty()) {
+                        item(key = "none") {
+                            EmptyState(
+                                when (state.filter) {
+                                    OwnerFilter.MINE -> "You have no playlists"
+                                    OwnerFilter.PRIVATE -> "You have no private playlists"
+                                    OwnerFilter.PUBLIC -> "No public playlists"
+                                    OwnerFilter.ALL -> "No playlists"
+                                },
+                                icon = AppIcons.QueueMusic,
+                            ) { SecondaryButton("Show all", { viewModel.setFilter(OwnerFilter.ALL) }, tag = "show-all") }
+                        }
+                    }
+                    items(shown, key = { p -> p.id }) { playlist ->
+                        PlaylistRow(playlist, readOnly, playingFrom = nowPlaying.context,
+                                    playing = nowPlaying.isPlaying,
                                     onOpen = { onOpen(playlist.id) },
                                     onToggleVisibility = { viewModel.toggleVisibility(playlist) },
                                     onDialog = onDialog)
@@ -255,39 +290,76 @@ private fun PlaylistList(
     }
 }
 
+/**
+ * A playlist in the list (the web sidebar's row): its cover of initials,
+ * the name over a muted line (a lock on private ones, owner, songs), ⋮.
+ * Separate rounded rows, no dividers. The playlist playing now has the
+ * accent tint, the equaliser and an accent title, never an edge.
+ */
 @Composable
-private fun PlaylistRow(
-    index: Int,
-    count: Int,
+internal fun PlaylistRow(
     playlist: Playlist,
     readOnly: Boolean,
+    playingFrom: String?,
+    playing: Boolean,
     onOpen: () -> Unit,
     onToggleVisibility: () -> Unit,
     onDialog: (PlaylistDialog) -> Unit,
+    meta: List<String> = listOfNotNull(
+        playlist.ownerLine,
+        if (playlist.songCount == 1) "1 song" else "${playlist.songCount} songs",
+        playlist.userCount.takeIf { it > 0 }?.let { "$it listening" },
+    ),
+    metaLeading: (@Composable () -> Unit)? = null,
+    menu: Boolean = true,
 ) {
-    ListGroupItem(index, count, modifier = Modifier.testTag("playlist:${playlist.id}"), onClick = onOpen) {
-        Box(Modifier.size(44.dp).clip(RoundedCornerShape(6.dp)).background(Palette.bg3), contentAlignment = Alignment.Center) {
-            Icon(AppIcons.QueueMusic, contentDescription = null, tint = Palette.fg2, modifier = Modifier.size(22.dp))
-        }
+    val current = playingFrom != null && playingFrom == playlist.displayName
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 1.dp)
+            .clip(RoundedCornerShape(Dimens.controlRadius))
+            .background(
+                when {
+                    current -> Palette.accentSubtle
+                    pressed -> Palette.pressed
+                    else -> Color.Transparent
+                }
+            )
+            .clickable(interactionSource = interaction, indication = null, onClick = onOpen)
+            .heightIn(min = 64.dp)
+            .padding(start = 8.dp, top = 8.dp, bottom = 8.dp)
+            .testTag("playlist:${playlist.id}"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CoverTile(playlist.id, playlist.displayName, size = 48.dp)
         Column(Modifier.weight(1f).padding(start = 12.dp, end = 4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(playlist.displayName, color = Palette.fg, fontSize = 15.sp, maxLines = 1,
-                     overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                if (playlist.isPrivate) {
+                if (current) {
+                    EqualizerIcon(playing)
                     Spacer(Modifier.width(6.dp))
-                    SubtleBadge("Private", AppIcons.Lock, tag = "private-badge")
                 }
+                Text(playlist.displayName, color = if (current) Palette.accentFgStrong else Palette.fg, fontSize = 15.sp,
+                     fontWeight = if (current) FontWeight.SemiBold else FontWeight.Medium,
+                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Text(
-                listOfNotNull(
-                    playlist.ownerLine,
-                    if (playlist.songCount == 1) "1 song" else "${playlist.songCount} songs",
-                    playlist.userCount.takeIf { it > 0 }?.let { "$it listening" },
-                ).joinToString(" · "),
-                color = Palette.fg3, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (metaLeading != null) {
+                    metaLeading()
+                    Spacer(Modifier.width(5.dp))
+                }
+                if (playlist.isPrivate) {
+                    Icon(AppIcons.Lock, contentDescription = "Private", tint = Palette.fg3,
+                         modifier = Modifier.size(13.dp).testTag("private-badge"))
+                    Spacer(Modifier.width(4.dp))
+                }
+                Text(meta.joinToString(" · "), color = Palette.fg3, fontSize = 13.sp, maxLines = 1,
+                     overflow = TextOverflow.Ellipsis)
+            }
         }
-        PlaylistMenu(playlist, readOnly, onToggleVisibility, onDialog)
+        if (menu) PlaylistMenu(playlist, readOnly, onToggleVisibility, onDialog)
     }
 }
 

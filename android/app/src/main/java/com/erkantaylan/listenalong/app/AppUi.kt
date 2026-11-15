@@ -195,7 +195,7 @@ fun AppUi(
                     navigation<PlaylistsGraph>(startDestination = PlaylistsRoute) {
                         composable<PlaylistsRoute> {
                             PlaylistsScreen(
-                                viewModel(factory = AppViewModels.playlists(container)), online, actions,
+                                viewModel(factory = AppViewModels.playlists(container)), online, nowPlaying, actions,
                                 onOpenPlaylist = { id -> nav.navigate(PlaylistRoute(id)) },
                             )
                         }

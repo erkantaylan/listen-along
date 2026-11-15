@@ -174,7 +174,8 @@ class PlayerConnection(private val context: Context) : PlayerControls {
         _state.value = NowPlaying(
             songId = item.mediaId,
             title = (meta.title ?: item.mediaMetadata.title)?.toString().orEmpty(),
-            artist = (meta.artist ?: item.mediaMetadata.artist)?.toString().orEmpty(),
+            // The server's placeholder artist means "none" (as MediaItems and the lists treat it).
+            artist = (meta.artist ?: item.mediaMetadata.artist)?.toString().orEmpty().takeIf { it != "Unknown" }.orEmpty(),
             context = extras?.getString(EXTRA_CONTEXT),
             isPlaying = player.isPlaying,
             buffering = player.playbackState == Player.STATE_BUFFERING,

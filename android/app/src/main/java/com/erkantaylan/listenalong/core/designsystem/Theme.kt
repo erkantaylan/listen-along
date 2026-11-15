@@ -9,6 +9,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 
@@ -63,7 +64,7 @@ object Palette {
     val borderHover = Color(0xFF8C939C)
 
     // --- Accent (cornflower blue), used as a fill with dark text. ---
-    /** `--app-accent`: primary buttons, the play pill, the playing edge, seek fill. */
+    /** `--app-accent`: primary buttons, the play pill, seek fill. */
     val accent = Color(0xFF7CACEE)
     val accentHover = Color(0xFF97BDF2)
     val accentPressed = Color(0xFF6A9DE3)
@@ -102,6 +103,55 @@ object Palette {
 
     /** `--app-backdrop` behind dialogs and sheets. */
     val backdrop = Color(0x990A0B0C)
+
+    // --- Placeholder covers (`--app-cover-1` … `-6`): a playlist's initials sit on one, picked by
+    // PlaylistCover.index(id) exactly as the web does, so a playlist has the same colour everywhere.
+    // `fg` on each is >= 4.61:1.
+    val cover1 = Color(0xFF49699A)
+    val cover2 = Color(0xFF795B9A)
+    val cover3 = Color(0xFF34716E)
+    val cover4 = Color(0xFF895E41)
+    val cover5 = Color(0xFF8A4D6B)
+    val cover6 = Color(0xFF4E713F)
+    val covers = listOf(cover1, cover2, cover3, cover4, cover5, cover6)
+
+    /** The cover colour for a playlist id (1-based index from [PlaylistCover.index]). */
+    fun coverFor(id: String?): Color = covers[PlaylistCover.index(id) - 1]
+}
+
+/**
+ * The web's shell and spacing tokens. Bootstrap 6's fine spacing scale
+ * (`1` = 4dp … `7` = 24dp), the gap between the app's rounded panels on a
+ * phone (`--app-gap`, 0.375rem below 768px) and the radii.
+ */
+object Dimens {
+    val space1 = 4.dp
+    val space2 = 6.dp
+    val space3 = 8.dp
+    val space4 = 12.dp
+    val space5 = 16.dp
+    val space6 = 20.dp
+    val space7 = 24.dp
+
+    /** `--app-gap` on phones: between and around the shell's panels. */
+    val gap = 6.dp
+    /** `--app-panel-radius`: a shell panel, a card. */
+    val panelRadius = 12.dp
+    /** `--bs-radius-5`: buttons, inputs, the segmented control, covers. */
+    val controlRadius = 8.dp
+    /** Badges. */
+    val badgeRadius = 6.dp
+    /** The smallest touch target anywhere. */
+    val touchTarget = 48.dp
+}
+
+/** The web's font sizes: `fs-xs` 12, `fs-sm` 14, `fs-md` 16 (body), `fs-lg` 18 (page titles), `fs-xl` 24. */
+object TextSizes {
+    val xs = 12.sp
+    val sm = 14.sp
+    val md = 16.sp
+    val lg = 18.sp
+    val xl = 24.sp
 }
 
 private val colors = darkColorScheme(

@@ -67,6 +67,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 
 /*
  * The handful of building blocks every screen is made of, each one a
@@ -87,28 +89,44 @@ fun Modifier.clickableNoRipple(onClick: () -> Unit): Modifier =
         onClick = onClick,
     )
 
-/** `nav.navbar.app-navbar`: back button or nothing, a small title, actions on the right. */
+/**
+ * A shell panel (the web's `--app-panel-radius` surfaces): the page, the
+ * player bar, the tabs. No outline: the gap on the page colour sets it apart.
+ */
+@Composable
+fun Panel(modifier: Modifier = Modifier, color: Color = Palette.surface, content: @Composable () -> Unit) {
+    Box(modifier.clip(RoundedCornerShape(Dimens.panelRadius)).background(color)) { content() }
+}
+
+/**
+ * The page panel's head (`nav.navbar.app-navbar` in the signed-in app): back
+ * button or nothing, the title a size up (`fs-lg`, semibold), a muted line,
+ * actions on the right. The same surface as the panel, no rule under it.
+ */
 @Composable
 fun AppTopBar(
     title: String,
     subtitle: (@Composable () -> Unit)? = null,
     onBack: (() -> Unit)? = null,
+    /** Before the title (a playlist's cover). */
+    leading: (@Composable () -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
-    Column(Modifier.fillMaxWidth().background(Palette.surface)) {
-        Row(
-            Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = if (onBack == null) 16.dp else 4.dp, end = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (onBack != null) IconAction(AppIcons.Back, "Back", onClick = onBack, tag = "back")
-            Column(Modifier.weight(1f).padding(vertical = 8.dp, horizontal = if (onBack != null) 4.dp else 0.dp)) {
-                Text(title, style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
-                     color = Palette.fg, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                subtitle?.invoke()
-            }
-            actions()
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 60.dp)
+            .padding(start = if (onBack == null) Dimens.space5 else Dimens.space1, end = Dimens.space1, top = Dimens.space1),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (onBack != null) IconAction(AppIcons.Back, "Back", onClick = onBack, tag = "back")
+        if (leading != null) {
+            Box(Modifier.padding(start = if (onBack != null) 4.dp else 0.dp, end = 8.dp)) { leading() }
         }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.border))
+        Column(Modifier.weight(1f).padding(vertical = 6.dp, horizontal = if (onBack != null) 4.dp else 0.dp)) {
+            Text(title, color = Palette.fg, fontSize = TextSizes.lg, fontWeight = FontWeight.SemiBold, lineHeight = 24.sp,
+                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.semantics { heading() })
+            subtitle?.invoke()
+        }
+        actions()
     }
 }
 
@@ -338,22 +356,17 @@ fun SubtleBadge(text: String, icon: ImageVector? = null, tone: BadgeTone = Badge
     }
 }
 
-/** `.app-thumb`: a grey square with a music note (the web's placeholder cover). */
+/** `.app-thumb`: a grey square with a music note (the web's placeholder cover, also while a cover loads or when it fails). */
 @Composable
-fun Thumb(modifier: Modifier = Modifier, size: Dp = 44.dp, playing: Boolean = false) {
+fun Thumb(modifier: Modifier = Modifier, size: Dp = 48.dp) {
     Box(
         modifier
             .size(size)
-            .clip(RoundedCornerShape(6.dp))
-            .background(if (playing) Palette.accent else Palette.bg3),
+            .clip(RoundedCornerShape(Dimens.badgeRadius))
+            .background(Palette.pressed),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            if (playing) AppIcons.Play else AppIcons.MusicNote,
-            contentDescription = null,
-            tint = if (playing) Palette.onAccent else Palette.fg3,
-            modifier = Modifier.size(size * 0.5f),
-        )
+        Icon(AppIcons.MusicNote, contentDescription = null, tint = Palette.fg4, modifier = Modifier.size(size * 0.45f))
     }
 }
 
@@ -363,8 +376,8 @@ fun Thumb(modifier: Modifier = Modifier, size: Dp = 44.dp, playing: Boolean = fa
  * share of it: the first and last rows round the corners) and the same colour
  * divides the rows. Row states, all distinguishable:
  *  - pressed: grey `pressed` fill;
- *  - [current] (`.is-playing`): accent tint plus a 3dp accent edge on the left
- *    (the caller colours the title `accentFgStrong`);
+ *  - [current] (`.is-playing`): the accent tint only, never an edge (the
+ *    caller makes the title semibold `accentFgStrong` and shows the equaliser);
  *  - [lifted] (being dragged in edit mode): `pressed` fill (the caller adds the shadow).
  */
 @Composable
@@ -448,16 +461,31 @@ fun RowScope.TitleAndMeta(
     extra: (@Composable () -> Unit)? = null,
     /** Right after the title (the broken-song icon). */
     titleTrailing: (@Composable () -> Unit)? = null,
+    /** Before the title (the playing row's equaliser). */
+    titleLeading: (@Composable () -> Unit)? = null,
+    /** Before the muted line (the downloaded mark). */
+    metaLeading: (@Composable () -> Unit)? = null,
+    titleWeight: FontWeight = FontWeight.Normal,
 ) {
     Column(Modifier.weight(1f).padding(start = 12.dp, end = 4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(title, color = titleColor, fontSize = 15.sp, lineHeight = 20.sp, maxLines = 1,
+            if (titleLeading != null) {
+                titleLeading()
+                Spacer(Modifier.width(6.dp))
+            }
+            Text(title, color = titleColor, fontSize = 15.sp, lineHeight = 20.sp, maxLines = 1, fontWeight = titleWeight,
                  overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
             titleTrailing?.invoke()
         }
-        if (meta.isNotEmpty()) {
-            Text(meta, color = Palette.fg3, fontSize = 13.sp, lineHeight = 18.sp, maxLines = 1,
-                 overflow = TextOverflow.Ellipsis)
+        if (meta.isNotEmpty() || metaLeading != null) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (metaLeading != null) {
+                    metaLeading()
+                    Spacer(Modifier.width(5.dp))
+                }
+                Text(meta, color = Palette.fg3, fontSize = 13.sp, lineHeight = 18.sp, maxLines = 1,
+                     overflow = TextOverflow.Ellipsis)
+            }
         }
         extra?.invoke()
     }

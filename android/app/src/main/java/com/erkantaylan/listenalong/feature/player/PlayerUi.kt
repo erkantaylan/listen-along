@@ -1,6 +1,7 @@
 package com.erkantaylan.listenalong.feature.player
 
 import com.erkantaylan.listenalong.core.designsystem.AppIcons
+import com.erkantaylan.listenalong.core.designsystem.Dimens
 import com.erkantaylan.listenalong.core.designsystem.AppTopBar
 import com.erkantaylan.listenalong.core.designsystem.BadgeTone
 import com.erkantaylan.listenalong.core.designsystem.IconAction
@@ -131,15 +132,12 @@ private fun PlayPill(now: NowPlaying, size: Dp, onClick: () -> Unit) {
 @Composable
 fun MiniPlayer(now: NowPlaying, player: PlayerControls, onOpen: () -> Unit) {
     val position = rememberPosition(player, now)
-    Column(Modifier.fillMaxWidth().background(Palette.raised).testTag("mini-player")) {
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.border))
+    // The web's player bar on a phone: a rounded raised panel a gap above the
+    // tabs, the song and the transport on one row, a thin seek line under it.
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(Dimens.panelRadius)).background(Palette.raised).testTag("mini-player")) {
         val fraction = if (now.durationMs > 0) (position.toFloat() / now.durationMs).coerceIn(0f, 1f) else 0f
-        LinearProgressIndicator(
-            progress = { fraction }, color = Palette.accent, trackColor = Palette.bg4,
-            drawStopIndicator = {}, gapSize = 0.dp, modifier = Modifier.fillMaxWidth().height(2.dp),
-        )
         Row(
-            Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+            Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(start = 8.dp, end = 4.dp, top = 8.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Cover(now, 44.dp, 6.dp)
@@ -148,10 +146,15 @@ fun MiniPlayer(now: NowPlaying, player: PlayerControls, onOpen: () -> Unit) {
                      overflow = TextOverflow.Ellipsis)
                 Text(secondLine(now), color = Palette.fg3, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            IconAction(AppIcons.Previous, "Previous", tag = "mini:previous", onClick = player::previous)
+            IconAction(AppIcons.Previous, "Previous", tag = "mini:previous", size = 48.dp, onClick = player::previous)
             PlayPill(now, 46.dp, player::togglePlay)
-            IconAction(AppIcons.Next, "Next", tag = "mini:next", enabled = now.hasNext, onClick = player::next)
+            IconAction(AppIcons.Next, "Next", tag = "mini:next", enabled = now.hasNext, size = 48.dp, onClick = player::next)
         }
+        LinearProgressIndicator(
+            progress = { fraction }, color = Palette.accent, trackColor = Palette.bg4,
+            drawStopIndicator = {}, gapSize = 0.dp,
+            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 8.dp).height(3.dp).clip(RoundedCornerShape(2.dp)),
+        )
     }
 }
 
@@ -168,8 +171,10 @@ fun FullPlayer(now: NowPlaying, player: PlayerControls, onClose: () -> Unit) {
     }
     val reports = song?.let { LocalReports.current[it.id] }.orEmpty()
 
+    // A full-screen page panel over the shell, on the page colour like every panel.
     Column(
-        Modifier.fillMaxSize().background(Palette.page).testTag("full-player"),
+        Modifier.fillMaxSize().background(Palette.page).padding(Dimens.gap).clip(RoundedCornerShape(Dimens.panelRadius))
+            .background(Palette.surface).testTag("full-player"),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         AppTopBar(
@@ -232,14 +237,19 @@ fun FullPlayer(now: NowPlaying, player: PlayerControls, onClose: () -> Unit) {
                     dragging = false
                 },
                 enabled = duration > 0,
-                colors = SliderDefaults.colors(
-                    thumbColor = Palette.accent,
-                    activeTrackColor = Palette.accent,
-                    inactiveTrackColor = Palette.bg4,
-                    disabledThumbColor = Palette.fg4,
-                    disabledInactiveTrackColor = Palette.hover,
-                ),
-                modifier = Modifier.fillMaxWidth().testTag("player:seek"),
+                // The web's `.form-range`: a thin track filled with the accent and a round accent thumb.
+                thumb = {
+                    Box(Modifier.size(18.dp).clip(CircleShape).background(if (duration > 0) Palette.accent else Palette.fg4))
+                },
+                track = { state ->
+                    val f = if (state.valueRange.endInclusive > state.valueRange.start)
+                        ((state.value - state.valueRange.start) / (state.valueRange.endInclusive - state.valueRange.start)).coerceIn(0f, 1f)
+                    else 0f
+                    Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(Palette.bg4)) {
+                        Box(Modifier.fillMaxWidth(f).height(4.dp).background(Palette.accent))
+                    }
+                },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("player:seek"),
             )
             Row(Modifier.fillMaxWidth()) {
                 val at = if (dragging) (dragValue * duration).toLong() else position

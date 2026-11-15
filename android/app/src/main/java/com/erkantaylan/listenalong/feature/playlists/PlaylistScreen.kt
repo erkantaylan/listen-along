@@ -1,5 +1,6 @@
 package com.erkantaylan.listenalong.feature.playlists
 
+import com.erkantaylan.listenalong.core.designsystem.CoverTile
 import com.erkantaylan.listenalong.core.designsystem.ButtonShape
 import com.erkantaylan.listenalong.core.designsystem.CardShape
 import com.erkantaylan.listenalong.core.designsystem.DialogDismiss
@@ -112,7 +113,7 @@ fun PlaylistScreen(
     // Back in edit mode leaves edit mode; otherwise it leaves the page.
     BackHandler(enabled = state.editing) { viewModel.finishEditing() }
 
-    Box(Modifier.fillMaxSize().background(Palette.page).semantics { testTagsAsResourceId = true }) {
+    Box(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }) {
         PlaylistDetail(state, viewModel, snapshot, online, nowPlaying, actions, onBack, onDialog = { dialog = it })
     }
     PlaylistDialogHost(
@@ -175,6 +176,7 @@ private fun PlaylistDetail(
         AppTopBar(
             title = playlist?.displayName ?: "Playlist",
             onBack = if (editing) null else onBack,
+            leading = if (!editing && playlist != null) { { CoverTile(playlist.id, playlist.displayName, size = 40.dp) } } else null,
             subtitle = if (editing) {
                 { Text("Drag to reorder · ⊖ removes", color = Palette.fg3, fontSize = 12.sp, maxLines = 1) }
             } else if (playlist != null) {
@@ -185,8 +187,11 @@ private fun PlaylistDetail(
                             Spacer(Modifier.width(6.dp))
                         }
                         Text(
-                            listOf(playlist.ownerLine,
-                                   if (state.entries.size == 1) "1 song" else "${state.entries.size} songs").joinToString(" · "),
+                            listOfNotNull(
+                                playlist.ownerLine,
+                                if (state.entries.size == 1) "1 song" else "${state.entries.size} songs",
+                                totalLength(state.entries),
+                            ).joinToString(" · "),
                             color = Palette.fg3, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
                     }
@@ -267,6 +272,7 @@ private fun PlaylistDetail(
                             durationSec = entry.durationRaw?.let { Math.round(it).toInt() },
                             download = download,
                             current = song != null && nowPlaying.songId == song.id,
+                            currentPlaying = nowPlaying.isPlaying,
                             enabled = playable,
                             extraMeta = when {
                                 song == null -> "not in the library"
@@ -386,4 +392,17 @@ private fun EditableEntryRow(
                        tag = "remove:${entry.entryId}", tint = Palette.danger, onClick = onRemove)
         }
     }
+}
+
+/** The web's stats in the header's muted line: "48 min", "1 h 12 min", "35 sec"; null when no entry has a length. */
+internal fun totalLength(entries: List<com.erkantaylan.listenalong.core.model.PlaylistEntry>): String? {
+    val known = entries.mapNotNull { it.durationRaw }.filter { it > 0 }
+    if (known.isEmpty()) return null
+    val seconds = known.sum().toLong()
+    val text = when {
+        seconds < 60 -> "$seconds sec"
+        seconds < 3600 -> "${Math.round(seconds / 60.0)} min"
+        else -> "${seconds / 3600} h ${Math.round((seconds % 3600) / 60.0)} min"
+    }
+    return if (known.size < entries.count { it.playable }) "about $text" else text
 }

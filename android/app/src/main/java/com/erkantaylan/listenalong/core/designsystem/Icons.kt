@@ -135,4 +135,21 @@ object AppIcons {
         "remove_circle",
         "M12,2C6.48,2 2,6.48 2,12s4.48,10 10,10 10,-4.48 10,-10S17.52,2 12,2zm5,11H7v-2h10v2z",
     )
+    val Check = icon("check", "M9,16.17L4.83,12l-1.42,1.41L9,19 21,7l-1.41,-1.41z")
+    /** A filled circle with a down arrow: "this is downloaded" (Material download_for_offline). */
+    val DownloadedCircle = icon(
+        "download_for_offline",
+        "M12,2C6.49,2 2,6.49 2,12s4.49,10 10,10 10,-4.49 10,-10S17.51,2 12,2zM11,10V6h2v4h3l-4,4 -4,-4H11zM17,17H7v-2h10V17z",
+    )
+    /** The outlined circle with a down arrow: the playlist's Download switch while it is off. */
+    val DownloadCircleOutline = icon(
+        "download_circle_outline",
+        "M12,2C6.49,2 2,6.49 2,12s4.49,10 10,10 10,-4.49 10,-10S17.51,2 12,2zM12,20c-4.41,0 -8,-3.59 -8,-8s3.59,-8 8,-8 " +
+            "8,3.59 8,8 -3.59,8 -8,8zM14.59,8.59L16,10l-4,4 -4,-4 1.41,-1.41L11,10.17V6h2v4.17z",
+    )
+    val Wifi = icon(
+        "wifi",
+        "M1,9l2,2c4.97,-4.97 13.03,-4.97 18,0l2,-2C16.93,2.93 7.08,2.93 1,9zM9,17l3,3 3,-3c-1.65,-1.66 -4.34,-1.66 -6,0z" +
+            "M5,13l2,2c2.76,-2.76 7.24,-2.76 10,0l2,-2C15.14,9.14 8.87,9.14 5,13z",
+    )
 }

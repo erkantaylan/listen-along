@@ -80,7 +80,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, actions: AppActions) {
     }
 
     Column(
-        Modifier.fillMaxSize().background(Palette.page).semantics { testTagsAsResourceId = true }
+        Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }
     ) {
         AppTopBar("Settings")
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {

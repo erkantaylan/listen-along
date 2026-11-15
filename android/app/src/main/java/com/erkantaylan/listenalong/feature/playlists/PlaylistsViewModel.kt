@@ -25,16 +25,31 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+/** The web sidebar's filter (one at a time): the server's `isOwner` and `visibility`, never a guess. */
+enum class OwnerFilter(val label: String) { ALL("All"), MINE("Mine"), PUBLIC("Public"), PRIVATE("Private") }
+
 data class PlaylistsUi(
     val signedIn: Boolean = false,
     val playlists: List<Playlist> = emptyList(),
+    val filter: OwnerFilter = OwnerFilter.ALL,
     val loading: Boolean = false,
     val refreshing: Boolean = false,
     val error: String? = null,
     /** Showing the cached list: the server could not be reached. Read-only. */
     val fromCache: Boolean = false,
     val savedAt: Long? = null,
-)
+) {
+    /** The playlists the filter lets through, in the list's order (yours first). */
+    val shown: List<Playlist>
+        get() = playlists.filter {
+            when (filter) {
+                OwnerFilter.ALL -> true
+                OwnerFilter.MINE -> it.isOwner
+                OwnerFilter.PUBLIC -> !it.isPrivate
+                OwnerFilter.PRIVATE -> it.isPrivate
+            }
+        }
+}
 
 /**
  * The Playlists screen: the list (from [PlaylistRepository], which falls back
@@ -99,6 +114,11 @@ class PlaylistsViewModel(
                 _state.update { it.copy(loading = false, refreshing = false, error = PlaylistRepository.describe(t)) }
             }
         }
+    }
+
+    /** Picking the filter that is on, or All, shows everything. */
+    fun setFilter(filter: OwnerFilter) {
+        _state.update { it.copy(filter = if (it.filter == filter) OwnerFilter.ALL else filter) }
     }
 
     fun create(name: String, visibility: Visibility) = mutate("create the playlist") {

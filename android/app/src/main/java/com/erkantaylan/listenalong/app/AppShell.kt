@@ -25,7 +25,13 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.erkantaylan.listenalong.core.designsystem.Dimens
 import com.erkantaylan.listenalong.core.designsystem.Palette
+import com.erkantaylan.listenalong.core.designsystem.Panel
+import com.erkantaylan.listenalong.core.designsystem.TextSizes
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.semantics.Role
 
 /** The bottom tabs and the route each opens (a tab's whole back stack counts as that tab). */
 enum class Tab(val label: String, val icon: ImageVector, val tag: String, val route: Any) {
@@ -35,7 +41,12 @@ enum class Tab(val label: String, val icon: ImageVector, val tag: String, val ro
     SETTINGS("Settings", AppIcons.Tune, "tab:settings", SettingsRoute),
 }
 
-/** Content above, then the mini player (when something is loaded), then the tabs. */
+/**
+ * The web's app shell in its phone form: rounded panels floating on the page
+ * colour with a gap between them and around the edge (DESIGN.md "App
+ * shell"). The page panel holds the screen; under it the player bar (when
+ * something is loaded) and the row of places, here the bottom tabs.
+ */
 @Composable
 fun AppShell(
     selected: Tab,
@@ -44,14 +55,16 @@ fun AppShell(
     miniPlayer: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
-    Column(Modifier.fillMaxSize().background(Palette.page)) {
-        Box(Modifier.weight(1f).fillMaxWidth()) { content() }
+    Column(
+        Modifier.fillMaxSize().background(Palette.page).padding(Dimens.gap),
+        verticalArrangement = Arrangement.spacedBy(Dimens.gap),
+    ) {
+        Panel(Modifier.weight(1f).fillMaxWidth()) { content() }
         miniPlayer?.invoke()
-        Column(Modifier.fillMaxWidth().background(Palette.surface)) {
-            Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.border))
+        Panel(Modifier.fillMaxWidth()) {
             Row(
-                Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
+                Modifier.fillMaxWidth().padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Tab.entries.forEach { tab ->
                     TabButton(tab, tab == selected, badge(tab), Modifier.weight(1f)) { onSelect(tab) }
@@ -61,34 +74,36 @@ fun AppShell(
     }
 }
 
-/** A bottom tab: icon in an accent-tinted pill when active (the web's active toggle), label under it. */
+/**
+ * A place in the row (the web's `#app-places`): icon over a label; the place
+ * on screen is the accent tint with accent text, never an underline or a bar.
+ */
 @Composable
 private fun TabButton(tab: Tab, active: Boolean, badge: String?, modifier: Modifier, onClick: () -> Unit) {
-    val tint = if (active) Palette.accentFg else Palette.fg3
+    val tint = if (active) Palette.accentFgStrong else Palette.fg3
+    val shape = RoundedCornerShape(Dimens.controlRadius)
     Column(
-        modifier.testTag(tab.tag).clip(RoundedCornerShape(8.dp)).clickable(onClick = onClick).padding(vertical = 4.dp),
+        modifier
+            .testTag(tab.tag)
+            .clip(shape)
+            .background(if (active) Palette.accentSubtle else Palette.surface)
+            .selectable(selected = active, role = Role.Tab, onClick = onClick)
+            .heightIn(min = 56.dp)
+            .padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(3.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
     ) {
         Box(contentAlignment = Alignment.TopEnd) {
-            Box(
-                Modifier.clip(RoundedCornerShape(14.dp))
-                    .background(if (active) Palette.accentSubtle else Palette.surface)
-                    .border(1.dp, if (active) Palette.accentBorder else Palette.surface, RoundedCornerShape(14.dp))
-                    .padding(horizontal = 16.dp, vertical = 3.dp),
-            ) {
-                Icon(tab.icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
-            }
+            Icon(tab.icon, contentDescription = null, tint = tint, modifier = Modifier.padding(horizontal = 10.dp).size(22.dp))
             if (badge != null) {
                 Text(
                     badge, color = Palette.onAccent, fontSize = 10.sp, fontWeight = FontWeight.Bold,
                     modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(Palette.accent)
-                        .border(1.dp, Palette.surface, RoundedCornerShape(8.dp))
                         .padding(horizontal = 5.dp),
                 )
             }
         }
-        Text(tab.label, color = tint, fontSize = 12.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
+        Text(tab.label, color = tint, fontSize = TextSizes.xs, maxLines = 1,
+             fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium)
     }
 }
-

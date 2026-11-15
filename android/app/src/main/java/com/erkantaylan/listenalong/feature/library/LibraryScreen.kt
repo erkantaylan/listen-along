@@ -4,6 +4,8 @@ import com.erkantaylan.listenalong.core.designsystem.Alert
 import com.erkantaylan.listenalong.core.designsystem.AlertKind
 import com.erkantaylan.listenalong.core.designsystem.AppDropdownMenu
 import com.erkantaylan.listenalong.core.designsystem.AppIcons
+import com.erkantaylan.listenalong.core.designsystem.Segment
+import com.erkantaylan.listenalong.core.designsystem.SegmentedControl
 import com.erkantaylan.listenalong.core.designsystem.AppTopBar
 import com.erkantaylan.listenalong.core.designsystem.BadgeTone
 import com.erkantaylan.listenalong.core.designsystem.ButtonShape
@@ -103,7 +105,7 @@ fun LibraryScreen(
         if (state.brokenOnly) state.songs.filter { reports[it.id].orEmpty().isNotEmpty() } else state.songs
     }
 
-    Column(Modifier.fillMaxSize().background(Palette.page).semantics { testTagsAsResourceId = true }) {
+    Column(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }) {
         AppTopBar(
             title = "Library",
             subtitle = if (state.signedIn && state.total > 0) {
@@ -200,6 +202,7 @@ fun LibraryScreen(
                             durationSec = song.durationSec,
                             download = download,
                             current = nowPlaying.songId == song.id,
+                            currentPlaying = nowPlaying.isPlaying,
                             onClick = { actions.play(shown, i, label, false) },
                             onDownload = {
                                 actions.beforeDownload()
@@ -301,51 +304,18 @@ fun LibraryScreen(
     }
 }
 
-/** "All songs" / "Broken · n": the web library's Broken tab, as two toggle chips. */
+/** "All songs" / "Broken n": the web library's tabs, as its joined segmented control. */
 @Composable
 private fun BrokenFilter(brokenOnly: Boolean, count: Int, onChange: (Boolean) -> Unit) {
-    androidx.compose.foundation.layout.Row(
-        Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp),
-        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
-    ) {
-        FilterToggle("All songs", null, !brokenOnly, "filter:all") { onChange(false) }
-        FilterToggle("Broken", AppIcons.Warning, brokenOnly, "filter:broken", count.takeIf { it > 0 }) { onChange(true) }
-    }
-}
-
-@Composable
-private fun FilterToggle(
-    text: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector?,
-    selected: Boolean,
-    tag: String,
-    /** A warning count badge after the label (the web's Broken tab). */
-    count: Int? = null,
-    onClick: () -> Unit,
-) {
-    androidx.compose.foundation.layout.Row(
-        Modifier
-            .clip(ButtonShape)
-            .background(if (selected) Palette.accentSubtle else Palette.surface)
-            .border(1.dp, if (selected) Palette.accentBorder else Palette.borderStrong, ButtonShape)
-            .clickable(onClick = onClick)
-            .semantics { this.selected = selected; role = androidx.compose.ui.semantics.Role.Tab }
-            .heightIn(min = 34.dp)
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .testTag(tag),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (icon != null) {
-            androidx.compose.material3.Icon(icon, contentDescription = null,
-                tint = if (selected) Palette.accentFg else Palette.warning, modifier = Modifier.size(16.dp))
-            androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
-        }
-        Text(text, color = if (selected) Palette.accentFg else Palette.fg2, fontSize = 14.sp)
-        if (count != null) {
-            androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
-            SubtleBadge("$count", tone = BadgeTone.WARNING)
-        }
-    }
+    SegmentedControl(
+        segments = listOf(
+            Segment("All songs", "filter:all"),
+            Segment("Broken", "filter:broken", icon = AppIcons.Warning, count = count.takeIf { it > 0 }, countTone = BadgeTone.WARNING),
+        ),
+        selected = if (brokenOnly) 1 else 0,
+        onSelect = { onChange(it == 1) },
+        modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 10.dp),
+    )
 }
 
 /** `select.form-control` for the sort order, as an icon button with a menu. */
