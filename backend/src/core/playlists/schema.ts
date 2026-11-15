@@ -1,7 +1,8 @@
-// Playlists (table `lobbies`, internally still "lobby") and the per-user
-// sidebar pins. Run by shared/db.ts, in the order of its SCHEMA list.
-// Only the schema lives here so far; lobby.js, playlistAccess.js and
-// playlistPins.js move into this folder with the core.
+// Playlists (table `lobbies`, internally still "lobby"), the per-user
+// sidebar pins and the per-user sidebar folders (folders.ts). Run by
+// shared/db.ts, in the order of its SCHEMA list.
+// Of the code, only the folders live here so far; lobby.js, playlistAccess.js
+// and playlistPins.js move into this folder with the core.
 import type { Migration } from '../../shared/db.ts';
 
 export const tables: readonly string[] = [
@@ -23,6 +24,33 @@ export const tables: readonly string[] = [
       lobby_id VARCHAR(8) NOT NULL REFERENCES lobbies(id) ON DELETE CASCADE,
       pinned_at BIGINT NOT NULL,
       PRIMARY KEY (user_id, lobby_id)
+    )
+  `,
+  // Per-user sidebar folders (folders.ts). One level: a folder holds
+  // playlists. Goes with the user. (id, user_id) is unique so a filing row can
+  // name its folder AND its user, and so never point at another user's folder.
+  `
+    CREATE TABLE IF NOT EXISTS playlist_folders (
+      id UUID PRIMARY KEY,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name VARCHAR(50) NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at BIGINT NOT NULL,
+      UNIQUE (id, user_id)
+    )
+  `,
+  // Which folder a playlist is in, per user: at most one (the primary key).
+  // Goes with the user, the playlist (deleted) and the folder (deleted: the
+  // playlist is back at the top level). A playlist that went private keeps its
+  // row, hidden by the API, as a pin does.
+  `
+    CREATE TABLE IF NOT EXISTS playlist_folder_items (
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      lobby_id VARCHAR(8) NOT NULL REFERENCES lobbies(id) ON DELETE CASCADE,
+      folder_id UUID NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (user_id, lobby_id),
+      FOREIGN KEY (folder_id, user_id) REFERENCES playlist_folders(id, user_id) ON DELETE CASCADE
     )
   `,
 ];
@@ -75,4 +103,9 @@ export const migrations: readonly Migration[] = [
   },
 
   { sql: `CREATE INDEX IF NOT EXISTS idx_playlist_pins_lobby ON playlist_pins(lobby_id)`, mustSucceed: true },
+
+  // Playlist folders: a user's folders, a folder's playlists, and the cascade from a deleted playlist.
+  { sql: `CREATE INDEX IF NOT EXISTS idx_playlist_folders_user ON playlist_folders(user_id)`, mustSucceed: true },
+  { sql: `CREATE INDEX IF NOT EXISTS idx_playlist_folder_items_folder ON playlist_folder_items(folder_id)`, mustSucceed: true },
+  { sql: `CREATE INDEX IF NOT EXISTS idx_playlist_folder_items_lobby ON playlist_folder_items(lobby_id)`, mustSucceed: true },
 ];

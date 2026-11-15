@@ -28,7 +28,7 @@ describe('the schema list', () => {
         created.push(name);
       }
     }
-    assert.equal(created.length, 16);
+    assert.equal(created.length, 18);
   });
 
   it('a migration only references tables that exist by then (all tables run first)', () => {

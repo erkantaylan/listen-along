@@ -50,6 +50,7 @@ const { createProfileRouter } = require('./profileRoutes');
 const { createAdminRouter } = require('./adminRoutes');
 const { createAuthRoutes } = require('./authRoutes');
 const { createPlaylistRoutes } = require('./playlistRoutes');
+const { createPlaylistFolderRouter } = require('./core/playlists/index.ts');
 const { createQueueSockets } = require('./queueSockets');
 const { createPlaylistSockets } = require('./playlistSockets');
 const { APP_ROOM, userRoom, sessionRoom, createSocketServer, attachSocketHandlers } = require('./socketServer');
@@ -292,6 +293,18 @@ const { router: playlistRouter, ownerNames } = createPlaylistRoutes({
   notifyPlaylistsChanged, destroyLobby, addLibrarySongToLobby,
 });
 app.use(playlistRouter);
+
+// The caller's own playlist folders (core/playlists). Approved accounts by the
+// guard's default (web session, Android app session; no CLI tokens). A playlist
+// counts only while the caller can see it, decided from the in-memory playlists
+// (no database lookup, so a hidden one answers exactly like a missing one).
+app.use('/api/playlist-folders', apiLimiter);
+app.use(createPlaylistFolderRouter({
+  userIdFor: (req) => userAuth.userIdFor(req),
+  canSee: async (id, userId) => access.canView(lobby.lobbies.get(id), userId),
+  exists: async (id) => lobby.lobbies.has(id),
+  notifyUser: (userId) => io.to(userRoom(String(userId))).emit('playlists:changed'),
+}));
 
 // Central login / dev sign-in round trips, /api/auth/me, logout, the login
 // page and /api/auth/providers (authRoutes.js). /api/auth/* counts against

@@ -68,6 +68,7 @@ describe('the real server: one count per limited request', { timeout: 60_000 }, 
       ['/api/stations/all', { cookie: alice }],
       ['/api/artists', { cookie: alice }],
       ['/api/tokens', { cookie: alice }],
+      ['/api/playlist-folders', { cookie: alice }],
       ['/api/workers', { cookie: alice }], // jobRoutes, path-scoped
       ['/', { cookie: alice }],
       ['/library', { cookie: alice }],
