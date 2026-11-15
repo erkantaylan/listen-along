@@ -5,6 +5,8 @@ import android.content.SharedPreferences
 import com.erkantaylan.listenalong.BuildConfig
 import com.erkantaylan.listenalong.core.auth.AuthController
 import com.erkantaylan.listenalong.core.data.AccountRepository
+import com.erkantaylan.listenalong.core.data.AppUpdates
+import com.erkantaylan.listenalong.core.domain.UpdateRules
 import com.erkantaylan.listenalong.core.data.LibraryRepository
 import com.erkantaylan.listenalong.core.data.PlaylistCache
 import com.erkantaylan.listenalong.core.data.PlaylistRepository
@@ -210,6 +212,14 @@ class AppContainer(context: Context) {
     }
 
     val account = AccountRepository(::client)
+
+    /** The update notice (never forced; never in debug or "-dev" builds unless asked). */
+    val appUpdates = AppUpdates(
+        api = ::client,
+        store = PrefsTextStore(app, "settings", "update_dismissed"),
+        installedVersion = BuildConfig.VERSION_NAME,
+        devBuild = UpdateRules.isDevBuild(BuildConfig.VERSION_NAME, BuildConfig.DEBUG),
+    )
 
     /**
      * The HTTP client the player streams with. The session is read per

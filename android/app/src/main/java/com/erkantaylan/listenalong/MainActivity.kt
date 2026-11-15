@@ -171,6 +171,8 @@ class MainActivity : ComponentActivity(), PlatformActions {
         container.settings.overrideForSession(url, intent.getStringExtra(EXTRA_DEBUG_SESSION))
         // The stub serves its own thumbnails, so the dev loop never asks YouTube.
         intent.getStringExtra(EXTRA_DEBUG_THUMBS)?.let { CoverArt.base = it }
+        // Debug builds never look for updates; this asks them to (the stub answers /api/app/latest).
+        if (intent.getBooleanExtra(EXTRA_DEBUG_UPDATES, false)) container.appUpdates.allowInDevBuild = true
     }
 
     /** The sign-in redirect (custom scheme or App Link) from feature/auth/AuthRedirectActivity. */
@@ -193,6 +195,11 @@ class MainActivity : ComponentActivity(), PlatformActions {
             container.auth.cancel()
             toast("No browser to sign in with")
         }
+    }
+
+    override fun openUrl(url: String) {
+        runCatching { startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
+            .onFailure { toast("No browser to open $url") }
     }
 
     override fun openSource() {
@@ -273,6 +280,7 @@ class MainActivity : ComponentActivity(), PlatformActions {
         const val EXTRA_DEBUG_SERVER = "server"
         const val EXTRA_DEBUG_SESSION = "session"
         const val EXTRA_DEBUG_THUMBS = "thumbs"
+        const val EXTRA_DEBUG_UPDATES = "updates"
         private const val PREF_PROMPT_DISMISSED = "prompt_dismissed"
         private const val PREF_DECLINED = "declined"
     }

@@ -9,6 +9,7 @@ import com.erkantaylan.listenalong.core.designsystem.SecondaryButton
 import com.erkantaylan.listenalong.core.designsystem.dialogEdge
 import com.erkantaylan.listenalong.core.domain.PlaylistDownloadStatus
 import com.erkantaylan.listenalong.core.ui.PlaylistDownloadLine
+import com.erkantaylan.listenalong.core.ui.SongArt
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -136,6 +137,7 @@ fun OnDeviceScreen(
                             download = snapshot.stateOf(song.id), current = false,
                             onClick = null,
                             onCancelDownload = { viewModel.cancel(song.id) },
+                            art = { SongArt(song.id, song.youtubeId, it) },
                         )
                     }
                 }

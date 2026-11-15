@@ -3,6 +3,8 @@ package com.erkantaylan.listenalong.app
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.erkantaylan.listenalong.core.data.PlaylistRepository
+import com.erkantaylan.listenalong.core.data.AppUpdates
+import com.erkantaylan.listenalong.core.data.UpdateNotice
 import com.erkantaylan.listenalong.core.data.ReportRepository
 import com.erkantaylan.listenalong.core.data.ServerConfig
 import com.erkantaylan.listenalong.core.download.Downloads
@@ -46,7 +48,20 @@ class AppViewModel(
     private val messages: UserMessages,
     /** Saves the covers of downloaded songs that have none yet (core/download/CoverSync); quiet offline. */
     private val syncCovers: suspend () -> Unit = {},
+    private val updates: AppUpdates? = null,
 ) : ViewModel() {
+
+    /** "Version X.Y.Z is available" (Download / Later), or null. */
+    val update: StateFlow<UpdateNotice?> = updates?.notice ?: MutableStateFlow(null)
+
+    fun updateLater() {
+        updates?.later()
+    }
+
+    private fun checkForUpdate() {
+        val u = updates ?: return
+        viewModelScope.launch { runCatching { u.checkOnOpen(config.value.signedIn, online.value) } }
+    }
 
     val online: StateFlow<Boolean> = network.online
     val reportMap: StateFlow<Map<String, List<SongReport>>> = reports.reports
@@ -77,6 +92,7 @@ class AppViewModel(
                 runCatching { syncCovers() }
             }
         }.launchIn(viewModelScope)
+        checkForUpdate()
         network.online.drop(1).onEach { online ->
             if (online && config.value.signedIn) {
                 runCatching { reports.refresh() }
@@ -91,6 +107,7 @@ class AppViewModel(
      * compare them all again), and reports made elsewhere show up.
      */
     fun onResume(musicAccessJustGranted: Boolean) {
+        checkForUpdate()
         viewModelScope.launch {
             downloads.reconcile()
             if (config.value.signedIn) foundInFolder(downloads.reclaim(force = musicAccessJustGranted))

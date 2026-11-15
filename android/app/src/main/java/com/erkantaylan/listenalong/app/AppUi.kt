@@ -62,6 +62,8 @@ interface PlatformActions {
     fun deleteWithConsent(song: LocalSong)
     /** Notifications (and storage on Android 9 and older) before the first playback or download. */
     fun askPermissions(forDownload: Boolean)
+    /** A web page in the browser (the update's download). */
+    fun openUrl(url: String)
 }
 
 /** Music access (READ_MEDIA_AUDIO) as the activity knows it, and how to ask. */
@@ -96,6 +98,7 @@ fun AppUi(
     val reportDialog by appVm.reportDialog.collectAsStateWithLifecycle()
     val reportDetails by appVm.reportDetails.collectAsStateWithLifecycle()
     val savedCovers by container.covers.known.collectAsStateWithLifecycle()
+    val update by appVm.update.collectAsStateWithLifecycle()
     var showPlayer by rememberSaveable { mutableStateOf(false) }
     var addingToPlaylist by remember { mutableStateOf<List<Song>?>(null) }
     // Signed out at the first start: Settings, where "Sign in" is (Back still goes to the Library).
@@ -188,6 +191,11 @@ fun AppUi(
                 selected = selected,
                 onSelect = { nav.selectTab(it) },
                 badge = { t -> if (t == Tab.DEVICE && pending > 0) "$pending" else null },
+                notice = update?.let { u ->
+                    {
+                        UpdateBanner(u.version, onDownload = { platform.openUrl(u.downloadUrl) }, onLater = appVm::updateLater)
+                    }
+                },
                 miniPlayer = if (!nowPlaying.isEmpty) {
                     { MiniPlayer(nowPlaying, container.player, onOpen = { showPlayer = true }) }
                 } else null,

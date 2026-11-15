@@ -66,6 +66,9 @@ interface ListenAlongApi {
 
     suspend fun moveInPlaylist(id: String, entryId: String, position: Int): List<PlaylistEntry>
 
+    /** The newest Android release (the update notice). */
+    suspend fun appLatest(): com.erkantaylan.listenalong.core.model.AppLatest
+
     /** The URL the player streams a song from (the session is added by the stream's HTTP client). */
     fun fileUrl(songId: String): HttpUrl
 

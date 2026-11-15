@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.erkantaylan.listenalong.core.designsystem.Dimens
 import com.erkantaylan.listenalong.core.designsystem.Palette
+import com.erkantaylan.listenalong.core.designsystem.QuietButton
 import com.erkantaylan.listenalong.core.designsystem.Panel
 import com.erkantaylan.listenalong.core.designsystem.TextSizes
 import androidx.compose.foundation.layout.heightIn
@@ -53,12 +54,15 @@ fun AppShell(
     onSelect: (Tab) -> Unit,
     badge: (Tab) -> String? = { null },
     miniPlayer: (@Composable () -> Unit)? = null,
+    /** A dismissible notice over the page (a newer app version). */
+    notice: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     Column(
         Modifier.fillMaxSize().background(Palette.page).padding(Dimens.gap),
         verticalArrangement = Arrangement.spacedBy(Dimens.gap),
     ) {
+        notice?.invoke()
         Panel(Modifier.weight(1f).fillMaxWidth()) { content() }
         miniPlayer?.invoke()
         Panel(Modifier.fillMaxWidth()) {
@@ -105,5 +109,27 @@ private fun TabButton(tab: Tab, active: Boolean, badge: String?, modifier: Modif
         }
         Text(tab.label, color = tint, fontSize = TextSizes.xs, maxLines = 1,
              fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium)
+    }
+}
+
+/**
+ * "Version X.Y.Z is available": an info-tinted panel above the page, never a
+ * dialog and never forced. Download opens the release in the browser; Later
+ * hides that version for a few days.
+ */
+@Composable
+fun UpdateBanner(version: String, onDownload: () -> Unit, onLater: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(Dimens.panelRadius)).background(Palette.infoSubtle)
+            .border(1.dp, Palette.infoBorder, RoundedCornerShape(Dimens.panelRadius))
+            .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp)
+            .testTag("update-banner"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(AppIcons.Download, contentDescription = null, tint = Palette.info, modifier = Modifier.size(20.dp))
+        Text("Version $version is available", color = Palette.fg, fontSize = 14.sp,
+             modifier = Modifier.weight(1f).padding(horizontal = 10.dp))
+        QuietButton("Later", onLater, accent = false, tag = "update-later")
+        QuietButton("Download", onDownload, tag = "update-download")
     }
 }

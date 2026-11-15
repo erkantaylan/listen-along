@@ -49,6 +49,8 @@ Serves every .m4a / .opus / .ogg / .mp3 under --music as a library song
   POST /stub/hide?playlist=<name or id>      the playlist becomes someone
                                              else's private one (404 for us);
                                              &restore=1 makes it ours again
+  GET /api/app/latest                        the newest Android release
+                                             (--app-version, default 0.9.0)
   GET /api/me                                needs a session; 401
                                              SESSION_ENDED otherwise
   /api/playlists...                          list, songs, create, rename,
@@ -200,6 +202,7 @@ def make_samples(target):
 
 
 ME = "stub-user"
+RELEASES = "https://github.com/erkantaylan/listen-along/releases"
 
 # The app's custom-scheme redirect (backend/src/mobileAuth.js MOBILE_REDIRECT_URI).
 # The server's other allowed redirect is <BASE_URL>/auth/mobile/callback (an
@@ -253,6 +256,7 @@ class Handler(BaseHTTPRequestHandler):
     used_codes = set()
     redirects = [REDIRECT_URI]  # the allowlist (main() adds the https-style callback)
     custom_scheme = True        # False: --no-custom-scheme
+    app_version = "0.9.0"       # what /api/app/latest offers (--app-version; "" = no release)
 
     def chosen_redirect(self, raw):
         """As mobileAuth.js chosenRedirect: the allowlist, the scheme when missing, else None."""
@@ -362,6 +366,21 @@ class Handler(BaseHTTPRequestHandler):
         authed = self.auth()
         if authed is False:
             return self.send_json(401, SESSION_ENDED)
+
+        if parts == ["api", "app", "latest"]:
+            # As the server's (backend/src/features/app-release): any signed-in account, always 200.
+            if not authed:
+                return self.send_json(401, SESSION_ENDED)
+            v = self.app_version
+            if not v:
+                return self.send_json(200, {"available": False, "reason": "none", "releasesUrl": RELEASES})
+            tag = f"android-v{v}"
+            return self.send_json(200, {
+                "available": True, "version": v, "tag": tag, "publishedAt": now_iso(),
+                "releaseUrl": f"{RELEASES}/tag/{tag}",
+                "apk": {"name": f"listen-along-{v}.apk", "url": f"{RELEASES}/download/{tag}/listen-along-{v}.apk", "size": 12345678},
+                "sha256": None, "releasesUrl": RELEASES, "stale": False,
+            })
 
         if parts == ["api", "me"]:
             if not authed:
@@ -684,6 +703,8 @@ def main():
     parser.add_argument("--throttle", type=int, default=0, metavar="KBPS",
                         help="slow file transfers down, to watch progress and test cancelling")
     parser.add_argument("--samples", action="store_true", help="create sample songs in --music first")
+    parser.add_argument("--app-version", default="0.9.0",
+                        help="the Android release /api/app/latest offers (empty: none), for the update notice")
     parser.add_argument("--no-custom-scheme", action="store_true",
                         help="refuse the custom-scheme redirect (as the server's MOBILE_CUSTOM_SCHEME=off)")
     args = parser.parse_args()
@@ -701,6 +722,7 @@ def main():
     Handler.throttle_kbps = args.throttle
     Handler.redirects = [f"http://localhost:{args.port}/auth/mobile/callback", REDIRECT_URI]
     Handler.custom_scheme = not args.no_custom_scheme
+    Handler.app_version = args.app_version
     print(f"stub: {len(Handler.songs)} songs from {music} on http://{args.bind}:{args.port}", flush=True)
     ThreadingHTTPServer((args.bind, args.port), Handler).serve_forever()
 

@@ -7,6 +7,8 @@ import com.erkantaylan.listenalong.core.data.CheckLine
 import com.erkantaylan.listenalong.core.data.ServerConfig
 import com.erkantaylan.listenalong.core.data.ServerSettings
 import com.erkantaylan.listenalong.core.data.DownloadPrefs
+import com.erkantaylan.listenalong.core.data.AppUpdates
+import com.erkantaylan.listenalong.core.data.UpdateCheck
 import com.erkantaylan.listenalong.core.domain.SyncSettings
 import com.erkantaylan.listenalong.core.download.DownloadSnapshot
 import com.erkantaylan.listenalong.core.download.Downloads
@@ -25,6 +27,12 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+sealed interface UpdateCheckUi {
+    data object Idle : UpdateCheckUi
+    data object Checking : UpdateCheckUi
+    data class Done(val result: UpdateCheck) : UpdateCheckUi
+}
+
 data class ConnectionUi(val checking: Boolean = false, val lines: List<CheckLine> = emptyList())
 
 /**
@@ -39,7 +47,18 @@ class SettingsViewModel(
     private val downloads: Downloads,
     private val messages: UserMessages,
     private val downloadPrefs: DownloadPrefs,
+    private val updates: AppUpdates? = null,
 ) : ViewModel() {
+
+    private val _updateCheck = MutableStateFlow<UpdateCheckUi>(UpdateCheckUi.Idle)
+    /** "Check for updates": checking, up to date, a newer version, or could not check. */
+    val updateCheck: StateFlow<UpdateCheckUi> = _updateCheck.asStateFlow()
+
+    fun checkForUpdates() {
+        val u = updates ?: return
+        _updateCheck.value = UpdateCheckUi.Checking
+        viewModelScope.launch { _updateCheck.value = UpdateCheckUi.Done(u.checkNow()) }
+    }
 
     /** Playlist sync's settings ("Download over mobile data", "Remove downloads of songs removed from a playlist"). */
     val sync: StateFlow<SyncSettings> = downloadPrefs.sync

@@ -98,6 +98,10 @@ class LibraryClient(
         }
     }
 
+    override suspend fun appLatest(): com.erkantaylan.listenalong.core.model.AppLatest = withContext(Dispatchers.IO) {
+        getJson(endpoint("api/app/latest")) { apiJson.decodeFromString<com.erkantaylan.listenalong.core.model.AppLatest>(it) }
+    }
+
     /** Who is signed in. Fails with a 401 [ApiException] when the session has ended. */
     override suspend fun me(): Me = withContext(Dispatchers.IO) {
         getJson(endpoint("api/me")) { apiJson.decodeFromString<Me>(it) }

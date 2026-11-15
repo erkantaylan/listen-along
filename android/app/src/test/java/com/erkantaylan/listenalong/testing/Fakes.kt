@@ -200,6 +200,13 @@ class FakeApi(override val baseUrl: HttpUrl = TEST_SERVER) : ListenAlongApi {
         return list.toList()
     }
 
+    var latest = com.erkantaylan.listenalong.core.model.AppLatest(available = false, reason = "none")
+
+    override suspend fun appLatest(): com.erkantaylan.listenalong.core.model.AppLatest {
+        check("appLatest")
+        return latest
+    }
+
     override fun fileUrl(songId: String): HttpUrl =
         baseUrl.newBuilder().addPathSegments("api/library/$songId/file").build()
 

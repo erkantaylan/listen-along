@@ -1,5 +1,6 @@
 package com.erkantaylan.listenalong.feature.settings
 
+import com.erkantaylan.listenalong.core.data.UpdateCheck
 import com.erkantaylan.listenalong.core.designsystem.SwitchRow
 import com.erkantaylan.listenalong.core.designsystem.Alert
 import com.erkantaylan.listenalong.core.designsystem.AlertKind
@@ -221,6 +222,28 @@ fun SettingsScreen(viewModel: SettingsViewModel, actions: AppActions) {
             Spacer(Modifier.height(12.dp))
             Card(title = stringResource(R.string.about_title)) {
                 Field(stringResource(R.string.about_version), AppInfo.versionLabel(BuildConfig.VERSION_NAME))
+                val check by viewModel.updateCheck.collectAsStateWithLifecycle()
+                Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    SecondaryButton(
+                        if (check == UpdateCheckUi.Checking) "Checking…" else "Check for updates",
+                        viewModel::checkForUpdates, enabled = check != UpdateCheckUi.Checking, tag = "check-updates",
+                    )
+                }
+                (check as? UpdateCheckUi.Done)?.result?.let { r ->
+                    Text(
+                        when (r) {
+                            UpdateCheck.UpToDate -> "You're up to date."
+                            is UpdateCheck.Available -> "Version ${r.notice.version} is available: see the notice at the top."
+                            UpdateCheck.Failed -> "Couldn't check right now. Try again when you're online."
+                        },
+                        color = when (r) {
+                            UpdateCheck.UpToDate -> Palette.success
+                            is UpdateCheck.Available -> Palette.accentFg
+                            UpdateCheck.Failed -> Palette.fg3
+                        },
+                        fontSize = 14.sp, modifier = Modifier.padding(top = 8.dp).testTag("update-result"),
+                    )
+                }
                 Box(Modifier.padding(top = 8.dp)) {
                     SecondaryButton(stringResource(R.string.about_source), actions.openSource,
                                     icon = AppIcons.GitHub, tag = "open-source")

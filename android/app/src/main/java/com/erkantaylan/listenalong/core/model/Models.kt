@@ -197,3 +197,22 @@ fun formatDuration(seconds: Int?): String {
     return if (h > 0) String.format(Locale.US, "%d:%02d:%02d", h, m, s)
     else String.format(Locale.US, "%d:%02d", m, s)
 }
+
+/**
+ * `GET /api/app/latest` (backend/src/features/app-release): the newest Android
+ * release on GitHub, as the web's /app page offers it. Always 200; when GitHub
+ * cannot be reached [available] is false with [reason] `unavailable`.
+ */
+@Serializable
+data class AppLatest(
+    val available: Boolean = false,
+    val reason: String? = null,
+    val version: String? = null,
+    val tag: String? = null,
+    val releaseUrl: String? = null,
+    val apk: AppApk? = null,
+    val releasesUrl: String? = null,
+)
+
+@Serializable
+data class AppApk(val name: String = "", val url: String = "", val size: Long? = null)
