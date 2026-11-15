@@ -24,7 +24,7 @@ describe('frontend: Library & Downloads label', () => {
     assert.equal(locale('tr').landing.library, 'Kütüphane ve İndirmeler');
   });
   it('no default text or fallback keeps the old name', () => {
-    for (const f of ['index.html', 'lobby.js', 'app.js']) assert.doesNotMatch(read(f), /Music library (&amp;|&) requests/, f);
+    for (const f of ['index.html', 'src/features/playlists/playlist.ts', 'app.js']) assert.doesNotMatch(read(f), /Music library (&amp;|&) requests/, f);
     const bound = html.match(/<[^>]*data-i18n(-title|-aria-label)?="landing\.library"[^>]*>[^<]*/g) || [];
     assert.ok(bound.length >= 4, 'sidebar, phone row and Home button use the key');
     for (const el of bound) assert.match(el, /Library &amp; Downloads/, el);
@@ -75,7 +75,7 @@ describe('frontend: the shell top bar and the playlist header', () => {
     const at = html.indexOf('<form id="app-search"');
     assert.ok(at < html.indexOf('<div id="search-view"') && at < html.indexOf('<div id="landing-view"'), 'before the views');
     for (const id of ['search-view', 'landing-view', 'lobby-view', 'profile-view']) assert.doesNotMatch(viewHtml(id), /id="app-search"/, id);
-    assert.doesNotMatch(read('search.js'), /\.prepend\(bar\)|is-stuck/, 'never moved into a page');
+    assert.doesNotMatch(read('src/features/search/search.ts'), /\.prepend\(bar\)|is-stuck/, 'never moved into a page');
   });
   it('the side columns are full height; the page column starts under it (--app-top), field centred in that column, no rule or accent edge', () => {
     for (const sel of ['body.has-plnav .app-sidebar {', 'body.has-social .social-rail {', 'body.has-social:not(.social-collapsed) .social-panel {']) {

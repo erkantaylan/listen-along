@@ -2,35 +2,47 @@
 // acts like a playlist (opening it plays nothing; Play or a row starts it) but
 // is not one: no owner, no edit mode, nothing stored. A station is a list of
 // songs from a rule on the server (backend/src/stations.js); "all" is the only
-// one so far. The order is made here (radio-order.js) and stays while the view
+// one so far. The order is made here (radio-order.ts) and stays while the view
 // is open and for as long as Radio is what the player plays from; opening the
 // page when it is not gives a fresh shuffle. When the list runs out the player
 // asks for the next round (player.setRefill).
-import { state } from './shared/state.js';
-import { escapeHtml, formatDuration, navigateTo, showToast, t } from './shared/ui.js';
-import { player } from './player/player.js';
-import { libraryTrack } from './features/library/library.js';
-import { playCellHtml, playCellLabel, statsHtml } from './features/queue/queue.js';
-import { closeDrawer } from './sidebar.js';
-import { bindSongMenu, songMenuButtonHtml } from './features/library/song-reports.js';
-import { isUnplayable, unplayableBadgeHtml, onFailuresChange } from './player/playback-failures.js';
-import { createVirtualList } from './shared/virtual-list.js';
-import { nextRound, reconcile, reshuffledAround, shuffled } from './features/radio/radio-order.js';
+import { state } from '../../shared/state.ts';
+import { byId, maybeById } from '../../shared/dom.ts';
+import { escapeHtml, formatDuration, navigateTo, showToast, t } from '../../shared/ui.ts';
+import { player } from '../../player/player.ts';
+import type { PlayerContextInput } from '../../player/player.ts';
+import { libraryTrack } from '../library/library.ts';
+import { playCellHtml, playCellLabel, statsHtml } from '../queue/queue.ts';
+import { closeDrawer } from '../playlists/sidebar.ts';
+import { bindSongMenu, songMenuButtonHtml } from '../library/song-reports.ts';
+import { isUnplayable, unplayableBadgeHtml, onFailuresChange } from '../../player/playback-failures.ts';
+import { createVirtualList } from '../../shared/virtual-list.ts';
+import type { VirtualList } from '../../shared/virtual-list.ts';
+import { nextRound, reconcile, reshuffledAround, shuffled } from './radio-order.ts';
+import type { Station, StationWithSongs, Track } from '../../shared/types.ts';
 
 const STATION = 'all';
-const CONTEXT = { type: 'radio', stationId: STATION };
+const CONTEXT: PlayerContextInput = { type: 'radio', stationId: STATION };
 const REFRESH_MS = 1000;
 
 const PLAY_PATH = 'M8 5v14l11-7z';
 const PAUSE_PATH = 'M6 19h4V5H6v14zm8-14v14h4V5h-4z';
 const NOTE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>';
 
-const $ = (id) => document.getElementById(id);
 // t() with {placeholders} filled in the fallback too (t returns it raw).
-const tf = (key, fallback, vars) => t(key, fallback, vars).replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
+const tf = (key: string, fallback: string, vars: Record<string, string>): string => t(key, fallback, vars).replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? vars[k] : m));
 const language = () => (window.i18n && window.i18n.getLanguage && window.i18n.getLanguage()) || undefined;
 
-const page = {
+interface RadioPage {
+  open: boolean;
+  loading: boolean;
+  failed: boolean;
+  order: Track[];
+  load: number;
+  autoplay: boolean;
+}
+
+const page: RadioPage = {
   open: false,
   loading: false,
   failed: false,
@@ -38,23 +50,23 @@ const page = {
   load: 0,    // the latest fetch; older answers are dropped
   autoplay: false, // play the top as soon as the list is here
 };
-let summary = null; // { count, duration_sec }
-let stationIds = null; // the song ids the station held at the last look
-let refreshTimer = null;
+let summary: Pick<Station, 'count' | 'duration_sec'> | null = null; // { count, duration_sec }
+let stationIds: Set<string | undefined> | null = null; // the song ids the station held at the last look
+let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Radio is what the player plays from (playing or paused on a song). */
-export const isRadioActive = () => !!player.track && !!player.context && player.context.type === 'radio';
+export const isRadioActive = (): boolean => !!player.track && !!player.context && player.context.type === 'radio';
 
-const currentId = () => (isRadioActive() ? player.track.libraryId : null);
+const currentId = (): string | null | undefined => (isRadioActive() ? (player.track as Track).libraryId : null);
 
-async function fetchJson(url) {
+async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { credentials: 'same-origin' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  return res.json() as Promise<T>;
 }
 
-async function fetchTracks() {
-  const data = await fetchJson(`/api/stations/${STATION}/songs`);
+async function fetchTracks(): Promise<Track[]> {
+  const data = await fetchJson<StationWithSongs>(`/api/stations/${STATION}/songs`);
   summary = { count: data.count, duration_sec: data.duration_sec };
   stationIds = new Set(data.songs.map((s) => s.id));
   renderSidebarRow();
@@ -63,10 +75,10 @@ async function fetchTracks() {
 
 // ---------------------------------------------------------------- sidebar row
 
-function renderSidebarRow() {
-  const row = $('plnav-radio');
+function renderSidebarRow(): void {
+  const row = maybeById('plnav-radio');
   if (!row) return;
-  const meta = $('plnav-radio-meta');
+  const meta = byId('plnav-radio-meta');
   const count = summary ? summary.count : null;
   const text = count === null
     ? t('radio.subtitleLoading', 'All songs, shuffled')
@@ -74,7 +86,7 @@ function renderSidebarRow() {
       ? t('radio.subtitleEmpty', 'No songs yet')
       : tf('radio.subtitle', 'All {count} songs, shuffled', { count: count.toLocaleString(language()) });
   if (meta.textContent !== text) meta.textContent = text;
-  // The library overlay over this page is the place on screen then (sidebar.js).
+  // The library overlay over this page is the place on screen then (sidebar.ts).
   const here = window.location.pathname.replace(/\/+$/, '') === '/radio' && !document.body.classList.contains('libpage-open');
   const active = isRadioActive();
   row.classList.toggle('is-current', here || active);
@@ -86,9 +98,9 @@ function renderSidebarRow() {
   row.setAttribute('aria-label', active ? `${name}, ${text}, ${t('radio.nowPlaying', 'playing')}` : `${name}, ${text}`);
 }
 
-async function loadSummary() {
+async function loadSummary(): Promise<void> {
   try {
-    summary = await fetchJson(`/api/stations/${STATION}`);
+    summary = await fetchJson<Station>(`/api/stations/${STATION}`);
     renderSidebarRow();
     if (page.open && !page.loading) renderHead();
   } catch { /* the row keeps its last line */ }
@@ -96,7 +108,7 @@ async function loadSummary() {
 
 // ------------------------------------------------------------------- the page
 
-function rowHtml(track, index) {
+function rowHtml(track: Track, index: number): string {
   const playing = track.libraryId === currentId();
   const title = escapeHtml(track.title);
   const artist = escapeHtml(track.artist);
@@ -114,44 +126,48 @@ function rowHtml(track, index) {
     + `<div class="queue-item-actions">${songMenuButtonHtml(track.title)}</div></li>`;
 }
 
-function renderHead() {
+function renderHead(): void {
   // Only what the song table's stats strip can say from a length: songs and total.
   const stats = page.order.length ? statsHtml(page.order.map((s) => ({ duration: s.duration }))) : '';
-  const el = $('radio-stats');
+  const el = byId('radio-stats');
   if (el.dataset.html !== stats) { el.innerHTML = stats; el.dataset.html = stats; }
   const sounding = isRadioActive() && player.isPlaying;
-  const play = $('radio-play');
+  const play = byId<HTMLButtonElement>('radio-play');
   play.disabled = !page.order.length;
-  play.querySelector('path').setAttribute('d', sounding ? PAUSE_PATH : PLAY_PATH);
-  $('radio-play-label').textContent = sounding ? t('player.pause', 'Pause') : t('player.play', 'Play');
-  $('radio-reshuffle').disabled = page.order.length < 2;
+  (play.querySelector('path') as SVGPathElement).setAttribute('d', sounding ? PAUSE_PATH : PLAY_PATH);
+  byId('radio-play-label').textContent = sounding ? t('player.pause', 'Pause') : t('player.play', 'Play');
+  byId<HTMLButtonElement>('radio-reshuffle').disabled = page.order.length < 2;
   // With nothing loaded, the player bar's Play starts the list on screen too.
   state.viewPlay = page.open && page.order.length ? () => playAt(0) : null;
-  const barPlay = $('play-btn');
+  const barPlay = maybeById<HTMLButtonElement>('play-btn');
   if (barPlay && !player.track) barPlay.disabled = !state.viewPlay;
 }
 
-let view = null;
-function listView() {
+let view: VirtualList | null = null;
+function listView(): VirtualList {
   if (!view) {
     view = createVirtualList({
-      list: $('radio-list'),
-      scroller: $('radio-body'),
-      stickyTop: () => $('radio-head').offsetHeight || 0,
+      list: byId('radio-list'),
+      scroller: byId('radio-body'),
+      stickyTop: () => byId('radio-head').offsetHeight || 0,
     });
   }
   return view;
 }
 
-function emptyHtml(title, hint) {
+function emptyHtml(title: string, hint?: string): string {
   return `<li class="list-group-item app-empty queue-empty"><p class="mb-1">${escapeHtml(title)}</p>${hint ? `<p class="fs-sm mb-0 hint">${escapeHtml(hint)}</p>` : ''}</li>`;
 }
 
-function renderList({ anchor = true } = {}) {
-  const head = $('radio-head');
+interface RenderOptions {
+  anchor?: boolean;
+}
+
+function renderList({ anchor = true }: RenderOptions = {}): void {
+  const head = byId('radio-head');
   head.hidden = !page.order.length;
   if (!page.order.length) {
-    let html;
+    let html: string;
     if (page.loading) html = emptyHtml(t('landing.loading', 'Loading…'));
     else if (page.failed) html = `<li class="list-group-item app-empty queue-empty"><p class="mb-3">${escapeHtml(t('radio.loadFailed', 'Could not load Radio'))}</p><button type="button" class="btn btn-sm radio-retry">${escapeHtml(t('radio.retry', 'Try again'))}</button></li>`;
     else html = emptyHtml(t('radio.emptyTitle', 'No songs to play yet'), t('radio.emptyHint', 'Songs land here as soon as they are in the music library.'));
@@ -163,18 +179,18 @@ function renderList({ anchor = true } = {}) {
   listView().setSource({
     count: order.length,
     keyOf: (pos) => order[pos].libraryId,
-    indexOfKey: (key) => (positions.has(key) ? positions.get(key) : -1),
+    indexOfKey: (key) => (positions.has(key) ? positions.get(key) as number : -1),
     renderRow: (pos) => rowHtml(order[pos], pos),
   }, { anchor });
 }
 
-function render(options) {
+function render(options?: RenderOptions): void {
   renderHead();
   renderList(options);
   settleAutoplay();
 }
 
-function settleAutoplay() {
+function settleAutoplay(): void {
   if (!page.autoplay || page.loading) return;
   page.autoplay = false;
   if (page.order.length) playAt(0);
@@ -182,7 +198,7 @@ function settleAutoplay() {
 }
 
 /** Double-click on the row: Radio already on air just resumes; else open it and play from the top. */
-export function playRadioFromTop() {
+export function playRadioFromTop(): void {
   if (isRadioActive()) {
     if (!player.isPlaying) player.play();
     return;
@@ -194,7 +210,7 @@ export function playRadioFromTop() {
 
 // A song change touches two rows and play / pause one cell, in place: a re-render
 // would close an open song menu.
-function paintRow(row, pos) {
+function paintRow(row: HTMLElement, pos: number): void {
   const track = page.order[pos];
   if (!track) return;
   const playing = track.libraryId === currentId();
@@ -203,21 +219,21 @@ function paintRow(row, pos) {
     if (playing) row.setAttribute('aria-current', 'true');
     else row.removeAttribute('aria-current');
   }
-  const btn = row.querySelector('.queue-item-play');
+  const btn = row.querySelector('.queue-item-play') as HTMLElement;
   const label = playCellLabel(track.title, playing && player.isPlaying);
   btn.innerHTML = playCellHtml(pos + 1, playing);
   btn.setAttribute('aria-label', label);
   btn.setAttribute('title', label);
 }
 
-function refreshRows() {
+function refreshRows(): void {
   if (!page.open || !view) return;
   for (const [pos, row] of view.rendered()) {
     if (row.classList.contains('playing') || page.order[pos]?.libraryId === currentId()) paintRow(row, pos);
   }
 }
 
-function scrollToCurrent() {
+function scrollToCurrent(): void {
   const id = currentId();
   const pos = id ? page.order.findIndex((s) => s.libraryId === id) : -1;
   if (pos >= 0) listView().scrollToIndex(pos, { align: 'center' });
@@ -225,7 +241,7 @@ function scrollToCurrent() {
 
 // Play from a row, or from the top. The song already playing here is resumed if
 // paused, never restarted.
-function playAt(index) {
+function playAt(index: number): void {
   const track = page.order[index];
   if (!track) return;
   if (track.libraryId === currentId()) {
@@ -235,20 +251,20 @@ function playAt(index) {
   player.playFrom(CONTEXT, page.order, index);
 }
 
-function pressPlay() {
+function pressPlay(): void {
   if (isRadioActive()) player.toggle();
   else playAt(0);
 }
 
-function reshuffle() {
+function reshuffle(): void {
   const id = currentId();
   page.order = id ? reshuffledAround(page.order, id) : shuffled(page.order);
   if (isRadioActive()) player.replaceQueue(CONTEXT, page.order);
-  $('radio-body').scrollTop = 0;
+  byId('radio-body').scrollTop = 0;
   render({ anchor: false });
 }
 
-async function loadFresh() {
+async function loadFresh(): Promise<void> {
   const load = ++page.load;
   page.loading = true;
   page.failed = false;
@@ -267,7 +283,7 @@ async function loadFresh() {
 }
 
 /** The route opened /radio. */
-export function openRadioPage() {
+export function openRadioPage(): void {
   const wasOpen = page.open;
   page.open = true;
   document.title = `${t('radio.title', 'Radio')} · listen-along`;
@@ -281,12 +297,12 @@ export function openRadioPage() {
     scrollToCurrent();
     return;
   }
-  $('radio-body').scrollTop = 0;
+  byId('radio-body').scrollTop = 0;
   loadFresh();
 }
 
 /** The route left /radio. */
-export function closeRadioPage() {
+export function closeRadioPage(): void {
   if (!page.open) return;
   page.open = false;
   page.autoplay = false;
@@ -302,11 +318,11 @@ export function closeRadioPage() {
 
 // The library changed (upload, removal, a song marked broken or unmarked): the
 // playing order follows, wherever the listener is. A list on screen does too.
-async function applyLibraryChange() {
+async function applyLibraryChange(): Promise<void> {
   await loadSummary();
   if (!isRadioActive() && !page.open) return;
   const load = ++page.load;
-  let fresh;
+  let fresh: Track[];
   try { fresh = await fetchTracks(); } catch { return; }
   if (load !== page.load) return;
   if (isRadioActive()) {
@@ -322,10 +338,11 @@ async function applyLibraryChange() {
 
 // A song that left the station while on air was kept to mark the place. Once the
 // player has moved on it goes too (a re-render, only when there is one).
-function dropLeftSongs() {
+function dropLeftSongs(): void {
   if (!stationIds || !isRadioActive()) return;
+  const ids = stationIds;
   const id = currentId();
-  const next = page.order.filter((s) => s.libraryId === id || stationIds.has(s.libraryId));
+  const next = page.order.filter((s) => s.libraryId === id || ids.has(s.libraryId));
   if (next.length === page.order.length) return;
   page.order = next;
   player.replaceQueue(CONTEXT, next);
@@ -333,20 +350,20 @@ function dropLeftSongs() {
 }
 
 /** Socket library:updated. */
-export function handleRadioLibraryUpdated() {
-  clearTimeout(refreshTimer);
+export function handleRadioLibraryUpdated(): void {
+  clearTimeout(refreshTimer ?? undefined);
   refreshTimer = setTimeout(applyLibraryChange, REFRESH_MS);
 }
 
 /** Socket reconnected: what was missed meanwhile. */
-export function refreshRadio() {
+export function refreshRadio(): void {
   handleRadioLibraryUpdated();
 }
 
 // ---------------------------------------------------------------------- setup
 
-export function setupRadio() {
-  const row = $('plnav-radio');
+export function setupRadio(): void {
+  const row = byId('plnav-radio');
   row.addEventListener('click', (e) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey) return;
     e.preventDefault();
@@ -354,31 +371,32 @@ export function setupRadio() {
     navigateTo('/radio');
   });
 
-  $('radio-back').addEventListener('click', () => navigateTo('/'));
-  $('radio-play').addEventListener('click', pressPlay);
-  $('radio-reshuffle').addEventListener('click', reshuffle);
+  byId('radio-back').addEventListener('click', () => navigateTo('/'));
+  byId('radio-play').addEventListener('click', pressPlay);
+  byId('radio-reshuffle').addEventListener('click', reshuffle);
 
-  const list = $('radio-list');
-  const rowIndex = (el) => parseInt(el.dataset.index, 10);
+  const list = byId('radio-list');
+  const rowIndex = (el: HTMLElement) => parseInt(el.dataset.index as string, 10);
   list.addEventListener('click', (e) => {
-    if (e.target.closest('.radio-retry')) { loadFresh(); return; }
-    const el = e.target.closest('.queue-item[data-index]');
+    const target = e.target as HTMLElement;
+    if (target.closest('.radio-retry')) { loadFresh(); return; }
+    const el = target.closest<HTMLElement>('.queue-item[data-index]');
     if (!el) return;
-    if (e.target.closest('.queue-item-play')) {
+    if (target.closest('.queue-item-play')) {
       if (el.classList.contains('playing') && player.isPlaying) player.pause();
       else playAt(rowIndex(el));
       return;
     }
-    if (e.target.closest('button, a[href]')) return;
+    if (target.closest('button, a[href]')) return;
     playAt(rowIndex(el));
   });
   list.addEventListener('keydown', (e) => {
-    const el = e.target.closest('.queue-item[data-index]');
+    const el = (e.target as HTMLElement).closest<HTMLElement>('.queue-item[data-index]');
     if (!el || e.target !== el) return;
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); playAt(rowIndex(el)); return; }
     const v = listView();
-    const steps = { ArrowDown: 1, ArrowUp: -1, PageDown: v.pageSize, PageUp: -v.pageSize };
-    let to = null;
+    const steps: Record<string, number> = { ArrowDown: 1, ArrowUp: -1, PageDown: v.pageSize, PageUp: -v.pageSize };
+    let to: number | null = null;
     if (e.key in steps) to = rowIndex(el) + steps[e.key];
     else if (e.key === 'Home') to = 0;
     else if (e.key === 'End') to = page.order.length - 1;
@@ -394,7 +412,8 @@ export function setupRadio() {
   // The list ran out: the next round, without the song that just ended on top.
   player.setRefill((ctx, track) => {
     if (!ctx || ctx.type !== 'radio' || !player.queue.length) return null;
-    const songs = stationIds ? player.queue.filter((s) => stationIds.has(s.libraryId)) : player.queue;
+    const ids = stationIds;
+    const songs = ids ? player.queue.filter((s) => ids.has(s.libraryId)) : player.queue;
     return nextRound(songs, track && track.libraryId);
   });
 

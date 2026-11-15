@@ -224,7 +224,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Playlist navigation | The one `#app-sidebar` (see "Playlists sidebar"). Never add a second playlist nav. Its places (Home, Radio, Artists, Music library) are the app's main navigation; the landing tiles are shortcuts to the same. |
 | Chat / people | The one `#social-panel` (see "Chat and people panel"). Never add a second chat or people list. |
 | Radio | The one `#plnav-radio` row and `#radio-view` (see "Radio"). A future station is another rule in `stations.js`, not another page. |
-| Artists | The landing shelf `#artists-section`, `#artists-view` (`/artists`) and `#artist-view` (`/artist/<key>`), see "Artists". Cards are `.artist-card` (`artists.js` `cardHtml`); never a second artist list. |
+| Artists | The landing shelf `#artists-section`, `#artists-view` (`/artists`) and `#artist-view` (`/artist/<key>`), see "Artists". Cards are `.artist-card` (`artists.ts` `cardHtml`); never a second artist list. |
 | Player | The one app-wide `#player-bar` (`section.sticky-player.player-bar` in `index.html`, outside the views): see "Player bar" below. Never add a second player or a per-page `<audio>`. |
 | Context menu / small popover | `context-menu.ts` (see "Context menu" below). Never a second menu implementation. |
 | Search | The one global field `#app-search`, in the shell's top bar, and the search page (see "Search" below). Never a second search field for the whole app (the sidebar's playlist filter, the library's, the playlist's and the artists' boxes filter their own lists). |
@@ -354,7 +354,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   `.form-field` with a Bootstrap `.switch` (`role="switch"`), its label (`fw-medium`) and a
   muted `fs-sm` hint; a second muted line says when the value is the server's
   `REGISTRATIONS_DEFAULT` (not saved yet). Toggling saves at once and toasts; a failed save puts the switch back.
-- **Landing** ("Home", `/`, the view after login; `lobby.js`). From 768px it has no top bar (the sidebar carries
+- **Landing** ("Home", `/`, the view after login; `playlist.ts`). From 768px it has no top bar (the sidebar carries
   the brand and the profile); below 768px a navbar (☰, brand, profile; the brand folds to its icon below 400px)
   under the row of places (see "Playlists sidebar").
   A header row: `h1.h4` "Playlists" + muted tagline ("Your playlists and everyone's public ones.") on the left;
@@ -474,7 +474,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   outline, no shadow). One fact per line and no line wraps: `.stat-label` (`fs-sm fg-3`), `.stat-value` (`fs-2xl`), then optional
   `.stat-meta` lines (`fs-xs`) for what used to be crammed into the value: "1,234 private", "1,234 files", the warning-coloured
   "12 unregistered (1.2 GB)". Longer facts get a `.stat-meta` line, not a wider value.
-- **Radio** (`/radio`, `radio.js`, approved accounts): see "Radio" below.
+- **Radio** (`/radio`, `radio.ts`, approved accounts): see "Radio" below.
 - **Artists** (`/artists`, `/artist/<key>`, the landing shelf; approved accounts): see "Artists" below.
 - **Android app** (`/app`, `app-page.ts`; `a[data-spa-link]` is its in-app link, so playback continues): navbar (☰, back, `h1.h6`), `.app-narrow` column, no art, three cards.
   **Download**: the view's primary "Download APK" (GitHub's asset URL, new tab), a line of version · size · date, the SHA-256 with a grey Copy, a ghost link to all releases and "Needs Android 8 or newer". While checking, or when GitHub cannot be reached, a muted line replaces the button and the releases link stays.
@@ -485,7 +485,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
 
 ### Playlists sidebar
 
-One `nav#app-sidebar` in `index.html`, driven by `sidebar.js` (list in `playlist-store.ts`, search
+One `nav#app-sidebar` in `index.html`, driven by `sidebar.ts` (list in `playlist-store.ts`, search
 in `playlist-filter.ts`, styles "Playlists sidebar" in `app.css`, hooks prefixed `plnav-` because
 the dashboard already owns `.sidebar-*`). Shown by body classes, never `[hidden]`: `has-plnav`
 (approved account), `plnav-open` (drawer open). Present on landing, playlist, library overlay,
@@ -499,9 +499,9 @@ Two rounded panels, a gap apart (see "App shell"):
   Then the app's main navigation (`.plnav-nav`): **Home** (`#plnav-nav-home`, `/`), **Radio** (`#plnav-radio`, see
   "Radio"), **Artists** (`#plnav-nav-artists`, `/artists`) and **Library & Downloads** (`#plnav-nav-library`, key `landing.library`;
   opens the library overlay like the landing button, over the playlist on screen if any; app.js). Icon + semibold
-  `fs-sm` label, 2.75rem tall. The place on screen is `aria-current="page"` (`syncPlaces` in sidebar.js: Home on the
+  `fs-sm` label, 2.75rem tall. The place on screen is `aria-current="page"` (`syncPlaces` in sidebar.ts: Home on the
   landing page, Artists on `/artists` and `/artist/<key>`, the library while its overlay is open; Radio marks
-  itself in radio.js): the accent tint and accent text, never an edge. Home and Artists are `data-spa-link`s.
+  itself in radio.ts): the accent tint and accent text, never an edge. Home and Artists are `data-spa-link`s.
 - **Lower panel, the playlists**: the title row, the filter, search and the list below; it fills the rest of the column
   and only the list scrolls.
 
@@ -592,7 +592,7 @@ Every song in the listener's own shuffled order, separate from the library, whic
 
 ### Artists
 
-Every artist of the library as a read-only "album" of their songs (`artists.js`, `artist-page.js`, rules in `artist-rules.ts`). An artist is
+Every artist of the library as a read-only "album" of their songs (`artists.ts`, `artist-page.ts`, rules in `artist-rules.ts`). An artist is
 every song whose credit names them, as on Spotify: the server splits a credit into its artists (`backend/src/artistCredits.js`), so
 "RAYE, 070 Shake" is on both pages while "Earth, Wind & Fire" and "Simon & Garfunkel" stay one artist, and spellings fold to one key
 ("Barış Manço", "barismanco" and "Barış Manço - Topic" are one). The name shown is the spelling most of their songs use, without channel
@@ -620,12 +620,12 @@ suffixes; a song row always shows the song's full credit. Songs with an open rep
 
 ### Search
 
-One field for the whole signed-in app and one page, `/search?q=…` (`search.js`, rules in `search-rules.ts`, relevance on the server
+One field for the whole signed-in app and one page, `/search?q=…` (`search.ts`, rules in `search-rules.ts`, relevance on the server
 in `backend/src/songSearch.js`).
 
 - **The field** (`form#app-search[role=search]`, `#app-search-input`): the shell's **top bar** (see "App shell"), one element that never
   moves: at the top of the page column and centred in it (not in the window), above the page panel, from 768px (landing, playlist, Radio, artists, an artist, search, profile, `/app`, and
-  the library overlay while it is open), shown or hidden by `search.js` (`body.has-topbar`). Not on login, pending or `/dashboard`. A `.form-control`
+  the library overlay while it is open), shown or hidden by `search.ts` (`body.has-topbar`). Not on login, pending or `/dashboard`. A `.form-control`
   pill, 2.5rem, max 32rem, with the search icon inside at the start and a `kbd` hint at the end ("Ctrl K", "⌘K" on a Mac; hidden
   while there is text and on touch). Placeholder "Search songs, artists, playlists, or paste a link"; "Find songs to add to <name>"
   while an editable playlist page is on screen or the search has that playlist as its target (`placeholderTarget`). **Ctrl+K / Cmd+K** focuses and selects it from anywhere, also from another input (not over a

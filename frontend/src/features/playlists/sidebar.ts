@@ -2,22 +2,26 @@
 // drawer opened from the navbars below that, plus the row of places above the
 // page there (#app-places; DESIGN.md "Playlists sidebar").
 // Two panels: the places (Home, Radio, Artists, Music library; links handled by
-// app-page.js's data-spa-link, the library by app.js) over the playlists.
+// app-page.ts's data-spa-link, the library by app.js) over the playlists.
 // The column is expanded or a 72px rail of avatars: the user's choice, else
-// automatic by the room left for the page (panel-widths.js, layout-rules.js).
-// The list comes from playlist-store.js, so everything here only navigates,
+// automatic by the room left for the page (panel-widths.ts, layout-rules.ts).
+// The list comes from playlist-store.ts, so everything here only navigates,
 // pins and filters; the server decides what may be seen.
-import { escapeHtml, navigateTo, t, trapFocus } from './shared/ui.js';
-import { parseRoute, playlistPath } from './router.js';
-import { PLAYLIST_FILTERS, PLAYLIST_SORTS, arrangePlaylists, playlistCoverIndex, playlistInitials } from './features/playlists/playlist-filter.js';
-import { player } from './player/player.js';
-import { applyColumns, isSidebarRail, setupPanelWidths, toggleSidebarRail } from './shared/panel-widths.js';
-import { storageGet, storageSet } from './shared/state.js';
-import { getPlaylist, getPlaylists, isLoaded, loadPlaylists, onPlaylists, togglePlaylistPin } from './features/playlists/playlist-store.js';
-import { LOCK_SVG, playlistMenuItems } from './features/playlists/playlist-actions.js';
-import { bindContextMenu, closeContextMenu, isContextMenuOpen, openContextMenu } from './shared/context-menu.js';
-import { ownerText, playlistTitle, quickPlayLobby } from './lobby.js';
-import { openNewPlaylistDialog } from './features/playlists/new-playlist.js';
+import { escapeHtml, navigateTo, t, trapFocus } from '../../shared/ui.ts';
+import { parseRoute, playlistPath } from '../../router.ts';
+import { PLAYLIST_FILTERS, PLAYLIST_SORTS, arrangePlaylists, playlistCoverIndex, playlistInitials } from './playlist-filter.ts';
+import type { PlaylistFilter, PlaylistGroupKey, PlaylistSort } from './playlist-filter.ts';
+import { player } from '../../player/player.ts';
+import { applyColumns, isSidebarRail, setupPanelWidths, toggleSidebarRail } from '../../shared/panel-widths.ts';
+import { storageGet, storageSet } from '../../shared/state.ts';
+import { getPlaylist, getPlaylists, isLoaded, loadPlaylists, onPlaylists, togglePlaylistPin } from './playlist-store.ts';
+import { LOCK_SVG, playlistMenuItems } from './playlist-actions.ts';
+import { bindContextMenu, closeContextMenu, isContextMenuOpen, openContextMenu } from '../../shared/context-menu.ts';
+import type { MenuItem } from '../../shared/context-menu.ts';
+import { ownerText, playlistTitle, quickPlayPlaylist } from './playlist.ts';
+import { openNewPlaylistDialog } from './new-playlist.ts';
+import { byId, maybeById } from '../../shared/dom.ts';
+import type { PlaylistSummary } from '../../shared/types.ts';
 
 const PIN_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>';
 const MORE_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>';
@@ -30,16 +34,17 @@ const SORT_KEY = 'listen-sidebarSort';
 
 const EQ_HTML = '<span class="person-eq playlist-eq" aria-hidden="true"><i></i><i></i><i></i></span>';
 
-const $ = (id) => document.getElementById(id);
+// index.html has every element looked up with $ (maybeById where it may be missing).
+const $ = byId;
 // The playlist the player is playing from right now (equaliser + accent name), or null.
-const playingId = () => (player.isPlaying && player.track && player.context && player.context.type === 'lobby' ? player.context.lobbyId : null);
+const playingId = (): string | null => (player.isPlaying && player.track && player.context && player.context.type === 'lobby' ? player.context.lobbyId : null);
 let query = '';
-let filter = 'all';
-let sort = 'date';
-let lastHtml = null;
-let drawerReturnFocus = null;
+let filter: PlaylistFilter = 'all';
+let sort: PlaylistSort = 'date';
+let lastHtml: string | null = null;
+let drawerReturnFocus: HTMLElement | null = null;
 
-function rowHtml(p, currentId, nowId) {
+function rowHtml(p: PlaylistSummary, currentId: string | null, nowId: string | null): string {
   const title = playlistTitle(p.name, p.id);
   const current = p.id === currentId;
   const playing = p.id === nowId;
@@ -65,28 +70,28 @@ function rowHtml(p, currentId, nowId) {
     + `</li>`;
 }
 
-function groupHtml(key, heading, rows, currentId) {
+function groupHtml(key: PlaylistGroupKey, heading: string, rows: PlaylistSummary[], currentId: string | null): string {
   const id = `plnav-group-${key}`;
   return `<h3 id="${id}" class="fs-xs fw-semibold fg-3 text-uppercase people-heading">${escapeHtml(heading)}</h3>`
     + listGroupHtml(`aria-labelledby="${id}"`, rows, currentId);
 }
 
-const listGroupHtml = (label, rows, currentId) => {
+const listGroupHtml = (label: string, rows: PlaylistSummary[], currentId: string | null): string => {
   const nowId = playingId();
   return `<ul class="list-group list-group-flush plnav-list" ${label}>${rows.map(p => rowHtml(p, currentId, nowId)).join('')}</ul>`;
 };
 
 // The rail has no chips to show or reset a filter, so it lists everything.
-const activeFilter = () => (document.body.classList.contains('plnav-rail') ? 'all' : filter);
-const arranged = () => arrangePlaylists(getPlaylists(), { query, filter: activeFilter(), sort, titleOf: (p) => playlistTitle(p.name, p.id) });
+const activeFilter = (): PlaylistFilter => (document.body.classList.contains('plnav-rail') ? 'all' : filter);
+const arranged = () => arrangePlaylists(getPlaylists(), { query, filter: activeFilter(), sort, titleOf: (p: PlaylistSummary) => playlistTitle(p.name, p.id) });
 
-function newPlaylistButton() {
+function newPlaylistButton(): string {
   return `<button type="button" class="btn plnav-empty-new" aria-haspopup="dialog">${PLUS_SVG}${escapeHtml(t('landing.newPlaylist', 'New playlist'))}</button>`;
 }
 
-function noResultsHtml() {
+function noResultsHtml(): string {
   const f = activeFilter();
-  const messages = {
+  const messages: Partial<Record<PlaylistFilter, string>> = {
     mine: t('sidebar.emptyMine', 'You have no playlists yet'),
     public: t('sidebar.emptyPublic', 'No public playlists'),
     private: t('sidebar.emptyPrivate', 'You have no private playlists'),
@@ -101,7 +106,7 @@ function noResultsHtml() {
     + `<div class="d-flex flex-wrap justify-content-center gap-2">${buttons}</div></div>`;
 }
 
-function listHtml(currentId) {
+function listHtml(currentId: string | null): string {
   if (!isLoaded()) return `<p class="fs-sm fg-3 app-empty plnav-empty">${escapeHtml(t('landing.loading', 'Loading…'))}</p>`;
   if (!getPlaylists().length) {
     return `<div class="app-empty plnav-empty"><p class="fw-medium fg-1 mb-1">${escapeHtml(t('landing.noPlaylists', 'No playlists yet'))}</p>`
@@ -110,7 +115,7 @@ function listHtml(currentId) {
   }
   const { groups, count } = arranged();
   if (!count) return noResultsHtml();
-  const headings = {
+  const headings: Record<PlaylistGroupKey, string> = {
     pinned: t('sidebar.pinned', 'Pinned'),
     mine: t('landing.yourPlaylists', 'Your playlists'),
     others: t('landing.publicPlaylists', 'Public playlists'),
@@ -123,14 +128,15 @@ function listHtml(currentId) {
 
 // Re-renders only when something changed: polling must not disturb focus or an
 // open menu. Focus follows the control across a re-render (a pinned row moves).
-function render() {
-  const list = $('plnav-list');
+function render(): void {
+  const list = maybeById('plnav-list');
   if (!list) return;
   const currentId = parseRoute(window.location.pathname).lobbyId;
   const html = listHtml(currentId);
   if (html === lastHtml) return;
-  const active = document.activeElement;
-  const focusedRow = list.contains(active) ? active.closest('.plnav-row') : null;
+  // Only read when it is inside the list (so an element).
+  const active = document.activeElement as HTMLElement;
+  const focusedRow = list.contains(active) ? active.closest<HTMLElement>('.plnav-row') : null;
   const hadFocus = list.contains(active);
   const part = !focusedRow ? null : ['plnav-pin', 'plnav-menu-btn', 'plnav-link'].find(c => active.classList.contains(c));
   const focusedId = focusedRow && focusedRow.dataset.playlistId;
@@ -139,13 +145,13 @@ function render() {
   lastHtml = html;
   list.scrollTop = scroll;
   if (focusedId && part) {
-    const el = list.querySelector(`.plnav-row[data-playlist-id="${CSS.escape(focusedId)}"] .${part}`);
+    const el = list.querySelector<HTMLElement>(`.plnav-row[data-playlist-id="${CSS.escape(focusedId)}"] .${part}`);
     if (el) el.focus({ preventScroll: true });
     else listFallback().focus({ preventScroll: true });
   } else if (hadFocus) {
     listFallback().focus({ preventScroll: true });
   }
-  const status = $('plnav-status');
+  const status = maybeById('plnav-status');
   if (status) {
     const n = arranged().count;
     status.textContent = query || activeFilter() !== 'all' ? t('sidebar.resultCount', `Playlists found: ${n}`, { count: n }) : '';
@@ -154,14 +160,14 @@ function render() {
 
 // The places in the upper panel and in the phone row (#app-places): the one on
 // screen is aria-current="page" (CSS tints it). The sidebar's Radio marks itself
-// (radio.js), as it also shows what is playing; the phone row's only follows the page.
-function syncPlaces() {
+// (radio.ts), as it also shows what is playing; the phone row's only follows the page.
+function syncPlaces(): void {
   const route = parseRoute(window.location.pathname, window.location.search);
   const library = !!route.library || document.body.classList.contains('libpage-open');
   const home = !library && route.view === 'landing';
   const artists = !library && (route.view === 'artists' || route.view === 'artist');
   const search = !library && route.view === 'search';
-  const current = {
+  const current: Record<string, boolean> = {
     'plnav-nav-search': search,
     'places-search': search,
     'plnav-nav-home': home,
@@ -173,26 +179,26 @@ function syncPlaces() {
     'places-library': library,
   };
   for (const [id, on] of Object.entries(current)) {
-    const el = $(id);
+    const el = maybeById(id);
     if (!el) continue;
     if (on) el.setAttribute('aria-current', 'page');
     else el.removeAttribute('aria-current');
   }
 }
 
-function refresh() {
+function refresh(): void {
   syncPlaces();
   render();
 }
 
 // Where focus goes when its row is gone; the rail has no search box.
-function listFallback() {
+function listFallback(): HTMLElement {
   return document.body.classList.contains('plnav-rail') ? $('plnav-new') : $('plnav-search');
 }
 
-function setQuery(value) {
+function setQuery(value: string): void {
   query = value;
-  const input = $('plnav-search');
+  const input = $<HTMLInputElement>('plnav-search');
   if (input.value !== value) input.value = value;
   $('plnav-search-clear').hidden = !value;
   render();
@@ -200,9 +206,9 @@ function setQuery(value) {
 
 // ------------------------------------------------------------- filter and sort
 
-function syncChips() {
+function syncChips(): void {
   const chips = $('plnav-chips');
-  chips.querySelectorAll('[data-plnav-filter]').forEach((chip) => {
+  chips.querySelectorAll<HTMLElement>('[data-plnav-filter]').forEach((chip) => {
     const on = chip.dataset.plnavFilter === filter;
     chip.setAttribute('aria-pressed', on ? 'true' : 'false');
     if (!on) return;
@@ -212,7 +218,7 @@ function syncChips() {
   });
 }
 
-function syncSortButton() {
+function syncSortButton(): void {
   const name = sort === 'name' ? t('sidebar.sortName', 'Name') : t('sidebar.sortDate', 'Date');
   const label = t('sidebar.sortLabel', `Sort playlists: ${name}`, { sort: name });
   const btn = $('plnav-sort');
@@ -221,7 +227,7 @@ function syncSortButton() {
   btn.setAttribute('title', label);
 }
 
-function setFilter(value) {
+function setFilter(value: PlaylistFilter): void {
   filter = value;
   storageSet(FILTER_KEY, filter);
   syncChips();
@@ -229,7 +235,7 @@ function setFilter(value) {
   render();
 }
 
-function setSort(value) {
+function setSort(value: PlaylistSort): void {
   sort = value;
   storageSet(SORT_KEY, sort);
   syncSortButton();
@@ -237,8 +243,8 @@ function setSort(value) {
   render();
 }
 
-function openSortMenu(btn, keyboard) {
-  const choice = (value, label) => ({ label, checked: sort === value, onSelect: () => setSort(value) });
+function openSortMenu(btn: HTMLElement, keyboard: boolean): void {
+  const choice = (value: PlaylistSort, label: string): MenuItem => ({ label, checked: sort === value, onSelect: () => setSort(value) });
   openContextMenu({ anchor: btn }, [
     { header: t('sidebar.sortBy', 'Sort by') },
     choice('name', t('sidebar.sortNameLong', 'Name (A–Z)')),
@@ -246,16 +252,17 @@ function openSortMenu(btn, keyboard) {
   ], { label: t('sidebar.sortBy', 'Sort by'), trigger: btn, focusFirst: keyboard, className: 'plnav-sort-menu' });
 }
 
-function setupFilterAndSort() {
+function setupFilterAndSort(): void {
   const savedFilter = storageGet(FILTER_KEY);
   const savedSort = storageGet(SORT_KEY);
-  if (PLAYLIST_FILTERS.includes(savedFilter)) filter = savedFilter;
-  if (PLAYLIST_SORTS.includes(savedSort)) sort = savedSort;
+  if ((PLAYLIST_FILTERS as readonly (string | null)[]).includes(savedFilter)) filter = savedFilter as PlaylistFilter;
+  if ((PLAYLIST_SORTS as readonly (string | null)[]).includes(savedSort)) sort = savedSort as PlaylistSort;
   const chips = $('plnav-chips');
   chips.addEventListener('click', (e) => {
-    const chip = e.target.closest('[data-plnav-filter]');
+    const chip = (e.target as HTMLElement).closest<HTMLElement>('[data-plnav-filter]');
     if (!chip) return;
-    const value = chip.dataset.plnavFilter;
+    // The chips in index.html carry one of PLAYLIST_FILTERS.
+    const value = chip.dataset.plnavFilter as PlaylistFilter;
     setFilter(value === filter ? 'all' : value); // tapping the active chip resets
   });
   // The scrollbar is hidden: a mouse wheel moves the line sideways.
@@ -265,7 +272,7 @@ function setupFilterAndSort() {
     chips.scrollLeft += e.deltaY;
   }, { passive: false });
   $('plnav-sort').addEventListener('click', (e) => {
-    const btn = e.currentTarget;
+    const btn = e.currentTarget as HTMLElement;
     if (isContextMenuOpen() && btn.getAttribute('aria-expanded') === 'true') { closeContextMenu(); return; }
     openSortMenu(btn, e.detail === 0);
   });
@@ -276,7 +283,7 @@ function setupFilterAndSort() {
 
 // ------------------------------------------------------------- rail
 
-function syncRail() {
+function syncRail(): void {
   const rail = isSidebarRail();
   const toggle = $('plnav-toggle');
   const label = rail ? t('sidebar.expand', 'Expand playlists') : t('sidebar.collapse', 'Collapse playlists');
@@ -287,7 +294,7 @@ function syncRail() {
   else render(); // the rail lists everything; expanding brings the filter back
 }
 
-function setupRail() {
+function setupRail(): void {
   setupPanelWidths();
   $('plnav-toggle').addEventListener('click', toggleSidebarRail);
   document.addEventListener('app:railchange', syncRail); // a toggle, a drag, the window or the chat panel
@@ -298,13 +305,13 @@ function setupRail() {
 
 // ------------------------------------------------------------- drawer
 
-const isDrawerMode = () => window.matchMedia(DRAWER_MQ).matches;
+const isDrawerMode = (): boolean => window.matchMedia(DRAWER_MQ).matches;
 
-function setDrawerExpanded(open) {
+function setDrawerExpanded(open: boolean): void {
   document.querySelectorAll('[data-plnav-open]').forEach(b => b.setAttribute('aria-expanded', open ? 'true' : 'false'));
 }
 
-function openDrawer(trigger) {
+function openDrawer(trigger: HTMLElement | null): void {
   drawerReturnFocus = trigger || null;
   document.body.classList.add('plnav-open');
   $('plnav-backdrop').hidden = false;
@@ -312,7 +319,7 @@ function openDrawer(trigger) {
   $('plnav-close').focus({ preventScroll: true });
 }
 
-export function closeDrawer({ restoreFocus = false } = {}) {
+export function closeDrawer({ restoreFocus = false }: { restoreFocus?: boolean } = {}): void {
   if (!document.body.classList.contains('plnav-open')) return;
   document.body.classList.remove('plnav-open');
   $('plnav-backdrop').hidden = true;
@@ -322,19 +329,20 @@ export function closeDrawer({ restoreFocus = false } = {}) {
   if (restoreFocus && back && document.contains(back)) back.focus({ preventScroll: true });
 }
 
-function goTo(id) {
+function goTo(id: string): void {
   closeDrawer();
   navigateTo(playlistPath(id));
 }
 
-function menuItemsFor(row) {
-  const id = row.dataset.playlistId;
+function menuItemsFor(row: HTMLElement): MenuItem[] | null {
+  // Rows are rendered with data-playlist-id.
+  const id = row.dataset.playlistId as string;
   const pl = getPlaylist(id);
   if (!pl) return null;
-  const returnFocus = () => document.querySelector(`.plnav-row[data-playlist-id="${CSS.escape(id)}"] .plnav-menu-btn`) || listFallback();
+  const returnFocus = () => document.querySelector<HTMLElement>(`.plnav-row[data-playlist-id="${CSS.escape(id)}"] .plnav-menu-btn`) || listFallback();
   return playlistMenuItems(pl, {
     returnFocus,
-    onPlay: () => { closeDrawer(); quickPlayLobby(id); },
+    onPlay: () => { closeDrawer(); quickPlayPlaylist(id); },
     onTogglePin: () => togglePlaylistPin(id),
     onChanged: () => loadPlaylists(),
     onDeleted: () => {
@@ -344,7 +352,7 @@ function menuItemsFor(row) {
   });
 }
 
-export function setupSidebar() {
+export function setupSidebar(): void {
   document.body.classList.add('has-plnav');
   setupFilterAndSort();
   setupRail();
@@ -353,14 +361,14 @@ export function setupSidebar() {
   setInterval(() => { if (!document.hidden) loadPlaylists(); }, POLL_MS);
 
   const list = $('plnav-list');
-  const search = $('plnav-search');
+  const search = $<HTMLInputElement>('plnav-search');
   search.addEventListener('input', () => setQuery(search.value));
   search.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && query) { e.preventDefault(); e.stopPropagation(); setQuery(''); }
   });
   $('plnav-search-clear').addEventListener('click', () => { setQuery(''); search.focus(); });
 
-  $('plnav-new').addEventListener('click', (e) => { closeDrawer(); openNewPlaylistDialog(isDrawerMode() ? null : e.currentTarget); });
+  $('plnav-new').addEventListener('click', (e) => { closeDrawer(); openNewPlaylistDialog(isDrawerMode() ? null : e.currentTarget as HTMLElement); });
   $('plnav-home').addEventListener('click', (e) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey) return;
     e.preventDefault();
@@ -369,31 +377,34 @@ export function setupSidebar() {
   });
   $('plnav-profile').addEventListener('click', () => { closeDrawer(); navigateTo('/profile'); });
 
+  // Rows are rendered with data-playlist-id; the "all" chip is in index.html.
   list.addEventListener('click', (e) => {
-    if (e.target.closest('.plnav-empty-new')) { closeDrawer(); openNewPlaylistDialog(null); return; }
-    if (e.target.closest('.plnav-empty-clear')) { setQuery(''); search.focus(); return; }
-    if (e.target.closest('.plnav-empty-all')) { setFilter('all'); $('plnav-chips').querySelector('[data-plnav-filter="all"]').focus(); return; }
-    const row = e.target.closest('.plnav-row');
+    const target = e.target as HTMLElement;
+    if (target.closest('.plnav-empty-new')) { closeDrawer(); openNewPlaylistDialog(null); return; }
+    if (target.closest('.plnav-empty-clear')) { setQuery(''); search.focus(); return; }
+    if (target.closest('.plnav-empty-all')) { setFilter('all'); ($('plnav-chips').querySelector('[data-plnav-filter="all"]') as HTMLElement).focus(); return; }
+    const row = target.closest<HTMLElement>('.plnav-row');
     if (!row) return;
-    if (e.target.closest('.plnav-pin')) { togglePlaylistPin(row.dataset.playlistId); return; }
-    if (e.target.closest('.plnav-menu-btn')) return;
-    goTo(row.dataset.playlistId);
+    if (target.closest('.plnav-pin')) { togglePlaylistPin(row.dataset.playlistId as string); return; }
+    if (target.closest('.plnav-menu-btn')) return;
+    goTo(row.dataset.playlistId as string);
   });
   list.addEventListener('keydown', (e) => {
-    if ((e.key !== 'Enter' && e.key !== ' ') || !e.target.classList.contains('plnav-link')) return;
+    const target = e.target as HTMLElement;
+    if ((e.key !== 'Enter' && e.key !== ' ') || !target.classList.contains('plnav-link')) return;
     e.preventDefault();
-    goTo(e.target.closest('.plnav-row').dataset.playlistId);
+    goTo((target.closest('.plnav-row') as HTMLElement).dataset.playlistId as string);
   });
   bindContextMenu(list, {
     rowSelector: '.plnav-row',
     triggerSelector: '.plnav-menu-btn',
-    label: (row) => { const p = getPlaylist(row.dataset.playlistId); const name = p ? playlistTitle(p.name, p.id) : ''; return t('playlistMenu.labelFor', `Actions for ${name}`, { name }); },
+    label: (row) => { const p = getPlaylist(row.dataset.playlistId as string); const name = p ? playlistTitle(p.name, p.id) : ''; return t('playlistMenu.labelFor', `Actions for ${name}`, { name }); },
     getItems: menuItemsFor,
   });
 
   // Drawer (below 768px).
   document.addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-plnav-open]');
+    const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-plnav-open]');
     if (btn) openDrawer(btn);
   });
   $('plnav-close').addEventListener('click', () => closeDrawer({ restoreFocus: true }));
@@ -410,6 +421,6 @@ export function setupSidebar() {
   document.addEventListener('app:viewchange', refresh);
   window.addEventListener('languageChanged', () => { lastHtml = null; render(); });
   // The playlist playing right now has the equaliser.
-  for (const event of ['state', 'context', 'track']) player.on(event, render);
+  for (const event of ['state', 'context', 'track'] as const) player.on(event, render);
   syncPlaces();
 }

@@ -14,17 +14,17 @@ import { handleJobUpdate, handleWorkersUpdate } from './features/library/jobs.js
 import { loadReports } from './features/library/song-reports.js';
 import { parseRoute, legacyRedirect } from './router.js';
 import { openNewPlaylistDialog } from './features/playlists/new-playlist.js';
-import { setupSidebar, closeDrawer } from './sidebar.js';
+import { setupSidebar, closeDrawer } from './features/playlists/sidebar.js';
 import { setupAppPage } from './features/account/app-page.js';
-import { setupRadio, openRadioPage, closeRadioPage, handleRadioLibraryUpdated, refreshRadio, playRadioFromTop } from './radio.js';
-import { setupArtists, openArtistsPage, closeArtistsPage, handleArtistsLibraryUpdated } from './artists.js';
-import { setupArtistPage, openArtistPage, closeArtistPage, handleArtistLibraryUpdated, playArtistFromTop } from './artist-page.js';
+import { setupRadio, openRadioPage, closeRadioPage, handleRadioLibraryUpdated, refreshRadio, playRadioFromTop } from './features/radio/radio.js';
+import { setupArtists, openArtistsPage, closeArtistsPage, handleArtistsLibraryUpdated } from './features/artists/artists.js';
+import { setupArtistPage, openArtistPage, closeArtistPage, handleArtistLibraryUpdated, playArtistFromTop } from './features/artists/artist-page.js';
 import { setupRowDoubleClick } from './shared/row-double-click.js';
 import { scheduleReload } from './features/playlists/playlist-store.js';
-import { shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyUpdated, openPlaylistHeaderMenu, setupLandingMenus, handleUserJoined, handleUserLeft, handleLobbyClosed, checkForLastLobby, joinLobbyFromCard, updatePinButton, togglePin, quickPlayLobby, toggleLobbyPlayback, openLobbyPage, closeLobbyPage, syncMembership, resyncMembership, reportNowPlaying } from './lobby.js';
+import { sharePlaylist, handlePlaylistCreated, handlePlaylistJoined, handlePlaylistNotFound, handlePlaylistError, handlePlaylistRenamed, handlePlaylistUpdated, openPlaylistHeaderMenu, setupLandingMenus, handleUserJoined, handleUserLeft, handlePlaylistClosed, checkForLastPlaylist, joinPlaylistFromCard, updatePinButton, togglePin, quickPlayPlaylist, togglePlaylistPlayback, openPlaylistPage, closePlaylistPage, syncMembership, resyncMembership, reportNowPlaying } from './features/playlists/playlist.js';
 import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, updatePlayButton, updatePlaybackModeUI, updateNowPlaying, _setQueueFns } from './player/playback.js';
 import { closePickDialog } from './features/picker/pick-dialog.js';
-import { setupSearch, openSearchPage, closeSearchPage, searchRouteChanged, handleSearchLibraryUpdated } from './search.js';
+import { setupSearch, openSearchPage, closeSearchPage, searchRouteChanged, handleSearchLibraryUpdated } from './features/search/search.js';
 import { handleQueueUpdated, handleSongAdded, removeSong, clearQueue, downloadPlaylist, cancelPlaylistDownload, moveSongUp, moveSongDown, playSongAt, setupQueueInteractions, setupQueueSearch, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './features/queue/queue.js';
 
 // Wire up cross-module dependencies
@@ -65,16 +65,16 @@ function setupSocket() {
     });
     s.on('disconnect', () => { console.log('Disconnected from server'); showToast(t('toast.connectionLost', 'Connection lost. Reconnecting...'), 'error'); });
 
-    // Lobby Events
-    s.on('lobby:created', (data) => handleLobbyCreated(data, updatePinButton));
-    s.on('lobby:joined', (data) => handleLobbyJoined(data, updatePinButton, updateListeners, updateQueue));
-    s.on('lobby:not-found', handleLobbyNotFound);
-    s.on('lobby:error', handleLobbyError);
+    // Playlist Events (lobby:* on the wire)
+    s.on('lobby:created', (data) => handlePlaylistCreated(data, updatePinButton));
+    s.on('lobby:joined', (data) => handlePlaylistJoined(data, updatePinButton, updateListeners, updateQueue));
+    s.on('lobby:not-found', handlePlaylistNotFound);
+    s.on('lobby:error', handlePlaylistError);
     s.on('lobby:user-joined', (data) => handleUserJoined(data, updateListeners));
     s.on('lobby:user-left', (data) => handleUserLeft(data, updateListeners));
-    s.on('lobby:closed', (data) => { if ((data.lobbyId || state.lobbyId) === state.lobbyId) closeLibraryPage(); handleLobbyClosed(data, resetLobbyPage); });
-    s.on('lobby:renamed', handleLobbyRenamed);
-    s.on('lobby:updated', handleLobbyUpdated);
+    s.on('lobby:closed', (data) => { if ((data.lobbyId || state.lobbyId) === state.lobbyId) closeLibraryPage(); handlePlaylistClosed(data, resetLobbyPage); });
+    s.on('lobby:renamed', handlePlaylistRenamed);
+    s.on('lobby:updated', handlePlaylistUpdated);
     // The list changed somewhere: refetch it (sidebar, landing rows, pin button).
     s.on('playlists:changed', () => scheduleReload());
 
@@ -114,7 +114,7 @@ function setupEventListeners() {
 
   // Back only navigates: playback and the playback context are untouched.
   elements.backBtn.addEventListener('click', () => navigateTo('/'));
-  elements.shareBtn.addEventListener('click', shareLobby);
+  elements.shareBtn.addEventListener('click', sharePlaylist);
   if (elements.pinBtn) elements.pinBtn.addEventListener('click', togglePin);
 
   // Playback Controls
@@ -193,13 +193,13 @@ function applyRoute() {
   if (route.view === 'social') {
     // Phones: the Social view covers the page; desktop: the sidebar over the
     // landing page (a playlist page under it would be left anyway).
-    closeLobbyPage(resetLobbyPage);
+    closePlaylistPage(resetLobbyPage);
     if (!isViewActive('landing') && !isViewActive('profile')) showView('landing');
   } else if (route.lobbyId) {
     // The lobby view shows once lobby:joined arrives.
-    if (route.lobbyId !== state.lobbyId) openLobbyPage(route.lobbyId, resetLobbyPage);
+    if (route.lobbyId !== state.lobbyId) openPlaylistPage(route.lobbyId, resetLobbyPage);
   } else {
-    closeLobbyPage(resetLobbyPage);
+    closePlaylistPage(resetLobbyPage);
     if (!isViewActive(route.view)) showView(route.view);
     if (route.view === 'radio') openRadioPage();
     if (route.view === 'artists') openArtistsPage();
@@ -281,7 +281,7 @@ function initAuthenticatedApp() {
   setupEventListeners();
   setupProfilePage();
   applyRoute();
-  if (!route.lobbyId && !ownView) checkForLastLobby();
+  if (!route.lobbyId && !ownView) checkForLastPlaylist();
   setupRangeFill();
   setupAudioPlayer();
   setupPlayer();
@@ -294,7 +294,7 @@ function initAuthenticatedApp() {
   setupRowDoubleClick((id) => {
     if (id === 'radio') playRadioFromTop();
     else if (id.startsWith('artist:')) playArtistFromTop(id.slice('artist:'.length));
-    else quickPlayLobby(id);
+    else quickPlayPlaylist(id);
   });
   // Songs marked "needs replacement" (badges everywhere; song-reports.js).
   loadReports();
@@ -317,8 +317,10 @@ function initAuthenticatedApp() {
 // Expose API for inline onclick handlers
 window.app = {
   removeSong, moveSongUp, moveSongDown, playSongAt,
-  openSource, copySourceUrl, joinLobbyFromCard,
-  quickPlayLobby, toggleLobbyPlayback,
+  openSource, copySourceUrl,
+  // Keys named in generated HTML (playlist.ts onclick="window.app.…") keep their names.
+  joinLobbyFromCard: joinPlaylistFromCard,
+  quickPlayPlaylist, toggleLobbyPlayback: togglePlaylistPlayback,
   playRadio: () => playRadioFromTop(),
   newPlaylist: (btn) => openNewPlaylistDialog(btn)
 };

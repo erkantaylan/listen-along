@@ -4,8 +4,8 @@
 // Cmd+K from anywhere, and the search page /search?q=… (DESIGN.md "Search").
 //
 //   Songs        the library, as you type (GET /api/library?sort=relevance)
-//   Artists      the artists list (artists.js), filtered here
-//   Playlists    the viewer's list (playlist-store.js; the server already left
+//   Artists      the artists list (artists.ts), filtered here
+//   Playlists    the viewer's list (playlist-store.ts; the server already left
 //                out what they may not see), filtered here
 //   From YouTube only on Enter or "Search YouTube for …" (POST /api/jobs/picks
 //                { query }: 30 lookups a minute per client)
@@ -14,30 +14,103 @@
 //                the server's own reason it is not supported
 //
 // A library song played from here is a context of its own ({ type: 'search' })
-// that repeats it until something else is chosen (player-queue.js). Adding goes
+// that repeats it until something else is chosen (player-queue.ts). Adding goes
 // to the playlist this search was started on (an editable playlist page on
-// screen when the field was focused, search-rules.js startTarget), else to the
+// screen when the field was focused, search-rules.ts startTarget), else to the
 // one last played from (addTarget); the same song in a playlist asks first
-// (add-to-playlist.js). The pure rules are in search-rules.js.
-import { state, storageGet, storageSet } from './shared/state.js';
-import { escapeHtml, formatDuration, navigateTo, showToast, t } from './shared/ui.js';
-import { player } from './player/player.js';
-import { isLibraryOpen, libraryTrack } from './features/library/library.js';
-import { searchPath, searchQueryOf, artistPath, playlistPath } from './router.js';
-import { bindSongMenu, songMenuButtonHtml } from './features/library/song-reports.js';
-import { bindContextMenu, closeContextMenu, isContextMenuOpen, openContextMenu } from './shared/context-menu.js';
-import { addSongToPlaylist, confirmDuplicate, openPlaylistChooser } from './features/playlists/add-to-playlist.js';
-import { getPlaylists, isLoaded as playlistsLoaded, loadPlaylists, onPlaylists, scheduleReload } from './features/playlists/playlist-store.js';
-import { groupPlaylists, playlistCoverIndex, playlistInitials } from './features/playlists/playlist-filter.js';
-import { ensureArtists, coverUrl, songCountText } from './artists.js';
-import { importPlaylist } from './features/picker/pick-dialog.js';
-import { thumbUrl, watchUrl } from './features/picker/pick-rules.js';
-import { isUnplayable } from './player/playback-failures.js';
-import { closeDrawer } from './sidebar.js';
+// (add-to-playlist.ts). The pure rules are in search-rules.ts.
+import { state, storageGet, storageSet } from '../../shared/state.ts';
+import { escapeHtml, formatDuration, navigateTo, showToast, t } from '../../shared/ui.ts';
+import { player } from '../../player/player.ts';
+import { isLibraryOpen, libraryTrack } from '../library/library.ts';
+import { searchPath, searchQueryOf, artistPath, playlistPath } from '../../router.ts';
+import { bindSongMenu, songMenuButtonHtml } from '../library/song-reports.ts';
+import { bindContextMenu, closeContextMenu, isContextMenuOpen, openContextMenu } from '../../shared/context-menu.ts';
+import { addSongToPlaylist, confirmDuplicate, openPlaylistChooser } from '../playlists/add-to-playlist.ts';
+import { getPlaylists, isLoaded as playlistsLoaded, loadPlaylists, onPlaylists, scheduleReload } from '../playlists/playlist-store.ts';
+import { groupPlaylists, playlistCoverIndex, playlistInitials } from '../playlists/playlist-filter.ts';
+import { ensureArtists, coverUrl, songCountText } from '../artists/artists.ts';
+import { importPlaylist } from '../picker/pick-dialog.ts';
+import { thumbUrl, watchUrl } from '../picker/pick-rules.ts';
+import { isUnplayable } from '../../player/playback-failures.ts';
+import { closeDrawer } from '../playlists/sidebar.ts';
 import {
   ADD_KEY, SONGS_MAX, SONGS_SHOWN, addTarget, isAddKey, isSearchShortcut, isSpotifyLink, keepTarget, lastPlayedFrom, libraryChangeMatters,
   linkInput, linkOutcome, pageTarget, placeholderTarget, rankArtists, rankPlaylists, requestOutcome, rowStep, similarQuery, startTarget, youtubeOutcome,
-} from './features/search/search-rules.js';
+} from './search-rules.ts';
+import type { LibraryChange, LinkedLibrarySong, LinkOutcome } from './search-rules.ts';
+import { byId, maybeById } from '../../shared/dom.ts';
+import type { MenuItem } from '../../shared/context-menu.ts';
+import type { PicksAnswer } from '../picker/pick-rules.ts';
+import type { TrackSource } from '../library/library.ts';
+import type { Route } from '../../router.ts';
+import type {
+  ApiError, Artist, CreatePickedJobsResponse, LibraryListResponse, LibrarySong, PickVideo, PlaylistCreated, PlaylistSongsResponse, PlaylistSummary, Track,
+} from '../../shared/types.ts';
+
+/** A library song as a row shows it: a GET /api/library row, or one a pick answer names (in_library). */
+type SearchSong = LibrarySong | LinkedLibrarySong;
+type PlaylistOutcome = Extract<LinkOutcome, { kind: 'playlist' }>;
+
+/** What a rendered row is (S.rows, by its data-key). */
+type SongRow = { kind: 'song'; song: SearchSong; track: Track };
+type VideoRow = { kind: 'video'; video: PickVideo };
+type SearchRow =
+  | SongRow
+  | VideoRow
+  | { kind: 'artist'; artist: Artist }
+  | { kind: 'playlist'; playlist: PlaylistSummary }
+  | { kind: 'ytgo' }
+  | { kind: 'import'; outcome: PlaylistOutcome };
+
+type SongsState = 'idle' | 'loading' | 'ready' | 'rate' | 'error';
+type YoutubeState = 'idle' | 'loading' | 'ready' | 'rate' | 'error' | 'empty';
+
+/** A pasted link being looked up (outcome set once it is 'ready'). */
+interface LinkState {
+  input: string;
+  state: 'loading' | 'ready';
+  outcome: LinkOutcome | null;
+  spotify: boolean;
+}
+
+interface YoutubeSearch {
+  query: string;
+  state: YoutubeState;
+  videos: PickVideo[];
+  message?: string | null;
+  seq: number;
+}
+
+interface SearchState {
+  open: boolean;
+  from: string;
+  query: string;
+  mode: 'empty' | 'text' | 'link';
+  songs: LibrarySong[]; total: number; songsState: SongsState; showAll: boolean; songSeq: number;
+  artists: Artist[];
+  link: LinkState | null;
+  linkSeq: number;
+  similar: { query: string; songs: LibrarySong[]; seq: number };
+  yt: YoutubeSearch;
+  requested: Set<string>;
+  busy: Set<string>;
+  importing: boolean;
+  stale: boolean;
+  sessionTarget: string | null;
+  rows: Map<string, SearchRow>;
+}
+
+/** POST /api/jobs { picks } answered: CreatePickedJobsResponse (2xx) or an ApiError. */
+type JobsAnswer = Partial<CreatePickedJobsResponse> & Partial<ApiError>;
+interface JobsBody {
+  picks: string[];
+  playlist_id?: string;
+  allow_duplicates?: boolean;
+}
+
+/** What a row needs of a playlist (an /api/playlists item, or one just made). */
+type NamedPlaylist = { id: string; name?: string | null };
 
 const TYPE_DELAY_MS = 150;   // library results as you type
 const LINK_DELAY_MS = 350;   // a pasted link is looked up once it stops changing
@@ -62,13 +135,13 @@ const ICON = {
   library: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 5h-3v5.5a2.5 2.5 0 1 1-1-2V5h4v2z"/></svg>',
 };
 
-const $ = (id) => document.getElementById(id);
+const $ = <T extends HTMLElement = HTMLElement>(id: string): T | null => maybeById<T>(id);
 // t() with {placeholders} filled in the fallback too (t returns it raw).
-const tf = (key, fallback, vars = {}) => t(key, fallback, vars).replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
-const isMac = () => /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
-const phone = () => window.matchMedia('(width < 768px)').matches;
+const tf = (key: string, fallback: string, vars: Record<string, string | number> = {}): string => t(key, fallback, vars).replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m));
+const isMac = (): boolean => /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
+const phone = (): boolean => window.matchMedia('(width < 768px)').matches;
 
-const S = {
+const S: SearchState = {
   open: false,          // the search page is on screen
   from: '/',            // where the page's back button goes
   query: '',            // what the page shows results for
@@ -86,20 +159,20 @@ const S = {
   sessionTarget: null,  // a playlist id: the editable playlist page this search was started on
   rows: new Map(),      // row key -> what it is (the rendered rows)
 };
-const linkCache = new Map(); // input -> outcome (answers only, never failures)
-const ytCache = new Map();   // query -> videos
-let typeTimer = null;
+const linkCache = new Map<string, LinkOutcome>(); // input -> outcome (answers only, never failures)
+const ytCache = new Map<string, PickVideo[]>();   // query -> videos
+let typeTimer: ReturnType<typeof setTimeout> | undefined;
 let lastPointer = 'mouse';
 
 // ------------------------------------------------------------------ the target
 
-function currentTarget() {
+function currentTarget(): { playlist: PlaylistSummary; session: boolean } | null {
   return addTarget({ sessionId: S.sessionTarget, lastPlayedId: storageGet(LAST_PLAYED_KEY), playlists: getPlaylists() });
 }
 
-const playlistName = (p) => p.name || `${t('lobby.playlist', 'Playlist')} ${p.id}`;
+const playlistName = (p: NamedPlaylist): string => p.name || `${t('lobby.playlist', 'Playlist')} ${p.id}`;
 
-function renderTarget() {
+function renderTarget(): void {
   const el = $('search-target');
   if (!el) return;
   const target = currentTarget();
@@ -114,14 +187,14 @@ function renderTarget() {
     </span>${target.session ? '' : `<span class="fs-xs fg-3 search-target-why">${escapeHtml(t('search.lastPlayed', 'the playlist you last played'))}</span>`}`;
 }
 
-// The editable playlist page on screen, if any (search-rules.js pageTarget).
-function pagePlaylistId() {
+// The editable playlist page on screen, if any (search-rules.ts pageTarget).
+function pagePlaylistId(): string | null {
   const view = document.querySelector('.view.active');
   return pageTarget({ view: view ? view.id.replace(/-view$/, '') : null, lobbyId: state.lobbyId, canEdit: state.canEdit, libraryOpen: isLibraryOpen() });
 }
 
-function refreshPlaceholder() {
-  const input = $('app-search-input');
+function refreshPlaceholder(): void {
+  const input = $<HTMLInputElement>('app-search-input');
   if (!input) return;
   const target = placeholderTarget({ sessionId: S.sessionTarget, pageId: pagePlaylistId(), playlists: getPlaylists() });
   input.placeholder = target
@@ -131,7 +204,7 @@ function refreshPlaceholder() {
 
 // The search starts (focus, Ctrl+K, the Search place): on an editable playlist
 // page, that playlist becomes this search's target.
-function armTarget() {
+function armTarget(): void {
   const next = startTarget(S.sessionTarget, pagePlaylistId());
   if (next === S.sessionTarget) return;
   S.sessionTarget = next;
@@ -142,7 +215,7 @@ function armTarget() {
 // ----------------------------------------------------------------- the field
 
 /** Whether the top bar is on screen: a signed-in page that has it (on phones only the search page). */
-function barShown() {
+function barShown(): boolean {
   if (!document.body.classList.contains('has-plnav')) return false;
   const lib = $('library-page');
   if (lib && !lib.hidden) return !phone(); // the overlay is a page panel too (on phones it has no bar)
@@ -153,7 +226,7 @@ function barShown() {
 
 // The bar is part of the shell (index.html, app.css "Top bar"): it never moves,
 // it is shown or not, and body.has-topbar makes the panels start under it.
-function syncBar() {
+function syncBar(): void {
   const bar = $('app-search');
   if (!bar) return;
   const shown = barShown();
@@ -163,12 +236,12 @@ function syncBar() {
 }
 
 /** Ctrl+K, the places: the field, here or on the search page. */
-export function focusSearch({ select = true } = {}) {
+export function focusSearch({ select = true }: { select?: boolean } = {}): void {
   closeContextMenu();
   armTarget();
   syncBar();
-  const bar = $('app-search');
-  const input = $('app-search-input');
+  const bar = byId('app-search');
+  const input = byId<HTMLInputElement>('app-search-input');
   if (bar.hidden) {
     navigateTo(searchPath(S.open ? S.query : ''));
     syncBar();
@@ -177,17 +250,17 @@ export function focusSearch({ select = true } = {}) {
   if (select) input.select();
 }
 
-function syncKbd() {
+function syncKbd(): void {
   const kbd = $('app-search-kbd');
   if (!kbd) return;
   kbd.textContent = isMac() ? '⌘K' : 'Ctrl K';
-  kbd.hidden = !!$('app-search-input').value;
+  kbd.hidden = !!byId<HTMLInputElement>('app-search-input').value;
 }
 
 // What was typed: the page follows, without a history entry per letter.
-function applyInput({ now = false } = {}) {
+function applyInput({ now = false }: { now?: boolean } = {}): void {
   clearTimeout(typeTimer);
-  const value = $('app-search-input').value;
+  const value = byId<HTMLInputElement>('app-search-input').value;
   const q = searchQueryOf(value);
   const run = () => {
     if (!S.open) {
@@ -204,10 +277,10 @@ function applyInput({ now = false } = {}) {
   else typeTimer = setTimeout(run, linkInput(q) ? LINK_DELAY_MS : TYPE_DELAY_MS);
 }
 
-function onFieldKeydown(e) {
+function onFieldKeydown(e: KeyboardEvent): void {
   // An IME is composing: its Enter / Escape belong to it.
   if (e.isComposing || e.keyCode === 229) return;
-  const input = e.currentTarget;
+  const input = e.currentTarget as HTMLInputElement;
   if (e.key === 'Escape') {
     e.preventDefault();
     if (input.value) {
@@ -236,11 +309,11 @@ function onFieldKeydown(e) {
 // ------------------------------------------------------------------ the page
 
 /** The route opened /search?q=… (also Back / Forward). */
-export function openSearchPage(query, { from = null } = {}) {
+export function openSearchPage(query: string, { from = null }: { from?: string | null } = {}): void {
   const wasOpen = S.open;
   S.open = true;
   if (!wasOpen && from && !from.startsWith('/search')) S.from = from;
-  const input = $('app-search-input');
+  const input = byId<HTMLInputElement>('app-search-input');
   if (searchQueryOf(input.value) !== query && document.activeElement !== input) input.value = query;
   syncKbd();
   syncBar();
@@ -251,7 +324,7 @@ export function openSearchPage(query, { from = null } = {}) {
 }
 
 /** The route left the search page. */
-export function closeSearchPage() {
+export function closeSearchPage(): void {
   if (!S.open) return;
   S.open = false;
   clearTimeout(typeTimer);
@@ -260,17 +333,17 @@ export function closeSearchPage() {
 }
 
 /** Any route change: a search's playlist target lasts while its search does (keepTarget). */
-export function searchRouteChanged(route) {
+export function searchRouteChanged(route: Route): void {
   if (!S.sessionTarget) return;
   S.sessionTarget = keepTarget(S.sessionTarget, route);
   if (!S.sessionTarget) refreshPlaceholder();
 }
 
-function setTitle() {
+function setTitle(): void {
   document.title = S.query ? `${S.query} · ${t('search.title', 'Search')} · listen-along` : `${t('search.title', 'Search')} · listen-along`;
 }
 
-function runQuery(q, { force = false } = {}) {
+function runQuery(q: string, { force = false }: { force?: boolean } = {}): void {
   if (!force && q === S.query && S.mode !== 'empty') return;
   S.query = q;
   S.showAll = false;
@@ -296,7 +369,7 @@ function runQuery(q, { force = false } = {}) {
   runText(q);
 }
 
-function runText(q) {
+function runText(q: string): void {
   if (!q) return; // never a text search for nothing (the empty page is runQuery's)
   S.mode = 'text';
   S.link = null;
@@ -310,14 +383,14 @@ function runText(q) {
   }).catch(() => {});
 }
 
-async function fetchSongs(q, limit) {
+async function fetchSongs(q: string, limit: number): Promise<LibraryListResponse> {
   const params = new URLSearchParams({ q, sort: 'relevance', limit: String(limit) });
   const res = await fetch(`/api/library?${params}`, { credentials: 'same-origin' });
   if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
-  return res.json();
+  return await res.json() as LibraryListResponse;
 }
 
-async function loadSongs(q) {
+async function loadSongs(q: string): Promise<void> {
   const seq = ++S.songSeq;
   try {
     const data = await fetchSongs(q, SONGS_MAX);
@@ -327,14 +400,14 @@ async function loadSongs(q) {
     S.songsState = 'ready';
   } catch (err) {
     if (seq !== S.songSeq) return;
-    S.songsState = err && err.status === 429 ? 'rate' : 'error';
+    S.songsState = err && (err as { status?: number }).status === 429 ? 'rate' : 'error';
   }
   render();
 }
 
 // A refetch nobody asked for (the library changed): only a good answer is used,
 // so a failure or 429 never replaces the results on screen.
-async function refreshSongs() {
+async function refreshSongs(): Promise<void> {
   if (!S.open || S.mode !== 'text' || !S.query || S.songsState === 'loading') return;
   const q = S.query;
   const seq = ++S.songSeq;
@@ -349,7 +422,7 @@ async function refreshSongs() {
 }
 
 // A pasted link: exactly what it points at (the server classifies it).
-async function lookupLink(input, { bare = false } = {}) {
+async function lookupLink(input: string, { bare = false }: { bare?: boolean } = {}): Promise<void> {
   const seq = ++S.linkSeq;
   const query = S.query;
   const spotify = isSpotifyLink(input);
@@ -358,21 +431,22 @@ async function lookupLink(input, { bare = false } = {}) {
   if (!cached) {
     render();
     let status = 0;
-    let body = null;
+    let body: PicksAnswer | null = null;
     try {
       const res = await fetch('/api/jobs/picks', {
         method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(spotify ? { input, match_library: true } : { input }),
       });
       status = res.status;
-      body = await res.json().catch(() => null);
+      body = await res.json().catch(() => null) as PicksAnswer | null;
     } catch { status = 0; }
     if (seq !== S.linkSeq || !S.open || S.mode !== 'link' || S.query !== query) return;
     const outcome = linkOutcome(status, body, { spotify, bare });
     if (!['rate', 'error'].includes(outcome.kind)) linkCache.set(input, outcome);
     S.link = { input, state: 'ready', outcome, spotify };
   }
-  const outcome = S.link.outcome;
+  // Set above: the cached answer, or the one just read.
+  const outcome = S.link.outcome as LinkOutcome;
   if (outcome.kind === 'text') { runText(query); return; }
   render();
   const title = outcome.kind === 'video' ? outcome.video.title : outcome.kind === 'song' ? outcome.song.title : null;
@@ -380,7 +454,7 @@ async function lookupLink(input, { bare = false } = {}) {
 }
 
 // "Similar in the library": a hint under a pasted video, never in the way.
-async function loadSimilar(q, exceptId) {
+async function loadSimilar(q: string, exceptId: string | null): Promise<void> {
   const seq = ++S.similar.seq;
   S.similar = { query: q, songs: [], seq };
   if (!q) return;
@@ -393,7 +467,7 @@ async function loadSimilar(q, exceptId) {
 }
 
 // From YouTube: only when asked (Enter, or the row / button).
-async function searchYouTube(q, { reveal = false, retry = false } = {}) {
+async function searchYouTube(q: string, { reveal = false, retry = false }: { reveal?: boolean; retry?: boolean } = {}): Promise<void> {
   if (!q || linkInput(q)) return;
   if (!S.open) return;
   if (S.yt.query === q && (S.yt.state === 'loading' || (S.yt.state === 'ready' && !retry))) {
@@ -402,45 +476,46 @@ async function searchYouTube(q, { reveal = false, retry = false } = {}) {
   }
   const seq = S.yt.seq + 1;
   if (ytCache.has(q) && !retry) {
-    S.yt = { query: q, state: 'ready', videos: ytCache.get(q), seq };
+    S.yt = { query: q, state: 'ready', videos: ytCache.get(q) as PickVideo[], seq };
   } else {
     S.yt = { query: q, state: 'loading', videos: [], seq };
     render();
     if (reveal) revealYouTube();
     let status = 0;
-    let body = null;
+    let body: PicksAnswer | null = null;
     try {
       const res = await fetch('/api/jobs/picks', {
         method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q }),
       });
       status = res.status;
-      body = await res.json().catch(() => null);
+      body = await res.json().catch(() => null) as PicksAnswer | null;
     } catch { status = 0; }
     if (seq !== S.yt.seq || !S.open || S.query !== q) return;
     const o = youtubeOutcome(status, body);
     if (o.kind === 'results') ytCache.set(q, o.videos);
-    S.yt = { query: q, state: o.kind === 'results' ? 'ready' : o.kind, videos: o.videos || [], message: o.message || null, seq };
+    const read: { kind: string; videos?: PickVideo[]; message?: string | null } = o; // every variant, its fields optional
+    S.yt = { query: q, state: o.kind === 'results' ? 'ready' : o.kind, videos: read.videos || [], message: read.message || null, seq };
   }
   render();
   if (reveal) revealYouTube();
 }
 
-function revealYouTube() {
+function revealYouTube(): void {
   const el = $('search-youtube');
   if (el) el.scrollIntoView({ block: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
 }
 
 // --------------------------------------------------------------- rendering
 
-const durationText = (sec) => (sec > 0 ? formatDuration(sec) : '');
-const isCurrentSong = (id) => !!player.track && (player.track.libraryId === id || player.track.url === `library:${id}`);
-const sounding = (id) => isCurrentSong(id) && player.isPlaying;
+const durationText = (sec: number | null): string => (sec != null && sec > 0 ? formatDuration(sec) : '');
+const isCurrentSong = (id: string): boolean => !!player.track && (player.track.libraryId === id || player.track.url === `library:${id}`);
+const sounding = (id: string): boolean => isCurrentSong(id) && player.isPlaying;
 
 // A row's add / request button while its request is on its way: it stays
 // focusable (focus is not lost), says it is busy and ignores presses.
-const busyAttrs = (key) => (S.busy.has(key) ? ' aria-disabled="true" aria-busy="true"' : '');
+const busyAttrs = (key: string): string => (S.busy.has(key) ? ' aria-disabled="true" aria-busy="true"' : '');
 
-function setBusy(key, on) {
+function setBusy(key: string, on: boolean): void {
   if (on) S.busy.add(key); else S.busy.delete(key);
   const root = $('search-results');
   if (!root) return;
@@ -449,7 +524,7 @@ function setBusy(key, on) {
   });
 }
 
-function addButtonHtml(title, key) {
+function addButtonHtml(title: string, key: string): string {
   const target = currentTarget();
   const name = target ? playlistName(target.playlist) : null;
   const label = name ? tf('search.addToNamed', 'Add {title} to {name}', { title, name }) : tf('search.addChoose', 'Add {title} to a playlist', { title });
@@ -458,9 +533,10 @@ function addButtonHtml(title, key) {
 }
 
 /** A library song: plays here, adds in one step, the usual song menu. */
-function songRowHtml(song, { badge = '' } = {}) {
+function songRowHtml(song: SearchSong, { badge = '' }: { badge?: string } = {}): string {
   const key = `song:${song.id}`;
-  const track = libraryTrack(song);
+  // A LinkedLibrarySong has no file_version (no ?v=) and its artist may be null (libraryTrack reads it as '').
+  const track = libraryTrack(song as TrackSource);
   S.rows.set(key, { kind: 'song', song, track });
   const playing = isCurrentSong(song.id);
   const title = song.title || '';
@@ -481,7 +557,7 @@ function songRowHtml(song, { badge = '' } = {}) {
 }
 
 /** A YouTube video the library has not got: request it, or open it on YouTube. */
-function videoRowHtml(video) {
+function videoRowHtml(video: PickVideo): string {
   if (video.in_library) {
     return songRowHtml({ id: video.in_library.id, title: video.in_library.title, artist: video.in_library.artist, youtube_id: video.youtube_id, duration_sec: video.duration_sec },
       { badge: `<span class="badge badge-subtle theme-success search-badge">${escapeHtml(t('pick.inLibrary', 'In library'))}</span>` });
@@ -509,7 +585,7 @@ function videoRowHtml(video) {
   </li>`;
 }
 
-function artistRowHtml(a) {
+function artistRowHtml(a: Artist): string {
   const key = `artist:${a.key}`;
   S.rows.set(key, { kind: 'artist', artist: a });
   const cover = coverUrl(a.cover_youtube_id, 'default');
@@ -522,7 +598,7 @@ function artistRowHtml(a) {
   </li>`;
 }
 
-function playlistRowHtml(p) {
+function playlistRowHtml(p: PlaylistSummary): string {
   const key = `playlist:${p.id}`;
   S.rows.set(key, { kind: 'playlist', playlist: p });
   const name = playlistName(p);
@@ -539,15 +615,15 @@ function playlistRowHtml(p) {
   </li>`;
 }
 
-const sectionHtml = (id, title, body, { sub = '', extra = '' } = {}) => `<section class="search-section" id="${id}" aria-labelledby="${id}-title">
+const sectionHtml = (id: string, title: string, body: string, { sub = '', extra = '' }: { sub?: string; extra?: string } = {}): string => `<section class="search-section" id="${id}" aria-labelledby="${id}-title">
     <div class="search-section-head"><h2 id="${id}-title" class="search-section-title">${escapeHtml(title)}</h2>${sub ? `<span class="fs-sm fg-3">${escapeHtml(sub)}</span>` : ''}</div>
     ${body}${extra}
   </section>`;
 
-const listHtml = (rows, label) => `<ul class="list-group search-list" role="list" aria-label="${escapeHtml(label)}">${rows.join('')}</ul>`;
-const noteHtml = (text) => `<p class="fs-sm fg-3 mb-0 search-note">${escapeHtml(text)}</p>`;
+const listHtml = (rows: string[], label: string): string => `<ul class="list-group search-list" role="list" aria-label="${escapeHtml(label)}">${rows.join('')}</ul>`;
+const noteHtml = (text: string): string => `<p class="fs-sm fg-3 mb-0 search-note">${escapeHtml(text)}</p>`;
 
-function songsSection() {
+function songsSection(): string {
   const label = t('search.songs', 'Songs');
   const sub = t('search.inLibrary', 'in the library');
   if (S.songsState === 'loading' && !S.songs.length) {
@@ -568,20 +644,20 @@ function songsSection() {
     + listHtml(shown.map((s) => songRowHtml(s)), label), { sub, extra: `<div class="d-flex flex-wrap align-items-center gap-2 mt-2">${more}${capped}</div>` });
 }
 
-function artistsSection() {
+function artistsSection(): string {
   if (!S.artists.length) return '';
   const label = t('artists.title', 'Artists');
   return sectionHtml('search-artists', label, listHtml(S.artists.map(artistRowHtml), label));
 }
 
-function playlistsSection() {
+function playlistsSection(): string {
   const found = rankPlaylists(getPlaylists(), S.query);
   if (!found.length) return '';
   const label = t('landing.playlists', 'Playlists');
   return sectionHtml('search-playlists', label, listHtml(found.map(playlistRowHtml), label));
 }
 
-function youtubeSection({ go = true } = {}) {
+function youtubeSection({ go = true }: { go?: boolean } = {}): string {
   const label = t('search.fromYoutube', 'From YouTube');
   const q = S.query;
   const y = S.yt;
@@ -610,13 +686,14 @@ function youtubeSection({ go = true } = {}) {
 }
 
 // A pasted link's own section.
-function linkSection() {
+function linkSection(): string {
   const l = S.link;
   const label = t('search.fromLink', 'From the link');
   if (!l || l.state === 'loading') {
     return sectionHtml('search-link', label, `<div class="app-empty search-status" role="status">${escapeHtml(t('search.lookingUp', 'Looking up the link…'))}</div>`);
   }
-  const o = l.outcome;
+  // 'ready': always set; a 'text' answer is never rendered (lookupLink searches the words instead).
+  const o = l.outcome as Exclude<LinkOutcome, { kind: 'text' }>;
   const retry = `<button type="button" class="btn btn-sm search-link-retry">${escapeHtml(t('pick.retry', 'Try again'))}</button>`;
   if (o.kind === 'rate') return sectionHtml('search-link', label, `<div class="alert theme-warning fs-sm mb-2" role="alert">${escapeHtml(t('search.rateLimited', 'Too many YouTube searches from here just now. Wait a minute, then try again.'))}</div>${retry}`);
   if (o.kind === 'error') return sectionHtml('search-link', label, `<div class="alert theme-danger fs-sm mb-2" role="alert">${escapeHtml(t('search.linkFailed', 'Could not look up that link. Check your connection and try again.'))}</div>${retry}`);
@@ -636,7 +713,7 @@ function linkSection() {
 }
 
 // The server's reason, in the page's language when it is one we know.
-function unsupportedText(message) {
+function unsupportedText(message: string | null): string {
   const m = String(message || '');
   if (/^Only Spotify track links/i.test(m)) return t('search.onlySpotifyTracks', 'Only Spotify track links are supported. Paste the link of a single song.');
   if (/^Unsupported link/i.test(m)) return t('search.unsupportedLink', 'That link is not supported. Paste a YouTube video or playlist link, or a Spotify track link.');
@@ -644,7 +721,7 @@ function unsupportedText(message) {
   return m || t('search.unsupportedLink', 'That link is not supported. Paste a YouTube video or playlist link, or a Spotify track link.');
 }
 
-function importCardHtml(o) {
+function importCardHtml(o: PlaylistOutcome): string {
   const name = o.title || t('search.importUntitled', 'YouTube playlist');
   const count = o.total > o.videos.length
     ? tf('search.importCapped', 'The first {shown} of {total} videos', { shown: o.videos.length, total: o.total })
@@ -663,7 +740,7 @@ function importCardHtml(o) {
   </div>`);
 }
 
-function statusText() {
+function statusText(): string {
   if (S.mode === 'empty') return '';
   if (S.mode === 'link') {
     if (!S.link || S.link.state === 'loading') return t('search.lookingUp', 'Looking up the link…');
@@ -682,14 +759,14 @@ function statusText() {
   return text;
 }
 
-function render() {
+function render(): void {
   if (!S.open) return;
   const root = $('search-results');
   if (!root) return;
   const focusKey = document.activeElement && root.contains(document.activeElement)
-    ? document.activeElement.closest('[data-key]')?.dataset.key : null;
-  const focusedButton = focusKey && document.activeElement.matches('button') && !document.activeElement.matches('[data-key]')
-    ? [...document.activeElement.classList].find((c) => c.startsWith('search-')) : null;
+    ? document.activeElement.closest<HTMLElement>('[data-key]')?.dataset.key : null;
+  const focusedButton = focusKey && (document.activeElement as Element).matches('button') && !(document.activeElement as Element).matches('[data-key]')
+    ? [...(document.activeElement as Element).classList].find((c) => c.startsWith('search-')) : null;
   S.rows = new Map();
   let html = '';
   if (S.mode === 'empty') {
@@ -724,22 +801,22 @@ function render() {
   if (status && status.textContent !== text) status.textContent = text;
   renderTarget();
   if (focusKey) {
-    const row = root.querySelector(`[data-key="${CSS.escape(focusKey)}"]`);
-    const button = row && focusedButton ? row.querySelector(`.${focusedButton}`) : null;
+    const row = root.querySelector<HTMLElement>(`[data-key="${CSS.escape(focusKey)}"]`);
+    const button = row && focusedButton ? row.querySelector<HTMLButtonElement>(`.${focusedButton}`) : null;
     const target = button && !button.disabled ? button : row;
     if (target) target.focus({ preventScroll: true });
   }
 }
 
 // What the page shows from the playlists list and the add target.
-function listSignature() {
+function listSignature(): string {
   const target = currentTarget();
   const found = S.open && S.mode === 'text' ? rankPlaylists(getPlaylists(), S.query) : [];
   return JSON.stringify([target && target.playlist.id, target && target.playlist.name, target && target.session,
     found.map((p) => [p.id, p.name, p.songCount, p.visibility, p.ownerName])]);
 }
 let shownSignature = '';
-function refreshIfChanged() {
+function refreshIfChanged(): void {
   if (!S.open) return;
   const sig = listSignature();
   if (sig === shownSignature) return;
@@ -748,17 +825,17 @@ function refreshIfChanged() {
 }
 
 // The player moved on: the playing row and the play buttons follow, in place.
-function paintPlaying() {
+function paintPlaying(): void {
   if (!S.open) return;
   const root = $('search-results');
   if (!root) return;
-  root.querySelectorAll('.search-song').forEach((row) => {
-    const d = S.rows.get(row.dataset.key);
+  root.querySelectorAll<HTMLElement>('.search-song').forEach((row) => {
+    const d = S.rows.get(row.dataset.key as string) as SongRow | undefined; // .search-song rows are songs
     if (!d) return;
     const playing = isCurrentSong(d.song.id);
     row.classList.toggle('is-playing', playing);
     if (playing) row.setAttribute('aria-current', 'true'); else row.removeAttribute('aria-current');
-    const btn = row.querySelector('.search-play');
+    const btn = row.querySelector('.search-play') as HTMLButtonElement;
     const on = sounding(d.song.id);
     const label = on ? tf('search.pauseNamed', 'Pause {title}', { title: d.song.title }) : tf('search.playNamed', 'Play {title}', { title: d.song.title });
     if (btn.getAttribute('aria-label') !== label) {
@@ -772,7 +849,7 @@ function paintPlaying() {
 // ------------------------------------------------------------------ actions
 
 /** Play a library song from here: its own context, on repeat until something else is chosen. */
-function playSong(d) {
+function playSong(d: SongRow): void {
   if (isCurrentSong(d.song.id) && player.context && player.context.type === 'search') {
     if (!player.isPlaying) player.play();
     return;
@@ -780,13 +857,13 @@ function playSong(d) {
   player.playFrom({ type: 'search', query: S.query, name: S.query }, [d.track], 0);
 }
 
-function togglePlay(d) {
+function togglePlay(d: SongRow): void {
   if (sounding(d.song.id)) player.pause();
   else playSong(d);
 }
 
 /** The one-step add (button, or the add key on a row: focus goes back to the row). */
-function addOne(d, anchor, returnFocus = anchor) {
+function addOne(d: SearchRow, anchor: HTMLElement, returnFocus: HTMLElement = anchor): void {
   if (d.kind === 'video') { requestOne(d.video, anchor, returnFocus); return; }
   if (d.kind !== 'song') return;
   const key = `song:${d.song.id}`;
@@ -798,11 +875,11 @@ function addOne(d, anchor, returnFocus = anchor) {
   addSongToPlaylist(target.playlist, song, { returnFocus }).finally(() => setBusy(key, false));
 }
 
-async function postJobs(body) {
+async function postJobs(body: JobsBody): Promise<{ status: number; body: JobsAnswer | null }> {
   const res = await fetch('/api/jobs', {
     method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
-  return { status: res.status, body: await res.json().catch(() => null) };
+  return { status: res.status, body: await res.json().catch(() => null) as JobsAnswer | null };
 }
 
 /**
@@ -810,7 +887,7 @@ async function postJobs(body) {
  * playlist it lands there when uploaded, or now when the library has it by then.
  * playlist null = the library only.
  */
-async function requestVideo(video, playlist, anchor) {
+async function requestVideo(video: PickVideo, playlist: PlaylistSummary | null, anchor: HTMLElement): Promise<void> {
   const id = video.youtube_id;
   const key = `yt:${id}`;
   // The server does not dedupe jobs: one request per video from here, and
@@ -819,13 +896,13 @@ async function requestVideo(video, playlist, anchor) {
   setBusy(key, true);
   const title = video.title || id;
   const name = playlist ? playlistName(playlist) : null;
-  const body = playlist ? { picks: [id], playlist_id: playlist.id } : { picks: [id] };
+  const body: JobsBody = playlist ? { picks: [id], playlist_id: playlist.id } : { picks: [id] };
   try {
     let r = await postJobs(body);
     let outcome = requestOutcome(r.status, r.body, id);
     let again = false;
     if (outcome === 'duplicate') {
-      if (!(await confirmDuplicate(name, anchor))) return;
+      if (!(await confirmDuplicate(name as string, anchor))) return; // a duplicate needs a playlist
       r = await postJobs({ ...body, allow_duplicates: true });
       outcome = requestOutcome(r.status, r.body, id);
       again = true;
@@ -836,7 +913,7 @@ async function requestVideo(video, playlist, anchor) {
       showToast(name ? tf('search.requestedTo', 'Requested “{title}”. It is added to {name} once downloaded; see Activity.', { title, name })
         : tf('search.requestedLibrary', 'Requested “{title}” for the library; see Activity.', { title }), 'success', { duration: 5000 });
     } else if (outcome === 'added') {
-      showToast(again ? tf('addTo.addedAgain', 'Added to “{name}” again', { name }) : tf('addTo.added', 'Added to “{name}”', { name }), 'success');
+      showToast(again ? tf('addTo.addedAgain', 'Added to “{name}” again', { name: name as string }) : tf('addTo.added', 'Added to “{name}”', { name: name as string }), 'success');
     } else if (outcome === 'library') {
       showToast(tf('search.alreadyLibrary', '“{title}” is already in the library', { title }), 'info');
     } else if (outcome === 'missing') {
@@ -845,33 +922,33 @@ async function requestVideo(video, playlist, anchor) {
       throw new Error((r.body && r.body.error) || `HTTP ${r.status}`);
     }
   } catch (err) {
-    showToast(tf('search.requestFailed', 'Could not request “{title}”: {error}', { title, error: err.message }), 'error');
+    showToast(tf('search.requestFailed', 'Could not request “{title}”: {error}', { title, error: (err as Error).message }), 'error');
   } finally {
     setBusy(key, false);
     scheduleReload(0);
   }
 }
 
-function editablePlaylists() {
+function editablePlaylists(): PlaylistSummary[] {
   const g = groupPlaylists(getPlaylists().filter((p) => p.canEdit), '');
   return [...g.pinned, ...g.mine, ...g.others];
 }
 
 // Where a requested video goes: the user's editable playlists, or the library only.
-function requestTargets(video, anchor) {
+function requestTargets(video: PickVideo, anchor: HTMLElement): MenuItem[] {
   return [
     ...editablePlaylists().map((p) => ({ label: playlistName(p), description: p.visibility === 'private' ? t('landing.private', 'Private') : undefined, onSelect: () => requestVideo(video, p, anchor) })),
   ];
 }
 
-function requestOne(video, anchor, returnFocus = anchor) {
+function requestOne(video: PickVideo, anchor: HTMLElement, returnFocus: HTMLElement = anchor): void {
   if (S.requested.has(video.youtube_id) || S.busy.has(`yt:${video.youtube_id}`)) return;
   const target = currentTarget();
   if (target) { requestVideo(video, target.playlist, returnFocus); return; }
   openRequestChooser(video, anchor);
 }
 
-function openRequestChooser(video, anchor) {
+function openRequestChooser(video: PickVideo, anchor: HTMLElement): void {
   const show = () => openContextMenu({ anchor }, [
     { header: t('search.requestAndAdd', 'Request and add to') },
     ...requestTargets(video, anchor),
@@ -881,7 +958,7 @@ function openRequestChooser(video, anchor) {
   if (getPlaylists().length) show(); else loadPlaylists().then(show);
 }
 
-function videoMenuItems(video, anchor) {
+function videoMenuItems(video: PickVideo, anchor: HTMLElement): MenuItem[] {
   const title = video.title || video.youtube_id;
   const done = S.requested.has(video.youtube_id);
   return [
@@ -906,14 +983,14 @@ function videoMenuItems(video, anchor) {
   ];
 }
 
-async function loadPlaylistSongs(id) {
+async function loadPlaylistSongs(id: string): Promise<PlaylistSongsResponse['songs']> {
   const res = await fetch(`/api/playlists/${encodeURIComponent(id)}/songs`, { credentials: 'same-origin' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return (await res.json()).songs || [];
+  return (await res.json() as PlaylistSongsResponse).songs || [];
 }
 
 // "Import…": the checklist with a destination, then one request for the lot.
-async function startImport(o, anchor) {
+async function startImport(o: PlaylistOutcome, anchor: HTMLElement | null): Promise<void> {
   if (S.importing) return;
   S.importing = true;
   if (anchor) { anchor.setAttribute('aria-disabled', 'true'); anchor.setAttribute('aria-busy', 'true'); }
@@ -926,7 +1003,7 @@ async function startImport(o, anchor) {
   }
 }
 
-async function runImport(o, anchor) {
+async function runImport(o: PlaylistOutcome, anchor: HTMLElement | null): Promise<void> {
   if (!playlistsLoaded()) await loadPlaylists();
   const newName = (o.title || t('search.importUntitled', 'YouTube playlist')).slice(0, 50).trim();
   const target = currentTarget();
@@ -939,20 +1016,20 @@ async function runImport(o, anchor) {
     returnFocus: anchor,
   });
   if (!result) return;
-  let playlist;
+  let playlist: { id: string; name: string };
   let created = false;
   if (result.destination.kind === 'new') {
     const res = await fetch('/api/playlists', {
       method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: result.destination.name }),
     }).catch(() => null);
-    const data = res ? await res.json().catch(() => ({})) : {};
+    const data = (res ? await res.json().catch(() => ({})) : {}) as Partial<PlaylistCreated> & Partial<ApiError>;
     if (!res || !res.ok) {
       showToast(res && res.status === 409
         ? tf('search.importNameTaken', 'A playlist named “{name}” already exists. Import again and choose it as the destination.', { name: result.destination.name })
         : tf('search.importFailed', 'Could not import: {error}', { error: (data && data.error) || t('error.generic', 'Something went wrong') }), 'error', { duration: 6000 });
       return;
     }
-    playlist = { id: data.id, name: data.name || result.destination.name };
+    playlist = { id: data.id as string, name: data.name || result.destination.name };
     created = true;
   } else {
     playlist = { id: result.destination.id, name: result.destination.name };
@@ -984,32 +1061,32 @@ async function runImport(o, anchor) {
   render();
 }
 
-function openRow(row) {
-  const d = S.rows.get(row.dataset.key);
+function openRow(row: HTMLElement): void {
+  const d = S.rows.get(row.dataset.key as string);
   if (!d) return;
   if (d.kind === 'song') playSong(d);
   else if (d.kind === 'artist') navigateTo(artistPath(d.artist.key));
   else if (d.kind === 'playlist') navigateTo(playlistPath(d.playlist.id));
   else if (d.kind === 'ytgo') searchYouTube(S.query, { reveal: true });
   else if (d.kind === 'import') startImport(d.outcome, row);
-  else if (d.kind === 'video') openContextMenu({ anchor: row.querySelector('.search-yt-menu') || row }, videoMenuItems(d.video, row), { label: t('search.more', 'More actions'), returnFocus: row, focusFirst: true });
+  else if (d.kind === 'video') openContextMenu({ anchor: row.querySelector<HTMLElement>('.search-yt-menu') || row }, videoMenuItems(d.video, row), { label: t('search.more', 'More actions'), returnFocus: row, focusFirst: true });
 }
 
-function resultRows() {
+function resultRows(): HTMLElement[] {
   const root = $('search-results');
-  return root ? [...root.querySelectorAll('[data-nav]')].filter((el) => !el.disabled && el.offsetParent !== null) : [];
+  return root ? [...root.querySelectorAll<HTMLElement>('[data-nav]')].filter((el) => !(el as HTMLButtonElement).disabled && el.offsetParent !== null) : [];
 }
 
 // ------------------------------------------------------------------- setup
 
-export function setupSearch() {
+export function setupSearch(): void {
   const bar = $('app-search');
-  const input = $('app-search-input');
+  const input = $<HTMLInputElement>('app-search-input');
   if (!bar || !input) return;
 
   input.addEventListener('input', (e) => {
     syncKbd();
-    if (e.isComposing) return; // the compositionend input follows
+    if ((e as InputEvent).isComposing) return; // the compositionend input follows
     applyInput();
   });
   input.addEventListener('compositionend', () => applyInput());
@@ -1031,13 +1108,13 @@ export function setupSearch() {
   // The phone row and the drawer: the search page, field focused.
   for (const id of ['places-search', 'plnav-nav-search']) {
     const link = $(id);
-    if (link) link.addEventListener('click', (e) => {
+    if (link) link.addEventListener('click', (e: MouseEvent) => {
       if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       e.preventDefault();
       closeDrawer();
       armTarget(); // from an editable playlist page: adds there
       navigateTo(searchPath(S.open ? S.query : ''));
-      $('app-search-input').focus();
+      byId('app-search-input').focus();
     });
   }
 
@@ -1046,7 +1123,7 @@ export function setupSearch() {
 
   const target = $('search-target');
   if (target) target.addEventListener('click', (e) => {
-    if (!e.target.closest('.search-target-clear')) return;
+    if (!(e.target as HTMLElement).closest('.search-target-clear')) return;
     S.sessionTarget = null;
     refreshPlaceholder();
     render();
@@ -1054,22 +1131,22 @@ export function setupSearch() {
     input.focus();
   });
 
-  const root = $('search-results');
+  const root = byId('search-results');
   root.addEventListener('pointerdown', (e) => { lastPointer = e.pointerType || 'mouse'; });
   root.addEventListener('click', (e) => {
-    const row = e.target.closest('[data-key]');
-    if (e.target.closest('.search-retry-songs')) { S.songsState = 'loading'; render(); loadSongs(S.query); return; }
-    if (e.target.closest('.search-yt-retry')) { searchYouTube(S.query, { retry: true }); return; }
-    if (e.target.closest('.search-link-retry')) { linkCache.delete(S.link && S.link.input); runQuery(S.query, { force: true }); return; }
-    if (e.target.closest('.search-more')) { S.showAll = true; render(); resultRows()[SONGS_SHOWN]?.focus(); return; }
+    const row = (e.target as HTMLElement).closest<HTMLElement>('[data-key]');
+    if ((e.target as HTMLElement).closest<HTMLElement>('.search-retry-songs')) { S.songsState = 'loading'; render(); loadSongs(S.query); return; }
+    if ((e.target as HTMLElement).closest<HTMLElement>('.search-yt-retry')) { searchYouTube(S.query, { retry: true }); return; }
+    if ((e.target as HTMLElement).closest<HTMLElement>('.search-link-retry')) { linkCache.delete((S.link && S.link.input) as string); runQuery(S.query, { force: true }); return; }
+    if ((e.target as HTMLElement).closest<HTMLElement>('.search-more')) { S.showAll = true; render(); resultRows()[SONGS_SHOWN]?.focus(); return; }
     if (!row) return;
-    const d = S.rows.get(row.dataset.key);
+    const d = S.rows.get(row.dataset.key as string);
     if (!d) return;
-    if (e.target.closest('.search-play')) { togglePlay(d); return; }
-    if (e.target.closest('.search-add')) { addOne(d, e.target.closest('.search-add')); return; }
-    if (e.target.closest('.search-request')) { requestOne(d.video, e.target.closest('.search-request')); return; }
+    if ((e.target as HTMLElement).closest<HTMLElement>('.search-play')) { togglePlay(d as SongRow); return; }
+    if ((e.target as HTMLElement).closest<HTMLElement>('.search-add')) { addOne(d, (e.target as HTMLElement).closest<HTMLElement>('.search-add') as HTMLElement); return; }
+    if ((e.target as HTMLElement).closest<HTMLElement>('.search-request')) { requestOne((d as VideoRow).video, (e.target as HTMLElement).closest<HTMLElement>('.search-request') as HTMLElement); return; }
     if (d.kind === 'ytgo' || d.kind === 'import') { openRow(row); return; }
-    if (e.target.closest('button, a[href]')) return;
+    if ((e.target as HTMLElement).closest<HTMLElement>('button, a[href]')) return;
     // Song rows: a click selects (a double-click plays), a tap plays.
     if (d.kind === 'song') {
       if (lastPointer === 'mouse') row.focus({ preventScroll: true });
@@ -1080,14 +1157,14 @@ export function setupSearch() {
     openRow(row);
   });
   root.addEventListener('dblclick', (e) => {
-    const row = e.target.closest('.search-song');
-    if (!row || e.target.closest('button, a[href]')) return;
-    const d = S.rows.get(row.dataset.key);
-    if (d) playSong(d);
+    const row = (e.target as HTMLElement).closest<HTMLElement>('.search-song');
+    if (!row || (e.target as HTMLElement).closest<HTMLElement>('button, a[href]')) return;
+    const d = S.rows.get(row.dataset.key as string);
+    if (d) playSong(d as SongRow); // .search-song rows are songs
   });
   root.addEventListener('keydown', (e) => {
     if (e.isComposing) return;
-    const row = e.target.closest('[data-nav]');
+    const row = (e.target as HTMLElement).closest<HTMLElement>('[data-nav]');
     if (!row) return;
     const onRow = e.target === row;
     // (A button row, the import and the YouTube one, acts as a button does.)
@@ -1098,10 +1175,10 @@ export function setupSearch() {
       return;
     }
     if (onRow && isAddKey(e)) {
-      const d = S.rows.get(row.dataset.key);
+      const d = S.rows.get(row.dataset.key as string);
       if (d && (d.kind === 'song' || d.kind === 'video')) {
         e.preventDefault();
-        addOne(d, row.querySelector('.search-add, .search-request') || row, row);
+        addOne(d, row.querySelector<HTMLElement>('.search-add, .search-request') || row, row);
       }
       return;
     }
@@ -1117,7 +1194,7 @@ export function setupSearch() {
 
   // The usual song menu on library rows; the YouTube rows' own.
   bindSongMenu(root, '.search-song', (row) => {
-    const d = S.rows.get(row.dataset.key);
+    const d = S.rows.get(row.dataset.key as string);
     return d && d.kind === 'song' ? { songId: d.song.id, url: d.track.url, title: d.song.title, artist: d.song.artist, youtubeId: d.song.youtube_id || null } : null;
   });
   bindContextMenu(root, {
@@ -1125,8 +1202,8 @@ export function setupSearch() {
     triggerSelector: '.search-yt-menu',
     label: () => t('search.more', 'More actions'),
     getItems: (row) => {
-      const d = S.rows.get(row.dataset.key);
-      return d && d.kind === 'video' ? videoMenuItems(d.video, row.querySelector('.search-request') || row) : null;
+      const d = S.rows.get(row.dataset.key as string);
+      return d && d.kind === 'video' ? videoMenuItems(d.video, row.querySelector<HTMLElement>('.search-request') || row) : null;
     },
   });
 
@@ -1143,9 +1220,9 @@ export function setupSearch() {
   onPlaylists(() => { refreshPlaceholder(); refreshIfChanged(); });
 
   document.addEventListener('app:viewchange', syncBar);
-  // The playlist page's name or edit right changed (lobby.js).
+  // The playlist page's name or edit right changed (playlist.ts).
   document.addEventListener('app:playlistmeta', refreshPlaceholder);
-  // An empty playlist's "Find songs" (queue.js).
+  // An empty playlist's "Find songs" (queue.ts).
   document.addEventListener('app:focus-search', () => focusSearch());
   window.matchMedia('(width < 768px)').addEventListener('change', syncBar);
   window.addEventListener('languageChanged', () => { refreshPlaceholder(); syncKbd(); if (S.open) { setTitle(); render(); } });
@@ -1155,12 +1232,12 @@ export function setupSearch() {
 
 /**
  * library:updated: refetch the songs only when the change can touch them
- * (search-rules.js libraryChangeMatters), coalesced, and only while the page
+ * (search-rules.ts libraryChangeMatters), coalesced, and only while the page
  * is on screen; otherwise once it is again.
  */
-let refreshTimer = null;
-const pageVisible = () => S.open && document.visibilityState === 'visible' && !!$('search-view') && $('search-view').classList.contains('active');
-export function handleSearchLibraryUpdated(payload) {
+let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+const pageVisible = (): boolean => S.open && document.visibilityState === 'visible' && !!$('search-view') && byId('search-view').classList.contains('active');
+export function handleSearchLibraryUpdated(payload: LibraryChange | null | undefined): void {
   if (!S.open || S.mode !== 'text' || !S.query) return;
   if (!libraryChangeMatters(payload, S.songs.map((x) => x.id))) return;
   if (!pageVisible()) { S.stale = true; return; }

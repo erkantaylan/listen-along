@@ -214,7 +214,7 @@ where lobby persistence broke entirely on deployed instances.
   load applies, and a row older by `updated_at` never replaces a newer one), pure
   rules in `activity-rules.ts` (tested), the card shown by `social.ts`
   (`opts.activity`: approved only).
-- **Global search** (web only; DESIGN.md "Search"): `frontend/search.js` (the one field `#app-search`, the app shell's
+- **Global search** (web only; DESIGN.md "Search"): `frontend/src/features/search/search.ts` (the one field `#app-search`, the app shell's
   top bar at the top of the page column and centred in it, never moved into a page: `body.has-topbar` makes the page
   panel and the library overlay start at `--app-top`; the sidebar and the chat column stay full height from the top gap;
   Ctrl+K / Cmd+K; the page `/search?q=`), pure rules in `frontend/src/features/search/search-rules.ts` (tested in
@@ -269,7 +269,7 @@ where lobby persistence broke entirely on deployed instances.
   (`GET /api/stations/:id[/songs]`, lean rows, approved accounts by the guard's
   default, no tokens) holds the rules: `all` = every song without an open report.
   The order is client-side and per opening: `frontend/src/features/radio/radio-order.ts` (pure,
-  tested) and `radio.js`, which renders through `virtual-list.ts`. The player context is `{ type: 'radio', stationId }`;
+  tested) and `radio.ts`, which renders through `virtual-list.ts`. The player context is `{ type: 'radio', stationId }`;
   `player.setRefill` gives the next round when the list runs out and
   `player.replaceQueue` applies a new order. The order changes only by
   reshuffle, a next round or `library:updated` (`reconcile`, which keeps the
@@ -286,7 +286,7 @@ where lobby persistence broke entirely on deployed instances.
   artist with `artistNameKey` (computed per request, so nothing to backfill).
   Not `songMatch.normalizeArtist`: that stays primary-artist-only for meta_key.
   Like station `all`, it leaves out songs with an open report. Frontend:
-  `artists.js` (shelf + grid), `artist-page.js` (song table through
+  `artists.ts` (shelf + grid), `artist-page.ts` (song table through
   `virtual-list.ts`), pure rules in `artist-rules.ts` (tested). Player context
   `{ type: 'artist', key, name }`; presence keeps a checked key and the name.
 - Android releases: a tag `android-vX.Y.Z` runs `.github/workflows/android-release.yml`
@@ -362,7 +362,7 @@ where lobby persistence broke entirely on deployed instances.
   playlist. The older shared `lobbies.pinned` (socket `lobby:pin`, field `pinned`)
   still exists on the server but the web no longer sets or shows it; the playlist
   page's pin button is the personal pin.
-- The web sidebar (`frontend/sidebar.js`, list in `playlist-store.ts`, search in
+- The web sidebar (`frontend/src/features/playlists/sidebar.ts`, list in `playlist-store.ts`, search in
   `playlist-filter.ts`) refetches `/api/playlists` on socket `playlists:changed`
   (`notifyPlaylistsChanged` in reactions.js). The signal carries no data; a private
   playlist's changes go only to its owner's `userRoom`. Emit it from anything that
