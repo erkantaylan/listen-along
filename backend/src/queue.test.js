@@ -1,6 +1,6 @@
 const { test, describe, beforeEach } = require('node:test');
 const assert = require('node:assert');
-const { Queue, getQueue, deleteQueue, hasQueue, cleanupOrphanedQueues } = require('./queue');
+const { Queue, getQueue, deleteQueue, hasQueue, cleanupOrphanedQueues } = require('./core/queue/index.ts');
 
 describe('Queue class', () => {
   let queue;
@@ -127,7 +127,7 @@ describe('Queue store functions', () => {
   test('getQueue creates queue for new lobby', () => {
     const queue = getQueue('lobby-a');
     assert.ok(queue instanceof Queue);
-    assert.strictEqual(queue.lobbyId, 'lobby-a');
+    assert.strictEqual(queue.playlistId, 'lobby-a');
   });
 
   test('getQueue returns same queue for same lobby', () => {

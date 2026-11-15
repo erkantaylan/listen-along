@@ -6,7 +6,7 @@ const { describe, it, after } = require('node:test');
 const assert = require('node:assert/strict');
 const db = require('./shared/db.ts');
 const library = require('./core/library/index.ts').library;
-const { Queue } = require('./queue');
+const { Queue } = require('./core/queue/index.ts');
 
 describe('queue entry artistName', () => {
   const realAvailable = db.isAvailable;

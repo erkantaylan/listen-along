@@ -181,7 +181,7 @@ describe('library queue url helpers', () => {
 // queue:add with a libraryId refuses a song the lobby already has queued
 // (index.js addLibrarySongToLobby with skipIfQueued), based on this check.
 describe('library.isQueued', () => {
-  const { Queue } = require('./queue');
+  const { Queue } = require('./core/queue/index.ts');
   const ytSong = { id: '11111111-1111-4111-8111-111111111111', youtube_id: 'dQw4w9WgXcQ', title: 'Y', artist: 'A' };
   const plainSong = { id: '22222222-2222-4222-8222-222222222222', youtube_id: null, title: 'P', artist: 'A' };
 

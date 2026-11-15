@@ -1,21 +1,77 @@
-const { v4: uuidv4 } = require('uuid');
-const db = require('./shared/db.ts');
+// Each playlist's song list (its "queue"), in memory with the database behind
+// it (table queue_songs, column lobby_id: the playlist's id).
+import { v4 as uuidv4 } from 'uuid';
+import dbModule from '../../shared/db.ts';
+import type { DbModule } from '../../shared/db.ts';
+import { library } from '../library/index.ts';
 
-// In-memory storage: lobbyId -> Queue
-const queues = new Map();
+// The live module object: tests replace its functions.
+const db: DbModule = dbModule;
 
-// A lobby's shared song list. There is no shared "now playing" cursor: every
+/** A queue entry, as the clients get it (queue:update, /api/playlists/:id/songs). */
+export interface QueueSong {
+  id: string;
+  url: string;
+  title: string;
+  duration: number;
+  addedBy: string;
+  thumbnail: string | null;
+  /** from the library song on load (not a column); null for an entry the library does not have */
+  artistName?: string | null;
+  addedAt: number;
+}
+
+/** What addSong takes. */
+export interface NewQueueSong {
+  url: string;
+  title?: string | null;
+  duration?: number | null;
+  addedBy?: string | null;
+  thumbnail?: string | null;
+  artistName?: string | null;
+}
+
+/** What updateSong may change. */
+export interface QueueSongChange {
+  url?: string;
+  title?: string;
+  duration?: number | null;
+  thumbnail?: string | null;
+  artistName?: string | null;
+}
+
+/** A `queue_songs` row as loadFromDB reads it. */
+interface QueueSongRow {
+  id: string;
+  url: string;
+  title: string;
+  /** REAL, read through parseFloat */
+  duration: number | string | null;
+  added_by: string;
+  thumbnail: string | null;
+  /** BIGINT */
+  added_at: string;
+}
+
+// In-memory storage: playlistId -> Queue
+const queues = new Map<string, Queue>();
+
+// A playlist's shared song list. There is no shared "now playing" cursor: every
 // listener walks the list at their own pace in the browser.
-class Queue {
-  constructor(lobbyId) {
-    this.lobbyId = lobbyId;
+export class Queue {
+  playlistId: string;
+  songs: QueueSong[];
+  _dbChain: Promise<unknown>;
+
+  constructor(playlistId: string) {
+    this.playlistId = playlistId;
     this.songs = [];
     // DB writes run one after another, in the order the in-memory changes
     // happened (an add followed quickly by its removal must not race).
     this._dbChain = Promise.resolve();
   }
 
-  _write(label, fn) {
+  _write(label: string, fn: () => Promise<unknown>): Promise<unknown> {
     this._dbChain = this._dbChain.then(fn).catch(err => {
       console.error(`${label}:`, err.message);
     });
@@ -23,12 +79,12 @@ class Queue {
   }
 
   /** Resolves once every DB write queued so far has finished. */
-  flush() {
+  flush(): Promise<unknown> {
     return this._dbChain;
   }
 
-  addSong({ url, title, duration, addedBy, thumbnail, artistName }) {
-    const song = {
+  addSong({ url, title, duration, addedBy, thumbnail, artistName }: NewQueueSong): QueueSong {
+    const song: QueueSong = {
       id: uuidv4(),
       url,
       title: title || 'Unknown',
@@ -49,15 +105,15 @@ class Queue {
     return song;
   }
 
-  async _persistSong(song, sortOrder) {
+  async _persistSong(song: QueueSong, sortOrder: number): Promise<void> {
     await db.query(
       `INSERT INTO queue_songs (id, lobby_id, url, title, duration, added_by, thumbnail, added_at, sort_order)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [song.id, this.lobbyId, song.url, song.title, song.duration, song.addedBy, song.thumbnail, song.addedAt, sortOrder]
+      [song.id, this.playlistId, song.url, song.title, song.duration, song.addedBy, song.thumbnail, song.addedAt, sortOrder]
     );
   }
 
-  removeSong(songId) {
+  removeSong(songId: unknown): QueueSong | null {
     const index = this.songs.findIndex(s => s.id === songId);
     if (index === -1) return null;
     const [removed] = this.songs.splice(index, 1);
@@ -70,18 +126,18 @@ class Queue {
     return removed;
   }
 
-  async _deleteSong(songId) {
+  async _deleteSong(songId: unknown): Promise<void> {
     await db.query('DELETE FROM queue_songs WHERE id = $1', [songId]);
   }
 
   /**
    * Put a previously removed entry back (undo of a remove), keeping its id,
    * addedBy and addedAt. The index is clamped to the list.
-   * @returns {object|null} the entry, or null if its id is already queued
+   * @returns the entry, or null if its id is already queued
    */
-  insertSong(song, index) {
+  insertSong(song: QueueSong | null | undefined, index: unknown): QueueSong | null {
     if (!song || !song.id || this.songs.some(s => s.id === song.id)) return null;
-    const at = Math.max(0, Math.min(Number.isInteger(index) ? index : this.songs.length, this.songs.length));
+    const at = Math.max(0, Math.min(Number.isInteger(index) ? index as number : this.songs.length, this.songs.length));
     this.songs.splice(at, 0, song);
     if (db.isAvailable()) {
       this._write('Failed to restore song', async () => {
@@ -92,13 +148,15 @@ class Queue {
     return song;
   }
 
-  reorderSong(songId, newIndex) {
+  reorderSong(songId: unknown, newIndex: unknown): boolean {
     const currentIdx = this.songs.findIndex(s => s.id === songId);
     if (currentIdx === -1) return false;
-    if (newIndex < 0 || newIndex >= this.songs.length) return false;
+    // Compared as the client sent it (a non-number compares false both ways and is moved to it).
+    const to = newIndex as number;
+    if (to < 0 || to >= this.songs.length) return false;
 
     const [song] = this.songs.splice(currentIdx, 1);
-    this.songs.splice(newIndex, 0, song);
+    this.songs.splice(to, 0, song);
 
     // Update sort orders in database if available
     if (db.isAvailable()) {
@@ -109,7 +167,7 @@ class Queue {
   }
 
   // One statement: a playlist can hold thousands of songs and every move rewrites them all.
-  async _updateSortOrders() {
+  async _updateSortOrders(): Promise<void> {
     await db.query(
       `UPDATE queue_songs q SET sort_order = o.position - 1
        FROM unnest($1::uuid[]) WITH ORDINALITY AS o(id, position)
@@ -121,9 +179,9 @@ class Queue {
   /**
    * Change an entry's url / title / duration / thumbnail in place (keeps its
    * id, position and addedBy), e.g. after its library song was replaced.
-   * @returns {object|null} the updated entry
+   * @returns the updated entry
    */
-  updateSong(songId, { url, title, duration, thumbnail, artistName }) {
+  updateSong(songId: string, { url, title, duration, thumbnail, artistName }: QueueSongChange): QueueSong | null {
     const song = this.songs.find(s => s.id === songId);
     if (!song) return null;
     if (url) song.url = url;
@@ -140,16 +198,16 @@ class Queue {
     return song;
   }
 
-  getSongs() {
+  getSongs(): QueueSong[] {
     return [...this.songs];
   }
 
-  clear() {
+  clear(): void {
     this.songs = [];
 
     // Clear from database if available
     if (db.isAvailable()) {
-      this._write('Failed to clear queue from DB', () => db.query('DELETE FROM queue_songs WHERE lobby_id = $1', [this.lobbyId]));
+      this._write('Failed to clear queue from DB', () => db.query('DELETE FROM queue_songs WHERE lobby_id = $1', [this.playlistId]));
     }
   }
 
@@ -157,10 +215,10 @@ class Queue {
    * artistName is not stored on the entry (its title holds "Title - Artist"):
    * it comes from the library song. Unmatched entries (requests) keep null.
    */
-  async _loadArtists() {
-    const { isUuid, parseYoutubeId, queueArtist } = require('./core/library/index.ts').library;
-    const ids = [];
-    const ytIds = [];
+  async _loadArtists(): Promise<void> {
+    const { isUuid, parseYoutubeId, queueArtist } = library;
+    const ids: string[] = [];
+    const ytIds: string[] = [];
     for (const s of this.songs) {
       const url = String(s.url || '');
       if (url.startsWith('library:') && isUuid(url.slice(8))) ids.push(url.slice(8));
@@ -169,7 +227,7 @@ class Queue {
     }
     if (!ids.length && !ytIds.length) return;
     try {
-      const { rows } = await db.query(
+      const { rows } = await db.query<{ id: string; youtube_id: string | null; artist: string }>(
         `SELECT id::text AS id, youtube_id, artist FROM library_songs
          WHERE id = ANY($1::uuid[]) OR youtube_id = ANY($2::text[])`,
         [ids, ytIds]
@@ -182,90 +240,89 @@ class Queue {
         s.artistName = row ? queueArtist(row) : null;
       }
     } catch (err) {
-      console.error('Failed to load queue artists:', err.message);
+      console.error('Failed to load queue artists:', (err as Error).message);
     }
   }
 
   /**
    * Load queue from database
    */
-  async loadFromDB() {
+  async loadFromDB(): Promise<void> {
     if (!db.isAvailable()) return;
 
     try {
-      const result = await db.query(
+      const result = await db.query<QueueSongRow>(
         'SELECT id, url, title, duration, added_by, thumbnail, added_at FROM queue_songs WHERE lobby_id = $1 ORDER BY sort_order',
-        [this.lobbyId]
+        [this.playlistId]
       );
 
       this.songs = result.rows.map(row => ({
         id: row.id,
         url: row.url,
         title: row.title,
-        duration: parseFloat(row.duration) || 0,
+        duration: parseFloat(String(row.duration)) || 0,
         addedBy: row.added_by,
         thumbnail: row.thumbnail,
         addedAt: parseInt(row.added_at)
       }));
       await this._loadArtists();
     } catch (err) {
-      console.error('Failed to load queue from DB:', err.message);
+      console.error('Failed to load queue from DB:', (err as Error).message);
     }
   }
 }
 
-function getQueue(lobbyId) {
-  if (!queues.has(lobbyId)) {
-    queues.set(lobbyId, new Queue(lobbyId));
+export function getQueue(playlistId: string): Queue {
+  if (!queues.has(playlistId)) {
+    queues.set(playlistId, new Queue(playlistId));
   }
-  return queues.get(lobbyId);
+  return queues.get(playlistId)!;
 }
 
 /**
  * Get queue and load from database if available
  */
-async function getQueueAsync(lobbyId) {
-  if (!queues.has(lobbyId)) {
-    const queue = new Queue(lobbyId);
-    queues.set(lobbyId, queue);
+export async function getQueueAsync(playlistId: string): Promise<Queue> {
+  if (!queues.has(playlistId)) {
+    const queue = new Queue(playlistId);
+    queues.set(playlistId, queue);
 
     // Try to load from database
     await queue.loadFromDB();
   }
-  return queues.get(lobbyId);
+  return queues.get(playlistId)!;
 }
 
-function deleteQueue(lobbyId) {
-  const queue = queues.get(lobbyId);
+export function deleteQueue(playlistId: string): boolean {
+  const queue = queues.get(playlistId);
   if (queue && db.isAvailable()) {
-    db.query('DELETE FROM queue_songs WHERE lobby_id = $1', [lobbyId]).catch(err => {
+    db.query('DELETE FROM queue_songs WHERE lobby_id = $1', [playlistId]).catch(err => {
       console.error('Failed to delete queue from DB:', err.message);
     });
   }
-  return queues.delete(lobbyId);
+  return queues.delete(playlistId);
 }
 
-function hasQueue(lobbyId) {
-  return queues.has(lobbyId);
+export function hasQueue(playlistId: string): boolean {
+  return queues.has(playlistId);
 }
 
 /**
- * Remove queue entries for lobby IDs not in the provided set of valid IDs.
- * Called by lobby cleanup to prevent orphaned Map entries from accumulating.
+ * Remove queue entries for playlist IDs not in the provided set of valid IDs.
+ * Called by the playlists' cleanup to prevent orphaned Map entries from accumulating.
  */
-function cleanupOrphanedQueues(validLobbyIds) {
-  for (const lobbyId of queues.keys()) {
-    if (!validLobbyIds.has(lobbyId)) {
-      deleteQueue(lobbyId);
+export function cleanupOrphanedQueues(validPlaylistIds: Set<string>): void {
+  for (const playlistId of queues.keys()) {
+    if (!validPlaylistIds.has(playlistId)) {
+      deleteQueue(playlistId);
     }
   }
 }
 
-module.exports = {
-  Queue,
-  getQueue,
-  getQueueAsync,
-  deleteQueue,
-  hasQueue,
-  cleanupOrphanedQueues
-};
+/**
+ * Forget every queue in memory, as a restart does (the database keeps them).
+ * For tests: an ES module is not loaded afresh when it is required again.
+ */
+export function forgetAll(): void {
+  queues.clear();
+}

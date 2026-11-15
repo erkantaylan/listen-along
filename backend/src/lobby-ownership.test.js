@@ -30,7 +30,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 // Simulate a server restart: clear in-memory module state but keep the db pool.
 function simulateRestart() {
   delete require.cache[require.resolve('./lobby')];
-  delete require.cache[require.resolve('./queue')];
+  require('./core/queue/index.ts').forgetAll();
 }
 
 // Playlist (lobby) ownership + visibility + no-auto-expiry. Exercises the data
@@ -64,7 +64,7 @@ describe('Lobby ownership, visibility, persistence', { skip: skipReason, timeout
 
     delete require.cache[require.resolve('./shared/db.ts')];
     delete require.cache[require.resolve('./lobby')];
-    delete require.cache[require.resolve('./queue')];
+    require('./core/queue/index.ts').forgetAll();
   });
 
   it('lobbies table has visibility + host_id and no is_public / chat table', async () => {

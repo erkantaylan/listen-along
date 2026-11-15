@@ -13,7 +13,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { requests: songRequests, createResolver, ytdlp, spotify } = require('./core/requests/index.ts');
 const lobby = require('./lobby');
-const { getQueueAsync, deleteQueue, hasQueue } = require('./queue');
+const { getQueueAsync, deleteQueue, hasQueue, createQueueSockets } = require('./core/queue/index.ts');
 const db = require('./shared/db.ts');
 const { library, covers, createLibraryRouter, sendSongFile, createMediaRouter, createSilenceScanner, createSilenceRouter } = require('./core/library/index.ts');
 
@@ -41,7 +41,7 @@ const { createAdminRouter } = require('./adminRoutes');
 const { createAuthRoutes } = require('./auth/index.ts');
 const { createPlaylistRoutes } = require('./playlistRoutes');
 const { createPlaylistFolderRouter } = require('./core/playlists/index.ts');
-const { createQueueSockets } = require('./queueSockets');
+
 const { createPlaylistSockets } = require('./playlistSockets');
 const { APP_ROOM, userRoom, sessionRoom, createSocketServer, attachSocketHandlers } = require('./socketServer');
 const { createMemoryRateLimit } = require('./shared/memoryRateLimit.ts');
@@ -334,7 +334,7 @@ const playlistSockets = createPlaylistSockets({
   io, lobby, getQueueAsync, adminAuth, getSocial: () => social, ownerNames, notifyPlaylistsChanged, emitUnavailableSongs,
 });
 const queueSockets = createQueueSockets({
-  io, db, getQueueAsync, resolver, songRequests, addLibrarySongToLobby, queueRequestJob, APP_ROOM,
+  io, db, getQueueAsync, resolver, songRequests, addLibrarySongToPlaylist: addLibrarySongToLobby, queueRequestJob, APP_ROOM,
 });
 
 // The handshake, the central-login re-check of open sockets, and every

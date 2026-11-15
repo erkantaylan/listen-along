@@ -164,7 +164,7 @@ function attachSocketHandlers({ io, env, db, userAuth, oidc: OIDC, oidcSessions,
     const playlist = playlistSockets.register(socket, { userId, isApproved, displayName, displayEmoji, refusePending });
 
     // queue:add / remove / restore / reorder / clear / get (queueSockets.js).
-    queueSockets.register(socket, { userId, visibleLobby: playlist.visibleLobby, editableLobby: playlist.editableLobby, displayName });
+    queueSockets.register(socket, { userId, visiblePlaylist: playlist.visibleLobby, editablePlaylist: playlist.editableLobby, displayName });
 
     socket.on('disconnect', (reason) => {
       console.log(`Client disconnected: ${socket.id} (${reason})`);

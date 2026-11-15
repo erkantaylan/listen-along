@@ -287,7 +287,7 @@ async function deleteLobby(id) {
 // for lobby IDs that no longer exist in memory (e.g. lazily created by
 // getQueue() for an already-deleted lobby) — it never removes a lobby itself.
 async function cleanupEmptyLobbies() {
-  const { cleanupOrphanedQueues } = require('./queue');
+  const { cleanupOrphanedQueues } = require('./core/queue/index.ts');
 
   const validLobbyIds = new Set(lobbies.keys());
   cleanupOrphanedQueues(validLobbyIds);

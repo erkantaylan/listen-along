@@ -63,7 +63,7 @@ async function waitForTitles(db, lobbyId, expected) {
  */
 function simulateRestart() {
   delete require.cache[require.resolve('./lobby')];
-  delete require.cache[require.resolve('./queue')];
+  require('./core/queue/index.ts').forgetAll();
 }
 
 describe('Lobby persistence across server restarts', { skip: skipReason, timeout: 120_000 }, () => {
@@ -91,7 +91,7 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
 
     delete require.cache[require.resolve('./shared/db.ts')];
     delete require.cache[require.resolve('./lobby')];
-    delete require.cache[require.resolve('./queue')];
+    require('./core/queue/index.ts').forgetAll();
   });
 
   it('restores a lobby (name, visibility) from DB after restart', async () => {
@@ -146,7 +146,7 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
 
   it('restores queue songs from DB after restart', async () => {
     const lobby = require('./lobby');
-    const { getQueueAsync } = require('./queue');
+    const { getQueueAsync } = require('./core/queue/index.ts');
 
     await lobby.createLobbyAsync(null, 'q-test1');
     const queue = await getQueueAsync('q-test1');
@@ -160,7 +160,7 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
 
     // Simulate server restart
     simulateRestart();
-    const { getQueueAsync: getQueueAfter } = require('./queue');
+    const { getQueueAsync: getQueueAfter } = require('./core/queue/index.ts');
 
     // Reload queue from DB
     const restoredQueue = await getQueueAfter('q-test1');
@@ -177,7 +177,7 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
 
   it('preserves queue order after restart', async () => {
     const lobby = require('./lobby');
-    const { getQueueAsync } = require('./queue');
+    const { getQueueAsync } = require('./core/queue/index.ts');
 
     await lobby.createLobbyAsync(null, 'qo-test1');
     const queue = await getQueueAsync('qo-test1');
@@ -205,7 +205,7 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
 
     // Simulate server restart
     simulateRestart();
-    const { getQueueAsync: getQueueAfter } = require('./queue');
+    const { getQueueAsync: getQueueAfter } = require('./core/queue/index.ts');
 
     // Reload queue from DB
     const restoredQueue = await getQueueAfter('qo-test1');

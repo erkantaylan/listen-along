@@ -70,7 +70,7 @@ describe('Playlist migration from the old lobby schema', { skip: skipReason, tim
     delete process.env.DATABASE_URL;
     delete require.cache[require.resolve('./shared/db.ts')];
     delete require.cache[require.resolve('./lobby')];
-    delete require.cache[require.resolve('./queue')];
+    require('./core/queue/index.ts').forgetAll();
   });
 
   it('backfills visibility: owned private stays private, everything else is public', async () => {

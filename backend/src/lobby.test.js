@@ -1,7 +1,7 @@
 const { describe, it, beforeEach, after } = require('node:test');
 const assert = require('node:assert');
 const { createLobby, getLobby, joinLobby, leaveLobby, getLobbyUsers, deleteLobby, isNameTaken, renameLobby, getAllLobbies, pinLobby, setVisibility, lobbies, cleanupEmptyLobbies } = require('./lobby');
-const { getQueue, deleteQueue, hasQueue } = require('./queue');
+const { getQueue, deleteQueue, hasQueue } = require('./core/queue/index.ts');
 
 describe('Lobby System', () => {
   beforeEach(() => {
