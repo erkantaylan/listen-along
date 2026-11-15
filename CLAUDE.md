@@ -633,8 +633,8 @@ TypeScript one area at a time; until an area is converted its files stay
     `node --test 'src/features/<name>/*.test.ts'` (a directory argument is not searched).
   - Every importer changes in the same commit, and so does every path this file cites. When a test that cannot
     be edited yet still requires an old path, a folder with the old name holds a one-line `index.js`
-    re-export (`backend/src/chat/`, `presence/`, `db/` for `queue-rows.test.js`), so the move stays a rename in
-    git history. A unit test of a moved module that sits inside a bigger test file moves out next to the module
+    re-export, so the move stays a rename in git history; delete it as soon as that test can be edited (none
+    is left). A unit test of a moved module that sits inside a bigger test file moves out next to the module
     (the secret box and settings tests left `central-login.test.js`).
   - Schema: an area's tables and migrations go in its folder's `schema.ts` (`{ tables, migrations }`, typed by
     `AreaSchema` / `Migration` from `shared/db.ts` with `import type`, so there is no import cycle at run time),

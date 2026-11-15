@@ -1,4 +1,4 @@
-// Global chat + people panel: the pure parts (chat.js, presence.js; the
+// Global chat + people panel: the pure parts (features/social chat.ts, presence.ts; the
 // frontend's chat-format.ts is tested next to it), then the real server (in-memory storage, no
 // Postgres) over Socket.IO with two signed-in users, a second tab, an
 // anonymous client (refused) and an admin. Postgres persistence: social-pg.test.js.
@@ -9,8 +9,7 @@ const net = require('node:net');
 const path = require('node:path');
 const { io: ioClient } = require('socket.io-client');
 const { DEV_COOKIE, signDevToken } = require('./devLogin');
-const chat = require('./chat');
-const { createPresence, viewNowPlaying, normalizeReport } = require('./presence');
+const { chat, createPresence, viewNowPlaying, normalizeReport } = require('./features/social/index.ts');
 
 const SECRET = 'social-test-secret';
 const ADMIN_PASSWORD = 'social-test-admin-pw';

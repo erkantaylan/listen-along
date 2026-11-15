@@ -4,7 +4,7 @@
 // frontend/src/shared/layout-rules.test.ts).
 const { describe, it, after } = require('node:test');
 const assert = require('node:assert/strict');
-const db = require('./db');
+const db = require('./shared/db.ts');
 const library = require('./library');
 const { Queue } = require('./queue');
 
