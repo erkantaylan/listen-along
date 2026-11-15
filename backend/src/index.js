@@ -42,7 +42,7 @@ const downloadJobs = require('./downloadJobs');
 const { createWorkerHub } = require('./workerHub');
 const { createJobRouter } = require('./jobRoutes');
 const { createActivityFeed } = require('./activityFeed');
-const { createStationRouter } = require('./stations');
+const { createStationRouter } = require('./features/radio/index.ts');
 const { createArtistRouter } = require('./artists');
 const { createInfoRouter, createPageRouter } = require('./appRoutes');
 const { createMediaRouter } = require('./mediaRoutes');
@@ -232,7 +232,7 @@ app.use(createLibraryRouter({
   requireWebUser: userAuth.requireLevel('approved')
 }));
 
-// Radio stations (stations.js). Approved accounts only, by the guard's default.
+// Radio stations (features/radio). Approved accounts only, by the guard's default.
 app.use(createStationRouter());
 
 // Artists: read-only song lists per library artist (artists.js). Approved accounts only, by the guard's default.

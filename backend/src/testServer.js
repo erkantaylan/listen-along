@@ -71,6 +71,8 @@ async function centralSessionCookie(pg, userId, { sub = `dev-${userId}`, now = D
  * `extraEnv` may be a function of the port (for BASE_URL in central-login tests).
  * The dev sign-in (INSECURE_DEV_LOGIN, cookieFor) is on unless `extraEnv` sets
  * OIDC_ISSUER or OIDC_CLIENT_ID: the server allows one or the other.
+ * @param {Record<string, string> | ((port: number) => Record<string, string>)} [extraEnvOrFn]
+ * @returns {Promise<{ proc: import('node:child_process').ChildProcess, base: string, port: number, stop: () => Promise<void>, log: () => string }>}
  */
 async function startServer(extraEnvOrFn = {}) {
   const port = await freePort();
@@ -99,7 +101,12 @@ async function startServer(extraEnvOrFn = {}) {
   return { proc, base: `http://127.0.0.1:${port}`, port, stop, log: () => log };
 }
 
-/** JSON request helper: req(method, url, { cookie, headers, body }). */
+/**
+ * JSON request helper: req(method, url, { cookie, headers, body }).
+ * @param {string} base
+ * @returns {(method: string, url: string, opts?: { cookie?: string, headers?: Record<string, string>, body?: unknown }) =>
+ *   Promise<{ status: number, body: any, text: string, headers: Headers }>}
+ */
 function requester(base) {
   return async function req(method, url, { cookie, headers = {}, body } = {}) {
     const h = { ...headers };

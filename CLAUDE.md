@@ -264,7 +264,7 @@ where lobby persistence broke entirely on deployed instances.
 - Spotify track links supported via `spotify-url-info` page scraping (no API
   credentials needed); title/artist are matched against the library or
   turned into a request
-- **Radio** (`/radio`): a station is a list of songs from a rule. `stations.js`
+- **Radio** (`/radio`): a station is a list of songs from a rule. `backend/src/features/radio/`
   (`GET /api/stations/:id[/songs]`, lean rows, approved accounts by the guard's
   default, no tokens) holds the rules: `all` = every song without an open report.
   The order is client-side and per opening: `frontend/radio-order.js` (pure,
@@ -545,8 +545,8 @@ stays JavaScript). Until an area is converted its files stay `.js`.
 - **Backend, while CommonJS and ES modules mix** (Node 22.18+ type stripping, no build):
   - A converted area is a folder of ES-module `.ts` (`backend/src/features/<name>/`), moved with `git mv` so
     history follows, its tests next to it as `*.test.ts` (plain `node --test` finds them). The folder holding
-    converted areas has a `package.json` that is only `{"type": "module"}` (`backend/src/features/package.json`;
-    add the same to `shared/`, `auth/`, `core/` when they start). Without it Node guesses the format of each `.ts`
+    converted areas has a `package.json` that is only `{"type": "module"}` (`backend/src/features/`, `shared/`;
+    add the same to `auth/`, `core/` when they start). Without it Node guesses the format of each `.ts`
     and prints `MODULE_TYPELESS_PACKAGE_JSON` at boot and in tests; with it there is no warning and no flag. It
     goes away when `backend/package.json` becomes `"type": "module"`.
   - Still-CommonJS files `require('./features/<name>/index.ts')` (extension spelled out, always the folder's
@@ -559,8 +559,12 @@ stays JavaScript). Until an area is converted its files stay `.js`.
     `module.exports = { a, b }` shorthand. Packages: `import pg from 'pg'` then `pg.Client`.
   - `import.meta.dirname` for `__dirname`; `createRequire(import.meta.url)` only where a test needs `require.cache`.
   - Each area's `index.ts` exports its `create…({ deps })` factory with a typed deps interface (what the area needs
-    from the composition root) and the types of what it sends to clients. A dependency still in CommonJS gets a
-    small structural interface of what the area uses, not `any`.
+    from the composition root) and the types of what it sends to clients. Rows and objects used by more than one
+    area (users, library songs, playlists, jobs, the Socket.IO server, the `Db` shape of db.js) are in
+    `backend/src/shared/types.ts`, type-only and written from the SQL in `db.js` (pg's parsing: BIGINT is a
+    string, TIMESTAMPTZ a Date); change them with the schema. A dependency still in CommonJS gets a small
+    structural interface of what the area uses, not `any`; a CommonJS helper imported by `.ts` (e.g.
+    `testServer.js`) may get JSDoc `@param` / `@returns` instead.
   - Every importer changes in the same commit, and so does every path this file cites.
 - `frontend/src/globals.d.ts` types the classic-script globals (`io`,
   `window.i18n`, `MediaSessionManager`); `i18n.js` and `media-session.js` stay

@@ -1,18 +1,21 @@
 // Radio stations against the real server on Postgres (testcontainers): the
 // "all" rule, who gets in, and what the lean list carries.
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const { execSync } = require('node:child_process');
-const crypto = require('node:crypto');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const { cookieFor, startServer, requester } = require('./testServer');
-const { policyFor } = require('./userAuth');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { execSync } from 'node:child_process';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import pg from 'pg';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { cookieFor, startServer, requester } from '../../testServer.js';
+import { policyFor } from '../../userAuth.js';
+import type { StationSong } from './stations.ts';
 
-let PostgreSqlContainer;
-try { PostgreSqlContainer = require('@testcontainers/postgresql').PostgreSqlContainer; } catch {}
-const has = (cmd) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
+let PostgreSqlContainer: typeof import('@testcontainers/postgresql').PostgreSqlContainer | undefined;
+try { ({ PostgreSqlContainer } = await import('@testcontainers/postgresql')); } catch {}
+const has = (cmd: string) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
 const skip = !PostgreSqlContainer ? 'testcontainers package not installed'
   : !has('docker info') ? 'Docker not available' : false;
 
@@ -26,18 +29,18 @@ describe('stations: policy', () => {
 });
 
 describe('stations API', { skip, timeout: 180_000 }, () => {
-  let container;
-  let pg;
-  let srv;
-  let req;
-  let tmp;
-  const cookies = {};
-  const ids = {};
-  const songIds = [];
+  let container: StartedPostgreSqlContainer | undefined;
+  let db: pg.Client | undefined;
+  let srv: Awaited<ReturnType<typeof startServer>> | undefined;
+  let req: ReturnType<typeof requester>;
+  let tmp: string | undefined;
+  const cookies: Record<string, string> = {};
+  const ids: Record<string, string> = {};
+  const songIds: string[] = [];
 
-  async function addSong(title, duration, sha) {
+  async function addSong(title: string, duration: number | null, sha: string) {
     const id = crypto.randomUUID();
-    await pg.query(
+    await db!.query(
       `INSERT INTO library_songs (id, title, artist, duration_sec, file_path, mime_type, size_bytes, sha256, youtube_id, uploaded_by)
        VALUES ($1, $2, 'Artist', $3, $4, 'audio/mp4', 1, $5, NULL, 'test')`,
       [id, title, duration, `/tmp/${id}.m4a`, sha]
@@ -47,17 +50,16 @@ describe('stations API', { skip, timeout: 180_000 }, () => {
   }
 
   before(async () => {
-    container = await new PostgreSqlContainer('postgres:16-alpine')
+    container = await new PostgreSqlContainer!('postgres:16-alpine')
       .withDatabase('listen_stations').withUsername('test').withPassword('test').start();
     const url = container.getConnectionUri();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'la-stations-'));
     srv = await startServer({ DATABASE_URL: url, SONGS_PATH: path.join(tmp, 'songs'), COVERS_DIR: path.join(tmp, 'covers') });
     req = requester(srv.base);
-    const { Client } = require('pg');
-    pg = new Client({ connectionString: url });
-    await pg.connect();
+    db = new pg.Client({ connectionString: url });
+    await db.connect();
     for (const [key, status] of [['alice', 'approved'], ['bob', 'approved'], ['pat', 'pending'], ['dan', 'denied']]) {
-      const r = await pg.query(
+      const r = await db.query(
         `INSERT INTO users (provider, provider_id, name, display_name, status, created_at) VALUES ('github', $1, $2, $2, $3, 1) RETURNING id`,
         [key, key, status]
       );
@@ -71,7 +73,7 @@ describe('stations API', { skip, timeout: 180_000 }, () => {
 
   after(async () => {
     if (srv) await srv.stop();
-    if (pg) await pg.end();
+    if (db) await db.end();
     if (container) await container.stop();
     if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
   });
@@ -84,7 +86,7 @@ describe('stations API', { skip, timeout: 180_000 }, () => {
     }
     const page = await req('GET', '/radio');
     assert.equal(page.status, 302);
-    assert.match(page.headers.get('location'), /^\/login/);
+    assert.match(page.headers.get('location') ?? '', /^\/login/);
     assert.equal((await req('GET', '/radio', { cookie: cookies.alice })).status, 200);
   });
 
@@ -109,10 +111,10 @@ describe('stations API', { skip, timeout: 180_000 }, () => {
     assert.equal(list.body.count, 3);
     assert.equal(list.body.duration_sec, 300);
     assert.equal(list.body.songs.length, 3);
-    const one = list.body.songs.find((s) => s.title === 'One');
+    const one = list.body.songs.find((s: StationSong) => s.title === 'One');
     assert.deepEqual(Object.keys(one).sort(), ['artist', 'duration_sec', 'file_version', 'id', 'title', 'youtube_id']);
     assert.equal(one.file_version, 'a'.repeat(16));
-    assert.equal(list.body.songs.find((s) => s.title === 'No length').duration_sec, null);
+    assert.equal(list.body.songs.find((s: StationSong) => s.title === 'No length').duration_sec, null);
   });
 
   it('a song with an open report leaves the station and comes back when it closes', async () => {
@@ -121,22 +123,22 @@ describe('stations API', { skip, timeout: 180_000 }, () => {
     assert.equal((await req('POST', `/api/library/${id}/report`, { cookie: cookies.alice, body: { reason: 'Cut off' } })).status, 201);
 
     let list = await req('GET', '/api/stations/all/songs', { cookie: cookies.alice });
-    assert.ok(!list.body.songs.some((s) => s.id === id));
+    assert.ok(!list.body.songs.some((s: StationSong) => s.id === id));
     assert.deepEqual((await req('GET', '/api/stations/all', { cookie: cookies.alice })).body, { id: 'all', count: 2, duration_sec: 200 });
     // Library stays as it is.
     const lib = await req('GET', '/api/library?limit=10', { cookie: cookies.alice });
-    assert.ok(lib.body.songs.some((s) => s.id === id));
+    assert.ok(lib.body.songs.some((s: { id: string }) => s.id === id));
 
     assert.equal((await req('DELETE', `/api/library/${id}/report`, { cookie: cookies.bob })).status, 200);
     list = await req('GET', '/api/stations/all/songs', { cookie: cookies.alice });
-    assert.ok(!list.body.songs.some((s) => s.id === id), 'still one open report');
+    assert.ok(!list.body.songs.some((s: StationSong) => s.id === id), 'still one open report');
     assert.equal((await req('DELETE', `/api/library/${id}/report`, { cookie: cookies.alice })).status, 200);
     list = await req('GET', '/api/stations/all/songs', { cookie: cookies.alice });
-    assert.ok(list.body.songs.some((s) => s.id === id));
+    assert.ok(list.body.songs.some((s: StationSong) => s.id === id));
   });
 
   it('handles 2,500 songs in one quick answer', async () => {
-    await pg.query(
+    await db!.query(
       `INSERT INTO library_songs (id, title, artist, duration_sec, file_path, mime_type, size_bytes, sha256, uploaded_by)
        SELECT gen_random_uuid(), 'Song ' || g, 'Artist ' || g, 180, '/tmp/f' || g || '.m4a', 'audio/mp4', 1, md5(g::text) || md5(g::text), 'test'
        FROM generate_series(1, 2500) g`

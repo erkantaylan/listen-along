@@ -12,15 +12,46 @@
  * filter. These routes are approved accounts only: the guard's default for
  * /api/... (policyFor in userAuth.js); CLI tokens do not get in.
  */
-const express = require('express');
-const db = require('./db');
-const { OPEN_REPORT_EXISTS_SQL } = require('./songReports');
+import express from 'express';
+import type { Request, Response, Router } from 'express';
+import dbModule from '../../db.js';
+import { OPEN_REPORT_EXISTS_SQL } from '../../songReports.js';
+import type { Db, LibrarySongRow } from '../../shared/types.ts';
+
+// The live module object: tests replace its functions.
+const db: Db = dbModule;
 
 const RULES = new Map([
   ['all', `NOT ${OPEN_REPORT_EXISTS_SQL}`],
 ]);
 
-function toStationSong(row) {
+/** The library columns a station song is made of. */
+export type StationSongRow = Pick<LibrarySongRow, 'id' | 'youtube_id' | 'title' | 'artist' | 'duration_sec' | 'sha256'>;
+
+/** A song in a station (and on an artist page): lean, no reports or upload details. */
+export interface StationSong {
+  id: string;
+  youtube_id: string | null;
+  title: string;
+  artist: string;
+  duration_sec: number | null;
+  /** the first 16 hex digits of the file's sha256 (the audio url's ?v=) */
+  file_version: string | null;
+}
+
+/** GET /api/stations/:id */
+export interface StationSummary {
+  id: string;
+  count: number;
+  duration_sec: number;
+}
+
+/** GET /api/stations/:id/songs */
+export interface StationSongs extends StationSummary {
+  songs: StationSong[];
+}
+
+export function toStationSong(row: StationSongRow): StationSong {
   return {
     id: row.id,
     youtube_id: row.youtube_id || null,
@@ -31,30 +62,30 @@ function toStationSong(row) {
   };
 }
 
-async function summary(id) {
-  const r = await db.query(
+async function summary(id: string): Promise<StationSummary> {
+  const r = await db.query<{ count: number; duration_sec: string }>(
     `SELECT COUNT(*)::int AS count, COALESCE(SUM(duration_sec), 0)::bigint AS duration_sec FROM library_songs WHERE ${RULES.get(id)}`
   );
   return { id, count: r.rows[0].count, duration_sec: Number(r.rows[0].duration_sec) };
 }
 
-async function songs(id) {
-  const r = await db.query(
+async function songs(id: string): Promise<StationSongs> {
+  const r = await db.query<StationSongRow>(
     `SELECT id, youtube_id, title, artist, duration_sec, sha256 FROM library_songs WHERE ${RULES.get(id)} ORDER BY id`
   );
   const list = r.rows.map(toStationSong);
   return { id, count: list.length, duration_sec: list.reduce((sum, s) => sum + (s.duration_sec || 0), 0), songs: list };
 }
 
-function createStationRouter() {
+export function createStationRouter(): Router {
   const router = express.Router();
-  const route = (load) => async (req, res) => {
+  const route = (load: (id: string) => Promise<StationSummary>) => async (req: Request<{ id: string }>, res: Response) => {
     if (!db.isAvailable()) return res.status(503).json({ error: 'The music library needs a database' });
     if (!RULES.has(req.params.id)) return res.status(404).json({ error: 'Unknown station' });
     try {
       res.json(await load(req.params.id));
     } catch (err) {
-      console.error('[stations] error:', err.message);
+      console.error('[stations] error:', (err as Error).message);
       res.status(500).json({ error: 'Failed to load the station' });
     }
   };
@@ -62,5 +93,3 @@ function createStationRouter() {
   router.get('/api/stations/:id/songs', route(songs));
   return router;
 }
-
-module.exports = { createStationRouter, toStationSong };

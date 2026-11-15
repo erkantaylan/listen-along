@@ -24,7 +24,7 @@ const express = require('express');
 const db = require('./db');
 const { OPEN_REPORT_EXISTS_SQL } = require('./songReports');
 const { splitArtistCredit, knownArtistKeys, MAX_KEY } = require('./artistCredits');
-const { toStationSong } = require('./stations');
+const { toStationSong } = require('./features/radio/index.ts');
 
 /**
  * Every distinct credit of the library -> its artists ([{ key, name }]). A
