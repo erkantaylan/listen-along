@@ -14,10 +14,10 @@ export const MAIN_FLOOR = 416; // the page column, whatever the user chose
 const COMFORTABLE_MAIN = 616; // the page column, when the sidebar is automatic
 const RIGHT_RAIL = 56;
 
-export const defaultSidebarWidth = (width) => (width >= 1440 ? 304 : 264);
-export const defaultChatWidth = (width) => (width >= 1200 ? 320 : 280);
+export const defaultSidebarWidth = (width: number): number => (width >= 1440 ? 304 : 264);
+export const defaultChatWidth = (width: number): number => (width >= 1200 ? 320 : 280);
 
-const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
 // The widths at this window size. pref: 'rail' | 'expanded' | anything else
 // (automatic). left / right: what the user dragged, or null. Those are wishes:
@@ -31,15 +31,31 @@ const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 //     undragged sidebar is all or nothing (264 fits or it is a rail); a dragged
 //     one shrinks first.
 // left / right are null where that column does not sit beside the page.
-export function resolveColumns({ width, pref = null, chatDocked = false, hasSidebar = true, left = null, right = null }) {
+export interface ColumnsInput {
+  width: number;
+  pref?: string | null;
+  chatDocked?: boolean;
+  hasSidebar?: boolean;
+  left?: number | null;
+  right?: number | null;
+}
+
+export interface Columns {
+  rail: boolean;
+  left: number | null;
+  right: number | null;
+  main: number;
+}
+
+export function resolveColumns({ width, pref = null, chatDocked = false, hasSidebar = true, left = null, right = null }: ColumnsInput): Columns {
   const docked = chatDocked && width >= DOCK_MIN;
   const sidebar = hasSidebar && width >= DRAWER_MAX;
   const smallest = !sidebar ? 0 : pref === 'expanded' ? SIDEBAR_MIN : SIDEBAR_RAIL;
   const chat = docked
     ? clamp(right ?? defaultChatWidth(width), CHAT_MIN, Math.max(CHAT_MIN, Math.min(CHAT_MAX, width - MAIN_FLOOR - smallest)))
     : null;
-  const inset = docked ? chat : width >= DOCK_MIN ? RIGHT_RAIL : 0;
-  const result = (rail, leftWidth) => ({
+  const inset = chat !== null ? chat : width >= DOCK_MIN ? RIGHT_RAIL : 0; // chat is a number exactly when docked
+  const result = (rail: boolean, leftWidth: number): Columns => ({
     rail,
     left: sidebar ? leftWidth : null,
     right: chat,
@@ -55,4 +71,4 @@ export function resolveColumns({ width, pref = null, chatDocked = false, hasSide
   return narrow || room < SIDEBAR_MIN ? result(true, SIDEBAR_RAIL) : result(false, clamp(left, SIDEBAR_MIN, Math.min(SIDEBAR_MAX, room)));
 }
 
-export const sidebarRail = (args) => resolveColumns(args).rail;
+export const sidebarRail = (args: ColumnsInput): boolean => resolveColumns(args).rail;

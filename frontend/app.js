@@ -1,7 +1,7 @@
 // Listen-Along Frontend — Entry point and orchestrator
-import { state, elements, auth, socket, STORAGE_KEYS, viewActivators, setSocket, storageSet } from './state.js';
-import { showView, showToast, switchTab, setupLanguageSelector, setupAppMeta, t, setupRangeFill, navigateTo } from './ui.js';
-import { setupAudioPlayer } from './audio.js';
+import { state, elements, auth, socket, STORAGE_KEYS, viewActivators, setSocket, storageSet } from './shared/state.js';
+import { showView, showToast, switchTab, setupLanguageSelector, setupAppMeta, t, setupRangeFill, navigateTo } from './shared/ui.js';
+import { setupAudioPlayer } from './shared/audio.js';
 import { player, setupPlayer } from './player.js';
 import { setupPlaybackFailures } from './playback-failures.js';
 import { setupPlayerBar, setupPlayerBarControls, refreshPlayerBar } from './player-bar.js';
@@ -19,7 +19,7 @@ import { setupAppPage } from './app-page.js';
 import { setupRadio, openRadioPage, closeRadioPage, handleRadioLibraryUpdated, refreshRadio, playRadioFromTop } from './radio.js';
 import { setupArtists, openArtistsPage, closeArtistsPage, handleArtistsLibraryUpdated } from './artists.js';
 import { setupArtistPage, openArtistPage, closeArtistPage, handleArtistLibraryUpdated, playArtistFromTop } from './artist-page.js';
-import { setupRowDoubleClick } from './row-double-click.js';
+import { setupRowDoubleClick } from './shared/row-double-click.js';
 import { scheduleReload } from './playlist-store.js';
 import { shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyUpdated, openPlaylistHeaderMenu, setupLandingMenus, handleUserJoined, handleUserLeft, handleLobbyClosed, checkForLastLobby, joinLobbyFromCard, updatePinButton, togglePin, quickPlayLobby, toggleLobbyPlayback, openLobbyPage, closeLobbyPage, syncMembership, resyncMembership, reportNowPlaying } from './lobby.js';
 import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, updatePlayButton, updatePlaybackModeUI, updateNowPlaying, _setQueueFns } from './playback.js';
@@ -52,7 +52,7 @@ function setupSocket() {
   onListenChange(refreshPeople);
 
   // We need to re-import socket after setSocket to get the live binding
-  import('./state.js').then(mod => {
+  import('./shared/state.js').then(mod => {
     const s = mod.socket;
 
     // Events emitted before the first connect are buffered; after a reconnect

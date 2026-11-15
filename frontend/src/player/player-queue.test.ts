@@ -1,14 +1,7 @@
-// Tests the player's pure queue/membership rules (frontend/player-queue.js).
-const { describe, it, before } = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('path');
-const { pathToFileURL } = require('url');
-
-let m;
-
-before(async () => {
-  m = await import(pathToFileURL(path.join(__dirname, '..', '..', 'frontend', 'player-queue.js')).href);
-});
+// Tests the player's pure queue/membership rules (player-queue.ts).
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import * as m from './player-queue.ts';
 
 describe('player-queue: findTrackIndex', () => {
   const queue = [{ id: 'a', url: 'u1' }, { id: 'b', url: 'u2' }];
@@ -54,7 +47,7 @@ describe('player-queue: previousIndex', () => {
 });
 
 describe('player-queue: going past blocked songs', () => {
-  const blockedSet = (...at) => (i) => at.includes(i);
+  const blockedSet = (...at: number[]) => (i: number) => at.includes(i);
 
   it('next takes the first song that is not blocked', () => {
     assert.equal(m.nextIndex({ length: 5, current: 0, blocked: blockedSet(1, 2) }), 3);

@@ -1,7 +1,8 @@
 // UI utilities, view management, and helper functions
-import { elements, state, viewActivators, dashboardInterval, lobbiesInterval, setDashboardInterval, setLobbiesInterval } from './state.js';
+import { elements, state, viewActivators, dashboardInterval, lobbiesInterval, setDashboardInterval, setLobbiesInterval } from './state.ts';
+import { maybeById } from './dom.ts';
 
-export function showView(viewName) {
+export function showView(viewName: string): void {
   if (elements.loginView) elements.loginView.classList.remove('active');
   elements.landingView.classList.remove('active');
   elements.lobbyView.classList.remove('active');
@@ -61,22 +62,27 @@ export function showView(viewName) {
 
 // Tells listeners (the player bar) that the visible page changed: a view
 // switch, or the library overlay opening/closing.
-export function notifyViewChange() {
+export function notifyViewChange(): void {
   document.dispatchEvent(new CustomEvent('app:viewchange'));
 }
 
 // In-app navigation: add a history entry and let the router (app.js, which
 // listens to popstate) make the UI match it, as Back/Forward do.
-export function navigateTo(path) {
+export function navigateTo(path: string): void {
   if (window.location.pathname + window.location.search !== path) window.history.pushState({}, '', path);
   window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }));
 }
 
 // Bootstrap toast in #toast-container. type: info | success | error.
-const TOAST_THEMES = { success: 'theme-success', error: 'theme-danger', info: 'theme-secondary' };
+export type ToastType = 'info' | 'success' | 'error';
+const TOAST_THEMES: Record<string, string> = { success: 'theme-success', error: 'theme-danger', info: 'theme-secondary' };
 // options.action = { label, onClick }: a text button in the toast (e.g. Undo);
 // options.duration in ms (default 3000).
-export function showToast(message, type = 'info', { action = null, duration = 3000 } = {}) {
+export interface ToastOptions {
+  action?: { label: string; onClick: () => void } | null;
+  duration?: number;
+}
+export function showToast(message: string, type: ToastType = 'info', { action = null, duration = 3000 }: ToastOptions = {}): void {
   const toast = document.createElement('div');
   toast.className = `toast show ${TOAST_THEMES[type] || TOAST_THEMES.info} app-toast app-toast-${type}`;
   toast.setAttribute('role', type === 'error' ? 'alert' : 'status');
@@ -84,7 +90,7 @@ export function showToast(message, type = 'info', { action = null, duration = 30
   body.className = 'toast-body';
   body.textContent = message;
   toast.appendChild(body);
-  let timer = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const dismiss = () => {
     clearTimeout(timer);
     toast.classList.remove('show');
@@ -111,7 +117,7 @@ export function showToast(message, type = 'info', { action = null, duration = 30
 // Bootstrap 6 range inputs paint their filled track from --bs-range-fill (0..1).
 // User input is handled by the listener below; call this after setting .value
 // from code.
-export function syncRangeFill(input) {
+export function syncRangeFill(input: HTMLInputElement | null | undefined): void {
   if (!input) return;
   const min = Number(input.min) || 0;
   const max = Number(input.max) || 100;
@@ -120,14 +126,15 @@ export function syncRangeFill(input) {
 }
 
 // Keep every range's fill in step with user input; called once at start-up.
-export function setupRangeFill() {
+export function setupRangeFill(): void {
   document.addEventListener('input', (e) => {
-    if (e.target.matches?.('.form-range-input')) syncRangeFill(e.target);
+    const target = e.target as HTMLInputElement;
+    if (target.matches?.('.form-range-input')) syncRangeFill(target);
   });
-  document.querySelectorAll('.form-range-input').forEach(syncRangeFill);
+  document.querySelectorAll<HTMLInputElement>('.form-range-input').forEach(syncRangeFill);
 }
 
-export function t(key, fallback, replacements = {}) {
+export function t(key: string, fallback: string, replacements: Record<string, string | number> = {}): string {
   if (window.i18n && window.i18n.t) {
     const translation = window.i18n.t(key, replacements);
     return translation === key ? fallback : translation;
@@ -135,14 +142,14 @@ export function t(key, fallback, replacements = {}) {
   return fallback;
 }
 
-export function formatTime(seconds) {
+export function formatTime(seconds: number | null | undefined): string {
   if (!seconds || !isFinite(seconds)) return '0:00';
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
-export function formatDuration(seconds) {
+export function formatDuration(seconds: number | null | undefined): string {
   if (!seconds || seconds === 0) return '0:00';
   const hours = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
@@ -151,7 +158,7 @@ export function formatDuration(seconds) {
   return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
-export function formatUptime(seconds) {
+export function formatUptime(seconds: number): string {
   const days = Math.floor(seconds / 86400);
   const hours = Math.floor((seconds % 86400) / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
@@ -162,7 +169,7 @@ export function formatUptime(seconds) {
   return `${secs}s`;
 }
 
-export function formatAge(timestamp) {
+export function formatAge(timestamp: number): string {
   const age = Date.now() - timestamp;
   const mins = Math.floor(age / 60000);
   const hours = Math.floor(age / 3600000);
@@ -171,7 +178,7 @@ export function formatAge(timestamp) {
   return 'just now';
 }
 
-export function formatFileSize(bytes) {
+export function formatFileSize(bytes: number | null | undefined): string {
   if (!bytes) return '-';
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
@@ -179,7 +186,7 @@ export function formatFileSize(bytes) {
 }
 
 // Turkish-safe case-insensitive lowercase (handles İ/ı/I/i correctly)
-export function toLower(text) {
+export function toLower(text: string): string {
   return text.toLocaleLowerCase('tr');
 }
 
@@ -187,12 +194,12 @@ export function toLower(text) {
 // Not enough on its own inside a JS string in an inline handler (onclick=...);
 // the browser HTML-decodes the attribute before running it. There, use
 // escapeHtml(JSON.stringify(value)) and don't wrap it in extra quotes.
-const HTML_ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-export function escapeHtml(text) {
+const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+export function escapeHtml(text: unknown): string {
   return String(text ?? '').replace(/[&<>"']/g, ch => HTML_ESCAPES[ch]);
 }
 
-export function sanitizeUrl(url) {
+export function sanitizeUrl(url: string | null | undefined): string {
   if (!url) return '';
   try {
     const parsed = new URL(url, window.location.origin);
@@ -201,7 +208,7 @@ export function sanitizeUrl(url) {
   return '';
 }
 
-export function getCoverUrl(songId, thumbnailUrl) {
+export function getCoverUrl(songId: string | number | null | undefined, thumbnailUrl: string | null | undefined): string {
   // The server only caches a cover for songs that have a thumbnail (YouTube
   // ones); library songs without one (local uploads, migrated cache files)
   // would just 404 on /api/covers, so callers show their placeholder instead.
@@ -210,11 +217,11 @@ export function getCoverUrl(songId, thumbnailUrl) {
   return `/api/covers/${songId}?fallback=${encodeURIComponent(thumbnailUrl)}`;
 }
 
-export function getInitials(name) {
+export function getInitials(name: string): string {
   return name.split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2);
 }
 
-export function copyToClipboard(text) {
+export function copyToClipboard(text: string): void {
   navigator.clipboard.writeText(text).then(() => {
     showToast(t('toast.linkCopied', 'Link copied to clipboard!'), 'success');
   }).catch(() => {
@@ -223,9 +230,10 @@ export function copyToClipboard(text) {
 }
 
 // Keep Tab / Shift+Tab inside a modal. Call from the dialog's keydown handler.
-export function trapFocus(container, e) {
+export function trapFocus(container: HTMLElement, e: KeyboardEvent): void {
   if (e.key !== 'Tab') return;
-  const focusable = [...container.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+  // Read as inputs: disabled / type / checked / name are undefined on the others, as before.
+  const focusable = [...container.querySelectorAll<HTMLInputElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
     .filter((el) => !el.disabled && el.offsetParent !== null && !(el.type === 'radio' && !el.checked && container.querySelector(`input[type="radio"][name="${el.name}"]:checked`)));
   if (!focusable.length) return;
   const first = focusable[0];
@@ -234,7 +242,7 @@ export function trapFocus(container, e) {
   else if (!e.shiftKey && (document.activeElement === last || !container.contains(document.activeElement))) { e.preventDefault(); first.focus(); }
 }
 
-export function switchTab(tabName) {
+export function switchTab(tabName: string): void {
   elements.navItems.forEach(item => {
     item.classList.toggle('active', item.dataset.tab === tabName);
   });
@@ -242,12 +250,12 @@ export function switchTab(tabName) {
 }
 
 // The Language field on the profile page (the only language control).
-export function setupLanguageSelector(updateQueue, updateListeners) {
-  const selector = document.getElementById('language-selector');
+export function setupLanguageSelector(updateQueue: () => void, updateListeners: () => void): void {
+  const selector = maybeById<HTMLSelectElement>('language-selector');
   if (!selector || !window.i18n) return;
   selector.value = window.i18n.getLanguage();
   selector.addEventListener('change', async (e) => {
-    await window.i18n.setLanguage(e.target.value);
+    await window.i18n.setLanguage((e.target as HTMLSelectElement).value);
     updateQueue();
     updateListeners();
   });
@@ -256,13 +264,14 @@ export function setupLanguageSelector(updateQueue, updateListeners) {
 // The About row at the bottom of the profile page: its links are plain markup in
 // index.html and open a new tab, so the player keeps playing. The version stays
 // hidden unless /api/version answers with one.
-export function setupAppMeta() {
+export function setupAppMeta(): void {
   fetch('/api/version')
-    .then(res => (res.ok ? res.json() : null))
+    .then((res): Promise<unknown> | null => (res.ok ? res.json() : null))
     .then((data) => {
-      if (!data || typeof data.version !== 'string' || !data.version) return;
+      if (!data || typeof (data as { version?: unknown }).version !== 'string' || !(data as { version: string }).version) return;
+      const version = (data as { version: string }).version;
       const el = document.getElementById('profile-about-version');
-      if (el) { el.textContent = `v${data.version}`; el.hidden = false; }
+      if (el) { el.textContent = `v${version}`; el.hidden = false; }
     })
     .catch(() => {});
 }

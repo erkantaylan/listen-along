@@ -1,13 +1,18 @@
-// i18n (Internationalization) Module for listen-along
+// i18n (Internationalization) Module for listen-along.
+// A CLASSIC script (index.html <script src="/shared/i18n.js">), not a module:
+// no import / export here, or it would be emitted as a module. It sets
+// window.i18n (typed in globals.d.ts).
 (function() {
   'use strict';
+
+  type Translations = { [key: string]: string | Translations };
 
   const STORAGE_KEY = 'listen-language';
   const SUPPORTED_LANGUAGES = ['en', 'tr'];
   const DEFAULT_LANGUAGE = 'en';
 
   let currentLanguage = DEFAULT_LANGUAGE;
-  let translations = {};
+  let translations: Translations = {};
   let isLoaded = false;
 
   // Detect browser language
@@ -19,7 +24,8 @@
     }
 
     // Check browser language
-    const browserLang = navigator.language || navigator.userLanguage;
+    // userLanguage: old Internet Explorer.
+    const browserLang = navigator.language || (navigator as Navigator & { userLanguage?: string }).userLanguage;
     if (browserLang) {
       const lang = browserLang.split('-')[0].toLowerCase();
       if (SUPPORTED_LANGUAGES.includes(lang)) {
@@ -31,7 +37,7 @@
   }
 
   // Load translation file
-  async function loadTranslations(lang) {
+  async function loadTranslations(lang: string): Promise<Translations> {
     try {
       const response = await fetch(`/locales/${lang}.json`);
       if (!response.ok) {
@@ -49,9 +55,9 @@
   }
 
   // Get nested translation by key path (e.g., "app.title")
-  function getTranslation(key, replacements = {}) {
+  function getTranslation(key: string, replacements: Record<string, string | number> = {}): string {
     const keys = key.split('.');
-    let value = translations;
+    let value: string | Translations = translations;
 
     for (const k of keys) {
       if (value && typeof value === 'object' && k in value) {
@@ -69,8 +75,8 @@
     }
 
     // Replace placeholders like {count}, {name}, etc.
-    return value.replace(/\{(\w+)\}/g, (match, placeholder) => {
-      return placeholder in replacements ? replacements[placeholder] : match;
+    return value.replace(/\{(\w+)\}/g, (match, placeholder: string) => {
+      return placeholder in replacements ? String(replacements[placeholder]) : match;
     });
   }
 
@@ -78,25 +84,25 @@
   function updatePageTranslations() {
     // Update text content
     document.querySelectorAll('[data-i18n]').forEach(el => {
-      const key = el.getAttribute('data-i18n');
+      const key = el.getAttribute('data-i18n') as string;
       el.textContent = getTranslation(key);
     });
 
     // Update placeholders
-    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
-      const key = el.getAttribute('data-i18n-placeholder');
+    document.querySelectorAll<HTMLInputElement>('[data-i18n-placeholder]').forEach(el => {
+      const key = el.getAttribute('data-i18n-placeholder') as string;
       el.placeholder = getTranslation(key);
     });
 
     // Update aria-labels
     document.querySelectorAll('[data-i18n-aria-label]').forEach(el => {
-      const key = el.getAttribute('data-i18n-aria-label');
+      const key = el.getAttribute('data-i18n-aria-label') as string;
       el.setAttribute('aria-label', getTranslation(key));
     });
 
     // Update title attributes
     document.querySelectorAll('[data-i18n-title]').forEach(el => {
-      const key = el.getAttribute('data-i18n-title');
+      const key = el.getAttribute('data-i18n-title') as string;
       el.setAttribute('title', getTranslation(key));
     });
 
@@ -117,7 +123,7 @@
   }
 
   // Change language
-  async function setLanguage(lang) {
+  async function setLanguage(lang: string): Promise<boolean> {
     if (!SUPPORTED_LANGUAGES.includes(lang)) {
       console.error(`Unsupported language: ${lang}`);
       return false;

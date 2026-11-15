@@ -1,27 +1,52 @@
 // Globals set by the classic scripts index.html loads before app.js:
-// /socket.io/socket.io.js (io), /i18n.js (window.i18n) and /media-session.js
-// (window.MediaSessionManager). Those two stay classic scripts. The types are
-// deliberately loose until modules that use them are converted; tighten them
-// then (io could come from socket.io-client's types: not verified yet).
+// /socket.io/socket.io.js (io), /shared/i18n.js (window.i18n) and
+// /shared/media-session.js (window.MediaSessionManager). The last two are
+// classic scripts compiled from shared/i18n.ts and shared/media-session.ts.
+//
+// io is typed from socket.io-client (a root devDependency pinned to the version
+// the server's socket.io bundles in /socket.io/socket.io.js), with the event
+// maps of shared/types.ts.
+import type { ManagerOptions, Socket, SocketOptions } from 'socket.io-client';
+import type { ClientToServerEvents, ServerToClientEvents } from './shared/types.ts';
 
 declare global {
+  /** The app's socket: events typed by shared/types.ts. */
+  type AppSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
+
   // Socket.IO client factory from /socket.io/socket.io.js.
-  function io(options?: Record<string, unknown>): any;
+  function io(options?: Partial<ManagerOptions & SocketOptions>): AppSocket;
 
   interface I18n {
-    init(): Promise<void>;
-    t(key: string, params?: Record<string, unknown>): string;
-    setLanguage(lang: string): Promise<void>;
+    /** Detects and loads the language; resolves to it. */
+    init(): Promise<string>;
+    t(key: string, replacements?: Record<string, string | number>): string;
+    /** false for an unsupported language. */
+    setLanguage(lang: string): Promise<boolean>;
     getLanguage(): string;
     getSupportedLanguages(): string[];
     updatePageTranslations(): void;
   }
 
+  interface MediaSessionHandlers {
+    onPlay?: () => void;
+    onPause?: () => void;
+    onNext?: () => void;
+    onPrevious?: () => void;
+    onSeekTo?: (seconds: number) => void;
+  }
+
+  interface MediaSessionTrack {
+    title?: string;
+    artist?: string | null;
+    thumbnail?: string | null;
+    songId?: string | number | null;
+  }
+
   interface MediaSessionManagerApi {
-    init(handlers: Record<string, (...args: any[]) => void>): void;
-    updateTrack(track: { title?: string; artist?: string; thumbnail?: string; songId?: string | number }): void;
-    updatePlaybackState(state: 'playing' | 'paused' | 'none'): void;
-    updatePositionState(state: { duration?: number; position?: number; playbackRate?: number }): void;
+    init(handlers?: MediaSessionHandlers | null): void;
+    updateTrack(track: MediaSessionTrack | null | undefined): void;
+    updatePlaybackState(state: MediaSessionPlaybackState): void;
+    updatePositionState(state: { duration: number; position?: number; playbackRate?: number }): void;
     destroy(): void;
     isSupported(): boolean;
   }

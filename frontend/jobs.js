@@ -3,8 +3,8 @@
 // `la worker` — and follow its status live (socket jobs:update /
 // workers:update). Song requests made in a playlist are jobs too and show up
 // in the same list.
-import { state } from './state.js';
-import { showToast, t } from './ui.js';
+import { state } from './shared/state.js';
+import { showToast, t } from './shared/ui.js';
 import { pickSongs } from './pick-dialog.js';
 import { jobPayload } from './pick-rules.js';
 

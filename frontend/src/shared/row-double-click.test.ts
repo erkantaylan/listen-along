@@ -1,41 +1,40 @@
-// The double-click on a playlist row (frontend/row-double-click.js).
-const { describe, it, before, beforeEach } = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('path');
-const { pathToFileURL } = require('url');
+// The double-click on a playlist row (row-double-click.ts).
+import { describe, it, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+import * as m from './row-double-click.ts';
+import type { RowDoubleClick } from './row-double-click.ts';
 
-let m;
-let played;
-let g;
+let played: (string | undefined)[];
+let g: RowDoubleClick;
+
+// Fakes for the few fields the gesture reads; cast where a DOM type is expected.
+type FakeEvent = Record<string, unknown> & { stopped: boolean; prevented: boolean };
 
 // Just enough of an element: closest() answers from the selectors it is in.
 const el = ({ id = 'p1', control = false, row = true } = {}) => ({
   id: '',
   dataset: { playlistId: id },
-  closest(sel) {
+  closest(sel: string) {
     if (sel.startsWith('button')) return control ? this : null;
     return row ? this : null;
   },
 });
-const event = (target, extra = {}) => ({
+const event = (target: unknown, extra: Record<string, unknown> = {}): FakeEvent => ({
   target, detail: 1, button: 0, clientX: 10, clientY: 10, stopped: false, prevented: false,
   preventDefault() { this.prevented = true; },
   stopPropagation() { this.stopped = true; },
   ...extra,
 });
+const asMouse = (e: FakeEvent) => e as unknown as MouseEvent;
 // A click as the browser sends it, for press number `detail`.
-function press(target, detail = 1, extra = {}) {
+function press(target: unknown, detail = 1, extra: Record<string, unknown> = {}) {
   const down = event(target, { detail, ...extra });
   const up = event(target, { detail, ...extra });
-  g.mousedown(down);
-  g.clickCapture(up);
-  if (!up.stopped) g.click(up);
+  g.mousedown(asMouse(down));
+  g.clickCapture(asMouse(up));
+  if (!up.stopped) g.click(asMouse(up));
   return { down, up };
 }
-
-before(async () => {
-  m = await import(pathToFileURL(path.join(__dirname, '..', '..', 'frontend', 'row-double-click.js')).href);
-});
 beforeEach(() => {
   played = [];
   g = m.createRowDoubleClick((id) => played.push(id));
@@ -50,8 +49,8 @@ describe('row-double-click', () => {
   });
 
   it('an artist card plays as artist:<key>', () => {
-    const card = { id: '', dataset: { artistKey: 'barismanco' }, closest(sel) { return sel.startsWith('button') ? null : this; } };
-    assert.deepEqual(m.rowTarget(card), { id: 'artist:barismanco' });
+    const card = { id: '', dataset: { artistKey: 'barismanco' }, closest(sel: string) { return sel.startsWith('button') ? null : this; } };
+    assert.deepEqual(m.rowTarget(card as unknown as EventTarget), { id: 'artist:barismanco' });
     press(card);
     press(card, 2);
     assert.deepEqual(played, ['artist:barismanco']);
@@ -101,9 +100,9 @@ describe('row-double-click', () => {
   });
 
   it('a double tap is two taps', () => {
-    g.pointerdown({ pointerType: 'touch' });
+    g.pointerdown({ pointerType: 'touch' } as PointerEvent);
     press(el());
-    g.pointerdown({ pointerType: 'touch' });
+    g.pointerdown({ pointerType: 'touch' } as PointerEvent);
     const { up } = press(el(), 2);
     assert.deepEqual(played, []);
     assert.equal(up.stopped, false);
@@ -120,7 +119,7 @@ describe('row-double-click', () => {
   });
 
   it('Radio has its own id', () => {
-    const radio = { id: 'plnav-radio', dataset: {}, closest: (s) => (s.startsWith('button') ? null : radio) };
-    assert.deepEqual(m.rowTarget(radio), { id: 'radio' });
+    const radio: object = { id: 'plnav-radio', dataset: {}, closest: (s: string) => (s.startsWith('button') ? null : radio) };
+    assert.deepEqual(m.rowTarget(radio as EventTarget), { id: 'radio' });
   });
 });

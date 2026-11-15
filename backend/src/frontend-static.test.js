@@ -40,13 +40,13 @@ async function get(base, url) {
 
 describe('isBuildConfig', () => {
   it('matches build files however the path is spelled', () => {
-    for (const p of ['/package.json', '/tsconfig.json', '/PACKAGE.JSON', '/%70ackage.json', '//tsconfig.json',
+    for (const p of ['/package.json', '/tsconfig.json', '/tsconfig.test.json', '/PACKAGE.JSON', '/%70ackage.json', '//tsconfig.json',
       '/src/../package.json', '/x.tsbuildinfo', '/dist', '/dist/app.js', '/a/../dist/app.js']) {
       assert.equal(isBuildConfig(p), true, p);
     }
   });
   it('leaves site assets alone', () => {
-    for (const p of ['/app.js', '/app.css', '/locales/en.json', '/vendor/x/package.json', '/src/x.ts', '/distance.js', '/%E0%A4%A']) {
+    for (const p of ['/app.js', '/app.css', '/locales/en.json', '/vendor/x/package.json', '/src/x.ts', '/distance.js', '/%E0%A4%A', '/tsconfig.js', '/x/tsconfig.test.json']) {
       assert.equal(isBuildConfig(p), false, p);
     }
   });

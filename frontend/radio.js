@@ -6,15 +6,15 @@
 // is open and for as long as Radio is what the player plays from; opening the
 // page when it is not gives a fresh shuffle. When the list runs out the player
 // asks for the next round (player.setRefill).
-import { state } from './state.js';
-import { escapeHtml, formatDuration, navigateTo, showToast, t } from './ui.js';
+import { state } from './shared/state.js';
+import { escapeHtml, formatDuration, navigateTo, showToast, t } from './shared/ui.js';
 import { player } from './player.js';
 import { libraryTrack } from './library.js';
 import { playCellHtml, playCellLabel, statsHtml } from './queue.js';
 import { closeDrawer } from './sidebar.js';
 import { bindSongMenu, songMenuButtonHtml } from './song-reports.js';
 import { isUnplayable, unplayableBadgeHtml, onFailuresChange } from './playback-failures.js';
-import { createVirtualList } from './virtual-list.js';
+import { createVirtualList } from './shared/virtual-list.js';
 import { nextRound, reconcile, reshuffledAround, shuffled } from './radio-order.js';
 
 const STATION = 'all';

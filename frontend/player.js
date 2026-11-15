@@ -42,10 +42,10 @@
 //     context change, another tab of this browser starting to play) calls
 //     onTakeover and drops it. While a driver is set, a track ending calls
 //     onEnded instead of moving to the next song.
-import { state, elements } from './state.js';
-import { playAudioWithUnlock } from './audio.js';
-import { showToast, t as tr } from './ui.js';
-import { findTrackIndex, nextIndex, previousIndex, contextRepeat, RESTART_THRESHOLD } from './player-queue.js';
+import { state, elements } from './shared/state.js';
+import { playAudioWithUnlock } from './shared/audio.js';
+import { showToast, t as tr } from './shared/ui.js';
+import { findTrackIndex, nextIndex, previousIndex, contextRepeat, RESTART_THRESHOLD } from './player/player-queue.js';
 
 const handlers = new Map();
 let context = null;

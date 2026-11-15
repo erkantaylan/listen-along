@@ -2,7 +2,7 @@
 // and download jobs, songs marked as broken, CLI tokens, song requests, library
 // management. Markup: #dashboard-view in index.html; everything here comes from
 // admin APIs (or the admin-cookie reads of /api/library and /api/requests).
-import { escapeHtml as esc, showToast } from './ui.js';
+import { escapeHtml as esc, showToast } from './shared/ui.js';
 
 const $ = (id) => document.getElementById(id);
 

@@ -2,8 +2,8 @@
 // their own pace, and the server only learns what each listener is playing
 // (listener:now-playing, presence:now-playing). Listening along with another
 // user is listen-along.js.
-import { state, elements, STORAGE_KEYS, storageSet } from './state.js';
-import { escapeHtml, getCoverUrl, sanitizeUrl, showToast, syncRangeFill, t } from './ui.js';
+import { state, elements, STORAGE_KEYS, storageSet } from './shared/state.js';
+import { escapeHtml, getCoverUrl, sanitizeUrl, showToast, syncRangeFill, t } from './shared/ui.js';
 import { player } from './player.js';
 import { refreshPlayerBar } from './player-bar.js';
 import { clearFailureFor } from './playback-failures.js';

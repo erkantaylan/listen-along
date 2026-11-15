@@ -1,15 +1,16 @@
 // Pure queue-navigation and lobby-membership rules for the player. No DOM,
-// so they can be unit tested in Node (backend/src/player-queue.test.js).
+// so they can be unit tested in Node (player-queue.test.ts).
 
 // Previous restarts the current track instead when it has played this long.
 export const RESTART_THRESHOLD = 3;
 
 // Repeat: 'off' | 'all' (Replay list) | 'one'. Someone who never chose one gets
 // 'all'; a stored choice, 'off' included, is kept (state.js, localStorage).
-export const REPEAT_MODES = ['off', 'all', 'one'];
-export const DEFAULT_REPEAT = 'all';
-export function initialRepeatMode(stored) {
-  return REPEAT_MODES.includes(stored) ? stored : DEFAULT_REPEAT;
+export type RepeatMode = 'off' | 'all' | 'one';
+export const REPEAT_MODES: readonly RepeatMode[] = ['off', 'all', 'one'];
+export const DEFAULT_REPEAT: RepeatMode = 'all';
+export function initialRepeatMode(stored: string | null | undefined): RepeatMode {
+  return (REPEAT_MODES as readonly (string | null | undefined)[]).includes(stored) ? stored as RepeatMode : DEFAULT_REPEAT;
 }
 
 // The repeat a context plays with. Radio is shuffled already and runs into its
@@ -20,14 +21,20 @@ export function initialRepeatMode(stored) {
 // own with that one song, and it repeats until something else is chosen,
 // whatever the saved mode: 'all' over one song loops it, and a manual Next or
 // Previous restarts it. The saved mode itself is not touched.
-export function contextRepeat(repeat, context) {
+export function contextRepeat(repeat: RepeatMode, context: { type: string; [key: string]: unknown } | null | undefined): RepeatMode {
   if (context && context.type === 'search') return 'all';
   return context && context.type === 'radio' && repeat === 'all' ? 'off' : repeat;
 }
 
 // Index of a track in a queue: by queue-entry id, then by url (a queue
 // update may hand us fresh objects for the same songs).
-export function findTrackIndex(queue, track) {
+// Anything with an id and / or a url (queue entries, library songs, tracks).
+export interface TrackKey {
+  id?: unknown;
+  url?: string | null;
+}
+
+export function findTrackIndex(queue: readonly (TrackKey | null | undefined)[] | null | undefined, track: TrackKey | null | undefined): number {
   if (!track || !Array.isArray(queue)) return -1;
   let i = track.id != null ? queue.findIndex(s => s && s.id === track.id) : -1;
   if (i < 0 && track.url) i = queue.findIndex(s => s && s.url === track.url);
@@ -40,17 +47,27 @@ export function findTrackIndex(queue, track) {
 //   random: () => [0, 1), injectable for tests.
 //   blocked: (index) => true for a song to go past (it failed to play here,
 //   playback-failures.js). With everything else blocked the answer is -1.
-export function nextIndex({ length, current = -1, repeat = 'off', shuffle = false, auto = false, random = Math.random, blocked = null }) {
+export interface NextIndexOptions {
+  length: number;
+  current?: number;
+  repeat?: RepeatMode;
+  shuffle?: boolean;
+  auto?: boolean;
+  random?: () => number;
+  blocked?: ((index: number) => boolean) | null;
+}
+
+export function nextIndex({ length, current = -1, repeat = 'off', shuffle = false, auto = false, random = Math.random, blocked = null }: NextIndexOptions): number {
   if (!length) return -1;
-  const open = (i) => !blocked || !blocked(i);
+  const open = (i: number) => !blocked || !blocked(i);
   if (auto && repeat === 'one' && current >= 0 && current < length && open(current)) return current;
   if (shuffle && length > 1) {
     if (blocked) {
-      const choices = [];
+      const choices: number[] = [];
       for (let i = 0; i < length; i++) if (i !== current && open(i)) choices.push(i);
       return choices.length ? choices[Math.floor(random() * choices.length)] : -1;
     }
-    let i;
+    let i: number;
     do { i = Math.floor(random() * length); } while (i === current);
     return i;
   }
@@ -62,9 +79,9 @@ export function nextIndex({ length, current = -1, repeat = 'off', shuffle = fals
 }
 
 // The index to play before `current`, or -1 to restart the current track.
-export function previousIndex({ length, current = -1, repeat = 'off', blocked = null }) {
+export function previousIndex({ length, current = -1, repeat = 'off', blocked = null }: Omit<NextIndexOptions, 'shuffle' | 'auto' | 'random'>): number {
   if (!length) return -1;
-  const open = (i) => !blocked || !blocked(i);
+  const open = (i: number) => !blocked || !blocked(i);
   if (current < 0) return open(0) ? 0 : nextIndex({ length, current: 0, blocked });
   for (let i = current - 1; i >= 0; i--) if (open(i)) return i;
   if (repeat !== 'all') return -1;
@@ -79,7 +96,14 @@ export function previousIndex({ length, current = -1, repeat = 'off', blocked = 
 // queue being played stays live; otherwise it is the lobby on screen. Any
 // other lobby on screen is only viewed.
 
-export function desiredMembership({ viewedLobbyId = null, contextLobbyId = null } = {}) {
+export interface Membership {
+  member: string | null;
+  viewing: string | null;
+}
+
+export type MembershipAction = { type: 'join' | 'leave' | 'view' | 'unview'; lobbyId: string };
+
+export function desiredMembership({ viewedLobbyId = null, contextLobbyId = null }: { viewedLobbyId?: string | null; contextLobbyId?: string | null } = {}): Membership {
   const member = contextLobbyId || viewedLobbyId || null;
   const viewing = viewedLobbyId && viewedLobbyId !== member ? viewedLobbyId : null;
   return { member, viewing };
@@ -88,8 +112,8 @@ export function desiredMembership({ viewedLobbyId = null, contextLobbyId = null 
 // Socket events that move the server from `current` to `desired`
 // ({ member, viewing } each). lobby:join leaves the old member lobby and turns
 // a view of the same lobby into membership; lobby:view replaces the old view.
-export function membershipActions(current, desired) {
-  const actions = [];
+export function membershipActions(current: Membership, desired: Membership): MembershipAction[] {
+  const actions: MembershipAction[] = [];
   if (desired.member !== current.member) {
     if (desired.member) actions.push({ type: 'join', lobbyId: desired.member });
     else if (current.member) actions.push({ type: 'leave', lobbyId: current.member });

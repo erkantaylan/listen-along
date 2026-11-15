@@ -7,15 +7,15 @@
 // automatic by the room left for the page (panel-widths.js, layout-rules.js).
 // The list comes from playlist-store.js, so everything here only navigates,
 // pins and filters; the server decides what may be seen.
-import { escapeHtml, navigateTo, t, trapFocus } from './ui.js';
+import { escapeHtml, navigateTo, t, trapFocus } from './shared/ui.js';
 import { parseRoute, playlistPath } from './router.js';
 import { PLAYLIST_FILTERS, PLAYLIST_SORTS, arrangePlaylists, playlistCoverIndex, playlistInitials } from './playlist-filter.js';
 import { player } from './player.js';
-import { applyColumns, isSidebarRail, setupPanelWidths, toggleSidebarRail } from './panel-widths.js';
-import { storageGet, storageSet } from './state.js';
+import { applyColumns, isSidebarRail, setupPanelWidths, toggleSidebarRail } from './shared/panel-widths.js';
+import { storageGet, storageSet } from './shared/state.js';
 import { getPlaylist, getPlaylists, isLoaded, loadPlaylists, onPlaylists, togglePlaylistPin } from './playlist-store.js';
 import { LOCK_SVG, playlistMenuItems } from './playlist-actions.js';
-import { bindContextMenu, closeContextMenu, isContextMenuOpen, openContextMenu } from './context-menu.js';
+import { bindContextMenu, closeContextMenu, isContextMenuOpen, openContextMenu } from './shared/context-menu.js';
 import { ownerText, playlistTitle, quickPlayLobby } from './lobby.js';
 import { openNewPlaylistDialog } from './new-playlist.js';
 

@@ -1,8 +1,8 @@
 // Admin dashboard: overview, public playlists, users, plus the sections in
 // dashboard-admin.js. Behind its own login (POST /api/admin/login, the la_admin
 // cookie); the page holds no data until that succeeds.
-import { state, elements, viewActivators, setDashboardInterval } from './state.js';
-import { showView, showToast, escapeHtml, formatUptime, formatAge, formatDuration, formatFileSize, toLower, t, notifyViewChange } from './ui.js';
+import { state, elements, viewActivators, setDashboardInterval } from './shared/state.js';
+import { showView, showToast, escapeHtml, formatUptime, formatAge, formatDuration, formatFileSize, toLower, t, notifyViewChange } from './shared/ui.js';
 import { startAdminSections, stopAdminSections } from './dashboard-admin.js';
 
 let dashboardUsers = [];

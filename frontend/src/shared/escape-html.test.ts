@@ -1,21 +1,18 @@
-// Tests the frontend escapeHtml helper (frontend/ui.js). ui.js is an ES module
-// that imports state.js, which looks up DOM elements at load time, so a minimal
+// Tests the frontend escapeHtml helper (ui.ts). ui.ts is an ES module
+// that imports state.ts, which looks up DOM elements at load time, so a minimal
 // `document` stub is installed before the dynamic import.
-const { describe, it, before } = require('node:test');
-const assert = require('node:assert');
-const path = require('path');
-const { pathToFileURL } = require('url');
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert';
 
-let escapeHtml;
+let escapeHtml: typeof import('./ui.ts').escapeHtml;
 
 before(async () => {
   globalThis.document ??= {
     getElementById: () => null,
     querySelector: () => null,
     querySelectorAll: () => [],
-  };
-  const uiPath = path.join(__dirname, '..', '..', 'frontend', 'ui.js');
-  ({ escapeHtml } = await import(pathToFileURL(uiPath).href));
+  } as unknown as Document;
+  ({ escapeHtml } = await import('./ui.ts'));
 });
 
 describe('frontend escapeHtml', () => {

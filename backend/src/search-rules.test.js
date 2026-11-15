@@ -18,8 +18,8 @@ const video = (n, extra = {}) => ({ youtube_id: vid(n), title: `Title ${n}`, cha
 
 before(async () => {
   m = await front('search-rules.js');
-  router = await front('router.js');
-  pq = await front('player-queue.js');
+  router = await front('src/router.ts');
+  pq = await front('src/player/player-queue.ts');
   pick = await front('pick-rules.js');
 });
 

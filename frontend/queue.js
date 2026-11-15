@@ -1,6 +1,6 @@
 // Queue management, drag-drop reordering, and queue display
-import { state, elements, socket, STORAGE_KEYS, storageSet } from './state.js';
-import { showToast, escapeHtml, sanitizeUrl, getCoverUrl, getInitials, formatDuration, t, toLower, syncRangeFill } from './ui.js';
+import { state, elements, socket, STORAGE_KEYS, storageSet } from './shared/state.js';
+import { showToast, escapeHtml, sanitizeUrl, getCoverUrl, getInitials, formatDuration, t, toLower, syncRangeFill } from './shared/ui.js';
 import { playViewedFromTop, viewedContext } from './playback.js';
 import { refreshLibraryAddButtons } from './library.js';
 import { player } from './player.js';
@@ -9,7 +9,7 @@ import { bindSongMenu, songMenuButtonHtml, reportIconHtml, reportsFor, onReports
 import { isUnplayable, unplayableBadgeHtml, onFailuresChange } from './playback-failures.js';
 import { addedByLabel, addedDateLabel, songParts } from './queue-format.js';
 import { playlistStats, lengthParts } from './playlist-stats.js';
-import { createVirtualList } from './virtual-list.js';
+import { createVirtualList } from './shared/virtual-list.js';
 import { isEditMode, setEditMode, onEditModeChange, isDragging, bindDragReorder } from './queue-edit.js';
 import { canRemoveFromPlaylist } from './song-menu-rules.js';
 

@@ -1,16 +1,8 @@
-// Tests the frontend URL <-> view mapping (frontend/router.js). It is a pure ES
+// Tests the frontend URL <-> view mapping (router.ts). It is a pure ES
 // module with no DOM access, so it can be imported directly.
-const { describe, it, before } = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('path');
-const { pathToFileURL } = require('url');
-
-let parseRoute, libraryPath, basePath, legacyRedirect, artistPath, LIBRARY_DEFAULTS;
-
-before(async () => {
-  const routerPath = path.join(__dirname, '..', '..', 'frontend', 'router.js');
-  ({ parseRoute, libraryPath, basePath, legacyRedirect, artistPath, LIBRARY_DEFAULTS } = await import(pathToFileURL(routerPath).href));
-});
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { parseRoute, libraryPath, basePath, legacyRedirect, artistPath, LIBRARY_DEFAULTS } from './router.ts';
 
 describe('frontend router: parseRoute', () => {
   it('maps the top-level views', () => {
@@ -53,7 +45,7 @@ describe('frontend router: parseRoute', () => {
   });
 
   it('knows the Broken ("needs replacement") library tab', () => {
-    assert.equal(parseRoute('/library', '?tab=broken').library.tab, 'broken');
+    assert.equal(parseRoute('/library', '?tab=broken').library?.tab, 'broken');
     assert.equal(libraryPath(null, { tab: 'broken', page: 1 }), '/library?tab=broken&page=2');
   });
 
@@ -61,7 +53,7 @@ describe('frontend router: parseRoute', () => {
     assert.deepEqual(parseRoute('/library', '?q=%20daft%20punk%20&sort=artist&page=3&tab=requests&status=fulfilled').library,
       { tab: 'requests', query: 'daft punk', sort: 'artist', page: 2, requestStatus: 'fulfilled' });
     assert.deepEqual(parseRoute('/library', '?sort=drop&page=-4&tab=x&status=y').library, { ...LIBRARY_DEFAULTS });
-    assert.equal(parseRoute('/library', '?page=abc').library.page, 0);
+    assert.equal(parseRoute('/library', '?page=abc').library?.page, 0);
   });
 });
 
@@ -74,7 +66,7 @@ describe('frontend router: building URLs', () => {
   });
 
   it('round-trips library state through the URL', () => {
-    const lib = { tab: 'requests', query: 'ünïcode ?&=', sort: 'artist', page: 4, requestStatus: 'dismissed' };
+    const lib = { tab: 'requests', query: 'ünïcode ?&=', sort: 'artist', page: 4, requestStatus: 'dismissed' } as const;
     const url = new URL(libraryPath('lob-1', lib), 'http://x');
     const r = parseRoute(url.pathname, url.search);
     assert.equal(r.lobbyId, 'lob-1');

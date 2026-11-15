@@ -2,7 +2,7 @@
 // pins. One copy for the sidebar, the landing rows and the playlist page's pin
 // button. It stays fresh from the playlists:changed socket signal (app.js),
 // queue updates and a slow poll for song counts changed elsewhere.
-import { showToast, t } from './ui.js';
+import { showToast, t } from './shared/ui.js';
 
 let playlists = [];
 let loaded = false;

@@ -1,13 +1,7 @@
-// The context menu's submenu placement (frontend/context-menu-rules.js).
-const { describe, it, before } = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('path');
-const { pathToFileURL } = require('url');
-
-let m;
-before(async () => {
-  m = await import(pathToFileURL(path.join(__dirname, '..', '..', 'frontend', 'context-menu-rules.js')).href);
-});
+// The context menu's submenu placement (context-menu-rules.ts).
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import * as m from './context-menu-rules.ts';
 
 const viewport = { width: 1440, height: 900 };
 const size = { width: 200, height: 100 };

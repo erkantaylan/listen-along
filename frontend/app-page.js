@@ -1,8 +1,8 @@
 // /app: download the Android app, install it, connect it with a token. The text
 // is static (index.html + locales); this fills in the release from
 // /api/app/latest. Whatever goes wrong there, the releases link stays.
-import { auth, viewActivators } from './state.js';
-import { navigateTo, showToast, t } from './ui.js';
+import { auth, viewActivators } from './shared/state.js';
+import { navigateTo, showToast, t } from './shared/ui.js';
 
 const $ = (id) => document.getElementById(id);
 const tf = (key, fallback, vars) => t(key, fallback, vars).replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));

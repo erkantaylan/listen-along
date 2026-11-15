@@ -4,8 +4,8 @@
 // how it went (newPlaylistCreated / newPlaylistFailed). options.create replaces
 // that: it is awaited and the dialog closes without opening the new playlist
 // ("Add to playlist" in the song menu, which must not leave the page).
-import { state, socket } from './state.js';
-import { escapeHtml, t, trapFocus } from './ui.js';
+import { state, socket } from './shared/state.js';
+import { escapeHtml, t, trapFocus } from './shared/ui.js';
 import { player } from './player.js';
 
 const MAX_NAME = 50;

@@ -5,7 +5,7 @@
 // server enforces the same rule.
 //
 // pl = { id, name, visibility, canManage, songCount, pinnedByMe }
-import { escapeHtml, showToast, t, trapFocus, copyToClipboard } from './ui.js';
+import { escapeHtml, showToast, t, trapFocus, copyToClipboard } from './shared/ui.js';
 import { playlistPath } from './router.js';
 
 const MAX_NAME = 50;

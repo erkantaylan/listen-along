@@ -19,13 +19,13 @@
 // screen when the field was focused, search-rules.js startTarget), else to the
 // one last played from (addTarget); the same song in a playlist asks first
 // (add-to-playlist.js). The pure rules are in search-rules.js.
-import { state, storageGet, storageSet } from './state.js';
-import { escapeHtml, formatDuration, navigateTo, showToast, t } from './ui.js';
+import { state, storageGet, storageSet } from './shared/state.js';
+import { escapeHtml, formatDuration, navigateTo, showToast, t } from './shared/ui.js';
 import { player } from './player.js';
 import { isLibraryOpen, libraryTrack } from './library.js';
 import { searchPath, searchQueryOf, artistPath, playlistPath } from './router.js';
 import { bindSongMenu, songMenuButtonHtml } from './song-reports.js';
-import { bindContextMenu, closeContextMenu, isContextMenuOpen, openContextMenu } from './context-menu.js';
+import { bindContextMenu, closeContextMenu, isContextMenuOpen, openContextMenu } from './shared/context-menu.js';
 import { addSongToPlaylist, confirmDuplicate, openPlaylistChooser } from './add-to-playlist.js';
 import { getPlaylists, isLoaded as playlistsLoaded, loadPlaylists, onPlaylists, scheduleReload } from './playlist-store.js';
 import { groupPlaylists, playlistCoverIndex, playlistInitials } from './playlist-filter.js';

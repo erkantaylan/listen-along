@@ -9,10 +9,10 @@
 // (the same library song / YouTube video) already in the playlist is refused by
 // the server, the user is asked "Add again?", and only then is it sent again
 // with allow_duplicates. Nothing is decided from a possibly stale local copy.
-import { state } from './state.js';
-import { showToast, t } from './ui.js';
+import { state } from './shared/state.js';
+import { showToast, t } from './shared/ui.js';
 import { player } from './player.js';
-import { openContextMenu, refreshSubmenu } from './context-menu.js';
+import { openContextMenu, refreshSubmenu } from './shared/context-menu.js';
 import { getPlaylists, loadPlaylists, onPlaylists, scheduleReload } from './playlist-store.js';
 import { groupPlaylists } from './playlist-filter.js';
 import { openNewPlaylistDialog } from './new-playlist.js';

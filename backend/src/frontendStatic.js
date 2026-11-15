@@ -10,7 +10,7 @@
  * them). A missing dist/ (a fresh checkout before `npm run build`) is not an
  * error: express.static falls through on ENOENT and the second mount answers.
  *
- * Build configuration in frontend/ (package.json, tsconfig.json, build info)
+ * Build configuration in frontend/ (package.json, tsconfig*.json, build info)
  * and the /dist/ folder itself are not site assets: they answer 404. Sources
  * under /src/ stay reachable so source maps resolve in dev tools.
  *
@@ -29,7 +29,7 @@ function isBuildConfig(urlPath) {
   // The same normalisation serve-static applies before joining with the root;
   // lower-cased for case-insensitive file systems.
   p = path.posix.normalize('/' + p.replace(/\\/g, '/')).toLowerCase();
-  return BUILD_CONFIG.has(p) || p.endsWith('.tsbuildinfo') || p === '/dist' || p.startsWith('/dist/');
+  return BUILD_CONFIG.has(p) || /^\/tsconfig\.[^/]*\.json$/.test(p) || p.endsWith('.tsbuildinfo') || p === '/dist' || p.startsWith('/dist/');
 }
 
 function setHeaders(res, filePath) {

@@ -18,8 +18,8 @@
 // named after it, or one of the user's editable playlists): rows already in the
 // destination start unticked. It resolves { picks, destination } or null.
 // The rules (selection, swap, payloads, destinations) are in pick-rules.js.
-import { formatDuration, t, trapFocus } from './ui.js';
-import { createVirtualList } from './virtual-list.js';
+import { formatDuration, t, trapFocus } from './shared/ui.js';
+import { createVirtualList } from './shared/virtual-list.js';
 import {
   allChecked, chosenIds, counts, destinationKeys, importCounts, isSwapped, lookupOutcome, moveIndex, playlistItems,
   swapChoices, swapped, swapQuery, thumbUrl, toggled, watchUrl, withDestination,

@@ -34,8 +34,8 @@ It is a pre-release, and its API differs from Bootstrap 5:
 - Text colour utilities are `fg-*` (`fg-3` = muted, `fg-primary`), font sizes `fs-xs|sm|md|lg|xl|2xl…`.
 - Checkbox: `<input type="checkbox" class="check">`. Select: `select.form-control` (no `.form-select`).
 - Range: `<div class="form-range"><input type="range" class="form-range-input"></div>`;
-  the filled track is painted from `--bs-range-fill` (0..1). `ui.js` keeps it in step
-  on user input; after setting `.value` from code call `syncRangeFill(input)` from `ui.js`.
+  the filled track is painted from `--bs-range-fill` (0..1). `ui.ts` keeps it in step
+  on user input; after setting `.value` from code call `syncRangeFill(input)` from `ui.ts`.
 - `.card-header` is `flex-direction: column`; add `flex-row` when you `d-flex` it.
 - Adjacent `.card-body` siblings get a divider line between them; use one body if you don't want it.
 - Modals are `.dialog` (native `<dialog>`), offcanvas is `.drawer`. **We do not load
@@ -204,7 +204,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Need | Use |
 | --- | --- |
 | Top bar | `nav.navbar.app-navbar > .container` (brand `.app-brand` or back button + `h1.h6`, actions on the right). In the signed-in app it is the page panel's head: same surface, no rule under it, the title a size up (`--bs-font-size-lg`). Not to be confused with the shell's top bar above the page panel, which holds only the search field (see "App shell"). |
-| Version, Android app, changelog, GitHub | One place only: the About card at the bottom of the profile page (`#profile-about`). Android app is an in-app link to `/app`; the others open a new tab so playback continues; `setupAppMeta()` in `ui.js` fills the version from `/api/version` and leaves it hidden on failure. Never in a navbar. |
+| Version, Android app, changelog, GitHub | One place only: the About card at the bottom of the profile page (`#profile-about`). Android app is an in-app link to `/app`; the others open a new tab so playback continues; `setupAppMeta()` in `ui.ts` fills the version from `/api/version` and leaves it hidden on failure. Never in a navbar. |
 | Grouped content | `.card` with `.card-header` (h6) / `.card-body` / `.card-footer`. |
 | Lists of items (songs, playlists, users, tokens) | `ul.list-group` with `li.list-group-item` (flex row: `.app-thumb`, text block `min-w-0 flex-grow-1`, actions). Clickable rows: `.list-group-item-action` + `tabindex="0"` + Enter/Space handler. Empty state: `li.list-group-item.app-empty`. |
 | Song lists (playlist queue, library) | Normal vs edit mode, see "Song rows: normal and edit mode" below. |
@@ -218,7 +218,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Pagination | `ul.pagination.pagination-sm > li.page-item > button.page-link` (`.active`, `.disabled`). |
 | Progress | `.progress > .progress-bar` (inline `width`). Seek/volume: `.form-range`. |
 | Notices | `.alert.theme-warning|danger|success`. |
-| Toasts | `showToast(message, type)` in `ui.js` → `.toast.show` in `#toast-container` (fixed, bottom centre). Success and error are a tinted fill (`--app-success-subtle`, `--app-danger-subtle`). |
+| Toasts | `showToast(message, type)` in `ui.ts` → `.toast.show` in `#toast-container` (fixed, bottom centre). Success and error are a tinted fill (`--app-success-subtle`, `--app-danger-subtle`). |
 | Overlays | `.app-modal` (fixed backdrop, toggled with `hidden`) wrapping a `.card.app-modal-card`; give it `role="dialog" aria-modal="true" aria-labelledby`. Full-screen panels (music library) are fixed layers with their own navbar. The dashboard sidebar becomes a slide-in drawer below 1024px (`.open` class). |
 | Cover art | `.app-thumb` (3rem square, grey placeholder with a music-note SVG). |
 | Playlist navigation | The one `#app-sidebar` (see "Playlists sidebar"). Never add a second playlist nav. Its places (Home, Radio, Artists, Music library) are the app's main navigation; the landing tiles are shortcuts to the same. |
@@ -226,7 +226,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Radio | The one `#plnav-radio` row and `#radio-view` (see "Radio"). A future station is another rule in `stations.js`, not another page. |
 | Artists | The landing shelf `#artists-section`, `#artists-view` (`/artists`) and `#artist-view` (`/artist/<key>`), see "Artists". Cards are `.artist-card` (`artists.js` `cardHtml`); never a second artist list. |
 | Player | The one app-wide `#player-bar` (`section.sticky-player.player-bar` in `index.html`, outside the views): see "Player bar" below. Never add a second player or a per-page `<audio>`. |
-| Context menu / small popover | `context-menu.js` (see "Context menu" below). Never a second menu implementation. |
+| Context menu / small popover | `context-menu.ts` (see "Context menu" below). Never a second menu implementation. |
 | Search | The one global field `#app-search`, in the shell's top bar, and the search page (see "Search" below). Never a second search field for the whole app (the sidebar's playlist filter, the library's, the playlist's and the artists' boxes filter their own lists). |
 | Icons | Inline SVG (Material paths), `fill="currentColor"`, `aria-hidden="true"`. Inside buttons they are sized automatically (1.25rem, 1rem in `.btn-sm`); elsewhere add `.icon` or `.icon-sm`. |
 
@@ -286,7 +286,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
 | >= 1440px | 304 / width − 624 / 320 docked | 304 / width − 360 / 56 rail |
 
 - **The library collapses first, the chat stays docked.** Modelled on Spotify's layout (the main column has a
-  floor and the right panel never overlays). `sidebarRail()` in `layout-rules.js` is the one rule: automatically,
+  floor and the right panel never overlays). `sidebarRail()` in `layout-rules.ts` is the one rule: automatically,
   the sidebar is a rail up to 1100px (`RAIL_MAX`, as the layout mockup has it), and above that whenever
   expanding it would leave the page column under 616px. So with the chat closed it is a rail at 768–1100px and
   expanded from 1101px; with the chat docked (from 1010px) a rail at 1010–1159px and expanded from 1160px:
@@ -295,7 +295,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
 - The user's toggle wins (`listen-sidebarMode` in localStorage: `rail`, `expanded`, absent = automatic) at every
   width from 768px. The floor holds by construction: an expanded sidebar with the chat docked leaves 466px at 1010px,
   the narrowest case, and 504px at 768px with no chat. The page column is never under 416px from 768px up.
-- **Dragged widths** (`panel-widths.js` applies, `resolveColumns()` in `layout-rules.js` decides). The sidebar
+- **Dragged widths** (`panel-widths.ts` applies, `resolveColumns()` in `layout-rules.ts` decides). The sidebar
   takes 200–420px, or 72 as the rail; the chat 280–420px. Only a width the user dragged or stepped is stored
   (`listen-sidebarWidth`, `listen-chatWidth`), never one a small window squeezed: the result of `resolveColumns()`
   is applied and the wish stays, so it returns when there is room. Without storage it all works for the session.
@@ -378,7 +378,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   plays). Each has a ghost **quick play** button (tile: at the end; card: round, on the cover's corner) when the
   playlist has songs, shown on hover / focus and always on touch: it opens the playlist and starts it from the
   first song in the app-wide player, or resumes it; on the playlist that is playing it is **Pause**. And a ⋮
-  menu (`playlist-actions.js` items in `context-menu.js`; also right-click / long-press): Play, Copy link for
+  menu (`playlist-actions.js` items in `context-menu.ts`; also right-click / long-press): Play, Copy link for
   everyone, plus — owner only — Rename (dialog), Make private / Make public (with a one-line hint) and a danger
   Delete that opens a confirm dialog (grey Cancel focused first, `.btn-solid.theme-danger` Delete). The playlist
   playing now is the accent tint with an accent title and the equaliser, never an edge.
@@ -443,7 +443,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
 - **Profile**: navbar with back; avatar + display-name card (the only place to edit your
   name/avatar; the chat and people panel show them); a **Language** card (the only language control:
   label + `select#language-selector`, English / Türkçe in their own names, a muted "Saved in this browser";
-  `setupLanguageSelector` in ui.js, stored by i18n.js; login and pending have none and follow the browser);
+  `setupLanguageSelector` in ui.ts, stored by i18n.ts; login and pending have none and follow the browser);
   connected-accounts card; Sign out; last, the
   About card (version, Changelog, GitHub). The pending-approval card has no route here (app.js stops at it).
   Approved accounts also get a "CLI tokens" card (`/profile#tokens` scrolls to it and focuses the label; it links to `/app`): label input + grey "Create token"
@@ -541,7 +541,7 @@ Two rounded panels, a gap apart (see "App shell"):
   Its side margins are 1rem, in step with the search box, shrinking to 0.5rem in a sidebar dragged towards 200px, so both languages fit
   every sidebar width and the drawer without scrolling or cut words. Pressed = the accent tint and semibold accent text. Tapping the
   pressed one, or All, resets. Mine is the server's `isOwner` and Public / Private its `visibility`, never a client guess.
-- **Sort** (`#plnav-sort`): the current choice + icon, `context-menu.js` with `menuitemradio` rows (208px wide, 40px rows): **Name (A–Z)**,
+- **Sort** (`#plnav-sort`): the current choice + icon, `context-menu.ts` with `menuitemradio` rows (208px wide, 40px rows): **Name (A–Z)**,
   `localeCompare('tr', { numeric: true })`, and **Date created**, newest first, the default. Only what the data supports: there is
   no "recently played", and `lobbies.last_activity` means someone joined or left, is not in the API, so no Recents.
   Filter and sort are in localStorage (`listen-sidebarFilter`, `listen-sidebarSort`), per browser.
@@ -564,7 +564,7 @@ Two rounded panels, a gap apart (see "App shell"):
   too). Shown on hover / focus-within, always on touch, and they keep their space so names do not
   jump. A pinned row always shows its pin, as a plain accent icon rather than the usual toggled box.
   `aria-pressed` + a label naming the playlist.
-- **Double-click** (`row-double-click.js`, mouse only): a sidebar row, a rail avatar, a landing row, Radio's row or an artist card plays, as Play does (`quickPlayLobby`,
+- **Double-click** (`row-double-click.ts`, mouse only): a sidebar row, a rail avatar, a landing row, Radio's row or an artist card plays, as Play does (`quickPlayLobby`,
   `playRadioFromTop`, `playArtistFromTop`): from the top, shuffle taking over after the first song; the one already playing is left alone, or resumed if paused; empty gives the usual toast. The first click opens without any delay
   and the second press is taken whole, whatever is under it by then. Row controls keep their clicks. No hint, no keyboard equivalent (Enter opens; Play is in ⋮ and on landing rows), no double tap. Rows are `user-select: none`.
 - **Live**: refetches on socket `playlists:changed`, on `queue:update`, on reconnect and every 30s.
@@ -580,7 +580,7 @@ Every song in the listener's own shuffled order, separate from the library, whic
   it is `.is-current`: the selection tint (`--app-accent-subtle`, `--app-accent-border`, accent title); `.is-playing` adds the equaliser. No covers, no edge.
 - **Rail**: a 3rem box with the icon, among the places; tooltip and `aria-label` carry the count. **Drawer**: the same row; navigating closes the drawer.
 - **Page**: navbar with ☰ / back, a radio cover (`.cover-radio`), `h1.h6` "Radio" over a muted "All songs, shuffled", ghost Reshuffle and the view's primary Play / Pause. No hero, no art. Under it the stats strip (`statsHtml`) with songs and total length only,
-  then the playlist song table (`.queue-head`, `.queue-item`) with #, Title + artist, Duration, ⋮ at every column width from 480px, and the compact row under that. Windowed with `virtual-list.js`, so ↑ / ↓, Page Up / Down and Home / End work as on playlists.
+  then the playlist song table (`.queue-head`, `.queue-item`) with #, Title + artist, Duration, ⋮ at every column width from 480px, and the compact row under that. Windowed with `virtual-list.ts`, so ↑ / ↓, Page Up / Down and Home / End work as on playlists.
   No Added / Added by, edit mode, remove or reorder. The song menu works as on any song row.
 - **Behaviour**: opening plays nothing. Play starts at the top, so what you see is what you hear; a row plays from there (the song already playing is resumed, never
   restarted). The order is made in the browser per opening and stays while the view is open and while Radio is the player's source, playing or paused, also across navigation (with the
@@ -611,7 +611,7 @@ suffixes; a song row always shows the song's full credit. Songs with an open rep
   `repeat(auto-fill, minmax(8.5rem, 1fr))`. No match: a muted line and a grey "Clear search".
 - **/artist/<key>**: like Radio without the shuffle. Navbar with ☰ / back (to `/artists` when opened from there, else Home), a small round
   cover, `h1.h6` name over a muted "Artist", and the view's primary Play / Pause. Then the stats strip (songs, total length) and the
-  same song table as Radio (#, Title + artist, Duration, ⋮), windowed with `virtual-list.js`, in title order. No edit mode, remove,
+  same song table as Radio (#, Title + artist, Duration, ⋮), windowed with `virtual-list.ts`, in title order. No edit mode, remove,
   reorder or add. The song menu works as on any song row (it acts on the library song, never on this list).
 - **Behaviour**: opening plays nothing; Play starts at the top, a row plays from there (the song already playing is resumed). The player
   context is `{ type: 'artist', key, name }`: the player bar reads "artist · name" (once, when they are the same) and opens the page; the
@@ -716,7 +716,7 @@ no `<dialog>`, no Bootstrap JS:
 
 Behaviour: built and appended to `body` when opened, removed when closed. Focus goes to the
 first field (or the primary button); Tab / Shift+Tab stay inside (`trapFocus(dialog, event)`
-from `ui.js` in the keydown handler); Escape, ×, Cancel and a backdrop click close it, and
+from `ui.ts` in the keydown handler); Escape, ×, Cancel and a backdrop click close it, and
 focus returns to the button that opened it. Enter submits (it is a `<form>`). Field errors go
 in red (`--app-danger`) under the field with `aria-invalid`; other errors in the alert. While
 busy the primary button is disabled and says "…ing…".
@@ -775,7 +775,7 @@ numbers and names in `--app-text`. Always over the whole playlist, whatever the 
 A tie goes to the first in playlist order. Only `addedBy` display names, never an id. Turkish takes no plural after a number
 (`stats.songOne` and `stats.songMany` read the same there); numbers use the page language's grouping (2.500).
 
-**Long lists** (`virtual-list.js`, styles `.vlist`). The playlist page holds the whole queue, because `queue:update` delivers it and
+**Long lists** (`virtual-list.ts`, styles `.vlist`). The playlist page holds the whole queue, because `queue:update` delivers it and
 the player, stats, Add to playlist and filter need it; only the **rows** are windowed, inside the existing `.lobby-body`
 scroller. No "load more", no pager, and the sticky head and scrollbar act as if every row were there.
 
@@ -801,12 +801,12 @@ leaving the page always ends it; `queue-edit.js`):
   a run of presses goes to the server as one move, 250ms after the last. Delete removes the focused row. Focus stays on the moved row.
 - Moves and removals apply at once locally and go through `queue:reorder` / `queue:remove`, so every
   viewer updates live. A removal shows a toast with an **Undo** action (6s; `showToast(msg, type,
-  { action, duration })` in `ui.js`) that sends `queue:restore` — the server puts the song back where
+  { action, duration })` in `ui.ts`) that sends `queue:restore` — the server puts the song back where
   it was, within a minute. Prefer undo over confirm dialogs for reversible removals.
 
 ### Context menu
 
-One reusable component, `frontend/context-menu.js` (styles: "Context menu" in `app.css`),
+One reusable component, `frontend/src/shared/context-menu.ts` (styles: "Context menu" in `app.css`),
 Bootstrap 6 `.menu` / `.menu-item` / `.menu-header` / `.menu-divider` markup, no Bootstrap JS.
 
 - `openContextMenu({ x, y } | { anchor, alignLeft? }, items, { label, trigger, returnFocus, focusFirst, kind, sheet, className })`
@@ -822,7 +822,7 @@ Bootstrap 6 `.menu` / `.menu-item` / `.menu-header` / `.menu-divider` markup, no
 - **Submenu**: an item `{ label, icon, submenu: { label, backLabel?, searchLabel?, items(query), footer?, emptyText?, onOpen? } }`
   gets a chevron (`aria-haspopup="menu"`, `aria-expanded`) and opens a second box (`.app-ctx-sub`, 18rem) beside the menu: to the
   right, flipped left when it would cross the viewport edge, clamped vertically (`submenuPosition`, pure and tested in
-  `context-menu-rules.js`). Without a search box or footer it is **plain** (`.app-ctx-sub-plain`, as wide as its items, itself
+  `context-menu-rules.ts`). Without a search box or footer it is **plain** (`.app-ctx-sub-plain`, as wide as its items, itself
   `role="menu"`; with a search box it is a `role="dialog"` holding the `role="menu"` list). Below 576px it replaces the menu as a
   bottom sheet with a back button (tap the parent: no hover needed), and sits above the on-screen keyboard. Mouse: on hover (150ms), and
   hovering a sibling closes it (250ms). Click, Enter or → open it and focus its first item (or the search box). In it, ↑/↓ cycle through the search box and items, Tab
@@ -902,7 +902,7 @@ never flashes a dialog. The text stays in the input until the choice is made.
   selected one is the accent tint plus a semibold accent title (`aria-selected`), never an edge.
 - Keys: the listbox is one tab stop; ↑ / ↓, Home, End move the selection, Enter confirms from anywhere but a button,
   double-click confirms, Esc cancels (in Swap it goes back to the playlist). Focus is trapped and returns to the input.
-- The playlist is a windowed list (`virtual-list.js`, 4rem rows in `.pick-scroll`): a real checkbox and a Swap button
+- The playlist is a windowed list (`virtual-list.ts`, 4rem rows in `.pick-scroll`): a real checkbox and a Swap button
   per row, ↑ / ↓ move between rows, → opens Swap. An unticked row is dimmed; a swapped one gets a neutral "Swapped" badge.
   Alternatives are searched only when Swap is pressed, once per row.
 - States: "Searching YouTube…"; "No videos found for …" with **Request it anyway**; and on a failed or rate-limited
@@ -949,7 +949,7 @@ art, times, buttons).
     the middle; under them the seek `.form-range` with the current time and duration on either side (fixed
     width, so the track stays centred).
     Repeat cycles off → all ("Replay list") → one and is kept in this browser (`listen-repeatMode`). With no stored
-    choice it is **all** (`DEFAULT_REPEAT`, `initialRepeatMode` in `player-queue.js`); a stored `off` stays off. Radio
+    choice it is **all** (`DEFAULT_REPEAT`, `initialRepeatMode` in `player-queue.ts`); a stored `off` stays off. Radio
     never replays its list (`contextRepeat`: it runs into its next round), and a listen-along follower never loops on
     its own (the leader's songs drive it). The button shows the mode from page load (`.active` + its label).
   - `.player-zone-right`, right-aligned: mute + volume, then chat at the very far right (`#social-toggle`,
@@ -1021,7 +1021,7 @@ can move focus there).
   muted pause icon + "Paused · Title" when paused, nothing when idle, "Last seen 5m ago"
   when offline. Offline rows are dimmed.
 - **Person card**: the whole row is a `role="button"` (`aria-haspopup="dialog"`; the selection tint while its card
-  is open); click or Enter / Space opens a `context-menu.js` popover (`kind: 'popover'`, `{ html }` item)
+  is open); click or Enter / Space opens a `context-menu.ts` popover (`kind: 'popover'`, `{ html }` item)
   anchored under the row — a **bottom sheet** below 576px (`sheet: true`, page dimmed).
   It shows a big avatar + presence ("Online" in green / "Last seen …"), the current song
   (cover thumbnail or a music placeholder, "Listening to" with the equaliser or "Paused",
@@ -1070,7 +1070,7 @@ All pages must work from 320px wide with no horizontal page scroll; check 320 an
 
 **A new view in the SPA**: add a `<div id="…-view" class="view">` to `index.html` with an
 `app-navbar`, a `main.app-main.container` (add `.app-narrow` for
-forms), register it in `ui.js`'s `showView` and in `router.js`. Build the content from cards,
+forms), register it in `ui.ts`'s `showView` and in `router.ts`. Build the content from cards,
 list groups and utilities. Only if something is genuinely not expressible that way, add a
 small, named section to `app.css` inside `@layer custom`, using tokens only.
 

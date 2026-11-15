@@ -1,0 +1,13 @@
+{
+  // Typecheck only: the frontend's tests (src/**/*.test.ts, run by Node's type
+  // stripping from the root `npm test`) together with the modules they import,
+  // with Node's types next to the DOM's. The build is tsconfig.json.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"],
+    "tsBuildInfoFile": "../node_modules/.cache/tsbuildinfo/frontend-test.tsbuildinfo"
+  },
+  "include": ["src/**/*"],
+  "exclude": []
+}

@@ -4,8 +4,8 @@
 // /artists, every artist A-Z with a search. A card opens /artist/<key>
 // (artist-page.js); its play button, or a double-click on it, plays the artist
 // from the top. Nothing here edits anything.
-import { elements } from './state.js';
-import { escapeHtml, navigateTo, t } from './ui.js';
+import { elements } from './shared/state.js';
+import { escapeHtml, navigateTo, t } from './shared/ui.js';
 import { player } from './player.js';
 import { artistPath } from './router.js';
 import { closeDrawer } from './sidebar.js';

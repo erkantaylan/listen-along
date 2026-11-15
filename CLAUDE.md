@@ -28,7 +28,7 @@ where lobby persistence broke entirely on deployed instances.
 - Backend: Node.js + Express + Socket.IO (`backend/src/`)
 - Frontend: Vanilla JS, single-page (`frontend/`)
 - UI is stock Bootstrap 6 (vendored in `frontend/vendor/`) with light theming; read `DESIGN.md` before changing any page or CSS
-- Column widths: `frontend/layout-rules.js` (pure, tested) decides when the sidebar is a rail (automatically up to 1100px, `RAIL_MAX`, and above that while expanding it would leave the page column under 616px) and from where the chat docks (1010px); keep its numbers in step with `app.css` (DESIGN.md "Columns and breakpoints"). Queue entries' `artistName` is derived from the library on load (`Queue._loadArtists`), not a column; `title` stays "Title - Artist" for the CLI and Android
+- Column widths: `frontend/src/shared/layout-rules.ts` (pure, tested) decides when the sidebar is a rail (automatically up to 1100px, `RAIL_MAX`, and above that while expanding it would leave the page column under 616px) and from where the chat docks (1010px); keep its numbers in step with `app.css` (DESIGN.md "Columns and breakpoints"). Queue entries' `artistName` is derived from the library on load (`Queue._loadArtists`), not a column; `title` stays "Title - Artist" for the CLI and Android
 - `index.js` is the composition root (about 460 lines, no routes or handlers of its own): reads the config (sign-in
   is fixed at boot), builds the stores and services, builds each area through its `create…({ deps })` factory, mounts
   the routers and registers the socket handlers, then `start()` (database, OIDC boot check, social / listen-along,
@@ -108,7 +108,7 @@ where lobby persistence broke entirely on deployed instances.
   ('replaced'); admins dismiss via `/api/admin/library/reports/:id/dismiss` or
   `/api/admin/library/:songId/reports/dismiss`. Changes emit
   `library:updated { reports }`. Frontend: `song-reports.js` +
-  the reusable `context-menu.js` (DESIGN.md "Context menu").
+  the reusable `context-menu.ts` (DESIGN.md "Context menu").
 - **A song that fails to play** (web): `frontend/playback-failures.js` is the
   glue to the page, `playback-failure-flow.js` the state (injected probe /
   confirm / report / user, so the whole flow is tested without a browser),
@@ -116,7 +116,7 @@ where lobby persistence broke entirely on deployed instances.
   song (in memory, keys `library:<id>` + queue url; cleared when it plays, on
   `library:updated { replaced }`, on `download:status ready`, on reload or
   when the signed-in account changes), `player.next/previous` go past greyed
-  songs (`player.setSkip`, `blocked` in `player-queue.js`; an `unavailable`
+  songs (`player.setSkip`, `blocked` in `player-queue.ts`; an `unavailable`
   queue entry is tried like any song and greys on its `NOT_IN_LIBRARY`), and
   `STREAK_LIMIT` = 3 failures in a row stop playback.
 - **Automatic reports: the SERVER decides, the client only filters.**
@@ -269,7 +269,7 @@ where lobby persistence broke entirely on deployed instances.
   (`GET /api/stations/:id[/songs]`, lean rows, approved accounts by the guard's
   default, no tokens) holds the rules: `all` = every song without an open report.
   The order is client-side and per opening: `frontend/radio-order.js` (pure,
-  tested) and `radio.js`, which renders through `virtual-list.js`. The player context is `{ type: 'radio', stationId }`;
+  tested) and `radio.js`, which renders through `virtual-list.ts`. The player context is `{ type: 'radio', stationId }`;
   `player.setRefill` gives the next round when the list runs out and
   `player.replaceQueue` applies a new order. The order changes only by
   reshuffle, a next round or `library:updated` (`reconcile`, which keeps the
@@ -287,7 +287,7 @@ where lobby persistence broke entirely on deployed instances.
   Not `songMatch.normalizeArtist`: that stays primary-artist-only for meta_key.
   Like station `all`, it leaves out songs with an open report. Frontend:
   `artists.js` (shelf + grid), `artist-page.js` (song table through
-  `virtual-list.js`), pure rules in `artist-rules.js` (tested). Player context
+  `virtual-list.ts`), pure rules in `artist-rules.js` (tested). Player context
   `{ type: 'artist', key, name }`; presence keeps a checked key and the name.
 - Android releases: a tag `android-vX.Y.Z` runs `.github/workflows/android-release.yml`
   (signed APK on a GitHub Release; version from the tag; key and backup rules in
@@ -334,7 +334,7 @@ where lobby persistence broke entirely on deployed instances.
 - Users see **playlists**; the code, DB table (`lobbies`), socket events
   (`lobby:*`) and `lobbyId` fields keep the old name. URLs are `/playlist/<id>`
   and `/playlist/<id>/library`; old `/lobby/...` URLs 301 to them (and the SPA
-  rewrites them, `legacyRedirect` in `frontend/router.js`). HTTP API:
+  rewrites them, `legacyRedirect` in `frontend/src/router.ts`). HTTP API:
   `/api/playlists` (`/api/lobbies` is an alias). It also takes a CLI Bearer
   token (auth guard in authRoutes.js → `requireViewer`): the token acts as its
   owner; a legacy ownerless token sees/edits public playlists only, creates
@@ -368,7 +368,7 @@ where lobby persistence broke entirely on deployed instances.
   playlist's changes go only to its owner's `userRoom`. Emit it from anything that
   creates, renames, deletes or changes the visibility of a playlist.
 - The page holds the full queue (`queue:update`, about 230 bytes per song) and windows only the rows:
-  `frontend/virtual-list.js` (generic, reuse it for any long list), used by `queue.js`; `queue-edit.js` drags
+  `frontend/src/shared/virtual-list.ts` (generic, reuse it for any long list), used by `queue.js`; `queue-edit.js` drags
   by arithmetic over it. Anything reading rows from the DOM sees only the window: use `shown` / `state.queue`.
   Stats are client-side over the full queue (`playlist-stats.js`). `/:id/songs` still returns everything.
 - There is no per-playlist chat. There is one global chat plus a people panel
@@ -522,8 +522,10 @@ stays JavaScript). Until an area is converted its files stay `.js`.
   (typecheck only: Node runs `.ts` itself; `allowJs` without `checkJs`, add
   `// @ts-check` per file if wanted; `module: preserve` while CommonJS and ESM
   mix, `nodenext` at the end), `frontend/tsconfig.json` (`frontend/src/**/*.ts`
-  compiles to `frontend/dist/`, gitignored, with source maps), and the root
-  `tsconfig.json` that references both.
+  compiles to `frontend/dist/`, gitignored, with source maps; `moduleDetection:
+  auto` so a file without import / export stays a classic script),
+  `frontend/tsconfig.test.json` (typecheck only: the frontend's `*.test.ts`
+  with Node's types), and the root `tsconfig.json` that references them.
 - The root `package.json` holds only `typescript` and `@types/*` (no
   workspaces: the server's dependencies and the Docker install stay in
   `backend/`). From the repo root: `npm ci`, `npm run typecheck` (`tsc -b`),
@@ -537,8 +539,19 @@ stays JavaScript). Until an area is converted its files stay `.js`.
   an old `frontend/shared/x.js` (delete the old file when converting; never
   keep both). Same `no-cache` for `.js`, `.css`, `.map`; `/src/**/*.ts` is
   served as text so source maps resolve. A missing `dist/` just falls through.
-  `/package.json`, `/tsconfig.json`, `*.tsbuildinfo` and `/dist/...` answer 404.
-  `index.html` keeps its URLs.
+  `/package.json`, `/tsconfig*.json`, `*.tsbuildinfo` and `/dist/...` answer 404.
+- Frontend layout (`frontend/src`): `app.ts`, `router.ts`, `globals.d.ts`,
+  `shared/` (state, ui, dom, types, i18n, …), `player/`, `features/<area>/`.
+  The URL mirrors the path: `src/shared/state.ts` is `/shared/state.js`.
+  While the conversion runs, an old `frontend/x.js` imports a converted module
+  by its URL (`./shared/state.js`); modules are converted leaf-first, so a
+  `.ts` never imports an old `.js`.
+- Frontend types: the server's JSON and the socket events are typed once in
+  `frontend/src/shared/types.ts` (from the backend's views; the socket is
+  `AppSocket`, typed with socket.io-client's types, a root devDependency pinned
+  to the version the server bundles). Elements: `byId<T>()` /
+  `maybeById<T>()` in `shared/dom.ts` (typed `getElementById`, no runtime
+  check) rather than `!` on every lookup.
 - Docker: the `frontend` stage of `docker/Dockerfile` runs `npm ci` + `npm run
   build` at the root and only `frontend/dist` is copied into the final image
   (no TypeScript, no root `node_modules`; the backend install stays
@@ -551,7 +564,10 @@ stays JavaScript). Until an area is converted its files stay `.js`.
   `erasableSyntaxOnly` reports them). Type-only imports use `import type`.
 - Relative imports name the real file: `./x.ts` (the frontend build rewrites
   them to `./x.js`).
-- Tests sit next to the code they test.
+- Tests sit next to the code they test. Frontend tests are
+  `frontend/src/**/x.test.ts` (ES modules, `.ts` imports, run by Node's type
+  stripping from the root `npm test`), so a rule module must stay importable
+  in Node: no DOM at import time.
 - **Backend, while CommonJS and ES modules mix** (Node 22.18+ type stripping, no build):
   - A converted area is a folder of ES-module `.ts` (`backend/src/features/<name>/`), moved with `git mv` so
     history follows, its tests next to it as `*.test.ts` (plain `node --test` finds them). The folder holding
@@ -590,7 +606,7 @@ stays JavaScript). Until an area is converted its files stay `.js`.
     queries and routes) go to `core/` with the library, not to `features/`. The artist pages import the radio's
     `toStationSong`: the one feature-to-feature import, until that row moves to the library.
 - `frontend/src/globals.d.ts` types the classic-script globals (`io`,
-  `window.i18n`, `MediaSessionManager`); `i18n.js` and `media-session.js` stay
+  `window.i18n`, `MediaSessionManager`); `i18n.ts` and `media-session.ts` stay
   classic scripts. `frontend/package.json` is `"type": "module"` so Node
   (backend tests) loads frontend files as ES modules.
 

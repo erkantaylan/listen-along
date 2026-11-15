@@ -11,13 +11,16 @@
  *   MediaSessionManager.updateTrack({ title, artist, thumbnail, songId })
  *   MediaSessionManager.updatePlaybackState('playing' | 'paused' | 'none')
  *   MediaSessionManager.updatePositionState({ duration, position, playbackRate })
+ *
+ * A CLASSIC script (index.html <script src="/shared/media-session.js">), not a
+ * module: no import / export here. Types of the global: globals.d.ts.
  */
 (function () {
   'use strict';
 
-  var callbacks = {};
+  var callbacks: MediaSessionHandlers = {};
   var supported = 'mediaSession' in navigator;
-  var currentArtwork = [];
+  var currentArtwork: MediaImage[] = [];
 
   /**
    * Initialize media session with action callbacks.
@@ -28,7 +31,7 @@
    * @param {Function} opts.onPrevious
    * @param {Function} [opts.onSeekTo]
    */
-  function init(opts) {
+  function init(opts?: MediaSessionHandlers | null): void {
     callbacks = opts || {};
 
     if (!supported) {
@@ -36,7 +39,7 @@
       return;
     }
 
-    var actions = [
+    var actions: [MediaSessionAction, (() => void) | undefined][] = [
       ['play', callbacks.onPlay],
       ['pause', callbacks.onPause],
       ['nexttrack', callbacks.onNext],
@@ -45,14 +48,14 @@
 
     actions.forEach(function (entry) {
       var action = entry[0];
-      var handler = entry[1];
+      const handler = entry[1];
       if (handler) {
         try {
           navigator.mediaSession.setActionHandler(action, function () {
             handler();
           });
         } catch (e) {
-          console.warn('Media Session: action "' + action + '" not supported:', e.message);
+          console.warn('Media Session: action "' + action + '" not supported:', (e as Error).message);
         }
       }
     });
@@ -61,7 +64,7 @@
     if (callbacks.onSeekTo) {
       try {
         navigator.mediaSession.setActionHandler('seekto', function (details) {
-          if (details.seekTime !== undefined) {
+          if (details.seekTime !== undefined && callbacks.onSeekTo) {
             callbacks.onSeekTo(details.seekTime);
           }
         });
@@ -79,7 +82,7 @@
    * @param {string} [track.thumbnail] - URL for artwork
    * @param {string} [track.songId] - Used to build cover URL
    */
-  function updateTrack(track) {
+  function updateTrack(track: MediaSessionTrack | null | undefined): void {
     if (!supported || !track) return;
 
     currentArtwork = buildArtwork(track);
@@ -92,7 +95,7 @@
         artwork: currentArtwork
       });
     } catch (e) {
-      console.warn('Media Session: failed to set metadata:', e.message);
+      console.warn('Media Session: failed to set metadata:', (e as Error).message);
     }
   }
 
@@ -100,11 +103,11 @@
    * Build artwork array from track info.
    * Tries multiple sizes for best OS compatibility.
    */
-  function buildArtwork(track) {
-    var artwork = [];
+  function buildArtwork(track: MediaSessionTrack): MediaImage[] {
+    var artwork: MediaImage[] = [];
 
     // Prefer local cover proxy (handles caching + CORS)
-    var url = null;
+    var url: string | null = null;
     // No thumbnail means no cached cover either (it would 404).
     if (track.songId && track.thumbnail) {
       url = '/api/covers/' + track.songId + '?fallback=' + encodeURIComponent(track.thumbnail);
@@ -116,7 +119,7 @@
       // Provide multiple sizes — browsers/OS pick the best fit
       var sizes = ['96x96', '128x128', '192x192', '256x256', '384x384', '512x512'];
       sizes.forEach(function (size) {
-        artwork.push({ src: url, sizes: size, type: 'image/jpeg' });
+        artwork.push({ src: url as string, sizes: size, type: 'image/jpeg' });
       });
     }
 
@@ -127,7 +130,7 @@
    * Update playback state shown in OS media controls.
    * @param {'playing'|'paused'|'none'} state
    */
-  function updatePlaybackState(state) {
+  function updatePlaybackState(state: MediaSessionPlaybackState): void {
     if (!supported) return;
     try {
       navigator.mediaSession.playbackState = state;
@@ -143,7 +146,7 @@
    * @param {number} opts.position - Current position in seconds
    * @param {number} [opts.playbackRate] - Defaults to 1
    */
-  function updatePositionState(opts) {
+  function updatePositionState(opts: { duration: number; position?: number; playbackRate?: number }): void {
     if (!supported || !navigator.mediaSession.setPositionState) return;
     try {
       if (opts.duration > 0) {
@@ -161,9 +164,9 @@
   /**
    * Clean up — remove all action handlers.
    */
-  function destroy() {
+  function destroy(): void {
     if (!supported) return;
-    var actions = ['play', 'pause', 'nexttrack', 'previoustrack', 'seekto'];
+    var actions: MediaSessionAction[] = ['play', 'pause', 'nexttrack', 'previoustrack', 'seekto'];
     actions.forEach(function (action) {
       try {
         navigator.mediaSession.setActionHandler(action, null);

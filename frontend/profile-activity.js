@@ -4,7 +4,7 @@
 // were fulfilled), requests my downloaders fulfilled (and who asked), and my
 // downloaders (`la worker`). Machine details of downloaders are admin-only
 // and never come here.
-import { auth } from './state.js';
+import { auth } from './shared/state.js';
 
 const $ = (id) => document.getElementById(id);
 

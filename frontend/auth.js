@@ -1,6 +1,6 @@
 // Authentication, registration, and profile management
-import { state, elements, socket, auth, STORAGE_KEYS, AVATAR_EMOJIS, storageSet } from './state.js';
-import { showView, showToast, navigateTo, t } from './ui.js';
+import { state, elements, socket, auth, STORAGE_KEYS, AVATAR_EMOJIS, storageSet } from './shared/state.js';
+import { showView, showToast, navigateTo, t } from './shared/ui.js';
 import { announceProfile } from './social.js';
 import { resetPlaybackFailures } from './playback-failures.js';
 import { setupProfileTokens, loadProfileTokens } from './profile-tokens.js';

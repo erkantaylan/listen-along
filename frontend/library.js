@@ -1,14 +1,14 @@
 // Music library page: every song in the library (searchable, with uploader)
 // plus the list of song requests waiting for an upload. Songs are added to the
 // current lobby's queue from here.
-import { state } from './state.js';
-import { showToast, formatDuration, notifyViewChange } from './ui.js';
+import { state } from './shared/state.js';
+import { showToast, formatDuration, notifyViewChange } from './shared/ui.js';
 import { libraryPath, basePath } from './router.js';
 import { player } from './player.js';
 import { setupDownloads, showDownloads, hideDownloads } from './jobs.js';
 import { clearReplacedFailure } from './playback-failures.js';
 import { bindSongMenu, songMenuButtonHtml, reportIconHtml, reportLines, reportsFor, onReportsChange, reportedCount, reportsLoaded, handleReportsUpdated, isReportDialogOpen } from './song-reports.js';
-import { isContextMenuOpen } from './context-menu.js';
+import { isContextMenuOpen } from './shared/context-menu.js';
 import { openReplaceDialog } from './replace-dialog.js';
 import { addSongToPlaylist } from './add-to-playlist.js';
 

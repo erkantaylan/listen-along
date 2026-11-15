@@ -14,16 +14,28 @@ const CONTROLS = 'button, input, textarea, select, [contenteditable="true"]';
 const SLOP_PX = 8;
 
 /** What a click on `el` would start: { id } (id 'radio' for Radio, 'artist:<key>' for an artist), with control: true on a row's own control, or null. */
-export function rowTarget(el) {
-  const row = el && el.closest ? el.closest(ROWS) : null;
-  if (!row) return null;
-  const id = row.id === 'plnav-radio' ? 'radio' : row.dataset.artistKey ? `artist:${row.dataset.artistKey}` : row.dataset.playlistId;
-  return el.closest(CONTROLS) ? { id, control: true } : { id };
+export interface RowTarget {
+  id: string | undefined;
+  control?: true;
 }
 
-export function createRowDoubleClick(onDouble) {
+export function rowTarget(el: EventTarget | null): RowTarget | null {
+  const row = el && (el as Element).closest ? (el as Element).closest<HTMLElement>(ROWS) : null;
+  if (!row) return null;
+  const id = row.id === 'plnav-radio' ? 'radio' : row.dataset.artistKey ? `artist:${row.dataset.artistKey}` : row.dataset.playlistId;
+  return (el as Element).closest(CONTROLS) ? { id, control: true } : { id };
+}
+
+export interface RowDoubleClick {
+  pointerdown(e: PointerEvent): void;
+  mousedown(e: MouseEvent): void;
+  clickCapture(e: MouseEvent): void;
+  click(e: MouseEvent): void;
+}
+
+export function createRowDoubleClick(onDouble: (id: string | undefined) => void): RowDoubleClick {
   let pointerType = 'mouse';
-  let first = null;
+  let first: { id: string | undefined; x: number; y: number } | null = null;
   let swallow = false;
   return {
     pointerdown(e) { pointerType = e.pointerType; },
@@ -38,7 +50,7 @@ export function createRowDoubleClick(onDouble) {
       e.preventDefault();
       e.stopPropagation();
       swallow = true;
-      if (e.detail === 2) onDouble(first.id);
+      if (e.detail === 2 && first) onDouble(first.id);
     },
 
     // Capture phase: the click that second press ends in.
@@ -59,7 +71,7 @@ export function createRowDoubleClick(onDouble) {
   };
 }
 
-export function setupRowDoubleClick(onDouble) {
+export function setupRowDoubleClick(onDouble: (id: string | undefined) => void): void {
   const gesture = createRowDoubleClick(onDouble);
   window.addEventListener('pointerdown', gesture.pointerdown, true);
   window.addEventListener('mousedown', gesture.mousedown, true);

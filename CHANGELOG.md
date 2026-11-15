@@ -117,6 +117,7 @@
 - chore(build): TypeScript tooling for the move to TypeScript: tsconfigs, a root `package.json` (`npm run typecheck`, `build`, `test`, `dev`) and a typecheck job in CI. Nothing is converted yet and nothing changes for users. The server now needs Node 22.18 or newer (the Docker image already has it)
 - chore(build): the frontend build is wired in: TypeScript in `frontend/src` compiles to `frontend/dist` (in its own Docker build stage, so the image carries no TypeScript), which the server serves at the same addresses as the existing files, compiled files first. `/package.json` and `/tsconfig.json` are no longer served. `make dev` builds the frontend and watches it. Nothing changes for users
 - refactor(server): the server's main file no longer holds the routes and socket handlers: each area (sign-in, playlists, queue, profile, dashboard, pages, sockets) has its own module, and the main file only puts them together. Same addresses, events and answers; nothing changes for users or for the CLI and Android app
+- refactor(web): the web app's code moves to TypeScript, area by area (`frontend/src`, compiled to the same kind of plain browser modules; its file addresses change, e.g. `/shared/state.js`). Nothing changes for users
 
 ## v2.31.0 (2026-10-31)
 

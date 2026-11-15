@@ -9,8 +9,8 @@
 //   opens a popover with the report count, reasons and reporters.
 // - songMenuItems(): the menu items for one song. Add new song actions here.
 // - bindSongMenu(): context menu on rows of a list.
-import { showToast, t, copyToClipboard } from './ui.js';
-import { bindContextMenu, openContextMenu, closeContextMenu, isContextMenuOpen } from './context-menu.js';
+import { showToast, t, copyToClipboard } from './shared/ui.js';
+import { bindContextMenu, openContextMenu, closeContextMenu, isContextMenuOpen } from './shared/context-menu.js';
 import { addToPlaylistItem } from './add-to-playlist.js';
 import { openReplaceDialog } from './replace-dialog.js';
 import { songSourceLink, sourceSubmenu } from './song-menu-rules.js';

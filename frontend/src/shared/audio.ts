@@ -1,17 +1,17 @@
 // Audio player, volume controls, and Safari unlock handling
-import { state, elements, STORAGE_KEYS, storageSet } from './state.js';
-import { showToast, formatTime, syncRangeFill } from './ui.js';
+import { state, elements, STORAGE_KEYS, storageSet } from './state.ts';
+import { showToast, formatTime, syncRangeFill } from './ui.ts';
 
 // Full (lobby page) player readouts and audio housekeeping. Track changes,
 // ended -> next and the Media Session live in player.js; a song that fails to
 // play is playback-failures.js.
-export function setupAudioPlayer() {
+export function setupAudioPlayer(): void {
   const audio = elements.audioPlayer;
 
   audio.addEventListener('timeupdate', () => {
     if (audio.duration) {
       const percent = (audio.currentTime / audio.duration) * 100;
-      elements.progressBar.value = percent;
+      elements.progressBar.value = String(percent);
       syncRangeFill(elements.progressBar);
       elements.currentTime.textContent = formatTime(audio.currentTime);
     }
@@ -36,7 +36,7 @@ export function setupAudioPlayer() {
   setupVolumeControls();
 }
 
-function setupAudioUnlock() {
+function setupAudioUnlock(): void {
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
@@ -66,10 +66,10 @@ function setupAudioUnlock() {
   }
 }
 
-export function setupVolumeControls() {
+export function setupVolumeControls(): void {
   const volumePercent = Math.round(state.volume * 100);
   if (elements.volumeBar) {
-    elements.volumeBar.value = volumePercent;
+    elements.volumeBar.value = String(volumePercent);
     syncRangeFill(elements.volumeBar);
     elements.volumeBar.addEventListener('input', handleVolumeChange);
   }
@@ -77,18 +77,18 @@ export function setupVolumeControls() {
   updateVolumeIcon();
 }
 
-function handleVolumeChange(e) {
-  const volume = parseInt(e.target.value, 10) / 100;
+function handleVolumeChange(e: Event): void {
+  const volume = parseInt((e.target as HTMLInputElement).value, 10) / 100;
   state.volume = volume;
   state.isMuted = volume === 0;
   elements.audioPlayer.volume = volume;
-  storageSet(STORAGE_KEYS.VOLUME, volume);
+  storageSet(STORAGE_KEYS.VOLUME, String(volume));
   const percent = Math.round(volume * 100);
-  if (elements.volumeBar) { elements.volumeBar.value = percent; syncRangeFill(elements.volumeBar); }
+  if (elements.volumeBar) { elements.volumeBar.value = String(percent); syncRangeFill(elements.volumeBar); }
   updateVolumeIcon();
 }
 
-export function toggleMute() {
+export function toggleMute(): void {
   if (state.isMuted) {
     state.isMuted = false;
     state.volume = state.volumeBeforeMute || 1;
@@ -98,15 +98,15 @@ export function toggleMute() {
     state.volume = 0;
   }
   elements.audioPlayer.volume = state.volume;
-  storageSet(STORAGE_KEYS.VOLUME, state.volume);
+  storageSet(STORAGE_KEYS.VOLUME, String(state.volume));
   const percent = Math.round(state.volume * 100);
-  if (elements.volumeBar) { elements.volumeBar.value = percent; syncRangeFill(elements.volumeBar); }
+  if (elements.volumeBar) { elements.volumeBar.value = String(percent); syncRangeFill(elements.volumeBar); }
   updateVolumeIcon();
 }
 
-function updateVolumeIcon() {
+function updateVolumeIcon(): void {
   const vol = state.volume;
-  let iconPath;
+  let iconPath: string;
   if (vol === 0 || state.isMuted) {
     iconPath = '<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>';
   } else if (vol < 0.5) {
@@ -117,7 +117,7 @@ function updateVolumeIcon() {
   if (elements.volumeIcon) elements.volumeIcon.innerHTML = iconPath;
 }
 
-export function playAudioWithUnlock(src, position, shouldPlay) {
+export function playAudioWithUnlock(src: string, position: number, shouldPlay: boolean): void {
   const audio = elements.audioPlayer;
   // Whether this load is meant to sound: a failed load resets audio.paused, so
   // playback-failures.js reads this to know if it should move on.
@@ -138,7 +138,7 @@ export function playAudioWithUnlock(src, position, shouldPlay) {
   }
 }
 
-function showUnlockPrompt() {
+function showUnlockPrompt(): void {
   if (document.getElementById('audio-unlock-prompt')) return;
   const prompt = document.createElement('button');
   prompt.type = 'button';
@@ -168,7 +168,7 @@ function showUnlockPrompt() {
   document.body.appendChild(prompt);
 }
 
-export function hideUnlockPrompt() {
+export function hideUnlockPrompt(): void {
   const prompt = document.getElementById('audio-unlock-prompt');
   if (prompt) prompt.remove();
 }

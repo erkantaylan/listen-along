@@ -5,8 +5,8 @@
 // opening the context (playlist page or library) and the listen-along strip
 // ("Listening along with Ayşe" + Stop, or "Ayşe and 2 others are listening
 // along" for the person being listened to).
-import { state, elements } from './state.js';
-import { navigateTo, t } from './ui.js';
+import { state, elements } from './shared/state.js';
+import { navigateTo, t } from './shared/ui.js';
 import { player } from './player.js';
 import { artistPath, playlistPath, searchPath } from './router.js';
 import { listenState, onListenChange, followersText, stopListenAlong } from './listen-along.js';

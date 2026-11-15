@@ -1,13 +1,7 @@
-// The arithmetic of the windowed list (frontend/virtual-list.js).
-const { describe, it, before } = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('path');
-const { pathToFileURL } = require('url');
-
-let m;
-before(async () => {
-  m = await import(pathToFileURL(path.join(__dirname, '..', '..', 'frontend', 'virtual-list.js')).href);
-});
+// The arithmetic of the windowed list (virtual-list.ts).
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import * as m from './virtual-list.ts';
 
 describe('windowRange', () => {
   const base = { rowHeight: 56, viewHeight: 560, count: 2500, overscan: 5 };

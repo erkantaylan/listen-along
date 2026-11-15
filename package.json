@@ -23,6 +23,7 @@
     "@types/proxy-addr": "2.0.3",
     "@types/qrcode": "1.5.6",
     "@types/ws": "8.18.2",
+    "socket.io-client": "4.8.3",
     "typescript": "7.0.2"
   }
 }

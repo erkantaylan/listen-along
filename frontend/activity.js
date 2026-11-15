@@ -11,7 +11,7 @@
 import { jobStatusText, thumbHtml, BADGES } from './jobs.js';
 import { MAX_ROWS, mergeJob, applyLoad, applyProgress, progressOf, failureKey, activeCount, isActive, rowTitle, rowTime } from './activity-rules.js';
 import { formatLastSeen, escapeText } from './chat-format.js';
-import { navigateTo, t } from './ui.js';
+import { navigateTo, t } from './shared/ui.js';
 
 const A = {
   jobs: [],

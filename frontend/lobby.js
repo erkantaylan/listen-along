@@ -1,16 +1,16 @@
 // Playlists (internally "lobbies"): creating, opening, sharing, the landing
 // list and the owner controls. The server decides who may see / edit what
 // (backend/src/playlistAccess.js); this only mirrors it in the UI.
-import { state, elements, socket, STORAGE_KEYS, viewActivators, storageSet, storageRemove, setSuppressJoinToasts, setLobbiesInterval } from './state.js';
-import { showView, showToast, escapeHtml, formatAge, copyToClipboard, t, navigateTo } from './ui.js';
+import { state, elements, socket, STORAGE_KEYS, viewActivators, storageSet, storageRemove, setSuppressJoinToasts, setLobbiesInterval } from './shared/state.js';
+import { showView, showToast, escapeHtml, formatAge, copyToClipboard, t, navigateTo } from './shared/ui.js';
 import { parseRoute, playlistPath } from './router.js';
 import { player } from './player.js';
 import { playViewedFromTop } from './playback.js';
-import { desiredMembership, membershipActions } from './player-queue.js';
+import { desiredMembership, membershipActions } from './player/player-queue.js';
 import { isEditMode, setEditMode } from './queue-edit.js';
 import { isNewPlaylistPending, newPlaylistCreated, newPlaylistFailed } from './new-playlist.js';
 import { playlistMenuItems, privateBadgeHtml, LOCK_SVG } from './playlist-actions.js';
-import { openContextMenu, closeContextMenu, bindContextMenu } from './context-menu.js';
+import { openContextMenu, closeContextMenu, bindContextMenu } from './shared/context-menu.js';
 import { loadPlaylists, onPlaylists, isPinned, togglePlaylistPin, getPlaylists, isLoaded } from './playlist-store.js';
 import { closePickDialog } from './pick-dialog.js';
 import { playlistCoverIndex, playlistInitials } from './playlist-filter.js';
@@ -295,7 +295,7 @@ export function handleUserJoined(data, updateListeners) {
   if (data.user.socketId === socket.id) return;
   // Use imported suppressJoinToasts from state (live binding)
   // We need to re-import it here to get the live binding
-  import('./state.js').then(mod => {
+  import('./shared/state.js').then(mod => {
     if (mod.suppressJoinToasts) return;
     const joinDisplay = data.user.emoji ? `${data.user.emoji} ${data.user.username}` : data.user.username;
     showToast(`${joinDisplay} joined`, 'success');

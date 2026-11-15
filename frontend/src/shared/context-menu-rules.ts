@@ -1,5 +1,5 @@
 // The context menu's pure geometry (no DOM), unit tested in
-// backend/src/context-menu-rules.test.js. context-menu.js measures and applies.
+// context-menu-rules.test.ts. context-menu.ts measures and applies.
 
 /**
  * Where a submenu box goes: to the right of its menu, overlapping it by 2px;
@@ -10,10 +10,22 @@
  * itemTop: the parent item's top; viewport: { width, height }.
  * Returns { left, top, side: 'right' | 'left' }.
  */
-export function submenuPosition({ parent, size, itemTop, viewport, margin = 8 }) {
+export interface SubmenuPlacement {
+  left: number;
+  top: number;
+  side: 'right' | 'left';
+}
+
+export function submenuPosition({ parent, size, itemTop, viewport, margin = 8 }: {
+  parent: { left: number; right: number };
+  size: { width: number; height: number };
+  itemTop: number;
+  viewport: { width: number; height: number };
+  margin?: number;
+}): SubmenuPlacement {
   const { width, height } = size;
   let left = parent.right - 2;
-  let side = 'right';
+  let side: SubmenuPlacement['side'] = 'right';
   if (left + width > viewport.width - margin) { left = parent.left - width + 2; side = 'left'; }
   left = Math.max(margin, Math.min(left, viewport.width - margin - width));
   const top = Math.max(margin, Math.min(itemTop - 8, viewport.height - margin - height));

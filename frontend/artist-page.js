@@ -4,15 +4,15 @@
 // top, a row plays from there, in title order. The player context is
 // { type: 'artist', key, name }, so the player's own shuffle and repeat apply.
 // While the artist plays, the list on screen is the player's queue.
-import { state } from './state.js';
-import { escapeHtml, formatDuration, navigateTo, showToast, t } from './ui.js';
+import { state } from './shared/state.js';
+import { escapeHtml, formatDuration, navigateTo, showToast, t } from './shared/ui.js';
 import { player } from './player.js';
 import { libraryTrack } from './library.js';
 import { artistPath } from './router.js';
 import { playCellHtml, playCellLabel, statsHtml } from './queue.js';
 import { bindSongMenu, songMenuButtonHtml } from './song-reports.js';
 import { isUnplayable, unplayableBadgeHtml, onFailuresChange } from './playback-failures.js';
-import { createVirtualList } from './virtual-list.js';
+import { createVirtualList } from './shared/virtual-list.js';
 import { keepCurrent } from './artist-rules.js';
 import { artistByKey, coverUrl } from './artists.js';
 

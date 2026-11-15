@@ -1,8 +1,8 @@
 // "CLI tokens" card on the profile page: the logged-in user's own tokens for
 // the `la` CLI (GET/POST/DELETE /api/tokens). Approved accounts only; the
 // full token is shown once, right after it is created.
-import { auth } from './state.js';
-import { showToast, escapeHtml } from './ui.js';
+import { auth } from './shared/state.js';
+import { showToast, escapeHtml } from './shared/ui.js';
 
 const $ = (id) => document.getElementById(id);
 

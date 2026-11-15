@@ -18,9 +18,9 @@
 // - Listening along: the leader decides what plays and hears the same file, so
 //   a follower greys the song and nothing else (listen-along.js shows its own
 //   notice and waits for the next song).
-import { state, elements, auth } from './state.js';
+import { state, elements, auth } from './shared/state.js';
 import { player } from './player.js';
-import { showToast, t } from './ui.js';
+import { showToast, t } from './shared/ui.js';
 import { reportsFor, resolveSongId, sendReport, unmarkBroken } from './song-reports.js';
 import { STREAK_LIMIT, MEDIA_ERR_ABORTED, MEDIA_ERR_DECODE, codecQuery, trackKeys } from './playback-failure-rules.js';
 import { createFailureFlow } from './playback-failure-flow.js';

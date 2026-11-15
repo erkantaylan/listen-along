@@ -2,6 +2,7 @@
   // Browser code: frontend/src/**/*.ts compiles to frontend/dist/ (gitignored),
   // one .js per .ts, no bundler. Sources import "./x.ts"; the output imports
   // "./x.js". index.html, CSS, vendor/, locales/ and icons stay in frontend/.
+  // Tests (*.test.ts) are not built: tsconfig.test.json checks them.
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "composite": true,
@@ -9,6 +10,11 @@
     "types": [],
     "module": "esnext",
     "moduleResolution": "bundler",
+    // "auto", not the base's "force": a file without import / export stays a
+    // classic script, so shared/i18n.ts and shared/media-session.ts (loaded
+    // with <script src>, not as modules) are emitted without `export {}`.
+    // Every other file has an import or an export.
+    "moduleDetection": "auto",
     "rootDir": "./src",
     "outDir": "./dist",
     "rewriteRelativeImportExtensions": true,
@@ -18,5 +24,6 @@
     "declarationDir": "../node_modules/.cache/frontend-types",
     "tsBuildInfoFile": "../node_modules/.cache/tsbuildinfo/frontend.tsbuildinfo"
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "exclude": ["src/**/*.test.ts"]
 }
