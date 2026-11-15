@@ -40,7 +40,8 @@ where lobby persistence broke entirely on deployed instances.
   `mediaRoutes.js` (`/api/stream`, `/api/covers/:id`), `profileRoutes.js` (`GET|PUT /api/profile`),
   `adminRoutes.js` (dashboard users / statuses / settings / stats / playlist and chat moderation, all `requireAdmin`),
   `authRoutes.js` (the auth guard right after the static files; legacy `/api/auth/register|status`; the
-  central-login / dev sign-in round trips, `/api/auth/me`, logout, `/login`, `/api/auth/providers`),
+  central-login / dev sign-in round trips, `/api/auth/me`, logout, `/login`, `/api/auth/providers`; it mounts
+  the Android app's sign-in, `mobileAuth.js`, on its `router`),
   `playlistRoutes.js` (`/api/playlists` + `/api/lobbies`, songs included; `requireViewer`, `findVisiblePlaylist`;
   returns `ownerNames`, whose cache the socket handlers share).
   `socketServer.js`: the Socket.IO server, the room names (`APP_ROOM`, `userRoom`, `sessionRoom`), the handshake
@@ -57,7 +58,8 @@ where lobby persistence broke entirely on deployed instances.
   library.js (music library + upload validation (m4a / Ogg Opus) + legacy cache migration +
   duplicate checks + replace), songMatch.js (normalized "artist|title" key for
   probable duplicates; bump META_KEY_VERSION when changing it — boot recomputes),
-  requests.js (song requests), tokens.js (CLI tokens), adminAuth.js (/dashboard),
+  requests.js (song requests), tokens.js (CLI tokens), mobileAuth.js (the
+  Android app's sign-in, below), adminAuth.js (/dashboard),
   libraryRoutes.js (library/requests/admin HTTP API), songResolver.js
   (what a user typed -> library song or song request)
 - **The server does not download audio.** Songs are uploaded by the
@@ -293,8 +295,13 @@ where lobby persistence broke entirely on deployed instances.
   cache + ETag, always 200; only `android-v*` tags count, the repo has old `v2.x` ones).
   Both are open to pending accounts too (`policyFor`: `member`).
 - Android app (`android/`, see its README): Kotlin + Compose + Media3, a
-  separate client of the HTTP API with a CLI Bearer token (stored encrypted, no
-  socket, so no live updates). Library, playlists (edit mode), broken-song
+  separate client of the HTTP API (no socket, so no live updates). It signs in
+  through the central login like the web (`auth/`: Custom Tab, PKCE, the
+  server exchanges the code; `backend/src/mobileAuth.js`, CENTRAL-LOGIN.md "The
+  Android app") and holds only a `lam_` session token (encrypted), sent as
+  `Authorization: Bearer`. Only a 401 signs it out (`SessionEndedInterceptor`):
+  offline or a 5xx never does. It has no CLI-token UI any more; an old saved
+  `la_` token is deleted at start. Library, playlists (edit mode), broken-song
   reports, background playback (`player/PlaybackService`, a Media3
   `MediaLibraryService`: previous/next only, never seek ±; Android Auto browses
   `player/CarLibrary` over the `player/CarTree` ids; MediaItems never set a mime
@@ -308,8 +315,12 @@ where lobby persistence broke entirely on deployed instances.
   entries are skipped (`PlayQueue.nextPlayable`); saved playlists and reports
   are read-only. `./dev.sh [--stub]`
   builds, installs and launches; `tools/stub_server.py` stands in for the
-  server, so API or rule changes the app relies on belong there too. Tests:
-  `./gradlew :app:testDebugUnitTest`.
+  server (its sign-in included), so API or rule changes the app relies on
+  belong there too. Tests: `./gradlew :app:testDebugUnitTest`.
+  What the app relies on from the server: 404 (skip the song) vs 5xx
+  (offline), 401 `SESSION_ENDED` = sign in again and nothing else is, `GET
+  /api/me` for its session, the `/auth/mobile/*` contract, and the redirect
+  `com.etaylan.listen:/oauth2redirect` registered at the central login.
 
 ## Playlists (internally "lobbies")
 
@@ -423,6 +434,32 @@ where lobby persistence broke entirely on deployed instances.
   (`mode` 'central' | 'dev'); each socket gets `socket.data.userId` (and, with central login,
   `socket.data.sessionId` + the `session:<hash>` room). Never trust a user id or
   name sent by the client.
+- **The Android app's session** (`mobileAuth.js`, `mobileTokens.js`;
+  CENTRAL-LOGIN.md "The Android app"): the app runs code + PKCE in a Custom
+  Tab via `GET /auth/mobile/start` (302 to the IdP with `redirect_uri
+  com.etaylan.listen:/oauth2redirect`), the SERVER exchanges the code at
+  `POST /auth/mobile/exchange` (`finishLogin` with that redirect URI and the
+  app's state / nonce / verifier: the same id_token checks, the same
+  `linkCentralIdentity`, a `central-login: ... client=app` line) and stores a
+  `user_sessions` row like a cookie session (`create({ prefix: 'lam_' })`:
+  the hash covers the prefix, so cookie ids and Bearers never cross). The app
+  sends `Bearer lam_...`; `userAuth.who()` resolves it (HTTP only, sockets stay
+  cookie-only; no fallback to a cookie when one is sent) through
+  `oidcSessions.resolveBearer`, so re-check, expiry and bans
+  (`removeForUser`) apply unchanged. `policyFor` is unchanged: it is a user
+  session at the account's level. `tokens.hasBearer` is false for `lam_` (so
+  "token or signed-in user" routes take it as the user) and `requireToken`
+  answers 403 `TOKEN_REQUIRED` (CLI-only routes: upload, check, `/api/cli/*`,
+  request dismiss; never a 401). A refused app session is 401 `SESSION_ENDED`
+  (`refusal(account, { mobile })`): the app's ONLY signal to sign in again, so
+  never answer 401 for an outage. `GET /api/me` with it is answered by
+  mobileAuth.js (libraryRoutes.js passes with `next('route')`). Exchange
+  codes: `invalid_request`, `signin_failed`, `account_disabled`,
+  `registrations_closed`, `link_conflict`, `signin_unavailable`; a code is
+  refused the second time before the IdP is asked; sign-out
+  (`/auth/mobile/logout`) is local (the IdP's browser session stays). Dev
+  sign-in: a "Continue as Dev User" page and a stateless signed token, `mode:
+  'dev'`, which release builds of the app refuse.
 - `users.status` decides access: `approved` = everything; `pending` = chat /
   people panel and own profile only; `denied` / `rejected` = nothing (sockets
   refused). The auth guard (`authRoutes.js`) is deny-by-default (`policyFor()` in

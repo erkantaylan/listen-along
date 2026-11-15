@@ -45,10 +45,85 @@ development and the tests use a fake IdP or the dev sign-in instead (see
 - With `DATABASE_URL` set but the database unreachable, sign-in answers "cannot
   be reached right now" and no session is created (in-memory accounts and
   sessions exist only when no database is configured at all, for development).
-- Unchanged: CLI `la_` tokens, the Android app (Bearer tokens), the
+- The Android app signs in through the same flow and gets the same kind of
+  server-side session (see [The Android app](#the-android-app)).
+- Unchanged: CLI `la_` tokens, the
   `/dashboard` admin password (`la_admin` cookie), and listen-along's own
   account status (approved / pending / denied / rejected). The central `roles`
   claim is stored with the session but gates nothing yet.
+
+## The Android app
+
+The app signs in with the same client (`listen-along`, public, PKCE) and ends
+up with a server-side session like a browser's, carried as a Bearer token
+instead of a cookie (`backend/src/mobileAuth.js`). The server, not the app,
+talks to the IdP's token endpoint; the app never holds an IdP token.
+
+1. The app makes `state`, `nonce` and a PKCE verifier (32 random bytes each)
+   and keeps them encrypted until the redirect comes back. It opens a Custom
+   Tab on `GET <server>/auth/mobile/start?state&nonce&code_challenge&code_challenge_method=S256`.
+2. The server redirects to the IdP's authorize endpoint with the server's
+   scopes and `redirect_uri=com.etaylan.listen:/oauth2redirect` (registered
+   for the client in the central catalog, `static_redirects`). The IdP sends
+   the browser back to that URI with `code` and `state`; Android hands it to
+   the app (`auth/AuthRedirectActivity`). The app checks `state` against its
+   own (a redirect it did not start is refused).
+3. `POST <server>/auth/mobile/exchange` `{ code, state, code_verifier, nonce, iss? }`.
+   The server exchanges the code at the token endpoint (public client, the
+   app's redirect URI, the app's verifier), validates the id_token exactly as
+   the web callback does (signature against the JWKS, issuer, audience
+   exactly `listen-along`, no foreign `azp`, expiry, and the **nonce the app
+   sent**), links the account with the rules above, logs the same
+   `central-login: link ...` line with `client=app`, and creates a row in
+   `user_sessions` (refresh token and id_token encrypted, 30 days, re-checked
+   with the refresh token like any session). Answer:
+   `{ token: "lam_...", token_type: "Bearer", expires_at, mode: "central", user: { id, name, status } }`.
+4. The app stores the token encrypted (EncryptedSharedPreferences) and sends
+   `Authorization: Bearer lam_...` on every API call.
+
+Errors from the exchange are `{ error, code }`: `invalid_request` (400),
+`signin_failed` (400: wrong, reused or expired code, a verifier that does not
+fit, any id_token check, the nonce included), `account_disabled` and
+`registrations_closed` (403), `link_conflict` (409), `signin_unavailable`
+(503: the IdP or the database cannot be reached), 429 from `AUTH_RATE_LIMIT`
+(per client address, its own budget). A code is refused the second time
+before the IdP is asked (in memory, 10 minutes: one instance, as already
+required). With `DATABASE_URL` set but no database, the exchange answers 503
+before the code is spent.
+
+**The session**: `lam_` + 32 random bytes; the server stores only the SHA-256
+of the whole string (so a cookie id is never a valid Bearer, nor the reverse).
+`userAuth.js` resolves it for HTTP requests only (sockets stay cookie-only;
+the app has none). When a `lam_` Bearer is sent it is the only identity
+looked at. It reaches what a signed-in browser reaches at the same account
+levels (`policyFor` unchanged: approved for the API, pending for the member
+routes); the CLI-only routes (upload, check, `la` self-update, request
+dismiss) answer 403 `TOKEN_REQUIRED`, and admin stays the `la_admin` cookie.
+An unknown, expired, signed-out, re-check-ended or banned session answers
+**401 `SESSION_ENDED`**; that, and only a 401, sends the app back to Sign in.
+A 503 (database or IdP down) never does. `GET /api/me` with the session
+answers `{ name, user: { id, name, status }, session: { kind: "app" } }`
+(pending accounts too).
+
+**Sign out**: `POST /auth/mobile/logout` with the Bearer deletes the session
+(and with it the refresh token). The IdP's browser session in the phone's
+browser is left alone, on purpose, so signing in again is a tap; signing out
+of the central login itself happens on the web or at the IdP. Signing in again
+while holding a session (sent along as the Bearer to the exchange) ends the
+old one.
+
+**Development**: against a server with `INSECURE_DEV_LOGIN=1`,
+`/auth/mobile/start` shows a "Continue as Dev User" page (or `?user=<users.id>`)
+whose link goes straight back to the app with a signed one-time code; the
+exchange checks the PKCE verifier and the nonce against it and answers
+`mode: "dev"` with a stateless signed token (30 days). Release builds of the
+app refuse a `dev` session; production servers refuse to start with the dev
+sign-in. The app's stub server (`android/tools/stub_server.py`) does the same.
+Against a fake IdP (`node src/fakeOidcIssuer.js`) the real flow works too; the
+phone must reach both the server and the fake IdP (e.g. `adb reverse` for both
+ports, `BASE_URL`/issuer on `localhost`).
+
+Tests: `backend/src/mobile-auth.test.js` (fake IdP, with and without Postgres).
 
 ## Environment
 
