@@ -208,7 +208,7 @@ describe('presence: now playing', () => {
     p.setNowPlaying(ALICE, 's', { track: { title: 'Song' }, context: { type: 'lobby', lobbyId: 'secret1' }, playing: true });
     const entry = p.getNowPlaying(ALICE);
     const lobbies = { secret1: { id: 'secret1', name: 'My Secret Mix', ownerId: ALICE, visibility: 'private' } };
-    const access = require('./playlistAccess');
+    const access = require('./core/playlists/index.ts').access;
     const lobbyFor = viewer => id => (access.canView(lobbies[id], viewer) ? lobbies[id] : null);
 
     const forOwner = viewNowPlaying(entry, lobbyFor(ALICE));

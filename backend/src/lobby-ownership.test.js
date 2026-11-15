@@ -29,7 +29,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 // Simulate a server restart: clear in-memory module state but keep the db pool.
 function simulateRestart() {
-  delete require.cache[require.resolve('./lobby')];
+  require('./core/playlists/index.ts').playlist.forgetAll();
   require('./core/queue/index.ts').forgetAll();
 }
 
@@ -63,7 +63,7 @@ describe('Lobby ownership, visibility, persistence', { skip: skipReason, timeout
     delete process.env.DATABASE_URL;
 
     delete require.cache[require.resolve('./shared/db.ts')];
-    delete require.cache[require.resolve('./lobby')];
+    require('./core/playlists/index.ts').playlist.forgetAll();
     require('./core/queue/index.ts').forgetAll();
   });
 
@@ -80,9 +80,9 @@ describe('Lobby ownership, visibility, persistence', { skip: skipReason, timeout
     assert.equal(chat.rows.length, 0, 'chat_messages table is dropped');
   });
 
-  it('createLobbyAsync persists the owner and defaults to public', async () => {
-    const lobby = require('./lobby');
-    const created = await lobby.createLobbyAsync(ALICE, 'own-1', 'Alice room');
+  it('createPlaylistAsync persists the owner and defaults to public', async () => {
+    const lobby = require('./core/playlists/index.ts').playlist;
+    const created = await lobby.createPlaylistAsync(ALICE, 'own-1', 'Alice room');
     assert.equal(created.ownerId, ALICE);
     assert.equal(created.visibility, 'public');
 
@@ -92,24 +92,24 @@ describe('Lobby ownership, visibility, persistence', { skip: skipReason, timeout
   });
 
   it('anonymous creator persists host_id = null and is always public', async () => {
-    const lobby = require('./lobby');
-    await lobby.createLobbyAsync(null, 'anon-1', null, 'private');
+    const lobby = require('./core/playlists/index.ts').playlist;
+    await lobby.createPlaylistAsync(null, 'anon-1', null, 'private');
     const row = await db.query('SELECT host_id, visibility FROM lobbies WHERE id = $1', ['anon-1']);
     assert.equal(row.rows[0].host_id, null);
     assert.equal(row.rows[0].visibility, 'public');
   });
 
   it('setVisibility persists and survives a restart', async () => {
-    const lobby = require('./lobby');
-    await lobby.createLobbyAsync(ALICE, 'vis-1', 'Toggle me');
+    const lobby = require('./core/playlists/index.ts').playlist;
+    await lobby.createPlaylistAsync(ALICE, 'vis-1', 'Toggle me');
 
     await lobby.setVisibility('vis-1', 'private');
     let row = await db.query('SELECT visibility FROM lobbies WHERE id = $1', ['vis-1']);
     assert.equal(row.rows[0].visibility, 'private');
 
     simulateRestart();
-    const lobbyAfter = require('./lobby');
-    const restored = await lobbyAfter.getLobbyAsync('vis-1');
+    const lobbyAfter = require('./core/playlists/index.ts').playlist;
+    const restored = await lobbyAfter.getPlaylistAsync('vis-1');
     assert.ok(restored, 'Lobby should be restored');
     assert.equal(restored.visibility, 'private', 'private visibility should persist');
     assert.equal(restored.ownerId, ALICE, 'owner should persist');
@@ -119,16 +119,16 @@ describe('Lobby ownership, visibility, persistence', { skip: skipReason, timeout
     assert.equal(row.rows[0].visibility, 'public');
   });
 
-  it('getAllLobbies + playlistAccess: others never see a private playlist', async () => {
-    const lobby = require('./lobby');
-    const access = require('./playlistAccess');
-    await lobby.createLobbyAsync(BOB, 'list-pub', 'Bob public');
-    await lobby.createLobbyAsync(BOB, 'lst-priv', 'Bob private', 'private');
+  it('getAllPlaylists + playlistAccess: others never see a private playlist', async () => {
+    const lobby = require('./core/playlists/index.ts').playlist;
+    const access = require('./core/playlists/index.ts').access;
+    await lobby.createPlaylistAsync(BOB, 'list-pub', 'Bob public');
+    await lobby.createPlaylistAsync(BOB, 'lst-priv', 'Bob private', 'private');
 
     simulateRestart();
-    const lobbyAfter = require('./lobby');
-    await lobbyAfter.loadLobbiesFromDB();
-    const all = lobbyAfter.getAllLobbies();
+    const lobbyAfter = require('./core/playlists/index.ts').playlist;
+    await lobbyAfter.loadPlaylistsFromDB();
+    const all = lobbyAfter.getAllPlaylists();
     const visibleTo = (uid) => all.filter(l => access.canView(l, uid)).map(l => l.id);
     assert.ok(visibleTo(ALICE).includes('list-pub'), 'Alice sees public playlist');
     assert.ok(!visibleTo(ALICE).includes('lst-priv'), "Alice does NOT see Bob's private playlist");
@@ -137,8 +137,8 @@ describe('Lobby ownership, visibility, persistence', { skip: skipReason, timeout
   });
 
   it('idle lobbies are NOT auto-deleted (no time-based expiry)', async () => {
-    const lobby = require('./lobby');
-    await lobby.createLobbyAsync(ALICE, 'idle-1', 'Idle room');
+    const lobby = require('./core/playlists/index.ts').playlist;
+    await lobby.createPlaylistAsync(ALICE, 'idle-1', 'Idle room');
 
     // Backdate well past the old 24h timeout.
     const ancient = Date.now() - (1000 * 60 * 60 * 24 * 30); // 30 days
@@ -146,27 +146,27 @@ describe('Lobby ownership, visibility, persistence', { skip: skipReason, timeout
 
     // Both the (now no-op) DB cleanup and the in-memory sweep must keep it.
     assert.equal(await db.cleanupExpiredLobbies(), 0, 'cleanupExpiredLobbies must delete nothing');
-    await lobby.cleanupEmptyLobbies();
+    await lobby.cleanupEmptyPlaylists();
 
     const row = await db.query('SELECT id FROM lobbies WHERE id = $1', ['idle-1']);
     assert.equal(row.rows.length, 1, 'idle lobby row must still exist');
-    assert.ok(lobby.getLobby('idle-1') || await lobby.getLobbyAsync('idle-1'), 'idle lobby still loadable');
+    assert.ok(lobby.getPlaylist('idle-1') || await lobby.getPlaylistAsync('idle-1'), 'idle lobby still loadable');
   });
 
-  it('deleteLobbyAsync removes the row from the DB (creator/admin delete)', async () => {
-    const lobby = require('./lobby');
-    await lobby.createLobbyAsync(ALICE, 'del-1', 'Delete me');
+  it('deletePlaylistAsync removes the row from the DB (creator/admin delete)', async () => {
+    const lobby = require('./core/playlists/index.ts').playlist;
+    await lobby.createPlaylistAsync(ALICE, 'del-1', 'Delete me');
     await delay(50);
 
-    await lobby.deleteLobbyAsync('del-1');
+    await lobby.deletePlaylistAsync('del-1');
 
     const row = await db.query('SELECT id FROM lobbies WHERE id = $1', ['del-1']);
     assert.equal(row.rows.length, 0, 'deleted lobby row must be gone');
 
     // And it must not resurrect on restart.
     simulateRestart();
-    const lobbyAfter = require('./lobby');
-    const restored = await lobbyAfter.getLobbyAsync('del-1');
+    const lobbyAfter = require('./core/playlists/index.ts').playlist;
+    const restored = await lobbyAfter.getPlaylistAsync('del-1');
     assert.equal(restored, undefined, 'deleted lobby must not reappear after restart');
   });
 });

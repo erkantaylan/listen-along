@@ -10,7 +10,7 @@ const http = require('node:http');
 const { io: ioClient } = require('socket.io-client');
 const { DEV_COOKIE, signDevToken } = require('./auth/index.ts');
 const { listening } = require('./testServer');
-const access = require('./playlistAccess');
+const access = require('./core/playlists/index.ts').access;
 
 const SECRET = 'playlist-permissions-test-secret';
 const ALICE = '00000000-0000-4000-8000-00000000a11c';

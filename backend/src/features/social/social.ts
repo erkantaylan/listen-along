@@ -32,7 +32,7 @@
  * listeners = how many people listen along with them (a count, no names).
  */
 
-import access from '../../playlistAccess.js';
+import { access } from '../../core/playlists/index.ts';
 import * as chat from './chat.ts';
 import type { ChatStore, RateLimiter } from './chat.ts';
 import { viewNowPlaying } from './presence.ts';

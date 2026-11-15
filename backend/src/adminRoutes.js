@@ -17,7 +17,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const access = require('./playlistAccess');
+const { access } = require('./core/playlists/index.ts');
 
 // What the status route accepts: exactly what the dashboard's actions write.
 const ADMIN_SET_STATUSES = ['approved', 'denied', 'rejected'];
@@ -37,7 +37,7 @@ const ADMIN_SET_STATUSES = ['approved', 'denied', 'rejected'];
  * @param {() => ({ deleteMessage: (id: string) => Promise<boolean> }|null)} deps.getSocial
  * @returns {import('express').Router}
  */
-function createAdminRouter({ db, lobby, getQueueAsync, library, settings, oidc, apiLimiter, adminAuth, accountStatusChanged, destroyLobby, getSocial }) {
+function createAdminRouter({ db, playlist, getQueueAsync, library, settings, oidc, apiLimiter, adminAuth, accountStatusChanged, destroyLobby, getSocial }) {
   const router = express.Router();
 
   // Admin: list pending users (dashboard auth)
@@ -108,7 +108,7 @@ function createAdminRouter({ db, lobby, getQueueAsync, library, settings, oidc, 
     // Private playlists are visible to their owner only — admins included: the
     // dashboard counts them but never lists them.
     const stats = {
-      totalLobbies: lobby.lobbies.size,
+      totalLobbies: playlist.playlists.size,
       privateLobbies: 0,
       totalUsers: 0,
       uptime: process.uptime(),
@@ -117,8 +117,8 @@ function createAdminRouter({ db, lobby, getQueueAsync, library, settings, oidc, 
       lobbies: []
     };
 
-    for (const [lobbyId, lobbyData] of lobby.lobbies) {
-      const users = lobby.getLobbyUsers(lobbyId);
+    for (const [lobbyId, lobbyData] of playlist.playlists) {
+      const users = playlist.getPlaylistUsers(lobbyId);
       const userCount = users ? users.length : 0;
       stats.totalUsers += userCount;
       if (access.isPrivate(lobbyData)) { stats.privateLobbies++; continue; }
@@ -223,7 +223,7 @@ function createAdminRouter({ db, lobby, getQueueAsync, library, settings, oidc, 
   // Delete a lobby (dashboard only)
   router.delete('/api/dashboard/lobbies/:id', adminAuth.requireAdmin, async (req, res) => {
     const lobbyId = req.params.id;
-    const lobbyData = lobby.getLobby(lobbyId);
+    const lobbyData = playlist.getPlaylist(lobbyId);
 
     if (!access.canAdminDelete(lobbyData)) {
       return res.status(404).json({ error: 'Playlist not found' });

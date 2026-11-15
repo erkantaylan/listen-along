@@ -69,7 +69,7 @@ describe('Playlist migration from the old lobby schema', { skip: skipReason, tim
     if (container) await container.stop();
     delete process.env.DATABASE_URL;
     delete require.cache[require.resolve('./shared/db.ts')];
-    delete require.cache[require.resolve('./lobby')];
+    require('./core/playlists/index.ts').playlist.forgetAll();
     require('./core/queue/index.ts').forgetAll();
   });
 
@@ -104,9 +104,9 @@ describe('Playlist migration from the old lobby schema', { skip: skipReason, tim
   });
 
   it('loads migrated playlists into memory with owner + visibility', async () => {
-    const lobby = require('./lobby');
-    await lobby.loadLobbiesFromDB();
-    const l = await lobby.getLobbyAsync('own-prv');
+    const lobby = require('./core/playlists/index.ts').playlist;
+    await lobby.loadPlaylistsFromDB();
+    const l = await lobby.getPlaylistAsync('own-prv');
     assert.equal(l.ownerId, 'user-a');
     assert.equal(l.visibility, 'private');
   });

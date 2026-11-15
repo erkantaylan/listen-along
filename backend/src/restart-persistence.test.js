@@ -62,7 +62,7 @@ async function waitForTitles(db, lobbyId, expected) {
  * but lobby/queue modules get fresh empty Maps.
  */
 function simulateRestart() {
-  delete require.cache[require.resolve('./lobby')];
+  require('./core/playlists/index.ts').playlist.forgetAll();
   require('./core/queue/index.ts').forgetAll();
 }
 
@@ -90,22 +90,22 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
     delete process.env.DATABASE_URL;
 
     delete require.cache[require.resolve('./shared/db.ts')];
-    delete require.cache[require.resolve('./lobby')];
+    require('./core/playlists/index.ts').playlist.forgetAll();
     require('./core/queue/index.ts').forgetAll();
   });
 
   it('restores a lobby (name, visibility) from DB after restart', async () => {
-    const lobby = require('./lobby');
+    const lobby = require('./core/playlists/index.ts').playlist;
 
-    const created = await lobby.createLobbyAsync('owner-1', 'lm-test1', 'Restart me', 'private');
+    const created = await lobby.createPlaylistAsync('owner-1', 'lm-test1', 'Restart me', 'private');
     assert.equal(created.name, 'Restart me');
 
     // Simulate server restart (clears in-memory maps)
     simulateRestart();
-    const lobbyAfter = require('./lobby');
+    const lobbyAfter = require('./core/playlists/index.ts').playlist;
 
-    // Rejoin via getLobbyAsync (simulates lobby:join looking up the lobby from DB)
-    const restored = await lobbyAfter.getLobbyAsync('lm-test1');
+    // Rejoin via getPlaylistAsync (simulates lobby:join looking up the lobby from DB)
+    const restored = await lobbyAfter.getPlaylistAsync('lm-test1');
     assert.ok(restored, 'Lobby should be restored from DB');
     assert.equal(restored.id, 'lm-test1');
     assert.equal(restored.name, 'Restart me');
@@ -137,18 +137,18 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
     assert.equal(tables.rows[0].t, null, 'playback_state should be dropped');
 
     simulateRestart();
-    const lobby = require('./lobby');
-    const restored = await lobby.getLobbyAsync('jam-old1');
+    const lobby = require('./core/playlists/index.ts').playlist;
+    const restored = await lobby.getPlaylistAsync('jam-old1');
     assert.ok(restored, 'Former Jam lobby should still load');
     assert.equal(restored.name, 'Old jam');
     assert.equal(restored.listeningMode, undefined);
   });
 
   it('restores queue songs from DB after restart', async () => {
-    const lobby = require('./lobby');
+    const lobby = require('./core/playlists/index.ts').playlist;
     const { getQueueAsync } = require('./core/queue/index.ts');
 
-    await lobby.createLobbyAsync(null, 'q-test1');
+    await lobby.createPlaylistAsync(null, 'q-test1');
     const queue = await getQueueAsync('q-test1');
 
     queue.addSong({ url: 'https://youtube.com/watch?v=song1', title: 'Song One', duration: 180, addedBy: 'Alice' });
@@ -176,10 +176,10 @@ describe('Lobby persistence across server restarts', { skip: skipReason, timeout
   });
 
   it('preserves queue order after restart', async () => {
-    const lobby = require('./lobby');
+    const lobby = require('./core/playlists/index.ts').playlist;
     const { getQueueAsync } = require('./core/queue/index.ts');
 
-    await lobby.createLobbyAsync(null, 'qo-test1');
+    await lobby.createPlaylistAsync(null, 'qo-test1');
     const queue = await getQueueAsync('qo-test1');
 
     const songA = queue.addSong({ url: 'https://youtube.com/watch?v=a', title: 'Alpha', duration: 100, addedBy: 'User1' });

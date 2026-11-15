@@ -12,7 +12,9 @@ require('dotenv').config();
 const path = require('path');
 const crypto = require('crypto');
 const { requests: songRequests, createResolver, ytdlp, spotify } = require('./core/requests/index.ts');
-const lobby = require('./lobby');
+const {
+  playlist, access, playlistPins, createPlaylistRoutes, createPlaylistFolderRouter, createPlaylistSockets,
+} = require('./core/playlists/index.ts');
 const { getQueueAsync, deleteQueue, hasQueue, createQueueSockets } = require('./core/queue/index.ts');
 const db = require('./shared/db.ts');
 const { library, covers, createLibraryRouter, sendSongFile, createMediaRouter, createSilenceScanner, createSilenceRouter } = require('./core/library/index.ts');
@@ -21,8 +23,7 @@ const { apiLimiter, make: makeLimiter } = require('./shared/rateLimits.ts');
 const { createSettings, parseRegistrationsDefault } = require('./shared/settings.ts');
 
 const { createPicker } = require('./features/picker/index.ts');
-const access = require('./playlistAccess');
-const playlistPins = require('./playlistPins');
+
 
 const { createAppRelease } = require('./features/app-release/index.ts');
 const { downloadJobs, createWorkerHub, createJobRouter, createCliRelease, createCliRouter } = require('./core/jobs/index.ts');
@@ -39,10 +40,9 @@ const { createInfoRouter, createPageRouter } = require('./appRoutes');
 const { createProfileRouter } = require('./profileRoutes');
 const { createAdminRouter } = require('./adminRoutes');
 const { createAuthRoutes } = require('./auth/index.ts');
-const { createPlaylistRoutes } = require('./playlistRoutes');
-const { createPlaylistFolderRouter } = require('./core/playlists/index.ts');
 
-const { createPlaylistSockets } = require('./playlistSockets');
+
+
 const { APP_ROOM, userRoom, sessionRoom, createSocketServer, attachSocketHandlers } = require('./socketServer');
 const { createMemoryRateLimit } = require('./shared/memoryRateLimit.ts');
 const { createReactions } = require('./reactions');
@@ -153,7 +153,7 @@ const activityFeed = createActivityFeed({
   io,
   room: APP_ROOM,
   userRoom,
-  getPlaylist: (id) => lobby.getLobbyAsync(id),
+  getPlaylist: (id) => playlist.getPlaylistAsync(id),
   progressMs: process.env.ACTIVITY_PROGRESS_MS ? Number(process.env.ACTIVITY_PROGRESS_MS) : undefined,
 });
 
@@ -165,7 +165,7 @@ const {
   destroyLobby, addLibrarySongToLobby, emitUnavailableSongs, handleLibrarySongReplaced, handleLibrarySongDetailsChanged,
   handleLibrarySongAdded,
 } = createReactions({
-  io, db, lobby, getQueueAsync, hasQueue, deleteQueue, library, covers, downloadJobs, playlistPins, userAuth, sessionStore,
+  io, db, playlist, getQueueAsync, hasQueue, deleteQueue, library, covers, downloadJobs, playlistPins, userAuth, sessionStore,
   activityFeed, getWorkerHub: () => workerHub, getSocial: () => social, APP_ROOM, userRoom, sessionRoom,
 });
 
@@ -260,7 +260,7 @@ app.use(createJobRouter({
   hub: workerHub,
   cliLatest: () => cliRelease.latest(),
   editablePlaylist: async (playlistId, userId) => {
-    const l = await lobby.getLobbyAsync(playlistId);
+    const l = await playlist.getPlaylistAsync(playlistId);
     return access.canEdit(l, userId) ? l : null;
   },
   spotifyTrack: (url) => spotify.getTrack(url),
@@ -272,7 +272,7 @@ app.use(createJobRouter({
     return true;
   },
   visiblePlaylist: async (playlistId, userId) => {
-    const l = await lobby.getLobbyAsync(playlistId);
+    const l = await playlist.getPlaylistAsync(playlistId);
     return access.canView(l, userId) ? l : null;
   },
   onJobUpdated: emitJob,
@@ -291,8 +291,8 @@ app.use(createSilenceRouter({ db, resolveQueueUrl: (url) => library.resolveQueue
 
 // Playlists over HTTP, songs included (playlistRoutes.js).
 const { router: playlistRouter, ownerNames } = createPlaylistRoutes({
-  io, db, lobby, getQueueAsync, library, playlistPins, userAuth, adminAuth, getSocial: () => social, userRoom,
-  notifyPlaylistsChanged, destroyLobby, addLibrarySongToLobby,
+  io, db, playlist, getQueueAsync, library, playlistPins, userAuth, adminAuth, getSocial: () => social, userRoom,
+  notifyPlaylistsChanged, destroyPlaylist: destroyLobby, addLibrarySongToPlaylist: addLibrarySongToLobby,
 });
 app.use(playlistRouter);
 
@@ -303,8 +303,8 @@ app.use(playlistRouter);
 app.use('/api/playlist-folders', apiLimiter);
 app.use(createPlaylistFolderRouter({
   userIdFor: (req) => userAuth.userIdFor(req),
-  canSee: async (id, userId) => access.canView(lobby.lobbies.get(id), userId),
-  exists: async (id) => lobby.lobbies.has(id),
+  canSee: async (id, userId) => access.canView(playlist.playlists.get(id), userId),
+  exists: async (id) => playlist.playlists.has(id),
   notifyUser: (userId) => io.to(userRoom(String(userId))).emit('playlists:changed'),
 }));
 
@@ -324,14 +324,14 @@ app.use(createProfileRouter({ db, userAuth, getSocial: () => social }));
 // settings routes count against apiLimiter themselves.
 app.use(['/api/dashboard', '/api/chat'], apiLimiter);
 app.use(createAdminRouter({
-  db, lobby, getQueueAsync, library, settings, oidc: OIDC, apiLimiter, adminAuth,
+  db, playlist, getQueueAsync, library, settings, oidc: OIDC, apiLimiter, adminAuth,
   accountStatusChanged, destroyLobby, getSocial: () => social,
 }));
 
 // Playlist membership and queue socket handlers (playlistSockets.js,
 // queueSockets.js), registered per connection below.
 const playlistSockets = createPlaylistSockets({
-  io, lobby, getQueueAsync, adminAuth, getSocial: () => social, ownerNames, notifyPlaylistsChanged, emitUnavailableSongs,
+  io, playlist, getQueueAsync, adminAuth, getSocial: () => social, ownerNames, notifyPlaylistsChanged, emitUnavailableSongs,
 });
 const queueSockets = createQueueSockets({
   io, db, getQueueAsync, resolver, songRequests, addLibrarySongToPlaylist: addLibrarySongToLobby, queueRequestJob, APP_ROOM,
@@ -377,7 +377,7 @@ async function start() {
     db,
     presence,
     store: dbAvailable ? chat.createPgStore(db) : chat.createMemoryStore(),
-    getLobby: (id) => lobby.getLobby(id),
+    getLobby: (id) => playlist.getPlaylist(id),
     isAdmin: (headers) => adminAuth.isAdmin({ headers }),
     listenerCount: (id) => (listenAlong ? listenAlong.graph.followersOf(id).length : 0),
   });
@@ -396,7 +396,7 @@ async function start() {
     console.log('Database persistence enabled');
 
     // Restore lobbies from database into memory so lobby list works after restart
-    await lobby.loadLobbiesFromDB();
+    await playlist.loadPlaylistsFromDB();
 
     // Download jobs that were running when the server stopped go back in the
     // queue; workers reconnect and pick them up (or reclaim their own).

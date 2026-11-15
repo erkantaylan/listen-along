@@ -34,7 +34,7 @@ describe('dashboard and profile routes when storage fails', () => {
 
   it('deleting a playlist or a chat message answers 500, nothing is left unhandled', async () => {
     const s = await serve(createAdminRouter({
-      db: { isAvailable: () => true, query: boom }, lobby: { getLobby: () => ({ id: 'p1', ownerId: null, visibility: 'public' }) },
+      db: { isAvailable: () => true, query: boom }, playlist: { getPlaylist: () => ({ id: 'p1', ownerId: null, visibility: 'public' }) },
       apiLimiter: pass, adminAuth: { requireAdmin: pass }, destroyLobby: boom,
       getSocial: () => ({ deleteMessage: boom }), accountStatusChanged: async () => {},
     }));

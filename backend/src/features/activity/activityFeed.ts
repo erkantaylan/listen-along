@@ -21,7 +21,7 @@
  * worker, a replace job's details) is a full row, never held back.
  */
 
-import access from '../../playlistAccess.js';
+import { access } from '../../core/playlists/index.ts';
 import { downloadJobs as jobsModule } from '../../core/jobs/index.ts';
 import type { JobWithJoins, Playlist } from '../../shared/types.ts';
 

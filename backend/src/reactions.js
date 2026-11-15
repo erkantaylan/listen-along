@@ -21,7 +21,7 @@
  *                              and players are told (library:updated)
  */
 
-const access = require('./playlistAccess');
+const { access } = require('./core/playlists/index.ts');
 const { isBlocked } = require('./auth/index.ts');
 
 /**
@@ -45,8 +45,9 @@ const { isBlocked } = require('./auth/index.ts');
  * @param {(userId: string) => string} deps.userRoom
  * @param {(idHash: string) => string} deps.sessionRoom
  */
+
 function createReactions({
-  io, db, lobby, getQueueAsync, hasQueue, deleteQueue, library, covers, downloadJobs, playlistPins, userAuth, sessionStore,
+  io, db, playlist, getQueueAsync, hasQueue, deleteQueue, library, covers, downloadJobs, playlistPins, userAuth, sessionStore,
   activityFeed, getWorkerHub, getSocial, APP_ROOM, userRoom, sessionRoom,
 }) {
   function emitJob(row) {
@@ -61,7 +62,7 @@ function createReactions({
   // request flow (handleLibrarySongAdded) adds to the requesting playlist.
   async function addJobSongsToPlaylist(job, songs) {
     if (!job || job.source !== 'web' || !job.playlist_id || !db.isAvailable()) return;
-    const l = await lobby.getLobbyAsync(job.playlist_id);
+    const l = await playlist.getPlaylistAsync(job.playlist_id);
     if (!l || !access.canEdit(l, job.requested_by_user_id)) return;
     let added = 0;
     for (const song of songs) {
@@ -134,7 +135,7 @@ function createReactions({
   // delete so the row does not resurrect on restart (there is no longer any
   // time-based cleanup to remove stale rows — hq-9gvy).
   async function destroyLobby(lobbyId, { reason } = {}) {
-    const before = await lobby.getLobbyAsync(lobbyId);
+    const before = await playlist.getPlaylistAsync(lobbyId);
     io.to(lobbyId).emit('lobby:closed', {
       lobbyId,
       message: reason || 'This playlist has been deleted.'
@@ -148,7 +149,7 @@ function createReactions({
 
     deleteQueue(lobbyId);
 
-    await lobby.deleteLobbyAsync(lobbyId);
+    await playlist.deletePlaylistAsync(lobbyId);
     playlistPins.forgetPlaylist(lobbyId);
     const social = getSocial();
     if (social) social.lobbyChanged(lobbyId);
@@ -225,7 +226,7 @@ function createReactions({
     const entry = library.toQueueEntry(librarySong);
     const oldUrls = [...new Set([library.queueUrlFor(previous), `library:${previous.id}`, previous.source_url].filter(Boolean))];
     // Queues already in memory, plus (below) any in the DB that hold the song.
-    const lobbyIds = new Set(lobby.getAllLobbies().map(l => l.id).filter(id => hasQueue(id)));
+    const lobbyIds = new Set(playlist.getAllPlaylists().map(l => l.id).filter(id => hasQueue(id)));
     if (db.isAvailable()) {
       // Playlists not loaded in memory yet still have their queue in the DB.
       const ytId = previous.youtube_id || null;
@@ -276,7 +277,7 @@ function createReactions({
     }
     for (const [lobbyId, request] of byLobby) {
       try {
-        const lobbyData = await lobby.getLobbyAsync(lobbyId);
+        const lobbyData = await playlist.getPlaylistAsync(lobbyId);
         if (!lobbyData) continue;
         const queue = await getQueueAsync(lobbyId);
         const alreadyQueued = queue.getSongs().some(s => urls.has(s.url));
