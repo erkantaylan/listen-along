@@ -9,53 +9,63 @@
 //   - tokens: a user's token is that user, a legacy token has no pins
 //   - playlists:changed carries nothing and a private playlist's changes only
 //     reach its owner
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const { execSync } = require('node:child_process');
-const crypto = require('node:crypto');
-const { io: ioClient } = require('socket.io-client');
-const { cookieFor, startServer, requester } = require('./testServer');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { execSync } from 'node:child_process';
+import crypto from 'node:crypto';
+import pgModule from 'pg';
+import { io as ioClient } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { cookieFor, startServer, requester } from '../../testServer.js';
 
-let PostgreSqlContainer;
-try { PostgreSqlContainer = require('@testcontainers/postgresql').PostgreSqlContainer; } catch {}
-const has = (cmd) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
+// Server JSON.
+type Payload = any;
+type Server = Awaited<ReturnType<typeof startServer>>;
+type Req = ReturnType<typeof requester>;
+/** A socket that records every playlists:changed it gets (its arguments). */
+type SignalSocket = Socket & { signals: unknown[][] };
+
+let PostgreSqlContainer: typeof import('@testcontainers/postgresql').PostgreSqlContainer | undefined;
+try { ({ PostgreSqlContainer } = await import('@testcontainers/postgresql')); } catch {}
+const has = (cmd: string) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
 const skip = !PostgreSqlContainer ? 'testcontainers package not installed'
   : !has('docker info') ? 'Docker not available' : false;
 
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 describe('playlist pins on Postgres', { skip, timeout: 180_000 }, () => {
-  let container, pg, srv, req;
-  const ids = {};
-  const cookies = {};
-  const pl = {};
-  const sockets = [];
-  let legacyToken, aliceToken;
+  let container: StartedPostgreSqlContainer, pg: pgModule.Client, srv: Server, req: Req;
+  const ids: Record<string, string> = {};
+  const cookies: Record<string, string> = {};
+  const pl: Record<string, string> = {};
+  const sockets: SignalSocket[] = [];
+  let legacyToken: string, aliceToken: string;
 
-  const list = async (who) => {
+  const list = async (who: string): Promise<Payload[]> => {
     const r = await req('GET', '/api/playlists', { cookie: cookies[who] });
     assert.equal(r.status, 200);
     return r.body.playlists;
   };
-  const rowOf = async (who, id) => (await list(who)).find(p => p.id === id);
-  const create = async (who, name, visibility = 'public') => {
+  const rowOf = async (who: string, id: string): Promise<Payload> => (await list(who)).find(p => p.id === id);
+  const create = async (who: string, name: string, visibility = 'public'): Promise<string> => {
     const r = await req('POST', '/api/playlists', { cookie: cookies[who], body: { name, visibility } });
     assert.equal(r.status, 201);
     return r.body.id;
   };
-  const connect = (who) => new Promise((resolve, reject) => {
-    const s = ioClient(srv.base, { extraHeaders: { cookie: cookies[who] }, transports: ['websocket'] });
+  const connect = (who: string) => new Promise<SignalSocket>((resolve, reject) => {
+    const s = ioClient(srv.base, { extraHeaders: { cookie: cookies[who] }, transports: ['websocket'] }) as SignalSocket;
     s.signals = [];
-    s.on('playlists:changed', (...args) => s.signals.push(args));
+    s.on('playlists:changed', (...args: unknown[]) => s.signals.push(args));
     s.on('connect', () => { sockets.push(s); resolve(s); });
     s.on('connect_error', reject);
   });
 
   before(async () => {
-    container = await new PostgreSqlContainer('postgres:16-alpine')
+    container = await new PostgreSqlContainer!('postgres:16-alpine')
       .withDatabase('listen_pins').withUsername('test').withPassword('test').start();
     const url = container.getConnectionUri();
-    const { Client } = require('pg');
+    const { Client } = pgModule;
     pg = new Client({ connectionString: url });
     await pg.connect();
 
@@ -93,7 +103,7 @@ describe('playlist pins on Postgres', { skip, timeout: 180_000 }, () => {
     const r = await pg.query(`
       SELECT confrelid::regclass::text AS target, confdeltype FROM pg_constraint
       WHERE conrelid = 'playlist_pins'::regclass AND contype = 'f' ORDER BY 1`);
-    assert.deepEqual(r.rows.map(x => [x.target, x.confdeltype]), [['lobbies', 'c'], ['users', 'c']]);
+    assert.deepEqual(r.rows.map((x: Payload) => [x.target, x.confdeltype]), [['lobbies', 'c'], ['users', 'c']]);
   });
 
   it('requires a login', async () => {
@@ -189,7 +199,7 @@ describe('playlist pins on Postgres', { skip, timeout: 180_000 }, () => {
     assert.equal(r.body.code, 'FORBIDDEN');
     assert.equal((await req('PUT', `/api/playlists/${pl.priv}/pin`, legacy)).status, 404);
     const seen = (await req('GET', '/api/playlists', legacy)).body.playlists;
-    assert.ok(seen.every(p => p.pinnedByMe === false));
+    assert.ok(seen.every((p: Payload) => p.pinnedByMe === false));
   });
 
   it('playlists:changed is empty and private changes reach only the owner', async () => {
@@ -245,7 +255,7 @@ describe('playlist pins on Postgres', { skip, timeout: 180_000 }, () => {
 });
 
 describe('playlist pins without a database', { timeout: 60_000 }, () => {
-  let srv, req;
+  let srv: Server, req: Req;
   const a = cookieFor('mem-alice');
   const b = cookieFor('mem-bob');
 
@@ -258,7 +268,7 @@ describe('playlist pins without a database', { timeout: 60_000 }, () => {
   it('pins per user in memory, hides private ones, forgets deleted ones', async () => {
     const id = (await req('POST', '/api/playlists', { cookie: a, body: { name: 'Mem' } })).body.id;
     assert.equal((await req('PUT', `/api/playlists/${id}/pin`, { cookie: a })).status, 200);
-    const row = async (c) => (await req('GET', '/api/playlists', { cookie: c })).body.playlists.find(p => p.id === id);
+    const row = async (c: string): Promise<Payload> => (await req('GET', '/api/playlists', { cookie: c })).body.playlists.find((p: Payload) => p.id === id);
     assert.equal((await row(a)).pinnedByMe, true);
     assert.equal((await row(b)).pinnedByMe, false);
 

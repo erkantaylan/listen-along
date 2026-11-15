@@ -1,30 +1,36 @@
 // Playlist visibility / permission rules, end to end: the pure rules in
-// playlistAccess.js, then the real server (in-memory storage, no Postgres)
+// playlistAccess.ts, then the real server (in-memory storage, no Postgres)
 // over HTTP and Socket.IO with two signed-in users and one anonymous client.
 // Also covers the /lobby/... -> /playlist/... redirect.
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const { spawn } = require('node:child_process');
-const path = require('node:path');
-const http = require('node:http');
-const { io: ioClient } = require('socket.io-client');
-const { DEV_COOKIE, signDevToken } = require('./auth/index.ts');
-const { listening } = require('./testServer');
-const access = require('./core/playlists/index.ts').access;
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
+import path from 'node:path';
+import http from 'node:http';
+import { io as ioClient } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
+import { DEV_COOKIE, signDevToken } from '../../auth/index.ts';
+import { listening } from '../../testServer.js';
+import { access } from './index.ts';
+import type { AccessPlaylist } from './index.ts';
+
+// Server and socket JSON.
+type Payload = any;
 
 const SECRET = 'playlist-permissions-test-secret';
 const ALICE = '00000000-0000-4000-8000-00000000a11c';
 const BOB = '00000000-0000-4000-8000-000000000b0b';
 
-// The dev sign-in cookie (devLogin.js); the server below runs with INSECURE_DEV_LOGIN=1.
-function authCookie(userId) {
+// The dev sign-in cookie (devLogin.ts); the server below runs with INSECURE_DEV_LOGIN=1.
+function authCookie(userId: string) {
   return `${DEV_COOKIE}=${signDevToken(SECRET, userId)}`;
 }
 
 describe('playlistAccess rules', () => {
-  const pub = { id: 'p', ownerId: ALICE, visibility: 'public' };
-  const priv = { id: 'q', ownerId: ALICE, visibility: 'private' };
-  const ownerless = { id: 'r', ownerId: null, visibility: 'public' };
+  const pub: AccessPlaylist & { id: string } = { id: 'p', ownerId: ALICE, visibility: 'public' };
+  const priv: AccessPlaylist & { id: string } = { id: 'q', ownerId: ALICE, visibility: 'private' };
+  const ownerless: AccessPlaylist & { id: string } = { id: 'r', ownerId: null, visibility: 'public' };
 
   it('public: everyone logged in can view and edit; only the owner manages', () => {
     assert.equal(access.canView(pub, BOB), true);
@@ -90,16 +96,16 @@ describe('playlistAccess rules', () => {
 });
 
 describe('playlist permissions against a running server', { timeout: 60_000 }, () => {
-  let server;
-  let base;
-  const sockets = [];
+  let server: ChildProcess | undefined;
+  let base: string;
+  const sockets: Socket[] = [];
 
   before(async () => {
     // Port 0: the server binds a free port itself and says which (testServer.listening).
-    const env = { ...process.env, PORT: '0', SESSION_SECRET: SECRET, NODE_ENV: 'test', INSECURE_DEV_LOGIN: '1', FRONTEND_PATH: path.join(__dirname, '..', '..', 'frontend') };
+    const env: NodeJS.ProcessEnv = { ...process.env, PORT: '0', SESSION_SECRET: SECRET, NODE_ENV: 'test', INSECURE_DEV_LOGIN: '1', FRONTEND_PATH: path.join(import.meta.dirname, '..', '..', '..', '..', 'frontend') };
     delete env.DATABASE_URL;
     delete env.ADMIN_PASSWORD;
-    server = spawn(process.execPath, [path.join(__dirname, 'index.js')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    server = spawn(process.execPath, [path.join(import.meta.dirname, '..', '..', 'index.js')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     base = `http://127.0.0.1:${await listening(server, 20_000)}`;
   });
 
@@ -108,17 +114,17 @@ describe('playlist permissions against a running server', { timeout: 60_000 }, (
     if (server) server.kill('SIGKILL');
   });
 
-  async function api(method, url, { user, body } = {}) {
-    const headers = {};
+  async function api(method: string, url: string, { user, body }: { user?: string; body?: unknown } = {}): Promise<{ status: number; body: Payload; headers: Headers }> {
+    const headers: Record<string, string> = {};
     if (user) headers.cookie = authCookie(user);
     if (body) headers['content-type'] = 'application/json';
     const res = await fetch(base + url, { method, headers, body: body ? JSON.stringify(body) : undefined, redirect: 'manual' });
-    let json = null;
+    let json: Payload = null;
     try { json = await res.json(); } catch {}
     return { status: res.status, body: json, headers: res.headers };
   }
 
-  function connect(user) {
+  function connect(user: string | null): Promise<Socket> {
     const s = ioClient(base, { transports: ['websocket'], forceNew: true, extraHeaders: user ? { cookie: authCookie(user) } : {} });
     sockets.push(s);
     return new Promise((resolve, reject) => {
@@ -128,10 +134,10 @@ describe('playlist permissions against a running server', { timeout: 60_000 }, (
   }
 
   // Resolves with [event, payload] for the first of `events`, or ['timeout'].
-  function waitFor(socket, events, ms = 1500) {
+  function waitFor(socket: Socket, events: string[], ms = 1500): Promise<[string, Payload?]> {
     return new Promise((resolve) => {
-      const handlers = {};
-      const done = (result) => {
+      const handlers: Record<string, (data: Payload) => void> = {};
+      const done = (result: [string, Payload?]) => {
         clearTimeout(timer);
         for (const e of events) socket.off(e, handlers[e]);
         resolve(result);
@@ -141,14 +147,14 @@ describe('playlist permissions against a running server', { timeout: 60_000 }, (
     });
   }
 
-  function getRaw(url, headers = {}) {
+  function getRaw(url: string, headers: Record<string, string> = {}): Promise<http.IncomingMessage> {
     return new Promise((resolve, reject) => {
       http.get(base + url, { headers }, (res) => { res.resume(); resolve(res); }).on('error', reject);
     });
   }
 
-  let pubId;
-  let privId;
+  let pubId: string;
+  let privId: string;
 
   it('redirects old /lobby URLs to /playlist with 301, keeping the query', async () => {
     let res = await getRaw('/lobby/abc123');
@@ -188,17 +194,17 @@ describe('playlist permissions against a running server', { timeout: 60_000 }, (
 
   it("lists public playlists to everyone and private ones only to their owner", async () => {
     const bob = await api('GET', '/api/playlists', { user: BOB });
-    const bobIds = bob.body.playlists.map(p => p.id);
+    const bobIds = bob.body.playlists.map((p: Payload) => p.id);
     assert.ok(bobIds.includes(pubId));
     assert.ok(!bobIds.includes(privId), "Bob must not see Alice's private playlist");
-    assert.equal(bob.body.playlists.find(p => p.id === pubId).isOwner, false);
+    assert.equal(bob.body.playlists.find((p: Payload) => p.id === pubId).isOwner, false);
 
     const alice = await api('GET', '/api/playlists', { user: ALICE });
-    assert.ok(alice.body.playlists.map(p => p.id).includes(privId));
+    assert.ok(alice.body.playlists.map((p: Payload) => p.id).includes(privId));
 
     // The old /api/lobbies path is an alias with the same filtering.
     const legacy = await api('GET', '/api/lobbies', { user: BOB });
-    assert.ok(!legacy.body.lobbies.map(p => p.id).includes(privId));
+    assert.ok(!legacy.body.lobbies.map((p: Payload) => p.id).includes(privId));
   });
 
   it("treats someone else's private playlist as not found on every route", async () => {
@@ -267,7 +273,7 @@ describe('playlist permissions against a running server', { timeout: 60_000 }, (
     assert.equal(data.visibility, 'private');
     assert.equal(data.ownerId, ALICE);
     const bobList = await api('GET', '/api/playlists', { user: BOB });
-    assert.ok(!bobList.body.playlists.some(p => p.id === data.lobbyId));
+    assert.ok(!bobList.body.playlists.some((p: Payload) => p.id === data.lobbyId));
     alice.disconnect();
   });
 

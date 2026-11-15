@@ -2,11 +2,15 @@
 // pure helpers: frontend/src/features/queue/queue-format.test.ts, the rail avatars:
 // frontend/src/features/playlists/playlist-filter.test.ts, layout-rules:
 // frontend/src/shared/layout-rules.test.ts).
-const { describe, it, after } = require('node:test');
-const assert = require('node:assert/strict');
-const db = require('./shared/db.ts');
-const library = require('./core/library/index.ts').library;
-const { Queue } = require('./core/queue/index.ts');
+import { describe, it, after } from 'node:test';
+import assert from 'node:assert/strict';
+import db from '../../shared/db.ts';
+import { library } from '../library/index.ts';
+import { Queue } from './index.ts';
+
+// A stand-in for db.query: answers the rows the test hands it.
+type FakeQuery = (sql: string) => Promise<{ rows: Record<string, unknown>[] }>;
+const fakeQuery = (fn: FakeQuery) => fn as unknown as typeof db.query;
 
 describe('queue entry artistName', () => {
   const realAvailable = db.isAvailable;
@@ -18,7 +22,7 @@ describe('queue entry artistName', () => {
     assert.deepEqual(library.toQueueEntry(song), { url: 'library:abc', title: 'Şarkı - Ayşe', duration: 10, thumbnail: null });
     assert.equal(library.queueArtist(song), 'Ayşe');
     assert.equal(library.queueArtist({ artist: 'Unknown' }), null);
-    assert.equal(library.queueArtist({ artist: null }), null);
+    assert.equal(library.queueArtist({ artist: null as unknown as string }), null); // a NULL column
   });
 
   it('follows a replace, and defaults to null', () => {
@@ -35,7 +39,7 @@ describe('queue entry artistName', () => {
   it('comes from the library after a restart, by library id or YouTube id; others stay null', async () => {
     const uuid = '11111111-1111-4111-8111-111111111111';
     db.isAvailable = () => true;
-    db.query = async (sql) => {
+    db.query = fakeQuery(async (sql) => {
       if (/FROM queue_songs/.test(sql)) {
         return { rows: [
           { id: 'e1', url: `library:${uuid}`, title: 'A - Ayşe', duration: 1, added_by: 'Ayşe', thumbnail: null, added_at: '5' },
@@ -48,7 +52,7 @@ describe('queue entry artistName', () => {
         { id: uuid, youtube_id: null, artist: 'Ayşe' },
         { id: '22222222-2222-4222-8222-222222222222', youtube_id: 'dQw4w9WgXcQ', artist: 'Rick' },
       ] };
-    };
+    });
     const q = new Queue('t2');
     await q.loadFromDB();
     assert.deepEqual(q.getSongs().map(s => s.artistName), ['Ayşe', 'Rick', null]);
@@ -57,10 +61,10 @@ describe('queue entry artistName', () => {
 
   it('a failed artist lookup does not lose the queue', async () => {
     db.isAvailable = () => true;
-    db.query = async (sql) => {
+    db.query = fakeQuery(async (sql) => {
       if (/FROM queue_songs/.test(sql)) return { rows: [{ id: 'e1', url: 'library:11111111-1111-4111-8111-111111111111', title: 'A', duration: 1, added_by: 'x', thumbnail: null, added_at: '5' }] };
       throw new Error('boom');
-    };
+    });
     const q = new Queue('t3');
     await q.loadFromDB();
     assert.equal(q.getSongs().length, 1);

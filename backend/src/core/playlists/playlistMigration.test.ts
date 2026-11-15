@@ -1,13 +1,18 @@
 // Migration of an existing (pre-playlist) database: lobbies with the old
 // is_public flag and a per-lobby chat_messages table. db.init() must add
 // visibility, backfill it, drop is_public and the chat history, keep every
-// lobby and its queue, and be safe to run again.
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const { execSync } = require('node:child_process');
+// playlist and its queue, and be safe to run again.
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { execSync } from 'node:child_process';
+import pgModule from 'pg';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import db from '../../shared/db.ts';
+import { playlist } from './index.ts';
+import { forgetAll as forgetQueues } from '../queue/index.ts';
 
-let PostgreSqlContainer;
-try { PostgreSqlContainer = require('@testcontainers/postgresql').PostgreSqlContainer; } catch {}
+let PostgreSqlContainer: typeof import('@testcontainers/postgresql').PostgreSqlContainer | undefined;
+try { ({ PostgreSqlContainer } = await import('@testcontainers/postgresql')); } catch {}
 
 function dockerOk() {
   try { execSync('docker info', { stdio: 'ignore' }); return true; } catch { return false; }
@@ -17,17 +22,17 @@ const skipReason = !PostgreSqlContainer ? 'testcontainers package not installed'
   : !dockerOk() ? 'Docker not available' : false;
 
 describe('Playlist migration from the old lobby schema', { skip: skipReason, timeout: 120_000 }, () => {
-  let container;
-  let db;
-  let pg;
+  let container: StartedPostgreSqlContainer | undefined;
+  let dbOpened = false;
+  let pg: pgModule.Client | undefined;
 
   before(async () => {
-    container = await new PostgreSqlContainer('postgres:16-alpine')
+    container = await new PostgreSqlContainer!('postgres:16-alpine')
       .withDatabase('listen_migrate').withUsername('test').withPassword('test').start();
     process.env.DATABASE_URL = container.getConnectionUri();
 
     // The schema as an older release left it.
-    const { Client } = require('pg');
+    const { Client } = pgModule;
     pg = new Client({ connectionString: process.env.DATABASE_URL });
     await pg.connect();
     await pg.query(`
@@ -59,24 +64,23 @@ describe('Playlist migration from the old lobby schema', { skip: skipReason, tim
     await pg.query(`INSERT INTO chat_messages (id, lobby_id, user_id, username, content, created_at)
       VALUES (gen_random_uuid(), 'own-pub', 'u', 'U', 'hello', ${now})`);
 
-    db = require('./shared/db.ts');
+    dbOpened = true;
     assert.ok(await db.init(), 'db.init should succeed on the old schema');
   });
 
   after(async () => {
     if (pg) await pg.end();
-    if (db) await db.close();
+    if (dbOpened) await db.close();
     if (container) await container.stop();
     delete process.env.DATABASE_URL;
-    delete require.cache[require.resolve('./shared/db.ts')];
-    require('./core/playlists/index.ts').playlist.forgetAll();
-    require('./core/queue/index.ts').forgetAll();
+    playlist.forgetAll();
+    forgetQueues();
   });
 
   it('backfills visibility: owned private stays private, everything else is public', async () => {
-    const r = await db.query('SELECT id, host_id, visibility FROM lobbies ORDER BY id');
+    const r = await db.query<{ id: string; host_id: string | null; visibility: string }>('SELECT id, host_id, visibility FROM lobbies ORDER BY id');
     const byId = Object.fromEntries(r.rows.map(row => [row.id, row]));
-    assert.equal(Object.keys(byId).length, 4, 'no lobby is lost');
+    assert.equal(Object.keys(byId).length, 4, 'no playlist is lost');
     assert.equal(byId['own-pub'].visibility, 'public');
     assert.equal(byId['own-prv'].visibility, 'private');
     assert.equal(byId['anon-pr'].visibility, 'public', 'ownerless playlists cannot be private');
@@ -96,18 +100,15 @@ describe('Playlist migration from the old lobby schema', { skip: skipReason, tim
   it('is idempotent: a second boot changes nothing', async () => {
     await db.query(`UPDATE lobbies SET visibility = 'private' WHERE id = 'own-pub'`);
     await db.close();
-    delete require.cache[require.resolve('./shared/db.ts')];
-    db = require('./shared/db.ts');
     assert.ok(await db.init());
     const r = await db.query(`SELECT visibility FROM lobbies WHERE id = 'own-pub'`);
     assert.equal(r.rows[0].visibility, 'private', 'a later choice is not overwritten on restart');
   });
 
   it('loads migrated playlists into memory with owner + visibility', async () => {
-    const lobby = require('./core/playlists/index.ts').playlist;
-    await lobby.loadPlaylistsFromDB();
-    const l = await lobby.getPlaylistAsync('own-prv');
-    assert.equal(l.ownerId, 'user-a');
-    assert.equal(l.visibility, 'private');
+    await playlist.loadPlaylistsFromDB();
+    const l = await playlist.getPlaylistAsync('own-prv');
+    assert.equal(l!.ownerId, 'user-a');
+    assert.equal(l!.visibility, 'private');
   });
 });

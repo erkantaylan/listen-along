@@ -1,12 +1,13 @@
-const { test, describe, beforeEach } = require('node:test');
-const assert = require('node:assert');
-const { Queue, getQueue, deleteQueue, hasQueue, cleanupOrphanedQueues } = require('./core/queue/index.ts');
+import { test, describe, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { Queue, getQueue, deleteQueue, hasQueue, cleanupOrphanedQueues } from './index.ts';
+import type { QueueSong } from './index.ts';
 
 describe('Queue class', () => {
-  let queue;
+  let queue: Queue;
 
   beforeEach(() => {
-    queue = new Queue('test-lobby');
+    queue = new Queue('test-playlist');
   });
 
   test('addSong adds a song with generated id', () => {
@@ -48,7 +49,7 @@ describe('Queue class', () => {
   test('getSongs returns a copy', () => {
     queue.addSong({ url: 'url1', title: 'Song 1' });
     const songs = queue.getSongs();
-    songs.push({ fake: true });
+    songs.push({ fake: true } as unknown as QueueSong);
     assert.strictEqual(queue.getSongs().length, 1);
   });
 
@@ -57,7 +58,7 @@ describe('Queue class', () => {
     queue.addSong({ url: 'url2', title: 'Song 2' });
 
     const removed = queue.removeSong(song1.id);
-    assert.strictEqual(removed.title, 'Song 1');
+    assert.strictEqual(removed!.title, 'Song 1');
     assert.strictEqual(queue.getSongs().length, 1);
     assert.strictEqual(queue.getSongs()[0].title, 'Song 2');
   });
@@ -120,27 +121,27 @@ describe('Queue class', () => {
 describe('Queue store functions', () => {
   beforeEach(() => {
     // Clean up any existing queues
-    deleteQueue('lobby-a');
-    deleteQueue('lobby-b');
+    deleteQueue('playlist-a');
+    deleteQueue('playlist-b');
   });
 
-  test('getQueue creates queue for new lobby', () => {
-    const queue = getQueue('lobby-a');
+  test('getQueue creates queue for new playlist', () => {
+    const queue = getQueue('playlist-a');
     assert.ok(queue instanceof Queue);
-    assert.strictEqual(queue.playlistId, 'lobby-a');
+    assert.strictEqual(queue.playlistId, 'playlist-a');
   });
 
-  test('getQueue returns same queue for same lobby', () => {
-    const queue1 = getQueue('lobby-a');
+  test('getQueue returns same queue for same playlist', () => {
+    const queue1 = getQueue('playlist-a');
     queue1.addSong({ url: 'url1', title: 'Song 1' });
 
-    const queue2 = getQueue('lobby-a');
+    const queue2 = getQueue('playlist-a');
     assert.strictEqual(queue2.getSongs().length, 1);
   });
 
-  test('getQueue returns different queues for different lobbies', () => {
-    const queueA = getQueue('lobby-a');
-    const queueB = getQueue('lobby-b');
+  test('getQueue returns different queues for different playlists', () => {
+    const queueA = getQueue('playlist-a');
+    const queueB = getQueue('playlist-b');
 
     queueA.addSong({ url: 'url1', title: 'Song A' });
     queueB.addSong({ url: 'url2', title: 'Song B' });
@@ -150,8 +151,8 @@ describe('Queue store functions', () => {
   });
 
   test('hasQueue returns true for existing queue', () => {
-    getQueue('lobby-a');
-    assert.strictEqual(hasQueue('lobby-a'), true);
+    getQueue('playlist-a');
+    assert.strictEqual(hasQueue('playlist-a'), true);
   });
 
   test('hasQueue returns false for non-existent queue', () => {
@@ -159,31 +160,31 @@ describe('Queue store functions', () => {
   });
 
   test('deleteQueue removes queue', () => {
-    getQueue('lobby-a');
-    deleteQueue('lobby-a');
-    assert.strictEqual(hasQueue('lobby-a'), false);
+    getQueue('playlist-a');
+    deleteQueue('playlist-a');
+    assert.strictEqual(hasQueue('playlist-a'), false);
   });
 
   test('cleanupOrphanedQueues removes queues not in valid set', () => {
-    getQueue('lobby-a');
-    getQueue('lobby-b');
-    getQueue('lobby-c');
+    getQueue('playlist-a');
+    getQueue('playlist-b');
+    getQueue('playlist-c');
 
-    // Only lobby-a is valid; lobby-b and lobby-c are orphaned
-    cleanupOrphanedQueues(new Set(['lobby-a']));
+    // Only playlist-a is valid; playlist-b and playlist-c are orphaned
+    cleanupOrphanedQueues(new Set(['playlist-a']));
 
-    assert.strictEqual(hasQueue('lobby-a'), true, 'valid queue should remain');
-    assert.strictEqual(hasQueue('lobby-b'), false, 'orphaned queue should be removed');
-    assert.strictEqual(hasQueue('lobby-c'), false, 'orphaned queue should be removed');
+    assert.strictEqual(hasQueue('playlist-a'), true, 'valid queue should remain');
+    assert.strictEqual(hasQueue('playlist-b'), false, 'orphaned queue should be removed');
+    assert.strictEqual(hasQueue('playlist-c'), false, 'orphaned queue should be removed');
   });
 
   test('cleanupOrphanedQueues with empty valid set removes all', () => {
-    getQueue('lobby-a');
-    getQueue('lobby-b');
+    getQueue('playlist-a');
+    getQueue('playlist-b');
 
     cleanupOrphanedQueues(new Set());
 
-    assert.strictEqual(hasQueue('lobby-a'), false);
-    assert.strictEqual(hasQueue('lobby-b'), false);
+    assert.strictEqual(hasQueue('playlist-a'), false);
+    assert.strictEqual(hasQueue('playlist-b'), false);
   });
 });

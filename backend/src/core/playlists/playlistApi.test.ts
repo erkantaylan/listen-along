@@ -7,46 +7,52 @@
 //     only public (ownerless) playlists and manages nothing
 //   - songs: list / add (library ids, yt:<id>) / remove / move, with clear 4xx
 //   - adding over the API broadcasts queue:update to open web clients
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const { execSync } = require('node:child_process');
-const crypto = require('node:crypto');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const { io: ioClient } = require('socket.io-client');
-const { cookieFor, startServer, requester } = require('./testServer');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { execSync } from 'node:child_process';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import pgModule from 'pg';
+import { io as ioClient } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { cookieFor, startServer, requester } from '../../testServer.js';
 
-let PostgreSqlContainer;
-try { PostgreSqlContainer = require('@testcontainers/postgresql').PostgreSqlContainer; } catch {}
-const has = (cmd) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
+// Server and socket JSON.
+type Payload = any;
+
+let PostgreSqlContainer: typeof import('@testcontainers/postgresql').PostgreSqlContainer | undefined;
+try { ({ PostgreSqlContainer } = await import('@testcontainers/postgresql')); } catch {}
+const has = (cmd: string) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
 const skip = !PostgreSqlContainer ? 'testcontainers package not installed'
   : !has('docker info') ? 'Docker not available' : false;
 
 describe('playlist API with CLI tokens on Postgres', { skip, timeout: 180_000 }, () => {
-  let container;
-  let pg;
-  let srv;
-  let req;
-  let tmp;
-  const ids = {};
-  const cookies = {};
-  const tok = {};
-  const songs = {};
-  const sockets = [];
+  let container: StartedPostgreSqlContainer;
+  let pg: pgModule.Client;
+  let srv: Awaited<ReturnType<typeof startServer>>;
+  let req: ReturnType<typeof requester>;
+  let tmp: string;
+  const ids: Record<string, string> = {};
+  const cookies: Record<string, string> = {};
+  const tok: Record<string, string> = {};
+  const songs: Record<string, { id: string; yt: string | null }> = {};
+  const sockets: Socket[] = [];
 
-  const bearer = (t) => ({ headers: { Authorization: `Bearer ${t}` } });
-  const as = (who, extra = {}) => ({ ...bearer(tok[who]), ...extra });
+  const bearer = (t: string) => ({ headers: { Authorization: `Bearer ${t}` } });
+  const as = (who: string, extra: { body?: unknown } = {}) => ({ ...bearer(tok[who]), ...extra });
 
   before(async () => {
-    container = await new PostgreSqlContainer('postgres:16-alpine')
+    container = await new PostgreSqlContainer!('postgres:16-alpine')
       .withDatabase('listen_playlist_api').withUsername('test').withPassword('test').start();
     const url = container.getConnectionUri();
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'la-playlist-api-'));
     srv = await startServer({ DATABASE_URL: url, SONGS_PATH: path.join(tmp, 'songs'), COVERS_DIR: path.join(tmp, 'covers') });
     req = requester(srv.base);
 
-    const { Client } = require('pg');
+    const { Client } = pgModule;
     pg = new Client({ connectionString: url });
     await pg.connect();
     for (const [key, status] of [['alice', 'approved'], ['bob', 'approved'], ['pending', 'approved']]) {
@@ -70,7 +76,7 @@ describe('playlist API with CLI tokens on Postgres', { skip, timeout: 180_000 },
     await pg.query('INSERT INTO api_tokens (name, token_hash, token_prefix) VALUES ($1, $2, $3)',
       ['oldbot', crypto.createHash('sha256').update(tok.legacy).digest('hex'), tok.legacy.slice(0, 10)]);
     // Library songs (rows only; no audio needed to queue them).
-    for (const [key, yt, title] of [['one', 'aaaaaaaaaa1', 'Digital Love'], ['two', 'aaaaaaaaaa2', 'Teardrop'], ['three', null, 'Roygbiv']]) {
+    for (const [key, yt, title] of [['one', 'aaaaaaaaaa1', 'Digital Love'], ['two', 'aaaaaaaaaa2', 'Teardrop'], ['three', null, 'Roygbiv']] as const) {
       const r = await pg.query(
         `INSERT INTO library_songs (youtube_id, title, artist, file_path, sha256, uploaded_by) VALUES ($1, $2, 'Artist', '/nope.m4a', $3, 'seed') RETURNING id`,
         [yt, title, crypto.createHash('sha256').update(title).digest('hex')]
@@ -87,7 +93,7 @@ describe('playlist API with CLI tokens on Postgres', { skip, timeout: 180_000 },
     if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  const pl = {};
+  const pl: Record<string, string> = {};
 
   it('rejects missing, invalid and not-approved tokens', async () => {
     assert.equal((await req('GET', '/api/playlists')).status, 401);
@@ -118,17 +124,17 @@ describe('playlist API with CLI tokens on Postgres', { skip, timeout: 180_000 },
 
     // The web session sees the same playlists (same owner).
     const web = await req('GET', '/api/playlists', { cookie: cookies.alice });
-    assert.ok(web.body.playlists.some((p) => p.id === pl.alicePriv));
+    assert.ok(web.body.playlists.some((p: Payload) => p.id === pl.alicePriv));
   });
 
   it("another user's token: private is invisible (404), public is editable but not manageable", async () => {
-    const list = (await req('GET', '/api/playlists', as('bob'))).body.playlists.map((p) => p.id);
+    const list = (await req('GET', '/api/playlists', as('bob'))).body.playlists.map((p: Payload) => p.id);
     assert.ok(list.includes(pl.alicePub));
     assert.ok(!list.includes(pl.alicePriv));
     for (const [method, suffix, body] of [
       ['GET', '', undefined], ['GET', '/songs', undefined], ['PATCH', '', { name: 'hijack' }],
       ['DELETE', '', undefined], ['POST', '/songs', { songs: [songs.one.id] }], ['DELETE', `/songs/${songs.one.id}`, undefined],
-    ]) {
+    ] as const) {
       const r = await req(method, `/api/playlists/${pl.alicePriv}${suffix}`, as('bob', { body }));
       assert.equal(r.status, 404, `${method} ${suffix}`);
       assert.equal(r.body.code, 'NOT_FOUND');
@@ -167,7 +173,7 @@ describe('playlist API with CLI tokens on Postgres', { skip, timeout: 180_000 },
   });
 
   it('legacy token: public only, creates ownerless public playlists, manages nothing', async () => {
-    const list = (await req('GET', '/api/playlists', as('legacy'))).body.playlists.map((p) => p.id);
+    const list = (await req('GET', '/api/playlists', as('legacy'))).body.playlists.map((p: Payload) => p.id);
     assert.ok(list.includes(pl.alicePub));
     assert.ok(!list.includes(pl.alicePriv));
     assert.equal((await req('GET', `/api/playlists/${pl.alicePriv}/songs`, as('legacy'))).status, 404);
@@ -200,7 +206,7 @@ describe('playlist API with CLI tokens on Postgres', { skip, timeout: 180_000 },
       body: { songs: [songs.one.id, `yt:${songs.two.yt}`, songs.one.id, 'yt:zzzzzzzzzzz', 'garbage', { youtube_id: songs.two.yt }] },
     }));
     assert.equal(r.status, 200);
-    assert.deepEqual(r.body.results.map((x) => x.status),
+    assert.deepEqual(r.body.results.map((x: Payload) => x.status),
       ['added', 'added', 'already_in_playlist', 'not_in_library', 'invalid', 'already_in_playlist']);
     assert.deepEqual(r.body.summary, { total: 6, added: 2, already_in_playlist: 2, not_in_library: 1, invalid: 1 });
     assert.equal(r.body.results[0].song.id, songs.one.id);
@@ -212,9 +218,9 @@ describe('playlist API with CLI tokens on Postgres', { skip, timeout: 180_000 },
     const list = await req('GET', `/api/playlists/${pl.alicePriv}/songs`, as('alice'));
     assert.equal(list.status, 200);
     assert.equal(list.body.playlist.id, pl.alicePriv);
-    assert.deepEqual(list.body.songs.map((s) => [s.position, s.library_id, s.youtube_id]),
+    assert.deepEqual(list.body.songs.map((s: Payload) => [s.position, s.library_id, s.youtube_id]),
       [[1, songs.one.id, songs.one.yt], [2, songs.two.id, songs.two.yt], [3, songs.one.id, songs.one.yt]]);
-    assert.ok(list.body.songs.every((s) => s.entry_id && s.added_by === 'Alice' && s.available === true));
+    assert.ok(list.body.songs.every((s: Payload) => s.entry_id && s.added_by === 'Alice' && s.available === true));
 
     // Bad bodies.
     for (const body of [{}, { songs: [] }, { songs: 'x' }, { songs: Array(201).fill(songs.one.id) }]) {
@@ -255,15 +261,15 @@ describe('playlist API with CLI tokens on Postgres', { skip, timeout: 180_000 },
   it('adding over the API updates open web clients like a web add (queue:update)', async () => {
     const sock = ioClient(srv.base, { transports: ['websocket'], forceNew: true, extraHeaders: { cookie: cookies.alice } });
     sockets.push(sock);
-    await new Promise((resolve, reject) => { sock.on('connect', resolve); sock.on('connect_error', reject); });
+    await new Promise<void>((resolve, reject) => { sock.on('connect', resolve); sock.on('connect_error', reject); });
     const joined = new Promise((resolve) => sock.once('queue:update', resolve));
     sock.emit('lobby:view', { lobbyId: pl.alicePub });
     await joined;
 
-    const update = new Promise((resolve, reject) => {
+    const update = new Promise<Payload>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('no queue:update')), 3000);
-      sock.on('queue:update', (d) => {
-        if (d.lobbyId === pl.alicePub && d.songs.some((s) => s.url === `https://www.youtube.com/watch?v=${songs.two.yt}`)) {
+      sock.on('queue:update', (d: Payload) => {
+        if (d.lobbyId === pl.alicePub && d.songs.some((s: Payload) => s.url === `https://www.youtube.com/watch?v=${songs.two.yt}`)) {
           clearTimeout(timer);
           resolve(d);
         }
@@ -275,7 +281,7 @@ describe('playlist API with CLI tokens on Postgres', { skip, timeout: 180_000 },
     const d = await update;
     assert.equal(d.songs.at(-1).addedBy, 'Bob');
 
-    const removed = new Promise((resolve) => sock.on('queue:update', (x) => { if (!x.songs.some((s) => s.url.includes(songs.two.yt))) resolve(x); }));
+    const removed = new Promise((resolve) => sock.on('queue:update', (x: Payload) => { if (!x.songs.some((s: Payload) => s.url.includes(songs.two.yt))) resolve(x); }));
     await req('DELETE', `/api/playlists/${pl.alicePub}/songs/yt:${songs.two.yt}`, as('bob'));
     await removed;
   });
