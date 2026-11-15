@@ -6,7 +6,7 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { createAppRelease, pickLatest, RELEASES_PAGE } from './appRelease.ts';
 import type { AppLatest, AppReleaseView, FetchAnswer, FetchImpl, GithubAsset, GithubRelease } from './appRelease.ts';
-import { policyFor } from '../../userAuth.js';
+import { policyFor } from '../../auth/index.ts';
 import { startServer, cookieFor } from '../../testServer.js';
 
 const SHA = 'a'.repeat(64);

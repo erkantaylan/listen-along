@@ -22,7 +22,7 @@
  */
 
 const access = require('./playlistAccess');
-const { isBlocked } = require('./userAuth');
+const { isBlocked } = require('./auth/index.ts');
 
 /**
  * @param {object} deps

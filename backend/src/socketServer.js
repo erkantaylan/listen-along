@@ -13,7 +13,7 @@
  */
 
 const { Server } = require('socket.io');
-const { isBlocked } = require('./userAuth');
+const { isBlocked } = require('./auth/index.ts');
 
 const APP_ROOM = 'app';
 const userRoom = (id) => `user:${id}`;

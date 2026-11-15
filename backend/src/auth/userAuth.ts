@@ -9,11 +9,11 @@
  *   one in production): identity is the opaque `la_session` cookie, looked up
  *   server-side and re-checked with the IdP (oidcSessions.js).
  * - Dev login (`devLogin: true`; INSECURE_DEV_LOGIN=1, refused at boot unless
- *   NODE_ENV is development or test; devLogin.js): identity is the
+ *   NODE_ENV is development or test; devLogin.ts): identity is the
  *   HMAC-signed `la_dev_login` cookie holding users.id.
  *
  * The Android app (mobileAuth.js) is a user session too, carried as
- * `Authorization: Bearer lam_...` instead of a cookie (mobileTokens.js): in
+ * `Authorization: Bearer lam_...` instead of a cookie (mobileTokens.ts): in
  * central mode a row of the same session store (same re-check, same ban
  * handling), in dev mode a signed token. For HTTP requests only (who()):
  * socket handshakes stay cookie-only, the app has no socket. When a `lam_`
@@ -21,7 +21,7 @@
  * and a refusal for want of a session says `SESSION_ENDED` (401), which the
  * app takes as "sign in again". It reaches what a browser session reaches,
  * at the same account levels; admin stays the separate la_admin cookie, and
- * CLI-token-only routes refuse it (tokens.js, 403 TOKEN_REQUIRED).
+ * CLI-token-only routes refuse it (tokens.ts, 403 TOKEN_REQUIRED).
  *
  * The old Google / GitHub `listen_auth` cookie is no login in either mode:
  * nothing here reads it.
@@ -43,12 +43,43 @@
  *   'approved' ... whose status is 'approved'
  */
 
-const { DEV_COOKIE, verifyDevToken } = require('./auth/devLogin.ts');
-const { mobileBearer, verifyDevMobileToken } = require('./auth/mobileTokens.ts');
+import type { IncomingHttpHeaders } from 'node:http';
+import type { Request, RequestHandler } from 'express';
+import { DEV_COOKIE, verifyDevToken } from './devLogin.ts';
+import { mobileBearer, verifyDevMobileToken } from './mobileTokens.ts';
+import type { Db, UserRow } from '../shared/types.ts';
+import type { Account, Identity, Level, Policy, Who } from './types.ts';
 
-const BLOCKED_STATUSES = new Set(['denied', 'rejected']);
+// What who() / identify() keep on a request, so it is looked up once.
+declare module 'express-serve-static-core' {
+  interface Request {
+    /** who(): the signed-in user behind the cookie or the app's Bearer, or null */
+    _listenWho?: Who | null;
+    /** who(): the caller sent the Android app's `lam_` Bearer (then it is the only identity looked at) */
+    _listenMobile?: boolean;
+    /** identify(): the account, or nobody */
+    _listenAuth?: Identity;
+  }
+}
 
-function parseCookie(header, name) {
+/** The central login's sessions as userAuth uses them (oidcSessions.createOidcSessions). */
+export interface SessionLookup {
+  resolveHeaders(headers: IncomingHttpHeaders): Promise<{ userId: string; idHash: string } | null>;
+  resolveBearer(token: string): Promise<{ userId: string; idHash: string } | null>;
+}
+
+/** What userAuth uses of the database (shared/db.ts). */
+export type UserAuthDb = Pick<Db, 'isAvailable' | 'query'>;
+
+/** An HTTP refusal: status and JSON body. */
+export interface Refusal {
+  status: 401 | 403;
+  body: { error: string; code: 'SESSION_ENDED' | 'AUTH_REQUIRED' | 'ACCOUNT_DENIED' | 'ACCOUNT_PENDING' };
+}
+
+const BLOCKED_STATUSES: ReadonlySet<unknown> = new Set(['denied', 'rejected']);
+
+export function parseCookie(header: unknown, name: string): string | null {
   if (!header || typeof header !== 'string') return null;
   for (const part of header.split(';')) {
     const idx = part.indexOf('=');
@@ -58,11 +89,11 @@ function parseCookie(header, name) {
   return null;
 }
 
-function isBlocked(status) {
+export function isBlocked(status: string | null | undefined): boolean {
   return BLOCKED_STATUSES.has(status);
 }
 
-function meetsLevel(account, level) {
+export function meetsLevel(account: Account | null, level: Level): boolean {
   if (!account) return false;
   if (level === 'login') return true;
   if (level === 'member') return !isBlocked(account.status);
@@ -76,7 +107,7 @@ function meetsLevel(account, level) {
  * account means that session is unknown, expired, signed out or ended by a
  * re-check or a ban: SESSION_ENDED (the app goes back to its sign-in).
  */
-function refusal(account, { mobile = false } = {}) {
+export function refusal(account: Account | null, { mobile = false }: { mobile?: boolean } = {}): Refusal {
   if (!account && mobile) return { status: 401, body: { error: 'Your session has ended, sign in again', code: 'SESSION_ENDED' } };
   if (!account) return { status: 401, body: { error: 'Authentication required', code: 'AUTH_REQUIRED' } };
   if (isBlocked(account.status)) return { status: 403, body: { error: 'Access denied', code: 'ACCOUNT_DENIED' } };
@@ -89,7 +120,7 @@ function refusal(account, { mobile = false } = {}) {
 // authenticate themselves with per-route middleware (CLI Bearer token, admin
 // cookie, or "token or admin or approved user").
 
-const PUBLIC_EXACT = new Set([
+const PUBLIC_EXACT: ReadonlySet<string> = new Set([
   '/health',
   '/login',
   '/changelog',
@@ -118,13 +149,13 @@ const PUBLIC_EXACT = new Set([
   '/auth/dev/login',
 ]);
 
-const PUBLIC_PREFIXES = [
+const PUBLIC_PREFIXES: readonly string[] = [
   '/lobby/',                // 301 to /playlist/..., which is guarded
 ];
 
 // Routes with their own middleware (see index.js / libraryRoutes.js).
-const SELF_EXACT = new Set(['/api/me', '/api/library', '/api/requests', '/dashboard', '/api/auth/users']);
-const SELF_PREFIXES = [
+const SELF_EXACT: ReadonlySet<string> = new Set(['/api/me', '/api/library', '/api/requests', '/dashboard', '/api/auth/users']);
+const SELF_PREFIXES: readonly string[] = [
   '/api/library/',
   '/api/requests/',
   '/api/admin/',
@@ -135,19 +166,19 @@ const SELF_PREFIXES = [
 ];
 
 // Pending users may use these too (their own account; /app, the install page).
-const MEMBER_EXACT = new Set(['/api/profile', '/api/app/latest']);
-const MEMBER_PREFIXES = ['/api/profile/'];
+const MEMBER_EXACT: ReadonlySet<string> = new Set(['/api/profile', '/api/app/latest']);
+const MEMBER_PREFIXES: readonly string[] = ['/api/profile/'];
 
-function matches(p, exact, prefixes) {
+function matches(p: string, exact: ReadonlySet<string>, prefixes: readonly string[]): boolean {
   return exact.has(p) || prefixes.some(pre => p.startsWith(pre));
 }
 
 /**
- * @returns {'public'|'self'|'member'|'approved'|'page'}
+ * Every path has exactly one policy (the last line is the default).
  *   public: no check. self: the route checks. member/approved: account level
  *   for an API route. page: an HTML route, needs a login.
  */
-function policyFor(p) {
+export function policyFor(p: unknown): Policy {
   // Express routes match case-insensitively (/API/playlists hits
   // /api/playlists), so classify the lowercased path; collapse "//" too.
   const pathname = String(p || '/').toLowerCase().replace(/\/{2,}/g, '/');
@@ -167,13 +198,19 @@ function policyFor(p) {
  * @param devLogin dev login (INSECURE_DEV_LOGIN): the `la_dev_login` cookie
  * Exactly one of sessions / devLogin.
  */
-function createUserAuth({ secret, db, cacheMs = 5000, sessions = null, devLogin = false }) {
+export function createUserAuth({ secret, db, cacheMs = 5000, sessions = null, devLogin = false }: {
+  secret: string;
+  db?: UserAuthDb | null;
+  cacheMs?: number;
+  sessions?: SessionLookup | null;
+  devLogin?: boolean;
+}): UserAuth {
   if (!secret) throw new Error('createUserAuth: secret is required');
   if (!!sessions === !!devLogin) throw new Error('createUserAuth: exactly one of sessions (central login) or devLogin');
-  const mode = sessions ? 'central' : 'dev';
+  const mode: UserAuth['mode'] = sessions ? 'central' : 'dev';
 
   // users.id from a valid `la_dev_login` cookie (dev login only).
-  function devUserIdFromHeaders(headers) {
+  function devUserIdFromHeaders(headers: IncomingHttpHeaders | null | undefined): string | null {
     const raw = parseCookie(headers && headers.cookie, DEV_COOKIE);
     if (!raw) return null;
     let token = raw;
@@ -183,36 +220,36 @@ function createUserAuth({ secret, db, cacheMs = 5000, sessions = null, devLogin 
   }
 
   // userId -> { account, at }
-  const cache = new Map();
+  const cache = new Map<string, { account: Account | null; at: number }>();
 
   /**
    * The account behind a user id: { id, status, name, emoji }, or null when
    * there is no such user. Throws when the database errors (callers fail
    * closed).
    */
-  async function getAccount(userId) {
+  async function getAccount(userId: unknown): Promise<Account | null> {
     if (!userId) return null;
     const id = String(userId);
     if (!db || !db.isAvailable()) return { id, status: 'approved', name: null, emoji: null };
     const hit = cache.get(id);
     if (hit && Date.now() - hit.at < cacheMs) return hit.account;
-    const r = await db.query(
+    const r = await db.query<Pick<UserRow, 'id' | 'status' | 'display_name' | 'name' | 'username' | 'emoji'>>(
       'SELECT id, status, display_name, name, username, emoji FROM users WHERE id::text = $1',
       [id]
     );
     const row = r.rows[0];
-    const account = row ? {
+    const account: Account | null = row ? {
       id,
       status: row.status || 'approved',
       name: row.display_name || row.name || row.username || null,
       emoji: row.emoji || null,
     } : null;
     cache.set(id, { account, at: Date.now() });
-    if (cache.size > 10000) cache.delete(cache.keys().next().value);
+    if (cache.size > 10000) cache.delete(cache.keys().next().value!);
     return account;
   }
 
-  function invalidate(userId) {
+  function invalidate(userId?: unknown): void {
     if (userId === undefined) cache.clear();
     else cache.delete(String(userId));
   }
@@ -224,12 +261,12 @@ function createUserAuth({ secret, db, cacheMs = 5000, sessions = null, devLogin 
    * Central-login mode may re-check the session with the IdP here (at most
    * every few minutes; see oidcSessions.js). Throws on a storage error.
    */
-  async function resolve(headers) {
+  async function resolve(headers: IncomingHttpHeaders): Promise<Who | null> {
     if (mode === 'dev') {
       const userId = devUserIdFromHeaders(headers);
       return userId ? { userId, sessionId: null } : null;
     }
-    const s = await sessions.resolveHeaders(headers);
+    const s = await sessions!.resolveHeaders(headers); // mode 'central': sessions is set
     return s ? { userId: String(s.userId), sessionId: s.idHash } : null;
   }
 
@@ -238,12 +275,12 @@ function createUserAuth({ secret, db, cacheMs = 5000, sessions = null, devLogin 
    * Central: the session store (re-checked when due, like a cookie session).
    * Dev: the signed dev token.
    */
-  async function resolveMobile(token) {
+  async function resolveMobile(token: string): Promise<Who | null> {
     if (mode === 'dev') {
       const data = verifyDevMobileToken(secret, token);
       return data ? { userId: String(data.id), sessionId: null } : null;
     }
-    const s = await sessions.resolveBearer(token);
+    const s = await sessions!.resolveBearer(token); // mode 'central': sessions is set
     return s ? { userId: String(s.userId), sessionId: s.idHash } : null;
   }
 
@@ -251,33 +288,34 @@ function createUserAuth({ secret, db, cacheMs = 5000, sessions = null, devLogin 
    * resolve() for a request, once per request; a `lam_` Bearer (the Android
    * app) instead of the cookies when one is sent.
    */
-  async function who(req) {
+  async function who(req: Request): Promise<Who | null> {
     if (req._listenWho === undefined) {
       const mobile = mobileBearer(req.headers);
       req._listenMobile = mobile !== null;
       req._listenWho = mobile !== null ? await resolveMobile(mobile) : await resolve(req.headers);
     }
-    return req._listenWho;
+    return req._listenWho as Who | null; // set just above, or by an earlier call
   }
 
   /** The caller's users.id (signed in; status not checked), or null. */
-  async function userIdFor(req) {
+  async function userIdFor(req: Request): Promise<string | null> {
     const w = await who(req);
     return w ? w.userId : null;
   }
 
   /** { userId, account, sessionId } for a request, looked up once per request. */
-  async function identify(req) {
+  async function identify(req: Request): Promise<Identity> {
     if (req._listenAuth) return req._listenAuth;
     const w = await who(req);
     const userId = w ? w.userId : null;
     const account = userId ? await getAccount(userId) : null;
-    req._listenAuth = { userId: account ? userId : null, account, sessionId: account && w ? w.sessionId : null };
+    // An account only comes from a userId, and a userId only from w: either all three are set or none.
+    req._listenAuth = { userId: account ? userId : null, account, sessionId: account && w ? w.sessionId : null } as Identity;
     return req._listenAuth;
   }
 
   /** Express middleware: the caller's account must meet `level`, else 401/403 JSON. */
-  function requireLevel(level) {
+  function requireLevel(level: Level): RequestHandler {
     return (req, res, next) => {
       identify(req).then(({ account }) => {
         if (meetsLevel(account, level)) return next();
@@ -301,11 +339,14 @@ function createUserAuth({ secret, db, cacheMs = 5000, sessions = null, devLogin 
   };
 }
 
-module.exports = {
-  createUserAuth,
-  parseCookie,
-  isBlocked,
-  meetsLevel,
-  refusal,
-  policyFor,
-};
+/** What createUserAuth() returns. */
+export interface UserAuth {
+  /** the sign-in fixed at boot */
+  mode: 'central' | 'dev';
+  resolve(headers: IncomingHttpHeaders): Promise<Who | null>;
+  userIdFor(req: Request): Promise<string | null>;
+  getAccount(userId: unknown): Promise<Account | null>;
+  invalidate(userId?: unknown): void;
+  identify(req: Request): Promise<Identity>;
+  requireLevel(level: Level): RequestHandler;
+}

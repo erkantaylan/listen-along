@@ -20,7 +20,7 @@ const { io: ioClient } = require('socket.io-client');
 const { startFakeIssuer } = require('./fakeOidcIssuer');
 const { SECRET, cookieFor, adminCookie, startServer, freePort } = require('./testServer');
 const mobileTokens = require('./auth/mobileTokens.ts');
-const { policyFor, refusal } = require('./userAuth');
+const { policyFor, refusal } = require('./auth/userAuth.ts');
 const tokens = require('./auth/tokens.ts');
 const { MOBILE_REDIRECT_URI, readMobileConfig, idpNonce, normalizeFingerprint, RELEASE_CERT_SHA256 } = require('./mobileAuth');
 

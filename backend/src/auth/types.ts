@@ -55,3 +55,41 @@ export interface Account {
   name: string | null;
   emoji: string | null;
 }
+
+/**
+ * How far an account gets (userAuth.requireLevel):
+ *   login     a valid sign-in naming an existing account (any status)
+ *   member    ... that is not denied / rejected (approved or pending)
+ *   approved  ... whose status is 'approved'
+ */
+export type Level = 'login' | 'member' | 'approved';
+
+/**
+ * The guard's class of a path (userAuth.policyFor), deny by default:
+ *   public    no check
+ *   self      the route checks itself (CLI token, admin cookie, token or account)
+ *   member    an API a pending account may use too
+ *   approved  every other /api/... route
+ *   page      every other HTML route: a sign-in is needed
+ * The guard (authRoutes.ts) handles each one; `member` and `approved` are Levels.
+ */
+export type Policy = 'public' | 'self' | Extract<Level, 'member' | 'approved'> | 'page';
+
+/**
+ * Who a request (a web session cookie, or the Android app's `lam_` Bearer) or a
+ * socket handshake (cookie only) belongs to. Says nothing about the account's
+ * status. `sessionId` is the central-login session's id hash (cookie or app
+ * session alike); null with the dev sign-in, which has no server-side session.
+ */
+export interface Who {
+  userId: string;
+  sessionId: string | null;
+}
+
+/**
+ * identify(): the request's account, or nobody. Admin (the la_admin cookie) and
+ * CLI tokens (req.apiUser) are separate and never an Identity.
+ */
+export type Identity =
+  | { userId: string; account: Account; sessionId: string | null }
+  | { userId: null; account: null; sessionId: null };

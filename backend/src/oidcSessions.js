@@ -40,7 +40,7 @@
 
 const crypto = require('crypto');
 const { deriveKey, seal, open } = require('./shared/secretBox.ts');
-const { parseCookie } = require('./userAuth');
+const { parseCookie } = require('./auth/userAuth.ts');
 const { CENTRAL_TOKEN_RE } = require('./auth/mobileTokens.ts');
 
 const SESSION_COOKIE = 'la_session';

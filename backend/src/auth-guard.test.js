@@ -19,7 +19,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { io: ioClient } = require('socket.io-client');
-const userAuthMod = require('./userAuth');
+const userAuthMod = require('./auth/userAuth.ts');
 const devLogin = require('./auth/devLogin.ts');
 const { listening } = require('./testServer');
 

@@ -200,7 +200,7 @@ before the code is spent.
 
 **The session**: `lam_` + 32 random bytes; the server stores only the SHA-256
 of the whole string (so a cookie id is never a valid Bearer, nor the reverse).
-`userAuth.js` resolves it for HTTP requests only (sockets stay cookie-only;
+`auth/userAuth.ts` resolves it for HTTP requests only (sockets stay cookie-only;
 the app has none). When a `lam_` Bearer is sent it is the only identity
 looked at. It reaches what a signed-in browser reaches at the same account
 levels (`policyFor` unchanged: approved for the API, pending for the member

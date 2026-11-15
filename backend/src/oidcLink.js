@@ -30,7 +30,7 @@
  * to two subs.
  */
 
-const { isBlocked } = require('./userAuth');
+const { isBlocked } = require('./auth/userAuth.ts');
 
 const MAX_UPSTREAM = 20;
 

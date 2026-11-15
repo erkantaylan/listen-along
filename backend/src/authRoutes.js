@@ -20,7 +20,7 @@
 
 const express = require('express');
 const path = require('path');
-const { policyFor, parseCookie } = require('./userAuth');
+const { policyFor, parseCookie } = require('./auth/userAuth.ts');
 const { createMobileAuthRouter } = require('./mobileAuth');
 const { FLOW_COOKIE_PATH: OIDC_FLOW_PATH, FLOW_MAX_AGE_MS: OIDC_FLOW_MAX_AGE_MS } = require('./oidc');
 const { linkCentralIdentity } = require('./oidcLink');
@@ -55,7 +55,7 @@ function loginRedirectUrl(req) {
  * @param {string} deps.frontendPath - index.html for /login
  * @param {{ isAvailable: () => boolean, query: Function }} deps.db
  * @param {{ registrationsOpen: () => Promise<boolean> }} deps.settings
- * @param {ReturnType<typeof import('./userAuth').createUserAuth>} deps.userAuth
+ * @param {import('./auth/userAuth.ts').UserAuth} deps.userAuth
  * @param {object|null} deps.oidcClient - oidc.createOidcClient(), central login only
  * @param {object|null} deps.sessionStore - oidcSessions.createSessionStore(), central login only
  * @param {object|null} deps.oidcSessions - oidcSessions.createOidcSessions(), central login only

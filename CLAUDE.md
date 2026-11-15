@@ -488,7 +488,7 @@ of a fresh database and of a migrated old one.
   Half / broken / missing config stops the boot; an unreachable IdP does not.
   Rollback is redeploying the previous commit (no env switch back to Google /
   GitHub).
-- `backend/src/userAuth.js` is the one place that turns a request or a socket
+- `backend/src/auth/userAuth.ts` is the one place that turns a request or a socket
   handshake into a user: `resolve(headers)` / `userIdFor(req)` / `identify(req)`
   (`mode` 'central' | 'dev'); each socket gets `socket.data.userId` (and, with central login,
   `socket.data.sessionId` + the `session:<hash>` room). Never trust a user id or
@@ -531,7 +531,7 @@ of a fresh database and of a migrated old one.
 - `users.status` decides access: `approved` = everything; `pending` = chat /
   people panel and own profile only; `denied` / `rejected` = nothing (sockets
   refused). The auth guard (`authRoutes.js`) is deny-by-default (`policyFor()` in
-  userAuth.js). Only an admin changes a status — no `schema.ts` may ever rewrite
+  `auth/userAuth.ts`). Only an admin changes a status — no `schema.ts` may ever rewrite
   statuses on boot (a restart once promoted every pending user). Blocking an
   account (`accountStatusChanged`) disconnects its sockets and, with central
   login, deletes all its sessions; its CLI tokens stop by themselves. The

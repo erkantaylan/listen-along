@@ -10,7 +10,7 @@ import path from 'node:path';
 import pg from 'pg';
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { cookieFor, startServer, requester } from '../../testServer.js';
-import { policyFor } from '../../userAuth.js';
+import { policyFor } from '../../auth/index.ts';
 import type { StationSong } from './stations.ts';
 
 let PostgreSqlContainer: typeof import('@testcontainers/postgresql').PostgreSqlContainer | undefined;

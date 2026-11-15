@@ -12,4 +12,7 @@ export * as tokens from './tokens.ts';
 // The caller's own CLI tokens (/api/tokens).
 export { createTokenRouter } from './tokenRoutes.ts';
 export type { TokenRouterHooks } from './tokenRoutes.ts';
-export type { Account, ApiUser, PublicToken, ApiTokenRow } from './types.ts';
+// Who a request or a socket handshake is, and the guard's policy per path.
+export { createUserAuth, isBlocked, policyFor } from './userAuth.ts';
+export type { UserAuth, SessionLookup, UserAuthDb } from './userAuth.ts';
+export type { Account, ApiUser, PublicToken, ApiTokenRow, Identity, Level, Policy, Who } from './types.ts';

@@ -27,7 +27,7 @@ const { readOidcConfig, OidcConfigError } = require('./auth/oidcConfig.ts');
 const secretBox = require('./shared/secretBox.ts');
 const { parseUpstream } = require('./oidcLink');
 const { createOidcSessions } = require('./oidcSessions');
-const userAuthMod = require('./userAuth');
+const userAuthMod = require('./auth/userAuth.ts');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
