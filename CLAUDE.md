@@ -33,7 +33,7 @@ where lobby persistence broke entirely on deployed instances.
   HTTP route modules (each a `create…Router({ deps })` mounted by index.js; mount order is semantics):
   `appRoutes.js` (`createInfoRouter`: health, version, changelog, QR, mounted before the library router so outside
   its `apiLimiter`; `createPageRouter`: redirects, SPA views, `/api/app/latest`, `/dashboard`, `/`),
-  `mediaRoutes.js` (`/api/stream`, `/api/covers/:id`)
+  `mediaRoutes.js` (`/api/stream`, `/api/covers/:id`), `profileRoutes.js` (`GET|PUT /api/profile`)
 - Domain modules: lobby.js, playlistAccess.js, queue.js, covers.js, db.js,
   workerHub.js / downloadJobs.js / jobRoutes.js (downloaders + jobs, see below),
   library.js (music library + upload validation (m4a / Ogg Opus) + legacy cache migration +
