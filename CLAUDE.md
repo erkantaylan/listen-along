@@ -515,3 +515,55 @@ cd backend && npm test   # or `npm test` at the repo root (adds frontend tests)
 ```
 
 Tests use Node's built-in test runner. Some tests need `@testcontainers/postgresql`.
+
+## Local development (Aspire AppHost)
+
+`make up` / `make down` / `make reset` (`scripts/aspire-dev.sh`; README "Local development"). The AppHost is
+TypeScript, `aspire/apphost.mts` (Aspire CLI 13.6.4+, no .NET SDK, no C# in the repo); `aspire/aspire.config.json`
+pins the SDK and `Aspire.Hosting.PostgreSQL` and fixes the dashboard ports in its `http` profile (dashboard 15260,
+OTLP 19260 gRPC / 19261 HTTP, resource service 20260; plain http, so no dev certificate). `aspire/.aspire/` is the
+SDK the CLI generates (`aspire restore`), gitignored; `tsc -p aspire/tsconfig.apphost.json --noEmit` typechecks
+the AppHost (the root `tsc -b` does not include it).
+
+- Resources: `postgres` (16-alpine, as in production; volume `listen-along-dev-pgdata-<sha256(checkout path)[:10]>`,
+  kept across runs) + database `listen`, `pgweb`, `frontend` (`tsc -b frontend -w`), `listen-along` (the server,
+  `node --watch --require ./src/telemetry.js src/index.js`, port 3100, not proxied, health `/health` 200,
+  `INSECURE_DEV_LOGIN=1`, `ADMIN_PASSWORD=dev-admin`, `SONGS_PATH` / `COVERS_DIR` under `.dev-data/`, OTLP
+  http/protobuf to the dashboard), `seed` (after the server is healthy), `worker` (`LISTEN_WORKER=1`), `idp`
+  (`LISTEN_AUTH=oidc`: `fakeOidcIssuer.js --port 9400`, then `OIDC_ISSUER` / `OIDC_CLIENT_ID` instead of the dev
+  sign-in). `DATABASE_URL` is a `postgres://` URL built with `refExpr` (Aspire's `ConnectionStrings__*` is ADO
+  format); the Postgres password is pinned and URL-safe.
+- `backend/scripts/dev-seed.js` (plain Node, idempotent, never in the image: `.dockerignore` drops
+  `backend/scripts`): users and CLI tokens (SHA-256 of known dev values, as `tokens.js`) and chat straight into
+  Postgres; songs (ffmpeg tones, `.m4a` and `.opus`) and playlists through the HTTP API with those tokens, so the
+  server's validation and in-memory state apply. Dev User is the row `/auth/dev/login` uses (provider `dev`,
+  provider_id `dev`) and gets `oidc_sub = dev-1`, the fake IdP's default sub. When a schema or an API the seed uses
+  changes, run `make up` and check `aspire logs seed`.
+- `make down` = `aspire stop`, then waits for the AppHost's containers (found by the volume and DCP's
+  `creatorProcessId` label) and kills only node / aspire-managed processes whose cwd is this checkout and whose
+  command line is one of the AppHost's (never under `.claude/`).
+
+## OpenTelemetry
+
+`backend/src/telemetry.js` is a preload (`--require`), never required by the app; OFF unless an OTLP endpoint
+variable is set (`telemetryRules.telemetryConfig`): then nothing from `@opentelemetry` is loaded. Production enables
+it with `NODE_OPTIONS=--require=/app/src/telemetry.js` + `OTEL_EXPORTER_OTLP_ENDPOINT` (no image change). OTLP over
+HTTP only (`http/protobuf` default, `http/json`); gRPC is refused. OpenTelemetry JS 3.x (`@opentelemetry/sdk-trace`
+3.x, experimental packages 0.301.x; pinned exactly, moved as a set): the SDK no longer reads `OTEL_BSP_*`,
+`OTEL_TRACES_SAMPLER` or `OTEL_METRIC_EXPORT_INTERVAL` itself, `telemetryRules` does; `BatchSpanProcessor` takes
+`{ exporter, … }`.
+- Traces: http (server + client), Express only for the route (`ignoreLayersType` all: no layer spans), pg
+  (`requireParentSpan`, no connect spans, `enhancedDatabaseReporting` off), undici (fetch). Metrics: http + pg pool
+  + runtime-node. No Socket.IO instrumentation.
+- Every span leaves through `SanitizingExporter` -> `telemetryRules.sanitizeAttributes` / `sanitizeSpanName`:
+  drops query strings, headers, bodies, client addresses, SQL parameter values and quoted literals; a route
+  registered for several paths (`['/api/playlists/:id', '/api/lobbies/:id']`) is reduced to the one that matched
+  (`pickRoute`; the HTTP metric keeps the joined template). Add a rule there, with a test, before recording
+  anything new. `ignoreIncomingPath`: `/health`, static files, `/socket.io/`.
+- Log correlation: console methods get ` trace_id=… span_id=…` appended while a sampled span is active
+  (logger.js wraps console after the preload, so its prefix stays first).
+- Shutdown: on SIGTERM / SIGINT the flush starts at once and the app's own `process.exit` waits for it (2 s
+  at most); a process without its own handler still ends on the signal. `telemetry.test.js` checks all of it,
+  including that nothing is loaded without an endpoint.
+- ESM switch: `--require` cannot patch ES modules. Then `node --import ./src/telemetry.ts`, which first calls
+  `module.register('@opentelemetry/instrumentation/hook.mjs', import.meta.url)`; `NODE_OPTIONS=--import=…`.

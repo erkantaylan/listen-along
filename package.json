@@ -6,7 +6,10 @@
     "typecheck": "tsc -b",
     "build": "tsc -b frontend --force",
     "test": "npm --prefix backend test && node --test 'frontend/src/**/*.test.ts'",
-    "dev": "sh scripts/dev.sh"
+    "dev": "sh scripts/dev.sh",
+    "aspire:up": "sh scripts/aspire-dev.sh up",
+    "aspire:down": "sh scripts/aspire-dev.sh down",
+    "aspire:reset": "sh scripts/aspire-dev.sh reset"
   },
   "engines": {
     "node": ">=22.18"

@@ -45,3 +45,8 @@ __pycache__/
 # Dolt database files (added by bd init)
 .dolt/
 *.db
+
+# Local development (Aspire AppHost, see README "Local development"):
+# the generated AppHost SDK and the dev data (songs, covers, seed audio).
+aspire/.aspire/
+.dev-data/

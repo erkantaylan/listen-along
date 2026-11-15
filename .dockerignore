@@ -9,3 +9,9 @@ backend/node_modules
 # Built in the image (docker/Dockerfile, stage "frontend"); a local build must
 # not leave stale files in the image.
 frontend/dist
+# Local development only (README "Local development"): the Aspire AppHost and
+# its node_modules, the dev data, and the dev seed stay out of the build
+# context and the image.
+aspire
+.dev-data
+backend/scripts
