@@ -3,15 +3,15 @@ import { state, elements, socket, STORAGE_KEYS, storageSet } from './shared/stat
 import { showToast, escapeHtml, sanitizeUrl, getCoverUrl, getInitials, formatDuration, t, toLower, syncRangeFill } from './shared/ui.js';
 import { playViewedFromTop, viewedContext } from './playback.js';
 import { refreshLibraryAddButtons } from './library.js';
-import { player } from './player.js';
+import { player } from './player/player.js';
 import { refreshPlayerBar } from './player-bar.js';
 import { bindSongMenu, songMenuButtonHtml, reportIconHtml, reportsFor, onReportsChange } from './song-reports.js';
 import { isUnplayable, unplayableBadgeHtml, onFailuresChange } from './playback-failures.js';
-import { addedByLabel, addedDateLabel, songParts } from './queue-format.js';
-import { playlistStats, lengthParts } from './playlist-stats.js';
+import { addedByLabel, addedDateLabel, songParts } from './features/queue/queue-format.js';
+import { playlistStats, lengthParts } from './features/playlists/playlist-stats.js';
 import { createVirtualList } from './shared/virtual-list.js';
-import { isEditMode, setEditMode, onEditModeChange, isDragging, bindDragReorder } from './queue-edit.js';
-import { canRemoveFromPlaylist } from './song-menu-rules.js';
+import { isEditMode, setEditMode, onEditModeChange, isDragging, bindDragReorder } from './features/queue/queue-edit.js';
+import { canRemoveFromPlaylist } from './features/library/song-menu-rules.js';
 
 // A song marked broken anywhere: the queue's badges follow.
 onReportsChange(() => { if (state.lobbyId) updateQueue(); });

@@ -115,7 +115,7 @@ held to 3:1.
 | Success text / fill (white text) / tint | `--app-success` / `-solid` / `-subtle` | `#6cc893` / `#2b7f50` / `#24402f` | 6.80 / 4.94 / 5.58 |
 | Warning text / fill (dark text) / tint | `--app-warning` / `-solid` / `-subtle` | `#f0c060` / `#e5b23c` / `#47391c` | 8.18 / 8.88 / 6.64 |
 | Info text / fill / tint | `--app-info` / `-solid` / `-subtle` | `#6ec6dc` / `#2b7f93` / `#1f3d45` | 7.10 / — / 5.95 |
-| **Placeholder covers** (a playlist's initials; `.cover-1`…`.cover-6`, picked by `playlistCoverIndex(id)` in `playlist-filter.js`) | | | |
+| **Placeholder covers** (a playlist's initials; `.cover-1`…`.cover-6`, picked by `playlistCoverIndex(id)` in `playlist-filter.ts`) | | | |
 | Cover colours 1–6 | `--app-cover-1` … `--app-cover-6` | `#49699a` `#795b9a` `#34716e` `#895e41` `#8a4d6b` `#4e713f` | `--app-text` on each >= 4.61 (4.62 / 4.61 / 4.67 / 4.66 / 5.19 / 4.64); decorative against the surface |
 | Radio / library / Artists tiles | gradients of two cover colours (`.cover-radio`, `.cover-library`, `.cover-artists`) | — | icon only |
 | **Shell** | | | |
@@ -486,7 +486,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
 ### Playlists sidebar
 
 One `nav#app-sidebar` in `index.html`, driven by `sidebar.js` (list in `playlist-store.js`, search
-in `playlist-filter.js`, styles "Playlists sidebar" in `app.css`, hooks prefixed `plnav-` because
+in `playlist-filter.ts`, styles "Playlists sidebar" in `app.css`, hooks prefixed `plnav-` because
 the dashboard already owns `.sidebar-*`). Shown by body classes, never `[hidden]`: `has-plnav`
 (approved account), `plnav-open` (drawer open). Present on landing, playlist, library overlay,
 profile and the desktop `/social`; not on login, pending or `/dashboard`.
@@ -592,7 +592,7 @@ Every song in the listener's own shuffled order, separate from the library, whic
 
 ### Artists
 
-Every artist of the library as a read-only "album" of their songs (`artists.js`, `artist-page.js`, rules in `artist-rules.js`). An artist is
+Every artist of the library as a read-only "album" of their songs (`artists.js`, `artist-page.js`, rules in `artist-rules.ts`). An artist is
 every song whose credit names them, as on Spotify: the server splits a credit into its artists (`backend/src/artistCredits.js`), so
 "RAYE, 070 Shake" is on both pages while "Earth, Wind & Fire" and "Simon & Garfunkel" stay one artist, and spellings fold to one key
 ("Barış Manço", "barismanco" and "Barış Manço - Topic" are one). The name shown is the spelling most of their songs use, without channel
@@ -620,7 +620,7 @@ suffixes; a song row always shows the song's full credit. Songs with an open rep
 
 ### Search
 
-One field for the whole signed-in app and one page, `/search?q=…` (`search.js`, rules in `search-rules.js`, relevance on the server
+One field for the whole signed-in app and one page, `/search?q=…` (`search.js`, rules in `search-rules.ts`, relevance on the server
 in `backend/src/songSearch.js`).
 
 - **The field** (`form#app-search[role=search]`, `#app-search-input`): the shell's **top bar** (see "App shell"), one element that never
@@ -688,7 +688,7 @@ in `backend/src/songSearch.js`).
   nobody's business); listen-along followers just get the song.
 - **The current playlist** (the one-step target) is, for one search, the playlist whose page was on screen when the search
   **started** (the field focused or clicked, Ctrl+K, the phone's Search place, an empty playlist's Find songs) if the viewer may
-  edit it (`pageTarget` / `startTarget` in `search-rules.js`): the "Adding to" chip with × to drop it, kept on the search page and
+  edit it (`pageTarget` / `startTarget` in `search-rules.ts`): the "Adding to" chip with × to drop it, kept on the search page and
   back on that playlist (not its library), ended by any other page (`keepTarget`). Otherwise it is the playlist last **played**
   from (`listen-lastPlayedPlaylist` in this browser). Either only while it is in the viewer's list and editable, else there is none.
 - Narrow page columns (< 576px): Add and Request become icon buttons, the "In library" badge and the YouTube link go (both stay in
@@ -758,7 +758,7 @@ Song lists behave like Spotify's. **Normal mode** (always the default):
   toast ("… could not be played. Check your connection and try again.", or "… are not in the library yet." when that is all they were). A failure toast says "Could not play …" (+ "Skipping it." when another song came up); an automatic report gets an info toast
   with **Undo** (8s). There is no filter for unplayable songs: they stay in the list, greyed.
 
-**Stats** (`playlist-stats.js` + `queue.js`). On the playlist page they are part of the header's muted line
+**Stats** (`playlist-stats.ts` + `queue.js`). On the playlist page they are part of the header's muted line
 (`#playlist-stats` inside `#playlist-meta-text`, `statsTextHtml`): plain text between the owner and the listener count, " · "
 between facts, one line, truncated with the whole line in its `title`. On Radio and the artist pages they are the **stats strip**
 (`.playlist-stats`, `statsHtml`): one `fs-sm` line of neutral pills that wraps between facts and never inside one; muted words, the
@@ -788,7 +788,7 @@ scroller. No "load more", no pager, and the sticky head and scrollbar act as if 
 - Radio uses it too. For another long list call `createVirtualList` and set `--vl-row-height`. The library keeps its 20-per-page pager: it is server-paged, so it holds no long list.
 
 **Edit mode** (playlist queue only; "Edit" → "Done" in the navbar, only for users who may edit;
-leaving the page always ends it; `queue-edit.js`):
+leaving the page always ends it; `queue-edit.ts`):
 
 - The handle takes the `#` cell, so nothing moves. Each row gets a drag handle on the left (`.queue-item-handle`, `.btn-text.theme-secondary.btn-icon.btn-sm`,
   `touch-action: none`) and a remove button on the right (`.queue-item-remove`, `.btn-text.theme-danger.btn-icon.btn-sm`,
@@ -847,7 +847,7 @@ Bootstrap 6 `.menu` / `.menu-item` / `.menu-header` / `.menu-divider` markup, no
   for a non-YouTube http(s) source), divider, broken-song items, **Replace with…**, then on playlist rows only a divider and
   **Remove from playlist** (danger). Source exists only with a `youtube_id` or an http(s) source: no link, no item (never an
   empty submenu). Song rows and the player bar carry no source link of their own. A song not in the library: Add and Mark as
-  broken are disabled, Source and Remove remain. The decisions are pure and tested in `song-menu-rules.js` (`songSourceLink`,
+  broken are disabled, Source and Remove remain. The decisions are pure and tested in `song-menu-rules.ts` (`songSourceLink`,
   `sourceSubmenu`, `canRemoveFromPlaylist`).
 - **Remove from playlist**: only on rows of the playlist on screen, and only when the viewer may edit it (`state.canEdit`;
   not the library, Radio, artist pages or the player bar). It is Edit mode's remove (`removeSong` in `queue.js`: gone at once,
@@ -885,7 +885,7 @@ while it waits ("Waiting for a downloader", with Stop waiting; the file field st
 (nothing changed), success when it is done. Only the requester sees the job; others see "Someone is already replacing this song".
 Replace jobs also show on the Download tab, under "Asked for" on the profile, and in the dashboard's Download jobs.
 
-**Pick the video** (`pick-dialog.js`, rules in `pick-rules.js`; an `.app-modal` with a 36rem card whose body scrolls).
+**Pick the video** (`pick-dialog.js`, rules in `pick-rules.ts`; an `.app-modal` with a 36rem card whose body scrolls).
 It opens from the Download box before anything is queued, and only if there is
 something to choose: a song the library already has is added without it, and an answer that arrives within 300ms
 never flashes a dialog. The text stays in the input until the choice is made.
@@ -930,7 +930,7 @@ songs shows an outline **Dismiss automatic (n)** button next to Refresh while th
 One persistent bar, fixed to the bottom of every signed-in SPA page (landing, library
 overlay, profile, dashboard, every playlist page), Spotify-style: a rounded `--app-raised` panel floating a
 `--app-gap` clear of the window's left, right and bottom edges (the safe area, if larger), no outline, no shadow. Markup: `#player-bar` in
-`index.html`; behaviour: `player.js` (the only thing that touches `<audio id="audio-player">`),
+`index.html`; behaviour: `player.ts` (the only thing that touches `<audio id="audio-player">`),
 `player-bar.js` (visibility, padding, empty state, "from" line) and `playback.js` (title,
 art, times, buttons).
 
@@ -975,7 +975,7 @@ art, times, buttons).
 ### Chat and people panel
 
 One `aside#social-panel` in `index.html`, driven by `social.js` (pure helpers in
-`chat-format.js`; server in `backend/src/social.js`). It is shown by body classes,
+`chat-format.ts`; server in `backend/src/social.js`). It is shown by body classes,
 never by `[hidden]`: `has-social` (signed in, socket up), `social-collapsed`
 (desktop, remembered in localStorage), `social-route` (the `/social` URL).
 
@@ -1032,7 +1032,7 @@ can move focus there).
   yourself, offline / idle people and unapproved accounts. Escape closes and focus returns
   to the row; Tab stays inside; it re-renders live while open. A private playlist's name
   or id is never sent to anyone but its owner, so the card shows only the song.
-- **Activity** (`activity.js`, rules in `activity-rules.js`): a list of rounded rows (no dividers), one row per download job of
+- **Activity** (`activity.js`, rules in `activity-rules.ts`): a list of rounded rows (no dividers), one row per download job of
   anyone, newest first by when it was asked for, so a row never moves while its state changes. Row: a 2.25rem
   thumbnail (the video's, else the music placeholder); the title on one line with an ellipsis and the status
   badge at its right (the Download tab's badges: waiting, downloading, done, failed, cancelled); the status

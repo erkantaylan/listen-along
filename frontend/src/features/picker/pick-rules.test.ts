@@ -1,16 +1,15 @@
-// The pick dialog's rules (frontend/pick-rules.js).
-const { describe, it, before } = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('path');
-const { pathToFileURL } = require('url');
+// The pick dialog's rules (pick-rules.ts).
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import * as m from './pick-rules.ts';
+import type { PicksAnswer } from './pick-rules.ts';
+import type { PickVideo } from '../../shared/types.ts';
 
-let m;
-const id = (n) => `video${String(n).padStart(6, '0')}`;
-const video = (n, extra = {}) => ({ youtube_id: id(n), title: `Title ${n}`, channel: 'Ch', duration_sec: 200, in_library: null, ...extra });
-
-before(async () => {
-  m = await import(pathToFileURL(path.join(__dirname, '..', '..', 'frontend', 'pick-rules.js')).href);
-});
+const id = (n: number) => `video${String(n).padStart(6, '0')}`;
+// extra may hold partial fields (in_library: { id }): a fake where a PickVideo is expected.
+const video = (n: number, extra: object = {}) => ({ youtube_id: id(n), title: `Title ${n}`, channel: 'Ch', duration_sec: 200, in_library: null, ...extra }) as PickVideo;
+// What is not a video (or a partial server answer), where the real type is expected.
+const fake = <T,>(x: unknown) => x as T;
 
 describe('pick-rules: selection keys', () => {
   it('arrows move by one and stop at the ends', () => {
@@ -41,7 +40,7 @@ describe('pick-rules: a playlist\'s picks', () => {
     assert.deepEqual(items.map((it) => it.key), [0, 1, 2]);
   });
   it('leaves out what is not a video', () => {
-    assert.equal(m.playlistItems([video(1), null, { youtube_id: 'nope' }, { title: 'x' }]).length, 1);
+    assert.equal(m.playlistItems([video(1), null, fake<PickVideo>({ youtube_id: 'nope' }), fake<PickVideo>({ title: 'x' })]).length, 1);
     assert.deepEqual(m.playlistItems(undefined), []);
   });
   it('unticking leaves a video out, without touching the others', () => {
@@ -68,7 +67,7 @@ describe('pick-rules: a playlist\'s picks', () => {
   it('a swap with something that is not a video changes nothing', () => {
     const items = m.playlistItems([video(1)]);
     assert.equal(m.swapped(items, 0, null), items);
-    assert.equal(m.swapped(items, 0, { youtube_id: 'bad id' }), items);
+    assert.equal(m.swapped(items, 0, fake<PickVideo>({ youtube_id: 'bad id' })), items);
   });
   it('the same video twice is sent once', () => {
     const items = m.swapped(m.playlistItems([video(1), video(2)]), 1, video(1));
@@ -131,7 +130,7 @@ describe('pick-rules: what a lookup answer means', () => {
   it('results open the dialog; a library song does not', () => {
     assert.equal(m.lookupOutcome(200, { kind: 'search', results: [] }), 'pick');
     assert.equal(m.lookupOutcome(200, { kind: 'playlist', results: [video(1)], total: 1 }), 'pick');
-    assert.equal(m.lookupOutcome(200, { kind: 'library', song: { id: 's' } }), 'library');
+    assert.equal(m.lookupOutcome(200, fake<PicksAnswer>({ kind: 'library', song: { id: 's' } })), 'library');
   });
   it('a failed or refused lookup is an error to retry', () => {
     for (const status of [0, 429, 500, 502, 503]) assert.equal(m.lookupOutcome(status, { error: 'x' }), 'error', String(status));
@@ -139,7 +138,7 @@ describe('pick-rules: what a lookup answer means', () => {
   it('anything else goes the way it went without a dialog', () => {
     assert.equal(m.lookupOutcome(400, { error: 'Unsupported link', code: 'BAD_INPUT' }), 'passthrough');
     assert.equal(m.lookupOutcome(404, null), 'passthrough');
-    assert.equal(m.lookupOutcome(200, { unexpected: true }), 'passthrough');
+    assert.equal(m.lookupOutcome(200, fake<PicksAnswer>({ unexpected: true })), 'passthrough');
     assert.equal(m.lookupOutcome(200, null), 'passthrough');
   });
 });

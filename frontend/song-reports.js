@@ -13,7 +13,7 @@ import { showToast, t, copyToClipboard } from './shared/ui.js';
 import { bindContextMenu, openContextMenu, closeContextMenu, isContextMenuOpen } from './shared/context-menu.js';
 import { addToPlaylistItem } from './add-to-playlist.js';
 import { openReplaceDialog } from './replace-dialog.js';
-import { songSourceLink, sourceSubmenu } from './song-menu-rules.js';
+import { songSourceLink, sourceSubmenu } from './features/library/song-menu-rules.js';
 
 const MAX_REASON = 200;
 const PRESET_REASONS = ['Wrong song', 'Bad audio', 'Cut off', 'Too quiet / too loud'];

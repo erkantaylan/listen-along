@@ -4,7 +4,7 @@
 // user is listen-along.js.
 import { state, elements, STORAGE_KEYS, storageSet } from './shared/state.js';
 import { escapeHtml, getCoverUrl, sanitizeUrl, showToast, syncRangeFill, t } from './shared/ui.js';
-import { player } from './player.js';
+import { player } from './player/player.js';
 import { refreshPlayerBar } from './player-bar.js';
 import { clearFailureFor } from './playback-failures.js';
 

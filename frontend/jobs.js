@@ -6,7 +6,7 @@
 import { state } from './shared/state.js';
 import { showToast, t } from './shared/ui.js';
 import { pickSongs } from './pick-dialog.js';
-import { jobPayload } from './pick-rules.js';
+import { jobPayload } from './features/picker/pick-rules.js';
 
 const $ = (id) => document.getElementById(id);
 // t() with {placeholders} filled in the fallback too (t returns it raw).

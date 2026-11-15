@@ -1,30 +1,27 @@
-// The global search's rules (frontend/search-rules.js), plus the pieces of
-// other rule modules it relies on: the search route (router.js), the repeat
-// of a song played from search (player-queue.js) and the playlist import's
-// ticks (pick-rules.js).
-const { describe, it, before } = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('path');
-const { pathToFileURL } = require('url');
+// The global search's rules (search-rules.ts), plus the pieces of other rule
+// modules it relies on: the search route (router.ts), the repeat of a song
+// played from search (player-queue.ts) and the playlist import's ticks
+// (pick-rules.ts).
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import * as m from './search-rules.ts';
+import type { LinkOutcome } from './search-rules.ts';
+import * as router from '../../router.ts';
+import * as pq from '../../player/player-queue.ts';
+import * as pick from '../picker/pick-rules.ts';
+import type { PicksAnswer } from '../picker/pick-rules.ts';
+import type { PickVideo } from '../../shared/types.ts';
 
-const front = (name) => import(pathToFileURL(path.join(__dirname, '..', '..', 'frontend', name)).href);
-let m;
-let router;
-let pq;
-let pick;
-
-const vid = (n) => `video${String(n).padStart(6, '0')}`;
-const video = (n, extra = {}) => ({ youtube_id: vid(n), title: `Title ${n}`, channel: 'Ch', duration_sec: 200, in_library: null, ...extra });
-
-before(async () => {
-  m = await front('search-rules.js');
-  router = await front('src/router.ts');
-  pq = await front('src/player/player-queue.ts');
-  pick = await front('pick-rules.js');
-});
+const vid = (n: number) => `video${String(n).padStart(6, '0')}`;
+// extra may hold partial fields (in_library: { id }): a fake where a PickVideo is expected.
+const video = (n: number, extra: object = {}) => ({ youtube_id: vid(n), title: `Title ${n}`, channel: 'Ch', duration_sec: 200, in_library: null, ...extra }) as PickVideo;
+// A partial server answer (or what is not a video) where the real type is expected.
+const fake = <T,>(x: unknown) => x as T;
+// One kind of outcome, after the test asserted that kind.
+const outcomeOf = <K extends LinkOutcome['kind']>(o: LinkOutcome, _kind: K) => o as Extract<LinkOutcome, { kind: K }>;
 
 describe('search: the shortcut and the add key', () => {
-  const key = (k, mods = {}) => ({ key: k, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, isComposing: false, ...mods });
+  const key = (k: string, mods: object = {}) => ({ key: k, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, isComposing: false, ...mods });
   it('Ctrl+K elsewhere, Cmd+K on a Mac, also from another input', () => {
     assert.equal(m.isSearchShortcut(key('k', { ctrlKey: true })), true);
     assert.equal(m.isSearchShortcut(key('K', { ctrlKey: true })), true);
@@ -77,13 +74,13 @@ describe('search: what is a link (exact, never fuzzy)', () => {
 
 describe('search: what the server said about a link', () => {
   it('the library has it', () => {
-    assert.deepEqual(m.linkOutcome(200, { kind: 'library', song: { id: 's1' } }), { kind: 'song', song: { id: 's1' } });
+    assert.deepEqual(m.linkOutcome(200, fake<PicksAnswer>({ kind: 'library', song: { id: 's1' } })), { kind: 'song', song: { id: 's1' } });
   });
   it('one video', () => {
     assert.deepEqual(m.linkOutcome(200, { kind: 'video', results: [video(1)] }), { kind: 'video', video: video(1) });
   });
   it('a bare id YouTube cannot name is taken as words; a link is not', () => {
-    const unnamed = { kind: 'video', results: [video(1, { title: null })] };
+    const unnamed: PicksAnswer = { kind: 'video', results: [video(1, { title: null })] };
     assert.deepEqual(m.linkOutcome(200, unnamed, { bare: true }), { kind: 'text' });
     assert.equal(m.linkOutcome(200, unnamed).kind, 'video');
     assert.equal(m.linkOutcome(200, { kind: 'video', results: [video(2)] }, { bare: true }).kind, 'video');
@@ -93,18 +90,19 @@ describe('search: what the server said about a link', () => {
     assert.deepEqual(top, { kind: 'video', video: video(1), query: 'A - B' });
     const have = m.linkOutcome(200, { kind: 'search', query: 'A - B', results: [video(3, { in_library: { id: 'lib3', title: 'B', artist: 'A' } })] }, { spotify: true });
     assert.equal(have.kind, 'song');
-    assert.equal(have.song.id, 'lib3');
-    assert.equal(have.song.youtube_id, vid(3));
+    assert.equal(outcomeOf(have, 'song').song.id, 'lib3');
+    assert.equal(outcomeOf(have, 'song').song.youtube_id, vid(3));
     assert.deepEqual(m.linkOutcome(200, { kind: 'search', query: 'A - B', results: [] }, { spotify: true }), { kind: 'none', query: 'A - B' });
   });
   it('a YouTube playlist: name, count, how many the library has', () => {
-    const o = m.linkOutcome(200, { kind: 'playlist', title: ' Road mix ', total: 250, results: [video(1, { in_library: { id: 'a' } }), video(2), { youtube_id: 'bad' }] });
-    assert.equal(o.kind, 'playlist');
+    const outcome = m.linkOutcome(200, { kind: 'playlist', title: ' Road mix ', total: 250, results: [video(1, { in_library: { id: 'a' } }), video(2), fake<PickVideo>({ youtube_id: 'bad' })] });
+    assert.equal(outcome.kind, 'playlist');
+    const o = outcomeOf(outcome, 'playlist');
     assert.equal(o.title, 'Road mix');
     assert.equal(o.total, 250);
     assert.equal(o.videos.length, 2);
     assert.equal(o.inLibrary, 1);
-    assert.equal(m.linkOutcome(200, { kind: 'playlist', results: [video(1)] }).title, null);
+    assert.equal(outcomeOf(m.linkOutcome(200, { kind: 'playlist', results: [video(1)] }), 'playlist').title, null);
   });
   it('the server\'s refusal is shown in its own words', () => {
     assert.deepEqual(m.linkOutcome(400, { error: 'Only Spotify track links are supported. Paste the link of a single song.', code: 'BAD_INPUT' }),
@@ -122,7 +120,7 @@ describe('search: what the server said about a link', () => {
 
 describe('search: the YouTube section', () => {
   it('results, nothing, rate limited, failed', () => {
-    assert.deepEqual(m.youtubeOutcome(200, { kind: 'search', results: [video(1), { youtube_id: 'x' }] }), { kind: 'results', videos: [video(1)] });
+    assert.deepEqual(m.youtubeOutcome(200, { kind: 'search', results: [video(1), fake<PickVideo>({ youtube_id: 'x' })] }), { kind: 'results', videos: [video(1)] });
     assert.deepEqual(m.youtubeOutcome(200, { kind: 'search', results: [] }), { kind: 'empty' });
     assert.deepEqual(m.youtubeOutcome(429, {}), { kind: 'rate' });
     assert.equal(m.youtubeOutcome(502, { error: 'The YouTube search failed' }).kind, 'error');
@@ -167,7 +165,7 @@ describe('search: the current playlist (where a one-step add goes)', () => {
     assert.equal(m.pageTarget({ view: 'lobby', lobbyId: 'theirs', canEdit: false }), null, 'read-only');
     assert.equal(m.pageTarget({ view: 'lobby', lobbyId: 'road', canEdit: true, libraryOpen: true }), null, 'under the library overlay');
     assert.equal(m.pageTarget({ view: 'lobby', lobbyId: null, canEdit: true }), null, 'not joined yet');
-    for (const view of ['landing', 'radio', 'artists', 'artist', 'search', 'profile', null]) {
+    for (const view of ['landing', 'radio', 'artists', 'artist', 'search', 'profile', null] as const) {
       assert.equal(m.pageTarget({ view, lobbyId: 'road', canEdit: true }), null, String(view));
     }
     assert.equal(m.pageTarget(), null);
@@ -183,9 +181,9 @@ describe('search: the current playlist (where a one-step add goes)', () => {
   it('the target lasts while its search does', () => {
     assert.equal(m.keepTarget('road', { view: 'search' }), 'road');
     assert.equal(m.keepTarget('road', { view: 'lobby', lobbyId: 'road' }), 'road', 'back on its page');
-    assert.equal(m.keepTarget('road', { view: 'lobby', lobbyId: 'road', library: 'library' }), null, 'its library');
+    assert.equal(m.keepTarget('road', fake<Parameters<typeof m.keepTarget>[1]>({ view: 'lobby', lobbyId: 'road', library: 'library' })), null, 'its library');
     assert.equal(m.keepTarget('road', { view: 'lobby', lobbyId: 'mine' }), null, 'another playlist');
-    for (const view of ['landing', 'radio', 'artists', 'profile', 'social']) assert.equal(m.keepTarget('road', { view }), null, view);
+    for (const view of ['landing', 'radio', 'artists', 'profile', 'social'] as const) assert.equal(m.keepTarget('road', { view }), null, view);
     assert.equal(m.keepTarget(null, { view: 'search' }), null);
   });
   it('the placeholder names the page\'s (or the search\'s) playlist, never the last played', () => {
@@ -268,7 +266,7 @@ describe('search: the route', () => {
   it('/search?q= is a page of its own, deep-linkable', () => {
     assert.deepEqual(router.parseRoute('/search', '?q=daft%20punk'), { view: 'search', lobbyId: null, library: null, searchQuery: 'daft punk' });
     assert.deepEqual(router.parseRoute('/search/'), { view: 'search', lobbyId: null, library: null, searchQuery: '' });
-    assert.equal(router.parseRoute('/search', `?q=${'x'.repeat(500)}`).searchQuery.length, router.SEARCH_MAX);
+    assert.equal(router.parseRoute('/search', `?q=${'x'.repeat(500)}`).searchQuery?.length, router.SEARCH_MAX);
     assert.equal(router.parseRoute('/search', '?q=%20%20a%20%20%20b%20').searchQuery, 'a b');
   });
   it('builds the path back', () => {
@@ -283,7 +281,7 @@ describe('search: the route', () => {
 describe('search: a song played from search repeats', () => {
   const ctx = { type: 'search', query: 'x' };
   it('whatever the saved repeat mode, and without changing it', () => {
-    for (const saved of ['off', 'all', 'one']) assert.equal(pq.contextRepeat(saved, ctx), 'all', saved);
+    for (const saved of ['off', 'all', 'one'] as const) assert.equal(pq.contextRepeat(saved, ctx), 'all', saved);
     assert.equal(pq.contextRepeat('off', { type: 'lobby', lobbyId: 'p' }), 'off', 'other contexts keep the saved mode');
   });
   it('it ends: the same song again; Next and Previous restart it', () => {
@@ -300,7 +298,7 @@ describe('search: a song played from search repeats', () => {
     assert.equal(pq.previousIndex({ length: 1, current: 0, repeat, blocked }), -1, 'nothing to restart');
   });
   it('Next and Previous restart it whatever the saved mode, shuffle or not', () => {
-    for (const saved of ['off', 'all', 'one']) {
+    for (const saved of ['off', 'all', 'one'] as const) {
       const repeat = pq.contextRepeat(saved, ctx);
       assert.equal(pq.nextIndex({ length: 1, current: 0, repeat }), 0, saved);
       assert.equal(pq.nextIndex({ length: 1, current: 0, repeat, shuffle: true, random: () => 0.99 }), 0, `${saved}, shuffle`);
@@ -311,7 +309,7 @@ describe('search: a song played from search repeats', () => {
 });
 
 describe('import: which rows start ticked', () => {
-  const lib = (n) => video(n, { in_library: { id: `lib${n}` } });
+  const lib = (n: number) => video(n, { in_library: { id: `lib${n}` } });
   it('the destination\'s keys: its videos and its library songs', () => {
     const keys = pick.destinationKeys([{ youtube_id: vid(1), library_id: 'lib1' }, { youtube_id: null, library_id: 'lib9' }, { youtube_id: 'bad', library_id: null }, null]);
     assert.deepEqual([...keys].sort(), ['lib:lib1', 'lib:lib9', `yt:${vid(1)}`].sort());

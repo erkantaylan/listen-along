@@ -8,14 +8,14 @@
 // asks for the next round (player.setRefill).
 import { state } from './shared/state.js';
 import { escapeHtml, formatDuration, navigateTo, showToast, t } from './shared/ui.js';
-import { player } from './player.js';
+import { player } from './player/player.js';
 import { libraryTrack } from './library.js';
 import { playCellHtml, playCellLabel, statsHtml } from './queue.js';
 import { closeDrawer } from './sidebar.js';
 import { bindSongMenu, songMenuButtonHtml } from './song-reports.js';
 import { isUnplayable, unplayableBadgeHtml, onFailuresChange } from './playback-failures.js';
 import { createVirtualList } from './shared/virtual-list.js';
-import { nextRound, reconcile, reshuffledAround, shuffled } from './radio-order.js';
+import { nextRound, reconcile, reshuffledAround, shuffled } from './features/radio/radio-order.js';
 
 const STATION = 'all';
 const CONTEXT = { type: 'radio', stationId: STATION };

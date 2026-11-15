@@ -4,7 +4,7 @@
 import { state } from './shared/state.js';
 import { showToast, formatDuration, notifyViewChange } from './shared/ui.js';
 import { libraryPath, basePath } from './router.js';
-import { player } from './player.js';
+import { player } from './player/player.js';
 import { setupDownloads, showDownloads, hideDownloads } from './jobs.js';
 import { clearReplacedFailure } from './playback-failures.js';
 import { bindSongMenu, songMenuButtonHtml, reportIconHtml, reportLines, reportsFor, onReportsChange, reportedCount, reportsLoaded, handleReportsUpdated, isReportDialogOpen } from './song-reports.js';

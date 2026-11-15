@@ -1,19 +1,13 @@
-// What happens when a song fails to play (frontend/playback-failure-rules.js):
+// What happens when a song fails to play (playback-failure-rules.ts):
 // grey and skip always, an automatic "needs replacement" report only when the
 // song itself is at fault and the surroundings are known to work.
-const { describe, it, before } = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('path');
-const { pathToFileURL } = require('url');
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import * as m from './playback-failure-rules.ts';
 
-let m;
 const DECODE = 3;
 const NOT_SUPPORTED = 4;
 const served = (mime = 'audio/mp4') => ({ status: 200, mime });
-
-before(async () => {
-  m = await import(pathToFileURL(path.join(__dirname, '..', '..', 'frontend', 'playback-failure-rules.js')).href);
-});
 
 describe('playback-failure-rules: failureCause', () => {
   it('offline wins over everything', () => {
@@ -67,7 +61,8 @@ describe('playback-failure-rules: failureCause', () => {
   });
 
   it('isSongFault: missing and undecodable only', () => {
-    const faults = ['offline', 'network', 'session', 'server', 'not-in-library', 'gone', 'missing', 'unsupported', 'undecodable', 'unknown'].filter(m.isSongFault);
+    const causes: m.FailureCause[] = ['offline', 'network', 'session', 'server', 'not-in-library', 'gone', 'missing', 'unsupported', 'undecodable', 'unknown'];
+    const faults = causes.filter(m.isSongFault);
     assert.deepEqual(faults, ['missing', 'undecodable']);
   });
 });
@@ -88,7 +83,7 @@ describe('playback-failure-rules: sameFault (a held report, asked again before i
     assert.equal(m.sameFault('undecodable', 'etag-1', { status: 404, code: 'FILE_MISSING' }), false);
   });
   it('nothing else is ever sent', () => {
-    for (const cause of ['network', 'server', 'unknown', 'unsupported', 'gone']) assert.equal(m.sameFault(cause, 'v', { status: 200, version: 'v' }), false, cause);
+    for (const cause of ['network', 'server', 'unknown', 'unsupported', 'gone'] as const) assert.equal(m.sameFault(cause, 'v', { status: 200, version: 'v' }), false, cause);
   });
   it('isServed: a 2xx answer', () => {
     assert.equal(m.isServed({ status: 200 }), true);
@@ -113,7 +108,7 @@ describe('playback-failure-rules: codecQuery', () => {
 
 describe('playback-failure-rules: failureAction', () => {
   it('every failure greys; a single one is skipped', () => {
-    for (const cause of ['offline', 'network', 'server', 'session', 'not-in-library', 'gone', 'unsupported', 'unknown']) {
+    for (const cause of ['offline', 'network', 'server', 'session', 'not-in-library', 'gone', 'unsupported', 'unknown'] as const) {
       assert.deepEqual(m.failureAction({ cause, streak: 1 }), { grey: true, skip: true, stop: false, report: false }, cause);
     }
   });

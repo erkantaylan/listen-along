@@ -2,7 +2,7 @@
 import { state, elements, auth, socket, STORAGE_KEYS, viewActivators, setSocket, storageSet } from './shared/state.js';
 import { showView, showToast, switchTab, setupLanguageSelector, setupAppMeta, t, setupRangeFill, navigateTo } from './shared/ui.js';
 import { setupAudioPlayer } from './shared/audio.js';
-import { player, setupPlayer } from './player.js';
+import { player, setupPlayer } from './player/player.js';
 import { setupPlaybackFailures } from './playback-failures.js';
 import { setupPlayerBar, setupPlayerBarControls, refreshPlayerBar } from './player-bar.js';
 import { checkAuth, setupLoginView, showPendingCard, setupProfilePage, loadProfilePage } from './auth.js';

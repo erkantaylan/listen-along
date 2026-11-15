@@ -1,17 +1,12 @@
-// Artists' pure rules (frontend/artist-rules.js).
-const { describe, it, before } = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('path');
-const { pathToFileURL } = require('url');
+// Artists' pure rules (artist-rules.ts).
+// (Moved from backend/src/artist-rules.test.js.)
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import * as m from './artist-rules.ts';
 
-let m;
-const artist = (name, count) => ({ key: name.toLowerCase(), name, count });
-const song = (id) => ({ libraryId: id });
-const ids = (list) => list.map((s) => s.libraryId);
-
-before(async () => {
-  m = await import(pathToFileURL(path.join(__dirname, '..', '..', 'frontend', 'artist-rules.js')).href);
-});
+const artist = (name: string, count: number) => ({ key: name.toLowerCase(), name, count });
+const song = (id: string) => ({ libraryId: id });
+const ids = (list: { libraryId: string }[]) => list.map((s) => s.libraryId);
 
 describe('artist-rules: shelfArtists', () => {
   it('keeps the server order, drops one-song artists and caps the count', () => {

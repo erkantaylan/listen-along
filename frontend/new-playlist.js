@@ -6,7 +6,7 @@
 // ("Add to playlist" in the song menu, which must not leave the page).
 import { state, socket } from './shared/state.js';
 import { escapeHtml, t, trapFocus } from './shared/ui.js';
-import { player } from './player.js';
+import { player } from './player/player.js';
 
 const MAX_NAME = 50;
 let pending = false;

@@ -1,14 +1,12 @@
-// What playlist rows are built from: the queue entry's additive artistName, and
-// the pure helpers in frontend/queue-format.js (layout-rules: frontend/src/shared/layout-rules.test.ts).
-const { describe, it, before, after } = require('node:test');
+// What playlist rows are built from: the queue entry's additive artistName (the
+// pure helpers: frontend/src/features/queue/queue-format.test.ts, the rail avatars:
+// frontend/src/features/playlists/playlist-filter.test.ts, layout-rules:
+// frontend/src/shared/layout-rules.test.ts).
+const { describe, it, after } = require('node:test');
 const assert = require('node:assert/strict');
-const path = require('path');
-const { pathToFileURL } = require('url');
 const db = require('./db');
 const library = require('./library');
 const { Queue } = require('./queue');
-
-const frontend = (file) => import(pathToFileURL(path.join(__dirname, '..', '..', 'frontend', file)).href);
 
 describe('queue entry artistName', () => {
   const realAvailable = db.isAvailable;
@@ -66,40 +64,5 @@ describe('queue entry artistName', () => {
     const q = new Queue('t3');
     await q.loadFromDB();
     assert.equal(q.getSongs().length, 1);
-  });
-});
-
-describe('row text (frontend/queue-format.js)', () => {
-  let f;
-  before(async () => { f = await frontend('queue-format.js'); });
-
-  it('splits only on the known artist, never guessing at " - "', () => {
-    assert.deepEqual(f.songParts({ title: 'Yağmur - Live - Ayşe', artistName: 'Ayşe' }), { title: 'Yağmur - Live', artist: 'Ayşe' });
-    assert.deepEqual(f.songParts({ title: 'Queen - Bohemian', artistName: null }), { title: 'Queen - Bohemian', artist: '' });
-    assert.deepEqual(f.songParts({ title: 'Renamed', artistName: 'Ayşe' }), { title: 'Renamed', artist: 'Ayşe' });
-    assert.deepEqual(f.songParts({ title: ' - Ayşe', artistName: 'Ayşe' }), { title: ' - Ayşe', artist: 'Ayşe' });
-  });
-
-  it('leaves the placeholder name and missing dates blank', () => {
-    assert.equal(f.addedByLabel('anonymous'), '');
-    assert.equal(f.addedByLabel('Anonymous'), '');
-    assert.equal(f.addedByLabel(null), '');
-    assert.equal(f.addedByLabel(' Ayşe '), 'Ayşe');
-    for (const bad of [null, undefined, 0, NaN, 'x']) assert.equal(f.addedDateLabel(bad, 'en'), '');
-    assert.match(f.addedDateLabel(Date.UTC(2026, 5, 15, 12), 'en'), /2026/);
-  });
-});
-
-describe('rail avatars (playlistInitials)', () => {
-  let f;
-  before(async () => { f = await frontend('playlist-filter.js'); });
-
-  it('takes two whole letters, Turkish capitals', () => {
-    assert.equal(f.playlistInitials('istanbul şarkıları'), 'İŞ');
-    assert.equal(f.playlistInitials('ılık çay ve üç kişi'), 'IÇ');
-    assert.equal(f.playlistInitials('  Yol  '), 'Y');
-    assert.equal(f.playlistInitials('🎸 rock'), '🎸R');
-    assert.equal(f.playlistInitials(''), '?');
-    assert.equal(f.playlistInitials(null), '?');
   });
 });

@@ -5,20 +5,21 @@
 // playlist): rows get a drag handle and a remove button, and clicking a row
 // does nothing. queue.js renders the rows; this module only keeps the mode
 // and moves rows around under the pointer.
+import type { VirtualList } from '../../shared/virtual-list.ts';
 
 let editMode = false;
-const listeners = new Set();
+const listeners = new Set<(on: boolean) => void>();
 
-export function isEditMode() {
+export function isEditMode(): boolean {
   return editMode;
 }
 
-export function onEditModeChange(fn) {
+export function onEditModeChange(fn: (on: boolean) => void): () => boolean {
   listeners.add(fn);
   return () => listeners.delete(fn);
 }
 
-export function setEditMode(on) {
+export function setEditMode(on: boolean): void {
   on = !!on;
   if (on === editMode) return;
   editMode = on;
@@ -27,7 +28,7 @@ export function setEditMode(on) {
 
 let dragging = false;
 /** True while a row is being dragged (re-renders should wait). */
-export function isDragging() {
+export function isDragging(): boolean {
   return dragging;
 }
 
@@ -37,14 +38,14 @@ const MAX_SPEED = 14;       // px per frame, at the very edge
 const MAX_BOOST = 6;        // holding at the edge speeds up, or a long list takes minutes
 const BOOST_AFTER = 2500;   // ms at the edge to reach MAX_BOOST
 
-function playerBarHeight() {
+function playerBarHeight(): number {
   const v = parseFloat(getComputedStyle(document.body).getPropertyValue('--app-player-height'));
   return Number.isFinite(v) ? v : 0;
 }
 
 /**
  * Pointer-based drag reordering (mouse, touch and pen alike: HTML5 drag and
- * drop does not work on touch screens) on a windowed list (virtual-list.js).
+ * drop does not work on touch screens) on a windowed list (virtual-list.ts).
  * The dragged row follows the pointer and the rows it passes slide out of its
  * way. Its target comes from arithmetic, not from the rows in the DOM, so a drag
  * can run through rows that are not rendered yet: auto-scroll brings them in,
@@ -59,11 +60,37 @@ function playerBarHeight() {
  * The returned function re-applies the slide to freshly rendered rows: pass it to
  * createVirtualList as onRender.
  */
-export function bindDragReorder(list, { view, rowSelector, handleSelector, scroller, onDrop, onEnd }) {
-  let drag = null;
+export interface DragReorderOptions {
+  view: VirtualList;
+  rowSelector: string;
+  handleSelector: string;
+  scroller: HTMLElement;
+  onDrop: (fromPosition: number, toPosition: number) => void;
+  onEnd?: (() => void) | null;
+}
+
+// One press on a handle. from / target / height are set by begin(), and read
+// only once the drag has started.
+interface DragState {
+  row: HTMLElement;
+  handle: HTMLElement;
+  pointerId: number;
+  startY: number;
+  lastY: number;
+  startScroll: number;
+  started: boolean;
+  edgeSince: number;
+  from: number;
+  target: number;
+  height: number;
+  raf?: number;
+}
+
+export function bindDragReorder(list: HTMLElement, { view, rowSelector, handleSelector, scroller, onDrop, onEnd }: DragReorderOptions): () => void {
+  let drag: DragState | null = null;
 
   function shiftRows() {
-    const d = drag;
+    const d = drag as DragState;
     for (const [pos, row] of view.rendered()) {
       if (pos === d.from) continue;
       let shift = 0;
@@ -73,15 +100,15 @@ export function bindDragReorder(list, { view, rowSelector, handleSelector, scrol
     }
   }
 
-  function layout(clientY) {
-    const d = drag;
+  function layout(clientY: number) {
+    const d = drag as DragState;
     const dy = clientY - d.startY + (scroller.scrollTop - d.startScroll);
     d.row.style.transform = `translateY(${dy}px)`;
     d.target = Math.max(0, Math.min(view.count - 1, d.from + Math.round(dy / d.height)));
     shiftRows();
   }
 
-  function autoScroll(now) {
+  function autoScroll(now: number) {
     const d = drag;
     if (!d || !d.started) return;
     const box = scroller.getBoundingClientRect();
@@ -102,7 +129,7 @@ export function bindDragReorder(list, { view, rowSelector, handleSelector, scrol
   }
 
   function begin() {
-    const d = drag;
+    const d = drag as DragState;
     d.started = true;
     dragging = true;
     d.from = view.positionOf(d.row);
@@ -115,7 +142,7 @@ export function bindDragReorder(list, { view, rowSelector, handleSelector, scrol
     d.raf = requestAnimationFrame(autoScroll);
   }
 
-  function finish(commit) {
+  function finish(commit: boolean) {
     const d = drag;
     drag = null;
     if (!d) return;
@@ -130,7 +157,7 @@ export function bindDragReorder(list, { view, rowSelector, handleSelector, scrol
     d.row.style.transform = '';
     for (const row of view.rendered().values()) row.style.transform = '';
     // A drag ends with a click on the handle: it must not act.
-    const swallow = (e) => { e.stopPropagation(); e.preventDefault(); };
+    const swallow = (e: Event) => { e.stopPropagation(); e.preventDefault(); };
     window.addEventListener('click', swallow, { capture: true, once: true });
     setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0);
     if (commit && d.target !== d.from) onDrop(d.from, d.target);
@@ -139,12 +166,12 @@ export function bindDragReorder(list, { view, rowSelector, handleSelector, scrol
 
   list.addEventListener('pointerdown', (e) => {
     if (drag || (e.pointerType === 'mouse' && e.button !== 0)) return;
-    const handle = e.target.closest(handleSelector);
+    const handle = (e.target as HTMLElement).closest<HTMLElement>(handleSelector);
     if (!handle || !list.contains(handle)) return;
-    const row = handle.closest(rowSelector);
+    const row = handle.closest<HTMLElement>(rowSelector);
     if (!row) return;
     e.preventDefault(); // no text selection, no focus steal, no scroll start
-    drag = { row, handle, pointerId: e.pointerId, startY: e.clientY, lastY: e.clientY, startScroll: scroller.scrollTop, started: false, edgeSince: 0 };
+    drag = { row, handle, pointerId: e.pointerId, startY: e.clientY, lastY: e.clientY, startScroll: scroller.scrollTop, started: false, edgeSince: 0 } as DragState;
     try { handle.setPointerCapture(e.pointerId); } catch {}
   });
   list.addEventListener('pointermove', (e) => {

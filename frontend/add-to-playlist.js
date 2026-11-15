@@ -11,13 +11,13 @@
 // with allow_duplicates. Nothing is decided from a possibly stale local copy.
 import { state } from './shared/state.js';
 import { showToast, t } from './shared/ui.js';
-import { player } from './player.js';
+import { player } from './player/player.js';
 import { openContextMenu, refreshSubmenu } from './shared/context-menu.js';
 import { getPlaylists, loadPlaylists, onPlaylists, scheduleReload } from './playlist-store.js';
-import { groupPlaylists } from './playlist-filter.js';
+import { groupPlaylists } from './features/playlists/playlist-filter.js';
 import { openNewPlaylistDialog } from './new-playlist.js';
 import { confirmDialog } from './playlist-actions.js';
-import { addOutcome } from './search-rules.js';
+import { addOutcome } from './features/search/search-rules.js';
 
 const ADD_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 10H3v2h11v-2zm0-4H3v2h11V6zm4 8v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zM3 16h7v-2H3v2z"/></svg>';
 const PLUS_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>';

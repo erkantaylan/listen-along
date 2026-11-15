@@ -1,13 +1,13 @@
-// The sidebar's search and grouping (frontend/playlist-filter.js, pure ES module).
-const { describe, it, before } = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('path');
-const { pathToFileURL } = require('url');
-
-let foldText, matchesQuery, groupPlaylists, matchesFilter, arrangePlaylists;
-before(async () => {
-  ({ foldText, matchesQuery, groupPlaylists, matchesFilter, arrangePlaylists } = await import(pathToFileURL(path.join(__dirname, '..', '..', 'frontend', 'playlist-filter.js')).href));
-});
+// The sidebar's search and grouping (playlist-filter.ts, pure ES module).
+// (Moved from backend/src/playlist-filter.test.js; the rail avatars from
+// backend/src/queue-rows.test.js.)
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import type { PlaylistSummary } from '../../shared/types.ts';
+import {
+  foldText, matchesQuery, groupPlaylists, matchesFilter, arrangePlaylists, playlistCoverIndex, playlistInitials, COVER_COLOURS,
+} from './playlist-filter.ts';
+import type { ArrangedPlaylists, FilterablePlaylist } from './playlist-filter.ts';
 
 describe('sidebar search', () => {
   it('treats i, ı, I and İ as one letter', () => {
@@ -42,7 +42,7 @@ describe('sidebar search', () => {
 });
 
 describe('sidebar filter and sort', () => {
-  const list = [
+  const list: Partial<PlaylistSummary>[] = [
     { id: 'zeb', name: 'Zebra', isOwner: true, visibility: 'public', createdAt: 5 },
     { id: 'sec', name: 'Secret', isOwner: true, visibility: 'private', createdAt: 6 },
     { id: 'oth', name: 'Others', isOwner: false, visibility: 'public', createdAt: 9 },
@@ -50,11 +50,12 @@ describe('sidebar filter and sort', () => {
     { id: 'pin', name: 'Bolero', isOwner: false, visibility: 'public', createdAt: 2, pinnedByMe: true, pinnedAt: 99 },
     { id: 'pim', name: 'Anthem', isOwner: true, visibility: 'private', createdAt: 3, pinnedByMe: true, pinnedAt: 50 },
   ];
-  const ids = (r) => r.groups.flatMap(g => g.rows.map(p => p.id));
-  const keys = (r) => r.groups.map(g => g.key);
+  const ids = (r: ArrangedPlaylists<FilterablePlaylist>) => r.groups.flatMap(g => g.rows.map(p => p.id as string)); // every row here has an id
+  const keys = (r: ArrangedPlaylists<FilterablePlaylist>) => r.groups.map(g => g.key);
 
   it('filters on the server fields only', () => {
-    assert.ok(!matchesFilter({ ownerId: 'me', ownerName: 'me' }, 'mine'), 'no isOwner means not mine');
+    const notMine: Partial<PlaylistSummary> = { ownerId: 'me', ownerName: 'me' };
+    assert.ok(!matchesFilter(notMine, 'mine'), 'no isOwner means not mine');
     assert.ok(matchesFilter({ isOwner: true }, 'mine'));
     assert.ok(matchesFilter({ visibility: 'private' }, 'private'));
     assert.ok(!matchesFilter({ visibility: 'private' }, 'public'));
@@ -108,10 +109,6 @@ describe('sidebar filter and sort', () => {
 });
 
 describe('placeholder cover colour', () => {
-  let playlistCoverIndex, COVER_COLOURS;
-  before(async () => {
-    ({ playlistCoverIndex, COVER_COLOURS } = await import(pathToFileURL(path.join(__dirname, '..', '..', 'frontend', 'playlist-filter.js')).href));
-  });
   it('is one of the cover colours, the same for the same id', () => {
     for (const id of ['abc', 'Z9-x', '', null, 'çğü', '7f3c']) {
       const n = playlistCoverIndex(id);
@@ -122,5 +119,16 @@ describe('placeholder cover colour', () => {
   it('spreads ids over the colours', () => {
     const seen = new Set(Array.from({ length: 60 }, (_, i) => playlistCoverIndex(`pl-${i}`)));
     assert.equal(seen.size, COVER_COLOURS);
+  });
+});
+
+describe('rail avatars (playlistInitials)', () => {
+  it('takes two whole letters, Turkish capitals', () => {
+    assert.equal(playlistInitials('istanbul şarkıları'), 'İŞ');
+    assert.equal(playlistInitials('ılık çay ve üç kişi'), 'IÇ');
+    assert.equal(playlistInitials('  Yol  '), 'Y');
+    assert.equal(playlistInitials('🎸 rock'), '🎸R');
+    assert.equal(playlistInitials(''), '?');
+    assert.equal(playlistInitials(null), '?');
   });
 });

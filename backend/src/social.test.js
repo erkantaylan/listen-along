@@ -1,5 +1,5 @@
-// Global chat + people panel: the pure parts (chat.js, presence.js,
-// frontend/chat-format.js), then the real server (in-memory storage, no
+// Global chat + people panel: the pure parts (chat.js, presence.js; the
+// frontend's chat-format.ts is tested next to it), then the real server (in-memory storage, no
 // Postgres) over Socket.IO with two signed-in users, a second tab, an
 // anonymous client (refused) and an admin. Postgres persistence: social-pg.test.js.
 const { describe, it, before, after } = require('node:test');
@@ -7,7 +7,6 @@ const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
 const net = require('node:net');
 const path = require('node:path');
-const { pathToFileURL } = require('node:url');
 const { io: ioClient } = require('socket.io-client');
 const { DEV_COOKIE, signDevToken } = require('./devLogin');
 const chat = require('./chat');
@@ -97,52 +96,6 @@ describe('chat: in-memory store and keyset pagination', () => {
     assert.equal((await store.page({ before: 'drop table' })).messages.at(-1).text, 'm150');
     assert.equal(chat.parseCursor('-3'), null);
     assert.equal(chat.parseCursor('12'), 12);
-  });
-});
-
-describe('chat-format (frontend): escaping and links', () => {
-  let fmt;
-  before(async () => {
-    fmt = await import(pathToFileURL(path.join(__dirname, '..', '..', 'frontend', 'chat-format.js')).href);
-  });
-
-  it('escapes HTML so nothing can be injected', () => {
-    const html = fmt.formatMessageHtml('<script>alert("x")</script> & <img src=x onerror=alert(1)>');
-    assert.equal(html, '&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; &lt;img src=x onerror=alert(1)&gt;');
-    assert.ok(!/<(?!\/?a[ >])/.test(html));
-  });
-
-  it('auto-links http(s) URLs safely, leaving trailing punctuation out', () => {
-    const html = fmt.formatMessageHtml('see https://example.com/a?b=1&c=2. ok');
-    assert.equal(html, 'see <a href="https://example.com/a?b=1&amp;c=2" target="_blank" rel="noopener noreferrer nofollow">https://example.com/a?b=1&amp;c=2</a>. ok');
-  });
-
-  it('never links javascript: or data: URLs and cannot break out of the attribute', () => {
-    assert.equal(fmt.formatMessageHtml('javascript:alert(1)'), 'javascript:alert(1)');
-    assert.equal(fmt.formatMessageHtml('data:text/html,<b>x</b>'), 'data:text/html,&lt;b&gt;x&lt;/b&gt;');
-    const html = fmt.formatMessageHtml('https://x.test/"onmouseover="alert(1)');
-    assert.ok(!html.includes('"onmouseover'));
-  });
-
-  it('groups people: online (playing first) and offline (recently seen first)', () => {
-    const g = fmt.groupPeople([
-      { id: 1, name: 'zed', online: true },
-      { id: 2, name: 'amy', online: true },
-      { id: 3, name: 'bob', online: true, nowPlaying: { track: { title: 't' } } },
-      { id: 4, name: 'old', online: false, lastSeen: 10 },
-      { id: 5, name: 'new', online: false, lastSeen: 20 },
-    ]);
-    assert.deepEqual(g.online.map(p => p.id), [3, 2, 1]);
-    assert.deepEqual(g.offline.map(p => p.id), [5, 4]);
-  });
-
-  it('formats last seen', () => {
-    const now = 10 * 86_400_000;
-    assert.equal(fmt.formatLastSeen(now - 10_000, now), 'just now');
-    assert.equal(fmt.formatLastSeen(now - 5 * 60_000, now), '5m ago');
-    assert.equal(fmt.formatLastSeen(now - 3 * 3_600_000, now), '3h ago');
-    assert.equal(fmt.formatLastSeen(now - 2 * 86_400_000, now), '2d ago');
-    assert.equal(fmt.formatLastSeen(null, now), '');
   });
 });
 

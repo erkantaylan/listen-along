@@ -1,15 +1,11 @@
-// The playlist page's stats strip (frontend/playlist-stats.js, pure).
-const { describe, it, before } = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('path');
-const { pathToFileURL } = require('url');
+// The playlist page's stats strip (playlist-stats.ts, pure).
+// (Moved from backend/src/playlist-stats.test.js.)
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import * as m from './playlist-stats.ts';
+import type { NameCount, StatsSong } from './playlist-stats.ts';
 
-let m;
-before(async () => {
-  m = await import(pathToFileURL(path.join(__dirname, '..', '..', 'frontend', 'playlist-stats.js')).href);
-});
-
-const song = (over = {}) => ({ duration: 100, addedBy: 'Ayşe', artistName: 'Band', ...over });
+const song = (over: StatsSong = {}): StatsSong => ({ duration: 100, addedBy: 'Ayşe', artistName: 'Band', ...over });
 
 describe('playlistStats', () => {
   it('an empty playlist has a known length of zero and nothing else', () => {
@@ -50,7 +46,7 @@ describe('playlistStats', () => {
     assert.equal(m.playlistStats([song(), song()]).topAdder, null, 'one adder');
     assert.equal(m.playlistStats([song({ artistName: 'A' }), song({ artistName: 'B' })]).topArtist, null, 'nobody twice');
     const tied = m.playlistStats([song({ artistName: 'B' }), song({ artistName: 'A' }), song({ artistName: 'A' }), song({ artistName: 'B' })]);
-    assert.equal(tied.topArtist.name, 'B');
+    assert.equal((tied.topArtist as NameCount).name, 'B');
   });
 
   it('does not count the anonymous placeholder as someone', () => {

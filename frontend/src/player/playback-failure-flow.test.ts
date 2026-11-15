@@ -1,35 +1,49 @@
-// The stateful flow of a song that fails to play (frontend/playback-failure-flow.js):
+// The stateful flow of a song that fails to play (playback-failure-flow.ts):
 // error -> verdict -> grey / hold -> another song plays -> asked again -> report,
 // with a replace, a retry or a failing server in between. The page's questions
 // (probe, confirm, report) are faked; `gate` lets a test act while one is pending.
-const { describe, it, before } = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('path');
-const { pathToFileURL } = require('url');
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { createFailureFlow } from './playback-failure-flow.ts';
+import type { FailureResult } from './playback-failure-flow.ts';
+import type { BytesVerdict, ProbeAnswer } from './playback-failure-rules.ts';
 
-let createFailureFlow;
 const DECODE = 3;
 const NOT_SUPPORTED = 4;
-const MISSING = { status: 404, code: 'FILE_MISSING' };
-const ok = (version = 'v1', mime = 'audio/mp4') => ({ status: 200, mime, version });
-const song = (id) => ({ libraryId: id, url: `library:${id}`, title: `Song ${id}` });
-const srcOf = (id, v = '') => `http://x/api/library/${id}/file${v ? `?v=${v}` : ''}`;
+const MISSING: ProbeAnswer = { status: 404, code: 'FILE_MISSING' };
+const ok = (version: string | null = 'v1', mime = 'audio/mp4'): ProbeAnswer => ({ status: 200, mime, version });
+interface Song { id?: string; libraryId?: string; url: string; title: string }
+const song = (id: string): Song => ({ libraryId: id, url: `library:${id}`, title: `Song ${id}` });
+const srcOf = (id: string, v = '') => `http://x/api/library/${id}/file${v ? `?v=${v}` : ''}`;
 
-function gate() {
-  let open;
-  const wait = new Promise((resolve) => { open = resolve; });
+interface Gate { wait: Promise<void>; open: () => void }
+function gate(): Gate {
+  let open!: () => void;
+  const wait = new Promise<void>((resolve) => { open = resolve; });
   return { wait, open };
 }
 
+// The tests read a verdict's fields straight off a failure's result; a stale
+// one ({ stale: true }) is only ever compared whole.
+type Verdict = Extract<FailureResult, { stale: false }>;
+type Answer = ProbeAnswer | ((n: number) => ProbeAnswer);
+type ConfirmQuery = { src: string; mime: string | null | undefined; errorCode: number; position: number };
+
 // answers: src -> probe answer, or a function (call number) -> answer.
-function setup({ answers = {}, confirm = 'undecodable', canPlay = true, online = true } = {}) {
+function setup({ answers = {}, confirm = 'undecodable', canPlay = true, online = true }: {
+  answers?: Record<string, Answer>;
+  confirm?: BytesVerdict | ((q: ConfirmQuery) => BytesVerdict);
+  canPlay?: boolean;
+  online?: boolean;
+} = {}) {
   const w = {
     answers, confirm, canPlay, online,
-    current: null, user: 'u1', accepts: true, reports: new Set(), sent: [], asked: [], probes: [], confirms: [], changes: 0,
-    probeGate: null, confirmGate: null,
+    current: null as { keys: string[]; src: string } | null, user: 'u1' as string | null, accepts: true, reports: new Set<string | undefined>(),
+    sent: [] as (string | undefined)[], asked: [] as string[], probes: [] as string[], confirms: [] as ConfirmQuery[], changes: 0,
+    probeGate: null as Gate | null, confirmGate: null as Gate | null,
   };
-  const calls = new Map();
-  w.flow = createFailureFlow({
+  const calls = new Map<string, number>();
+  const flow = createFailureFlow<Song>({
     online: () => w.online,
     probe: async (src) => {
       w.probes.push(src);
@@ -57,14 +71,10 @@ function setup({ answers = {}, confirm = 'undecodable', canPlay = true, online =
     },
     changed: () => { w.changes += 1; },
   });
-  w.fail = (id, { errorCode = NOT_SUPPORTED, src = srcOf(id), ...rest } = {}) => w.flow.failure({ track: song(id), src, errorCode, ...rest });
-  w.play = (id, src = srcOf(id)) => w.flow.played({ track: song(id), src });
-  return w;
+  const fail = (id: string, { errorCode = NOT_SUPPORTED, src = srcOf(id), ...rest }: { errorCode?: number; src?: string; position?: number; driven?: boolean } = {}) => flow.failure({ track: song(id), src, errorCode, ...rest }) as Promise<Verdict>;
+  const play = (id: string, src = srcOf(id)) => flow.played({ track: song(id), src });
+  return Object.assign(w, { flow, fail, play });
 }
-
-before(async () => {
-  ({ createFailureFlow } = await import(pathToFileURL(path.join(__dirname, '..', '..', 'frontend', 'playback-failure-flow.js')).href));
-});
 
 describe('playback-failure-flow: the happy paths still report', () => {
   it('a missing file: greyed and skipped, reported once another song has played', async () => {

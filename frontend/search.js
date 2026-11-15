@@ -21,23 +21,23 @@
 // (add-to-playlist.js). The pure rules are in search-rules.js.
 import { state, storageGet, storageSet } from './shared/state.js';
 import { escapeHtml, formatDuration, navigateTo, showToast, t } from './shared/ui.js';
-import { player } from './player.js';
+import { player } from './player/player.js';
 import { isLibraryOpen, libraryTrack } from './library.js';
 import { searchPath, searchQueryOf, artistPath, playlistPath } from './router.js';
 import { bindSongMenu, songMenuButtonHtml } from './song-reports.js';
 import { bindContextMenu, closeContextMenu, isContextMenuOpen, openContextMenu } from './shared/context-menu.js';
 import { addSongToPlaylist, confirmDuplicate, openPlaylistChooser } from './add-to-playlist.js';
 import { getPlaylists, isLoaded as playlistsLoaded, loadPlaylists, onPlaylists, scheduleReload } from './playlist-store.js';
-import { groupPlaylists, playlistCoverIndex, playlistInitials } from './playlist-filter.js';
+import { groupPlaylists, playlistCoverIndex, playlistInitials } from './features/playlists/playlist-filter.js';
 import { ensureArtists, coverUrl, songCountText } from './artists.js';
 import { importPlaylist } from './pick-dialog.js';
-import { thumbUrl, watchUrl } from './pick-rules.js';
+import { thumbUrl, watchUrl } from './features/picker/pick-rules.js';
 import { isUnplayable } from './playback-failures.js';
 import { closeDrawer } from './sidebar.js';
 import {
   ADD_KEY, SONGS_MAX, SONGS_SHOWN, addTarget, isAddKey, isSearchShortcut, isSpotifyLink, keepTarget, lastPlayedFrom, libraryChangeMatters,
   linkInput, linkOutcome, pageTarget, placeholderTarget, rankArtists, rankPlaylists, requestOutcome, rowStep, similarQuery, startTarget, youtubeOutcome,
-} from './search-rules.js';
+} from './features/search/search-rules.js';
 
 const TYPE_DELAY_MS = 150;   // library results as you type
 const LINK_DELAY_MS = 350;   // a pasted link is looked up once it stops changing

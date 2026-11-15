@@ -7,7 +7,7 @@
 // along" for the person being listened to).
 import { state, elements } from './shared/state.js';
 import { navigateTo, t } from './shared/ui.js';
-import { player } from './player.js';
+import { player } from './player/player.js';
 import { artistPath, playlistPath, searchPath } from './router.js';
 import { listenState, onListenChange, followersText, stopListenAlong } from './listen-along.js';
 import { bindSongMenu, bindReportIcons, reportIconHtml, reportsFor, onReportsChange } from './song-reports.js';

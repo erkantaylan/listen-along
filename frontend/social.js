@@ -13,10 +13,10 @@
 //
 // This module also reports what this browser plays (player.js events) as
 // presence:now-playing; the server keeps one entry per user.
-import { formatMessageHtml, formatLastSeen, formatMessageTime, groupPeople, mergeMessages, escapeText } from './chat-format.js';
+import { formatMessageHtml, formatLastSeen, formatMessageTime, groupPeople, mergeMessages, escapeText } from './features/social/chat-format.js';
 import { DOCK_MIN } from './shared/layout-rules.js';
 import { setupPanelWidths } from './shared/panel-widths.js';
-import { player } from './player.js';
+import { player } from './player/player.js';
 import { storageGet, storageSet } from './shared/state.js';
 import { navigateTo, showToast, t } from './shared/ui.js';
 import { openContextMenu, closeContextMenu, updateContextMenu } from './shared/context-menu.js';

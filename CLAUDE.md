@@ -110,9 +110,9 @@ where lobby persistence broke entirely on deployed instances.
   `library:updated { reports }`. Frontend: `song-reports.js` +
   the reusable `context-menu.ts` (DESIGN.md "Context menu").
 - **A song that fails to play** (web): `frontend/playback-failures.js` is the
-  glue to the page, `playback-failure-flow.js` the state (injected probe /
+  glue to the page, `playback-failure-flow.ts` the state (injected probe /
   confirm / report / user, so the whole flow is tested without a browser),
-  `playback-failure-rules.js` the pure decisions. The `<audio>` error greys the
+  `playback-failure-rules.ts` the pure decisions. The `<audio>` error greys the
   song (in memory, keys `library:<id>` + queue url; cleared when it plays, on
   `library:updated { replaced }`, on `download:status ready`, on reload or
   when the signed-in account changes), `player.next/previous` go past greyed
@@ -194,7 +194,7 @@ where lobby persistence broke entirely on deployed instances.
   field names where they mean the same, but no ids, `input` only for a video link,
   and NOTHING a worker wrote as free text (errors and progress lines hold paths of
   its machine; no pattern catches them all): a failure is its `error_code` (the web
-  has a sentence per code, `failureKey` in `activity-rules.js` + `activity.fail.*`
+  has a sentence per code, `failureKey` in `activity-rules.ts` + `activity.fail.*`
   in both locales; unknown = "Download failed"), a running job is `stage` +
   upload `percent`, and `progress` is passed on only when it is one of the server's
   own notes (`SERVER_NOTES`: add a new server-written note there). A playlist ONLY
@@ -212,12 +212,12 @@ where lobby persistence broke entirely on deployed instances.
   requester's. Frontend: `activity.js` (rows keep their element, a tick writes one
   text node; refetches on reconnect and on `playlists:changed`, only the latest
   load applies, and a row older by `updated_at` never replaces a newer one), pure
-  rules in `activity-rules.js` (tested), the card shown by `social.js`
+  rules in `activity-rules.ts` (tested), the card shown by `social.js`
   (`opts.activity`: approved only).
 - **Global search** (web only; DESIGN.md "Search"): `frontend/search.js` (the one field `#app-search`, the app shell's
   top bar at the top of the page column and centred in it, never moved into a page: `body.has-topbar` makes the page
   panel and the library overlay start at `--app-top`; the sidebar and the chat column stay full height from the top gap;
-  Ctrl+K / Cmd+K; the page `/search?q=`), pure rules in `frontend/search-rules.js` (tested in
+  Ctrl+K / Cmd+K; the page `/search?q=`), pure rules in `frontend/src/features/search/search-rules.ts` (tested in
   `search-rules.test.js`). Library songs: `GET /api/library?sort=relevance` (opt-in; `library.searchRelevant`, order in
   `songSearch.js`, pure and tested: exact / prefix title and artist before loose all-words matches; Turkish-folded in SQL
   with `translate()` and in JS the same way; at most 400 candidates; `searchLimiter` 120/min per account (token owner or
@@ -238,7 +238,7 @@ where lobby persistence broke entirely on deployed instances.
   they are skipped. Socket `queue:add` is unchanged (the web no longer uses it to add: the playlist page has no add-song box
   or button; the global search started on that page adds to it).
 - **Pick the video** (web only, before a job or request exists): `frontend/pick-dialog.js`
-  (rules in `pick-rules.js`, tested; DESIGN.md "Pick the video") asks
+  (rules in `pick-rules.ts`, tested; DESIGN.md "Pick the video") asks
   `POST /api/jobs/picks` (jobRoutes.js -> `backend/src/features/picker/`; approved accounts, no tokens,
   `pickLimiter` 30/min per `req.clientIp`, answers cached 10 min, library marking
   never cached): `{ input, match_library? }` is read by `classifyInput` and answers
@@ -251,7 +251,7 @@ where lobby persistence broke entirely on deployed instances.
   in-library ones are added to the playlist) or on socket `queue:add`
   (`resolver.resolve({ picks })`: library song or a request with that `youtube_id`). A `playlist` answer carries the
   playlist's `title` (additive; `ytdlp.getPlaylistEntries` returns it on the array). `importPlaylist()` is the same
-  checklist with a destination for the search page's import (`withDestination` / `importCounts` in `pick-rules.js`).
+  checklist with a destination for the search page's import (`withDestination` / `importCounts` in `pick-rules.ts`).
   Titles come from `picker.titles(ids)` (the server's own lookup; oEmbed, a few at a
   time within 10s, for ids it no longer knows), never the client. A picks POST that
   fails part way still dispatches and answers 2xx with `failed: [ids]` + `error`.
@@ -268,7 +268,7 @@ where lobby persistence broke entirely on deployed instances.
 - **Radio** (`/radio`): a station is a list of songs from a rule. `backend/src/features/radio/`
   (`GET /api/stations/:id[/songs]`, lean rows, approved accounts by the guard's
   default, no tokens) holds the rules: `all` = every song without an open report.
-  The order is client-side and per opening: `frontend/radio-order.js` (pure,
+  The order is client-side and per opening: `frontend/src/features/radio/radio-order.ts` (pure,
   tested) and `radio.js`, which renders through `virtual-list.ts`. The player context is `{ type: 'radio', stationId }`;
   `player.setRefill` gives the next round when the list runs out and
   `player.replaceQueue` applies a new order. The order changes only by
@@ -287,7 +287,7 @@ where lobby persistence broke entirely on deployed instances.
   Not `songMatch.normalizeArtist`: that stays primary-artist-only for meta_key.
   Like station `all`, it leaves out songs with an open report. Frontend:
   `artists.js` (shelf + grid), `artist-page.js` (song table through
-  `virtual-list.ts`), pure rules in `artist-rules.js` (tested). Player context
+  `virtual-list.ts`), pure rules in `artist-rules.ts` (tested). Player context
   `{ type: 'artist', key, name }`; presence keeps a checked key and the name.
 - Android releases: a tag `android-vX.Y.Z` runs `.github/workflows/android-release.yml`
   (signed APK on a GitHub Release; version from the tag; key and backup rules in
@@ -363,14 +363,14 @@ where lobby persistence broke entirely on deployed instances.
   still exists on the server but the web no longer sets or shows it; the playlist
   page's pin button is the personal pin.
 - The web sidebar (`frontend/sidebar.js`, list in `playlist-store.js`, search in
-  `playlist-filter.js`) refetches `/api/playlists` on socket `playlists:changed`
+  `playlist-filter.ts`) refetches `/api/playlists` on socket `playlists:changed`
   (`notifyPlaylistsChanged` in reactions.js). The signal carries no data; a private
   playlist's changes go only to its owner's `userRoom`. Emit it from anything that
   creates, renames, deletes or changes the visibility of a playlist.
 - The page holds the full queue (`queue:update`, about 230 bytes per song) and windows only the rows:
-  `frontend/src/shared/virtual-list.ts` (generic, reuse it for any long list), used by `queue.js`; `queue-edit.js` drags
+  `frontend/src/shared/virtual-list.ts` (generic, reuse it for any long list), used by `queue.js`; `queue-edit.ts` drags
   by arithmetic over it. Anything reading rows from the DOM sees only the window: use `shown` / `state.queue`.
-  Stats are client-side over the full queue (`playlist-stats.js`). `/:id/songs` still returns everything.
+  Stats are client-side over the full queue (`playlist-stats.ts`). `/:id/songs` still returns everything.
 - There is no per-playlist chat. There is one global chat plus a people panel
   (web: column from 1200px, full-screen `/social` below; `#social-rail` is the opener from 1024px, DESIGN.md)
   (presence + now playing): `backend/src/features/social/`: `social.ts` (socket events, privacy),
@@ -381,11 +381,11 @@ where lobby persistence broke entirely on deployed instances.
   viewer cannot see.
 - **Listen along** = follow a user (not a playlist): `backend/src/features/listen-along/`
   (graph + socket events `listen:*`, attached per connection in socketServer.js) and
-  `frontend/listen-along.js` (drives `player.js` as its driver). Everyone hears
+  `frontend/listen-along.js` (drives `player.ts` as its driver). Everyone hears
   the root of their chain (chains collapse); the follow lives in one socket;
   followers get only the song + `/api/library/:id/file`, never the playlist.
   A root going offline (after the presence grace) ends it after the current
-  song. Any own playback action of the follower ends it (`player.js`
+  song. Any own playback action of the follower ends it (`player.ts`
   play/pause/seek take `{ keepDriver }` for the driver). The old per-playlist
   follow (`follow:*`) is gone. Do not name a table `chat_messages`: db.js drops that
   (old per-playlist chat) on every boot.

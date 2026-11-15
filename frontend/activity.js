@@ -9,8 +9,8 @@
 // changed) and activity:progress (a running row's progress line). The rules
 // are in activity-rules.js; the wording and badges are jobs.js's.
 import { jobStatusText, thumbHtml, BADGES } from './jobs.js';
-import { MAX_ROWS, mergeJob, applyLoad, applyProgress, progressOf, failureKey, activeCount, isActive, rowTitle, rowTime } from './activity-rules.js';
-import { formatLastSeen, escapeText } from './chat-format.js';
+import { MAX_ROWS, mergeJob, applyLoad, applyProgress, progressOf, failureKey, activeCount, isActive, rowTitle, rowTime } from './features/social/activity-rules.js';
+import { formatLastSeen, escapeText } from './features/social/chat-format.js';
 import { navigateTo, t } from './shared/ui.js';
 
 const A = {

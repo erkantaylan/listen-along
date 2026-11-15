@@ -9,8 +9,8 @@
 // pins and filters; the server decides what may be seen.
 import { escapeHtml, navigateTo, t, trapFocus } from './shared/ui.js';
 import { parseRoute, playlistPath } from './router.js';
-import { PLAYLIST_FILTERS, PLAYLIST_SORTS, arrangePlaylists, playlistCoverIndex, playlistInitials } from './playlist-filter.js';
-import { player } from './player.js';
+import { PLAYLIST_FILTERS, PLAYLIST_SORTS, arrangePlaylists, playlistCoverIndex, playlistInitials } from './features/playlists/playlist-filter.js';
+import { player } from './player/player.js';
 import { applyColumns, isSidebarRail, setupPanelWidths, toggleSidebarRail } from './shared/panel-widths.js';
 import { storageGet, storageSet } from './shared/state.js';
 import { getPlaylist, getPlaylists, isLoaded, loadPlaylists, onPlaylists, togglePlaylistPin } from './playlist-store.js';

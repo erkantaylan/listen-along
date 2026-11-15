@@ -6,10 +6,10 @@
 // from the top. Nothing here edits anything.
 import { elements } from './shared/state.js';
 import { escapeHtml, navigateTo, t } from './shared/ui.js';
-import { player } from './player.js';
+import { player } from './player/player.js';
 import { artistPath } from './router.js';
 import { closeDrawer } from './sidebar.js';
-import { filterArtists, shelfArtists, sortByName } from './artist-rules.js';
+import { filterArtists, shelfArtists, sortByName } from './features/artists/artist-rules.js';
 
 const REFRESH_MS = 1500;
 const NOTE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>';

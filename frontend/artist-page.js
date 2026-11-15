@@ -6,14 +6,14 @@
 // While the artist plays, the list on screen is the player's queue.
 import { state } from './shared/state.js';
 import { escapeHtml, formatDuration, navigateTo, showToast, t } from './shared/ui.js';
-import { player } from './player.js';
+import { player } from './player/player.js';
 import { libraryTrack } from './library.js';
 import { artistPath } from './router.js';
 import { playCellHtml, playCellLabel, statsHtml } from './queue.js';
 import { bindSongMenu, songMenuButtonHtml } from './song-reports.js';
 import { isUnplayable, unplayableBadgeHtml, onFailuresChange } from './playback-failures.js';
 import { createVirtualList } from './shared/virtual-list.js';
-import { keepCurrent } from './artist-rules.js';
+import { keepCurrent } from './features/artists/artist-rules.js';
 import { artistByKey, coverUrl } from './artists.js';
 
 const REFRESH_MS = 1000;

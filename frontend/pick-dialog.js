@@ -23,7 +23,7 @@ import { createVirtualList } from './shared/virtual-list.js';
 import {
   allChecked, chosenIds, counts, destinationKeys, importCounts, isSwapped, lookupOutcome, moveIndex, playlistItems,
   swapChoices, swapped, swapQuery, thumbUrl, toggled, watchUrl, withDestination,
-} from './pick-rules.js';
+} from './features/picker/pick-rules.js';
 
 const CLOSE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
 const OPEN_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>';

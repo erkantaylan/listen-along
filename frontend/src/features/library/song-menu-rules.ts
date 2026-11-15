@@ -1,12 +1,46 @@
 // The song menu's pure decisions (no DOM), unit tested in
-// backend/src/song-menu-rules.test.js. song-reports.js builds the items.
+// song-menu-rules.test.ts. song-reports.js builds the items.
+
+/** Where a song's link can come from (a player track, a library row mapped to one). */
+export interface SongSourceFields {
+  youtubeId?: string | null;
+  sourceUrl?: string | null;
+  url?: string | null;
+}
+
+/** A song's source: a real http(s) link and the host to name it by. */
+export interface SourceLink {
+  url: string;
+  host: string;
+}
+
+export interface SourceSubmenu {
+  openUrl: string;
+  copyUrl: string;
+  copyKey: 'songMenu.copyYoutubeLink' | 'songMenu.copyLink';
+  copyFallback: string;
+}
+
+/** Where a song menu was opened. */
+export type SongMenuContext = 'playlist' | 'library' | 'radio' | 'artist' | 'player';
+
+export interface SongMenuRow {
+  context: SongMenuContext;
+  entryId?: string | null;
+}
+
+export interface SongMenuPage {
+  lobbyId: string | null;
+  queueLobbyId: string | null;
+  canEdit: boolean;
+}
 
 /** Where a song came from: { url, host }, only ever a real http(s) link, or null. */
-export function songSourceLink({ youtubeId, sourceUrl, url } = {}) {
+export function songSourceLink({ youtubeId, sourceUrl, url }: SongSourceFields = {}): SourceLink | null {
   if (youtubeId && /^[A-Za-z0-9_-]{11}$/.test(youtubeId)) return { url: `https://www.youtube.com/watch?v=${youtubeId}`, host: 'YouTube' };
   for (const candidate of [sourceUrl, url]) {
     try {
-      const parsed = new URL(candidate);
+      const parsed = new URL(candidate as string); // a missing one throws, as a bad one does
       if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') continue;
       const host = parsed.hostname.replace(/^(www|m|music)\./, '');
       return { url: parsed.href, host: host === 'youtube.com' || host === 'youtu.be' ? 'YouTube' : host };
@@ -20,7 +54,7 @@ export function songSourceLink({ youtubeId, sourceUrl, url } = {}) {
  * source link (then there is no Source item at all, never an empty submenu).
  * copyKey: "Copy YouTube link" for YouTube, the plain "Copy link" otherwise.
  */
-export function sourceSubmenu(link) {
+export function sourceSubmenu(link: Partial<SourceLink> | null | undefined): SourceSubmenu | null {
   if (!link || !link.url) return null;
   const youtube = link.host === 'YouTube';
   return {
@@ -37,7 +71,7 @@ export function sourceSubmenu(link) {
  * row: { context: 'playlist' | 'library' | 'radio' | 'artist' | 'player', entryId }
  * page: { lobbyId, queueLobbyId, canEdit }
  */
-export function canRemoveFromPlaylist(row, page) {
+export function canRemoveFromPlaylist(row: SongMenuRow | null | undefined, page: SongMenuPage | null | undefined): boolean {
   if (!row || row.context !== 'playlist' || !row.entryId) return false;
   if (!page || !page.canEdit || !page.lobbyId) return false;
   return page.queueLobbyId === page.lobbyId;

@@ -16,7 +16,7 @@
 //
 // The follow lives in this socket (the tab that plays). After a reconnect it
 // is requested again; if that fails, listening along ends.
-import { player } from './player.js';
+import { player } from './player/player.js';
 import { showToast, t } from './shared/ui.js';
 import { state } from './shared/state.js';
 

@@ -1,17 +1,13 @@
-// Radio's order rules (frontend/radio-order.js).
-const { describe, it, before } = require('node:test');
-const assert = require('node:assert/strict');
-const path = require('path');
-const { pathToFileURL } = require('url');
+// Radio's order rules (radio-order.ts).
+// (Moved from backend/src/radio-order.test.js.)
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import * as m from './radio-order.ts';
 
-let m;
-const song = (id, extra = {}) => ({ libraryId: id, ...extra });
-const ids = (list) => list.map((s) => s.libraryId);
-const songs = (n) => Array.from({ length: n }, (_, i) => song(`s${i}`));
-
-before(async () => {
-  m = await import(pathToFileURL(path.join(__dirname, '..', '..', 'frontend', 'radio-order.js')).href);
-});
+interface TestSong { libraryId: string; title?: string }
+const song = (id: string, extra: { title?: string } = {}): TestSong => ({ libraryId: id, ...extra });
+const ids = (list: TestSong[]) => list.map((s) => s.libraryId);
+const songs = (n: number) => Array.from({ length: n }, (_, i) => song(`s${i}`));
 
 describe('radio-order: shuffled', () => {
   it('keeps every song once and leaves the input alone', () => {
@@ -75,7 +71,7 @@ describe('radio-order: reconcile', () => {
   });
   it('a new song can land anywhere when nothing plays', () => {
     const order = [song('a'), song('b')];
-    const places = new Set();
+    const places = new Set<number>();
     for (let i = 0; i < 200; i++) places.add(ids(m.reconcile(order, [...order, song('new')])).indexOf('new'));
     assert.deepEqual([...places].sort(), [0, 1, 2]);
   });

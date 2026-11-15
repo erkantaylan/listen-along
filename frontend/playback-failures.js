@@ -19,11 +19,11 @@
 //   a follower greys the song and nothing else (listen-along.js shows its own
 //   notice and waits for the next song).
 import { state, elements, auth } from './shared/state.js';
-import { player } from './player.js';
+import { player } from './player/player.js';
 import { showToast, t } from './shared/ui.js';
 import { reportsFor, resolveSongId, sendReport, unmarkBroken } from './song-reports.js';
-import { STREAK_LIMIT, MEDIA_ERR_ABORTED, MEDIA_ERR_DECODE, codecQuery, trackKeys } from './playback-failure-rules.js';
-import { createFailureFlow } from './playback-failure-flow.js';
+import { STREAK_LIMIT, MEDIA_ERR_ABORTED, MEDIA_ERR_DECODE, codecQuery, trackKeys } from './player/playback-failure-rules.js';
+import { createFailureFlow } from './player/playback-failure-flow.js';
 
 const PROBE_TIMEOUT_MS = 8000;
 // Checking that a file does not decode means fetching all of it: not for huge
