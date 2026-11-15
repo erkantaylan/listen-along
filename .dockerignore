@@ -1,0 +1,4 @@
+# The root package.json's dependencies (typescript, @types/*) are dev tooling;
+# the image installs the server's own from backend/package.json. Root only:
+# patterns here are relative to the build context.
+node_modules

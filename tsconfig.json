@@ -1,0 +1,6 @@
+{
+  // `tsc -b` (npm run typecheck) checks both packages. Options live in
+  // tsconfig.base.json, backend/tsconfig.json and frontend/tsconfig.json.
+  "files": [],
+  "references": [{ "path": "./backend" }, { "path": "./frontend" }]
+}

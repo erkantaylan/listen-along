@@ -104,6 +104,8 @@
 - fix(web): on touch, the tap that closes a song menu no longer also plays the row under it
 - fix(web): larger touch targets on phones: song menu, broken-song icon, navbar buttons and the seek bar
 
+- chore(build): TypeScript tooling for the move to TypeScript: tsconfigs, a root `package.json` (`npm run typecheck`, `build`, `test`, `dev`) and a typecheck job in CI. Nothing is converted yet and nothing changes for users. The server now needs Node 22.18 or newer (the Docker image already has it)
+
 ## v2.31.0 (2026-10-31)
 
 ### Music library and CLI

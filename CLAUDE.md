@@ -442,10 +442,38 @@ where lobby persistence broke entirely on deployed instances.
   against it, and `testServer.js` `centralSessionCookie(DATABASE_URL,
   '<users.id>')` inserts a `user_sessions` row (prints `la_session=...`).
 
+## TypeScript
+
+The backend and frontend are moving to TypeScript one area at a time (the CLI
+stays JavaScript). Until an area is converted its files stay `.js`.
+
+- Configs: `tsconfig.base.json` (shared, `strict`), `backend/tsconfig.json`
+  (typecheck only: Node runs `.ts` itself; `allowJs` without `checkJs`, add
+  `// @ts-check` per file if wanted; `module: preserve` while CommonJS and ESM
+  mix, `nodenext` at the end), `frontend/tsconfig.json` (`frontend/src/**/*.ts`
+  compiles to `frontend/dist/`, gitignored, with source maps), and the root
+  `tsconfig.json` that references both.
+- The root `package.json` holds only `typescript` and `@types/*` (no
+  workspaces: the server's dependencies and the Docker install stay in
+  `backend/`). From the repo root: `npm ci`, `npm run typecheck` (`tsc -b`),
+  `npm run build` (the frontend), `npm test` (backend tests, then
+  `frontend/src/**/*.test.ts`), `npm run dev` (backend watch + `tsc -w`).
+  CI runs `typecheck` and `build`.
+- Erasable syntax only: no `enum`, `namespace` or constructor parameter
+  properties (Node strips types, it does not compile them;
+  `erasableSyntaxOnly` reports them). Type-only imports use `import type`.
+- Relative imports name the real file: `./x.ts` (the frontend build rewrites
+  them to `./x.js`).
+- Tests sit next to the code they test.
+- `frontend/src/globals.d.ts` types the classic-script globals (`io`,
+  `window.i18n`, `MediaSessionManager`); `i18n.js` and `media-session.js` stay
+  classic scripts. `frontend/package.json` is `"type": "module"` so Node
+  (backend tests) loads frontend files as ES modules.
+
 ## Testing
 
 ```bash
-cd backend && npm test
+cd backend && npm test   # or `npm test` at the repo root (adds frontend tests)
 ```
 
 Tests use Node's built-in test runner. Some tests need `@testcontainers/postgresql`.

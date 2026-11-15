@@ -33,7 +33,7 @@ make dev
 ## Requirements
 
 - Docker and Docker Compose, OR
-- Node.js 18+ (for local development)
+- Node.js 22.18+ (for local development)
 
 ## Make Targets
 

@@ -1,0 +1,20 @@
+{
+  // The server runs its .ts files directly (Node's type stripping), so this
+  // only typechecks. Existing .js files are part of the program (so .ts files
+  // can import them) but are not checked: add `// @ts-check` per file if wanted.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": false,
+    "types": ["node"],
+    // Mixed CommonJS / ESM while areas are converted one at a time. Switches to
+    // "module": "nodenext" (and "type": "module" in package.json) in the final
+    // step of the TypeScript migration.
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "tsBuildInfoFile": "../node_modules/.cache/tsbuildinfo/backend.tsbuildinfo"
+  },
+  "include": ["src/**/*"]
+}

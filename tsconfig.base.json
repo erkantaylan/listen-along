@@ -1,0 +1,19 @@
+{
+  // Shared compiler options for backend/ and frontend/. Each package's
+  // tsconfig.json extends this. Rules: erasable syntax only (no enums,
+  // namespaces or parameter properties: Node strips types, it does not compile),
+  // and relative imports spell out the `.ts` extension.
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023"],
+    "strict": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true
+  }
+}

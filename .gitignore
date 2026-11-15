@@ -34,9 +34,10 @@ Thumbs.db
 *.swp
 *.swo
 
-# Build
+# Build (dist/ covers frontend/dist, the compiled frontend)
 dist/
 build/
+*.tsbuildinfo
 
 # Gas Town (added by gt)
 __pycache__/

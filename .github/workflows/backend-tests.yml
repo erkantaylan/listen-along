@@ -41,6 +41,32 @@ jobs:
 
       - run: npm test
 
+  # TypeScript: typecheck backend + frontend (tsc -b) and build the frontend.
+  # Root package.json holds only typescript and @types/*; no workspaces.
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+
+      - run: npm ci
+
+      # Several backend dependencies ship their own types (socket.io, jose, ...).
+      - run: npm ci
+        working-directory: backend
+
+      - run: npm run typecheck
+
+      - run: npm run build
+
   cli:
     runs-on: ubuntu-latest
     timeout-minutes: 10

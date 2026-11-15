@@ -1,0 +1,22 @@
+{
+  // Browser code: frontend/src/**/*.ts compiles to frontend/dist/ (gitignored),
+  // one .js per .ts, no bundler. Sources import "./x.ts"; the output imports
+  // "./x.js". index.html, CSS, vendor/, locales/ and icons stay in frontend/.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "types": [],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "rewriteRelativeImportExtensions": true,
+    "sourceMap": true,
+    // composite (needed for the root `tsc -b`) requires declarations: they go
+    // out of the way so dist/ holds only what the browser loads.
+    "declarationDir": "../node_modules/.cache/frontend-types",
+    "tsBuildInfoFile": "../node_modules/.cache/tsbuildinfo/frontend.tsbuildinfo"
+  },
+  "include": ["src/**/*"]
+}
