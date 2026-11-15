@@ -8,6 +8,7 @@ export function showView(viewName) {
   if (elements.radioView) elements.radioView.classList.remove('active');
   if (elements.artistsView) elements.artistsView.classList.remove('active');
   if (elements.artistView) elements.artistView.classList.remove('active');
+  if (elements.searchView) elements.searchView.classList.remove('active');
   if (elements.appView) elements.appView.classList.remove('active');
   if (elements.dashboardView) elements.dashboardView.classList.remove('active');
   if (elements.pendingView) elements.pendingView.classList.remove('active');
@@ -34,6 +35,9 @@ export function showView(viewName) {
       break;
     case 'artist':
       if (elements.artistView) elements.artistView.classList.add('active');
+      break;
+    case 'search':
+      if (elements.searchView) elements.searchView.classList.add('active');
       break;
     case 'app':
       if (elements.appView) elements.appView.classList.add('active');

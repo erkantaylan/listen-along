@@ -469,8 +469,8 @@ app.use(createJobRouter({
     return access.canEdit(l, userId) ? l : null;
   },
   spotifyTrack: (url) => spotify.getTrack(url),
-  addSongToPlaylist: async (playlistId, song, addedBy) => {
-    const entry = await addLibrarySongToLobby(playlistId, song, addedBy, { skipIfQueued: true });
+  addSongToPlaylist: async (playlistId, song, addedBy, { allowDuplicates = false } = {}) => {
+    const entry = await addLibrarySongToLobby(playlistId, song, addedBy, { skipIfQueued: !allowDuplicates });
     if (!entry) return false;
     const queue = await getQueueAsync(playlistId);
     io.to(playlistId).emit('queue:update', { lobbyId: playlistId, songs: queue.getSongs() });
@@ -1967,7 +1967,7 @@ app.get(['/lobby/:id', '/lobby/:id/library'], (req, res) => {
 });
 
 // SPA views (auth guard applied above; the client routes them, see frontend/router.js)
-app.get(['/playlist/:id', '/playlist/:id/library', '/library', '/radio', '/artists', '/artist/:key', '/profile', '/social', '/app'], (req, res) => {
+app.get(['/playlist/:id', '/playlist/:id/library', '/library', '/radio', '/artists', '/artist/:key', '/search', '/profile', '/social', '/app'], (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 

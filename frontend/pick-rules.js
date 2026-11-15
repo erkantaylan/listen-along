@@ -29,12 +29,14 @@ export function playlistItems(results) {
     .map((video, key) => ({ key, original: video, video, checked: true }));
 }
 
+// A tick changed by hand is the user's: a new destination leaves it alone.
 export function toggled(items, pos) {
-  return items.map((it, i) => (i === pos ? { ...it, checked: !it.checked } : it));
+  return items.map((it, i) => (i === pos ? { ...it, checked: !it.checked, autoOff: false } : it));
 }
 
+// Select all / none is the user's choice too: no tick stays automatic.
 export function allChecked(items, checked) {
-  return items.map((it) => ({ ...it, checked }));
+  return items.map((it) => ({ ...it, checked, autoOff: false }));
 }
 
 // Swapping also ticks the item: nobody swaps a video they do not want.
@@ -86,10 +88,6 @@ export function jobPayload(ids, playlistId) {
   return playlistId ? { picks: ids, playlist_id: playlistId } : { picks: ids };
 }
 
-// A playlist's add-song box: socket queue:add.
-export function queuePayload(lobbyId, ids) {
-  return { lobbyId, picks: ids };
-}
 
 // What the lookup's answer means for the caller: show the dialog ('pick'),
 // the library has the song ('library'), the lookup did not work ('error':
@@ -101,4 +99,46 @@ export function lookupOutcome(status, body) {
   if (status === 200 && body && Array.isArray(body.results)) return 'pick';
   if (!status || status === 429 || status >= 500) return 'error';
   return 'passthrough';
+}
+
+// --- Importing a YouTube playlist (the search page's import card) ----------
+// The same checklist, with a destination: a new playlist named after the
+// YouTube one, or one of the user's editable playlists. A row whose video is
+// already in the destination (the same YouTube video / library song, never
+// "the same song" by name) starts unticked and says so; changing the
+// destination re-decides only those automatic ticks, never one set by hand.
+
+/** Keys of what a playlist holds, from GET /api/playlists/:id/songs rows. */
+export function destinationKeys(songs) {
+  const keys = new Set();
+  for (const s of songs || []) {
+    if (!s) continue;
+    if (s.youtube_id && isVideoId(s.youtube_id)) keys.add(`yt:${s.youtube_id}`);
+    if (s.library_id) keys.add(`lib:${s.library_id}`);
+  }
+  return keys;
+}
+
+export function inDestination(video, keys) {
+  if (!video || !keys) return false;
+  return keys.has(`yt:${video.youtube_id}`) || (!!video.in_library && keys.has(`lib:${video.in_library.id}`));
+}
+
+/** items for a destination's keys (an empty Set: a new playlist). */
+export function withDestination(items, keys) {
+  return items.map((it) => {
+    const already = inDestination(it.video, keys);
+    if (already && it.checked && !it.already) return { ...it, already, checked: false, autoOff: true };
+    if (!already && it.autoOff) return { ...it, already, checked: true, autoOff: false };
+    return it.already === already ? it : { ...it, already };
+  });
+}
+
+/**
+ * What confirming does: now = videos the library has (added at once),
+ * request = the others (a download each, added when uploaded), each video once.
+ */
+export function importCounts(items) {
+  const c = counts(items);
+  return { now: c.inLibrary, request: c.toDownload, chosen: c.chosen, already: items.filter((it) => it.already).length };
 }

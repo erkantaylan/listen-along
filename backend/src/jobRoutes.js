@@ -4,8 +4,8 @@
  *   GET  /api/workers                  online downloaders: name, owner, busy (approved users)
  *   GET  /api/jobs                     the caller's jobs, newest first, + worker counts
  *   POST /api/jobs                     { input, playlist_id? } the web "Download" box;
- *                                      { picks: [youtube id], playlist_id? } exactly these videos
- *                                      (answer: jobs, existing, and failed ids if it stopped part way)
+ *                                      { picks: [youtube id], playlist_id?, allow_duplicates? } exactly these videos
+ *                                      (answer: jobs, existing, already_in_playlist, and failed ids if it stopped part way)
  *   POST /api/jobs/picks               { input, match_library? } | { query } what the pick dialog shows
  *   POST /api/jobs/replace             { song_id, input, title?, artist?, album? } replace a song from a video
  *   POST /api/jobs/replace/preview     { song_id, input } what that would do (title, duration, refusal)
@@ -52,7 +52,8 @@ function durationDiffers(current, next) {
  * @param {object} hooks.hub - workerHub (stats, live, onlineWorkers, dispatch)
  * @param {(playlistId, userId) => Promise<object|null>} hooks.editablePlaylist
  * @param {(url) => Promise<{title, artist}>} hooks.spotifyTrack
- * @param {(playlistId, song, addedBy) => Promise<boolean>} hooks.addSongToPlaylist - true if added now
+ * @param {(playlistId, song, addedBy, {allowDuplicates}) => Promise<boolean>} hooks.addSongToPlaylist - true if added now
+ *   (false: already in it, unless allowDuplicates)
  * @param {(playlistId, userId) => Promise<object|null>} hooks.visiblePlaylist - the playlist if this user can see it
  * @param {(job) => void} [hooks.onJobUpdated]
  * @param {(videoId) => Promise<{title, channel, duration_sec}|null>} [hooks.previewVideo]
@@ -163,10 +164,15 @@ function createJobRouter(hooks) {
     if (picks) {
       // One video job each (any worker runs those); what the library has is
       // added to the playlist right away. Titles are the server's own.
+      // A library song the playlist already holds is not added again (as
+      // always) and is named in already_in_playlist; allow_duplicates: true
+      // (opt-in, the web after the user confirmed) adds it anyway.
+      const allowDuplicates = body.allow_duplicates === true;
       const have = await library.getByYoutubeIds(picks);
       const titles = await hooks.picker.titles(picks.filter((id) => !have.has(id)));
       const created = [];
       const existing = [];
+      const already = [];
       const handled = new Set();
       let added = 0;
       let failure = null;
@@ -174,7 +180,10 @@ function createJobRouter(hooks) {
         for (const id of picks) {
           const song = have.get(id);
           if (song) {
-            if (playlist && await hooks.addSongToPlaylist(playlist.id, song, requester)) added++;
+            if (playlist) {
+              if (await hooks.addSongToPlaylist(playlist.id, song, requester, { allowDuplicates })) added++;
+              else already.push(id);
+            }
             existing.push(library.toPublic(song));
           } else {
             const row = await jobs.createJob({
@@ -204,7 +213,7 @@ function createJobRouter(hooks) {
       // without queuing the others twice.
       const failed = picks.filter((id) => !handled.has(id));
       return res.status(created.length ? 201 : 200).json({
-        jobs: created.map(jobs.toPublic), existing, added_to_playlist: added, playlist_id: playlist ? playlist.id : null, workers: workerCounts(),
+        jobs: created.map(jobs.toPublic), existing, added_to_playlist: added, already_in_playlist: already, playlist_id: playlist ? playlist.id : null, workers: workerCounts(),
         ...(failed.length ? { failed, error: `${failed.length} of ${picks.length} could not be queued` } : {}),
       });
     }

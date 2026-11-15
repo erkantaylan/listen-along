@@ -326,11 +326,11 @@ describe('pick the video on Postgres', { skip, timeout: 240_000 }, () => {
 const fs = require('fs');
 const target = process.argv[process.argv.length - 1];
 fs.appendFileSync(${JSON.stringify('__LOG__')}, target + '\\n');
-const out = (entries) => process.stdout.write(JSON.stringify({ entries }));
+const out = (entries, title) => process.stdout.write(JSON.stringify(title ? { title, entries } : { entries }));
 const m = /^ytsearch(\\d+):(.*)$/.exec(target);
 if (!m) {
   if (!/list=PLtest/.test(target)) process.exit(1);
-  out(['listvideo01', 'inlibrary01', 'listvideo03'].map((id, i) => ({ id, title: 'Entry ' + (i + 1), duration: 100 + i, channel: 'List Ch' })));
+  out(['listvideo01', 'inlibrary01', 'listvideo03'].map((id, i) => ({ id, title: 'Entry ' + (i + 1), duration: 100 + i, channel: 'List Ch' })), 'Road Mix');
 } else {
   const n = Number(m[1]);
   const q = m[2];
@@ -518,6 +518,7 @@ globalThis.fetch = async (url, opts) => {
       assert.deepEqual(r.body.results.map((v) => v.youtube_id), ['listvideo01', 'inlibrary01', 'listvideo03']);
       assert.equal(r.body.results[1].in_library.id, librarySong.id);
       assert.equal(r.body.results[0].channel, 'List Ch');
+      assert.equal(r.body.title, 'Road Mix', 'the playlist\'s own name (the search page\'s import card)');
       await picks('alice', { input: 'https://www.youtube.com/watch?v=knownvid001&list=PLtest1' });
       assert.deepEqual(ytCalls().slice(calls), ['https://www.youtube.com/playlist?list=PLtest1'], 'one listing, no search per video');
     });
@@ -757,6 +758,18 @@ globalThis.fetch = async (url, opts) => {
       assert.equal(event, 'queue:error');
       assert.equal(data.message, 'Playlist not found');
       assert.equal((await requestsFor(playlists.priv)).length, 0);
+    });
+
+    it('a Spotify album link says only track links work (not "Unsupported link")', async () => {
+      const s = await joined('alice', playlists.pub);
+      const from = s.seen.length;
+      s.emit('queue:add', { lobbyId: playlists.pub, query: 'https://open.spotify.com/album/4aawyAB9vmqN3uQ7FjRGTy?si=abc' });
+      const [event, data] = await nextEvent(s, ['queue:error', 'queue:requested', 'queue:update'], from);
+      assert.equal(event, 'queue:error');
+      assert.match(data.message, /^Only Spotify track links are supported/);
+      const picked = await picks('alice', { input: 'https://open.spotify.com/album/4aawyAB9vmqN3uQ7FjRGTy' });
+      assert.equal(picked.status, 400);
+      assert.match(picked.body.error, /^Only Spotify track links are supported/, 'the lookup says the same');
     });
 
     it('without picks: as before, the server takes the first result', async () => {

@@ -56,7 +56,7 @@ function parsePlaylistId(target) {
  * (--flat-playlist is fast: it lists ids/titles, not full per-video metadata).
  * Unavailable entries (deleted/private) are filtered out.
  * @param {string} url - playlist or watch?…&list= URL
- * @returns {Promise<Array<{id,url,title,duration,channel,thumbnail}>>}
+ * @returns {Promise<Array<{id,url,title,duration,channel,thumbnail}>>} with .title = the playlist's name (or null)
  */
 function getPlaylistEntries(url) {
   return new Promise((resolve, reject) => {
@@ -100,6 +100,9 @@ function getPlaylistEntries(url) {
           channel: e.channel || e.uploader || null,
           thumbnail: (e.thumbnails && e.thumbnails.length && e.thumbnails[e.thumbnails.length - 1].url) || e.thumbnail || null,
         }));
+      // The playlist's own name rides along on the array (callers that slice
+      // or map it simply lose it).
+      entries.title = typeof data.title === 'string' && data.title.trim() ? data.title.trim() : null;
       resolve(entries);
     });
   });

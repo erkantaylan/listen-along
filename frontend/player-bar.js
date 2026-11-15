@@ -8,7 +8,7 @@
 import { state, elements } from './state.js';
 import { navigateTo, t } from './ui.js';
 import { player } from './player.js';
-import { artistPath, playlistPath } from './router.js';
+import { artistPath, playlistPath, searchPath } from './router.js';
 import { listenState, onListenChange, followersText, stopListenAlong } from './listen-along.js';
 import { bindSongMenu, bindReportIcons, reportIconHtml, reportsFor, onReportsChange } from './song-reports.js';
 
@@ -54,6 +54,7 @@ export function contextLabel(ctx) {
   if (ctx.type === 'library') return t('player.fromLibrary', 'Music Library');
   if (ctx.type === 'radio') return t('radio.title', 'Radio');
   if (ctx.type === 'artist') return ctx.name || ctx.key;
+  if (ctx.type === 'search') return ctx.query ? tf('search.fromSearch', 'Search “{query}”', { query: ctx.query }) : t('search.title', 'Search');
   if (ctx.type === 'listen') {
     // Only while actually listening along (the track stays after stopping).
     const { leader } = listenState();
@@ -67,6 +68,7 @@ function contextPath(ctx) {
   if (ctx.type === 'library') return '/library';
   if (ctx.type === 'radio') return '/radio';
   if (ctx.type === 'artist') return artistPath(ctx.key);
+  if (ctx.type === 'search') return searchPath(ctx.query);
   if (ctx.type === 'listen') return null;
   return playlistPath(ctx.lobbyId);
 }
@@ -78,9 +80,9 @@ export function refreshPlayerBar() {
   const track = player.track;
   bar.classList.toggle('is-empty', !track);
   for (const id of CONTROL_IDS) { const el = $(id); if (el) el.disabled = !track; }
-  // Radio is its own shuffle.
+  // Radio is its own shuffle; a song from the search page is one song on repeat.
   const shuffle = $('shuffle-btn');
-  if (shuffle && player.context && player.context.type === 'radio') shuffle.disabled = true;
+  if (shuffle && player.context && (player.context.type === 'radio' || player.context.type === 'search')) shuffle.disabled = true;
   // With nothing loaded, Play starts the playlist or Radio on screen if it has songs.
   const play = $('play-btn');
   if (play) play.disabled = !track && !state.viewPlay && !(state.lobbyId && state.queue.length);

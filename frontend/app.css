@@ -18,7 +18,7 @@
   /* The page column is a size container: rules about what fits in it use
      @container page, because the sidebar and chat panel take a viewport-sized
      guess out of it. Not the dashboard: it has fixed children of its own. */
-  #landing-view, #lobby-view, #radio-view, #artists-view, #artist-view, #profile-view, #app-view, .library-page { container: page / inline-size; }
+  #landing-view, #lobby-view, #radio-view, #artists-view, #artist-view, #search-view, #profile-view, #app-view, .library-page { container: page / inline-size; }
 
   /* With a mouse the page column scrolls instead of the document, so the fixed
      chat panel and player bar never move when a page starts or stops overflowing
@@ -1234,6 +1234,14 @@
   .libpage-info { flex: 1; }
   .libpage-meta { overflow-wrap: anywhere; }
   .libpage-add { min-width: 4.5rem; }
+  /* Already in the playlist: it says so, and can still be added again (after a question). */
+  .libpage-add.added:not(:disabled) {
+    --bs-btn-bg: var(--app-success-subtle);
+    --bs-btn-color: var(--app-success);
+    --bs-btn-border-color: transparent;
+    --bs-btn-hover-bg: var(--app-success-subtle);
+    --bs-btn-hover-color: var(--app-text);
+  }
   .libpage-add.added:disabled {
     --bs-btn-disabled-bg: var(--bs-success-bg-subtle);
     --bs-btn-disabled-color: var(--bs-success-fg);
@@ -1678,5 +1686,118 @@
   .dashboard-user-avatar { font-size: 1.25rem; }
   .dashboard-user-avatar,
   .dashboard-user-avatar-img { width: 2.5rem; height: 2.5rem; }
-}
 
+  /* ------------------------------------------------------------- Search */
+  /* The global search field (search.js, DESIGN.md "Search"): the first row of the
+     page panel on screen, kept at its top while the panel scrolls. One input with
+     the search icon inside and the shortcut hint at its end. */
+  .app-search {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    flex-shrink: 0;
+    padding: 0.75rem 0;
+    background-color: var(--app-surface);
+    border-bottom: 1px solid transparent;
+    border-radius: var(--app-panel-radius) var(--app-panel-radius) 0 0;
+  }
+  /* Content scrolled under it: a plain full-width divider (not an accent), the
+     panel's own opaque surface above it (search.js sets .is-stuck). */
+  .app-search.is-stuck { border-bottom-color: var(--app-border-subtle); }
+  .app-search-field { position: relative; max-width: 36rem; }
+  .app-search-icon {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0.75rem;
+    display: flex;
+    align-items: center;
+    color: var(--app-text-muted);
+    pointer-events: none;
+  }
+  .app-search-icon > svg { width: 1.25rem; height: 1.25rem; }
+  .app-search-input.form-control { min-height: 2.5rem; padding-inline: 2.5rem 4.5rem; border-radius: var(--bs-radius-pill, 999px); }
+  .app-search-input::placeholder { text-overflow: ellipsis; }
+  .app-search-input::-webkit-search-cancel-button { cursor: pointer; }
+  .app-search-kbd {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-end: 0.75rem;
+    align-self: center;
+    height: 1.5rem;
+    margin-block: auto;
+    padding: 0 0.375rem;
+    font-family: inherit;
+    font-size: var(--bs-font-size-xs);
+    line-height: 1.5rem;
+    color: var(--app-text-muted);
+    background-color: var(--app-raised);
+    border: 1px solid var(--app-border);
+    border-radius: var(--bs-radius-3, 0.25rem);
+    pointer-events: none;
+  }
+  @media (pointer: coarse) { .app-search-kbd { display: none; } .app-search-input.form-control { padding-inline-end: 1rem; } }
+  /* Following the page's own top bar: no gap above it. */
+  .app-search + .app-navbar { --bs-navbar-min-height: 3rem; }
+  .library-page > .app-search { border-radius: var(--app-panel-radius) var(--app-panel-radius) 0 0; }
+  /* The drawer's Search place: phones only (from 768px the field is on every page). */
+  @media (width >= 768px) { .plnav-nav-search-item { display: none; } }
+
+  /* The search page. */
+  .search-main { max-width: 56rem; padding-top: 0.5rem; }
+  .search-target-chip { display: inline-flex; gap: 0.25rem; align-items: center; max-width: 100%; padding-block: 0.125rem; }
+  .search-target-chip > .btn-icon { --bs-btn-min-height: 1.5rem; margin-inline-end: -0.25rem; }
+  .search-section { margin-bottom: 1.75rem; }
+  .search-section-head { display: flex; flex-wrap: wrap; gap: 0.25rem 0.5rem; align-items: baseline; margin-bottom: 0.5rem; }
+  .search-section-title { margin: 0; font-size: var(--bs-font-size-lg); font-weight: var(--bs-font-weight-bold); }
+  .search-note { margin-bottom: 0.5rem !important; }
+  .search-row { display: flex; gap: 0.75rem; align-items: center; min-height: 3.75rem; user-select: none; }
+  .list-group-item.search-row { cursor: default; }
+  .list-group-item.search-row:is(.search-artist, .search-playlist, .search-yt-go) { cursor: pointer; }
+  .list-group-item.search-row:hover { background-color: var(--app-hover); }
+  .list-group-item.search-row:active { background-color: var(--app-pressed); }
+  /* Selected (the row with focus, or one clicked once) = the selection tint; playing too, with the accent title. */
+  .list-group-item.search-row:focus-within,
+  .list-group-item.search-row.is-playing { background-color: var(--app-accent-subtle); }
+  .list-group-item.search-row:focus-visible { outline: 2px solid var(--app-focus); outline-offset: -2px; }
+  .search-title { font-weight: var(--bs-font-weight-medium); }
+  .search-row.is-playing .search-title { font-weight: var(--bs-font-weight-semibold); color: var(--app-accent-text-strong); }
+  .search-row.is-unplayable:not(.is-playing) .search-title { font-weight: var(--bs-font-weight-normal); color: var(--app-text-muted); }
+  .search-row.is-unplayable:not(.is-playing) .search-thumb img { opacity: 0.45; filter: grayscale(1); }
+  .app-thumb.search-thumb { width: 2.75rem; height: 2.75rem; }
+  .app-thumb.search-round { border-radius: 50%; }
+  .search-row .playlist-avatar { width: 2.75rem; height: 2.75rem; }
+  .app-thumb.search-yt-thumb { width: 4.25rem; height: 2.4rem; }
+  .search-badge { flex: none; }
+  .search-row > .btn, .search-row > .btn-outline, .search-row > .btn-text { flex: none; }
+  .search-add, .search-request { max-width: 16rem; }
+  /* On its way (an add or a request): still focusable, presses ignored (search.js). */
+  :is(.search-add, .search-request, .search-import-btn)[aria-busy="true"] { cursor: progress; opacity: 0.7; }
+  .search-add > span, .search-request > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .search-go-icon { display: flex; width: 2.75rem; justify-content: center; color: var(--app-text-muted); }
+  .search-go-icon > svg { width: 1.5rem; height: 1.5rem; }
+  .search-kbd, .search-yt-go kbd {
+    padding: 0 0.375rem;
+    font-family: inherit;
+    font-size: var(--bs-font-size-xs);
+    color: var(--app-text-muted);
+    background-color: var(--app-raised);
+    border: 1px solid var(--app-border);
+    border-radius: var(--bs-radius-3, 0.25rem);
+  }
+  .search-yt-go-btn { display: inline-flex; gap: 0.5rem; align-items: center; }
+  .search-empty { padding-block: 2.5rem; }
+  .search-status { padding-block: 1rem; }
+  .search-import .playlist-avatar > svg { width: 55%; height: 55%; }
+  /* Narrow page columns: buttons shrink to their icons; the duration stays in the meta line. */
+  @container page (width < 576px) {
+    .search-row { gap: 0.5rem; padding-inline: 0.625rem; }
+    .search-add > span, .search-request > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+    .search-add, .search-request { --bs-btn-padding-x: 0.375rem; }
+    .search-badge { display: none; }
+    .app-thumb.search-yt-thumb { width: 3.5rem; height: 2rem; }
+    .search-row .search-open { display: none; }
+  }
+  @media (pointer: coarse) {
+    .search-row .btn-sm { --bs-btn-min-height: 2.5rem; --bs-btn-min-width: 2.5rem; }
+  }
+}

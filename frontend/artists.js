@@ -32,6 +32,12 @@ let playArtist = () => {};
 let refreshTimer = null;
 let pageOpen = false;
 
+/** Every artist (name, key, count, cover), loading the list when it is not here or old (the search page). */
+export async function ensureArtists() {
+  if (!store.loaded || store.stale) await loadArtists();
+  return store.list;
+}
+
 /** The artist with this key, as last listed (name, count, cover), or null. */
 export function artistByKey(key) {
   return store.byKey.get(key) || null;

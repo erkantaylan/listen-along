@@ -46,6 +46,11 @@ function downloadFilename(song) {
   return (base || 'audio') + ext;
 }
 
+// The global search asks as you type (debounced): a relevance search scans the
+// library, so it has a budget of its own per client, well above typing speed.
+const SEARCH_LIMIT = 120;
+const SEARCH_WINDOW_MS = 60 * 1000;
+
 // Automatic "needs replacement" reports (the web player's) per account.
 const AUTO_REPORT_LIMIT = 20;
 const AUTO_REPORT_WINDOW_MS = 10 * 60 * 1000;
@@ -153,6 +158,14 @@ function createLibraryRouter(hooks = {}) {
     message: 'Too many automatic reports, slow down',
   });
 
+  // Per account (web user or the token's owner), so tabs and people behind one
+  // address do not share a budget; the client address only without an account.
+  const searchLimiter = makeLimiter(SEARCH_LIMIT, SEARCH_WINDOW_MS, {
+    skip: (req) => req.query.sort !== 'relevance',
+    keyGenerator: (req) => { const a = actorOf(req); return a && a.userId ? `user:${a.userId}` : keyFor(req); },
+    message: 'Too many searches, slow down',
+  });
+
   // The account behind the request (token owner or web user), for "mine".
   const viewerOf = (req) => (req.apiUser ? req.apiUser.userId || null
     : (req._listenAuth && req._listenAuth.account && req._listenAuth.account.id) || null);
@@ -194,12 +207,13 @@ function createLibraryRouter(hooks = {}) {
   });
 
   // --- Library ------------------------------------------------------------
-  router.get('/api/library', readAccess, requireDb, async (req, res) => {
+  router.get('/api/library', readAccess, requireDb, searchLimiter, async (req, res) => {
     try {
       const youtubeId = req.query.youtube_id ? library.parseYoutubeId(String(req.query.youtube_id)) : null;
       if (req.query.youtube_id && !youtubeId) return res.status(400).json({ error: 'Invalid youtube_id' });
       const result = await library.list({
-        q: typeof req.query.q === 'string' ? req.query.q.slice(0, 200) : '',
+        // A NUL byte can never match (Postgres text refuses it): dropped, not a 500.
+        q: typeof req.query.q === 'string' ? req.query.q.replace(/\0/g, '').slice(0, 200) : '',
         limit: parseIntParam(req.query.limit, 100, 1, 1000),
         offset: parseIntParam(req.query.offset, 0, 0, 1e9),
         youtubeId,

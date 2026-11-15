@@ -1,7 +1,7 @@
 // Music library page: every song in the library (searchable, with uploader)
 // plus the list of song requests waiting for an upload. Songs are added to the
 // current lobby's queue from here.
-import { state, socket } from './state.js';
+import { state } from './state.js';
 import { showToast, formatDuration, notifyViewChange } from './ui.js';
 import { libraryPath, basePath } from './router.js';
 import { player } from './player.js';
@@ -10,6 +10,7 @@ import { clearReplacedFailure } from './playback-failures.js';
 import { bindSongMenu, songMenuButtonHtml, reportIconHtml, reportLines, reportsFor, onReportsChange, reportedCount, reportsLoaded, handleReportsUpdated, isReportDialogOpen } from './song-reports.js';
 import { isContextMenuOpen } from './context-menu.js';
 import { openReplaceDialog } from './replace-dialog.js';
+import { addSongToPlaylist } from './add-to-playlist.js';
 
 // Escapes for both text and attribute contexts (ui.js escapeHtml leaves quotes).
 function escapeHtml(value) {
@@ -172,14 +173,15 @@ function isQueued(song, keys) {
     || (!!song.source_url && keys.has(song.source_url));
 }
 
-// Add button state: no lobby, already in this lobby's queue, or addable.
+// Add button state: no lobby, already in this lobby's queue (it can still be
+// added again, after a question), or addable.
 function setAddButton(btn, song, keys) {
   const queued = !!state.lobbyId && isQueued(song, keys);
-  btn.disabled = !state.lobbyId || queued;
+  btn.disabled = !state.lobbyId;
   btn.classList.toggle('added', queued);
   btn.textContent = queued ? 'Added' : 'Add';
   if (!state.lobbyId) btn.title = 'Open a playlist first';
-  else if (queued) btn.title = 'Already in the queue';
+  else if (queued) btn.title = 'Already in this playlist. Click to add it again';
   else btn.removeAttribute('title');
 }
 
@@ -347,16 +349,17 @@ async function loadSongs({ page = 0, refresh = false } = {}) {
   }
 }
 
-function addToQueue(songId, btn) {
+// The same path as the song menu's Add to playlist: the server refuses the same
+// song twice, and the user is asked before it is added again.
+async function addToQueue(songId, btn) {
   if (!state.lobbyId) { showToast('Open a playlist first', 'error'); return; }
-  socket.emit('queue:add', { lobbyId: state.lobbyId, libraryId: songId, addedBy: state.username, userId: state.userId });
-  // Stays "Added": the queue:update that follows keeps it that way, and a
-  // rejected duplicate means it was already queued anyway.
-  if (btn) {
-    btn.textContent = 'Added';
-    btn.disabled = true;
-    btn.classList.add('added');
-    btn.title = 'Already in the queue';
+  const song = lib.songs.find((s) => s.id === songId);
+  if (btn) btn.disabled = true;
+  try {
+    await addSongToPlaylist({ id: state.lobbyId, name: state.lobbyName }, { songId, title: song ? song.title : '' }, { returnFocus: btn });
+  } finally {
+    // The queue:update that follows marks it "Added".
+    if (btn && document.contains(btn)) btn.disabled = !state.lobbyId;
   }
 }
 

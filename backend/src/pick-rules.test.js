@@ -118,9 +118,6 @@ describe('pick-rules: what is sent', () => {
     assert.deepEqual(m.jobPayload([id(1)], undefined), { picks: [id(1)] });
     assert.deepEqual(m.jobPayload([id(1), id(2)], 'abc123'), { picks: [id(1), id(2)], playlist_id: 'abc123' });
   });
-  it('the playlist box', () => {
-    assert.deepEqual(m.queuePayload('abc123', [id(1)]), { lobbyId: 'abc123', picks: [id(1)] });
-  });
   it('thumbnail and watch links', () => {
     assert.equal(m.thumbUrl('dQw4w9WgXcQ'), 'https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg');
     assert.equal(m.watchUrl('dQw4w9WgXcQ'), 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');

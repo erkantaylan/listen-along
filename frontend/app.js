@@ -24,7 +24,8 @@ import { scheduleReload } from './playlist-store.js';
 import { shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound, handleLobbyError, handleLobbyRenamed, handleLobbyUpdated, openPlaylistHeaderMenu, setupLandingMenus, handleUserJoined, handleUserLeft, handleLobbyClosed, checkForLastLobby, joinLobbyFromCard, updatePinButton, togglePin, quickPlayLobby, toggleLobbyPlayback, openLobbyPage, closeLobbyPage, syncMembership, resyncMembership, reportNowPlaying } from './lobby.js';
 import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, updatePlayButton, updatePlaybackModeUI, updateNowPlaying, _setQueueFns } from './playback.js';
 import { closePickDialog } from './pick-dialog.js';
-import { handleQueueUpdated, handleSongAdded, addSong, removeSong, clearQueue, downloadPlaylist, cancelPlaylistDownload, moveSongUp, moveSongDown, playSongAt, setupQueueInteractions, setupQueueSearch, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './queue.js';
+import { setupSearch, openSearchPage, closeSearchPage, searchRouteChanged, handleSearchLibraryUpdated } from './search.js';
+import { handleQueueUpdated, handleSongAdded, removeSong, clearQueue, downloadPlaylist, cancelPlaylistDownload, moveSongUp, moveSongDown, playSongAt, setupQueueInteractions, setupQueueSearch, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './queue.js';
 
 // Wire up cross-module dependencies
 _setQueueFns(updateQueue, updateListeners);
@@ -90,6 +91,7 @@ function setupSocket() {
     s.on('library:updated', handleRadioLibraryUpdated);
     s.on('library:updated', handleArtistsLibraryUpdated);
     s.on('library:updated', handleArtistLibraryUpdated);
+    s.on('library:updated', handleSearchLibraryUpdated);
     s.on('requests:updated', handleRequestsUpdated);
     // Download jobs (Download tab) and downloaders online.
     s.on('jobs:update', handleJobUpdate);
@@ -125,9 +127,8 @@ function setupEventListeners() {
   updatePlaybackModeUI();
   elements.progressBar.addEventListener('input', seekTo);
 
-  // Queue
-  elements.addSongBtn.addEventListener('click', addSong);
-  elements.songInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') addSong(); });
+  // Queue: "Add songs" opens the global search with this playlist as the
+  // target (search.js); the library button opens the library over it.
   var browseLibBtn = document.getElementById('browse-library-btn');
   if (browseLibBtn) browseLibBtn.addEventListener('click', () => openLibraryPage('library'));
   const landingLibBtn = document.getElementById('landing-library-btn');
@@ -169,7 +170,7 @@ function resetLobbyPage() {
   resetLobbyUI();
 }
 
-const routeViews = { landing: 'landingView', lobby: 'lobbyView', profile: 'profileView', radio: 'radioView', app: 'appView', artists: 'artistsView', artist: 'artistView' };
+const routeViews = { landing: 'landingView', lobby: 'lobbyView', profile: 'profileView', radio: 'radioView', app: 'appView', artists: 'artistsView', artist: 'artistView', search: 'searchView' };
 // The path applyRoute last showed (an artist page's back button returns to /artists from there).
 let lastPath = null;
 function isViewActive(view) {
@@ -191,6 +192,8 @@ function applyRoute() {
   if (route.view !== 'radio') closeRadioPage();
   if (route.view !== 'artists') closeArtistsPage();
   if (route.view !== 'artist') closeArtistPage();
+  if (route.view !== 'search') closeSearchPage();
+  searchRouteChanged(route);
   if (route.view === 'social') {
     // Phones: the Social view covers the page; desktop: the sidebar over the
     // landing page (a playlist page under it would be left anyway).
@@ -205,6 +208,7 @@ function applyRoute() {
     if (route.view === 'radio') openRadioPage();
     if (route.view === 'artists') openArtistsPage();
     if (route.view === 'artist') openArtistPage(route.artistKey, { from: lastPath });
+    if (route.view === 'search') openSearchPage(route.searchQuery, { from: lastPath });
   }
   lastPath = window.location.pathname.replace(/\/+$/, '') || '/';
   refreshPlayerBar();
@@ -275,7 +279,7 @@ function initAuthenticatedApp() {
   const route = parseRoute(window.location.pathname, window.location.search);
   setupSidebar();
   setupAppPage();
-  const ownView = ['profile', 'radio', 'app', 'artists', 'artist'].includes(route.view);
+  const ownView = ['profile', 'radio', 'app', 'artists', 'artist', 'search'].includes(route.view);
   showView(ownView ? route.view : 'landing');
   setupSocket();
   setupEventListeners();
@@ -290,6 +294,7 @@ function initAuthenticatedApp() {
   setupRadio();
   setupArtists({ play: playArtistFromTop });
   setupArtistPage();
+  setupSearch();
   setupRowDoubleClick((id) => {
     if (id === 'radio') playRadioFromTop();
     else if (id.startsWith('artist:')) playArtistFromTop(id.slice('artist:'.length));

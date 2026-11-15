@@ -1,5 +1,5 @@
 // "Pick the video": the step before a download job or a song request is made
-// (the Download box and a playlist's add-song box). The server looks up what
+// (the Download box; the search page's playlist import). The server looks up what
 // was typed (POST /api/jobs/picks, backend/src/picker.js) and this dialog
 // shows it:
 //   search text, Spotify track   the first YouTube results, the top one selected
@@ -13,12 +13,16 @@
 //                             something to look up, or "first match anyway")
 //   null                      cancelled
 // No dialog appears for the last three unless the lookup takes a while.
-// The rules (selection, swap, payloads) are in pick-rules.js.
+// importPlaylist() is the same checklist for a YouTube playlist the search page
+// already looked up, with a destination chooser at the top (a new playlist
+// named after it, or one of the user's editable playlists): rows already in the
+// destination start unticked. It resolves { picks, destination } or null.
+// The rules (selection, swap, payloads, destinations) are in pick-rules.js.
 import { formatDuration, t, trapFocus } from './ui.js';
 import { createVirtualList } from './virtual-list.js';
 import {
-  allChecked, chosenIds, counts, isSwapped, lookupOutcome, moveIndex, playlistItems,
-  swapChoices, swapped, swapQuery, thumbUrl, toggled, watchUrl,
+  allChecked, chosenIds, counts, destinationKeys, importCounts, isSwapped, lookupOutcome, moveIndex, playlistItems,
+  swapChoices, swapped, swapQuery, thumbUrl, toggled, watchUrl, withDestination,
 } from './pick-rules.js';
 
 const CLOSE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
@@ -51,15 +55,28 @@ function metaLine(v) {
 }
 
 // clamp: the title may take two lines (a result); a playlist row has one.
-function videoHtml(v, clamp = false) {
+// status (an import row): what confirming does with it, before the meta line;
+// already: a badge instead of "In library".
+function videoHtml(v, clamp = false, { status = null, already = false } = {}) {
   const title = v.title || tf('pick.unknownVideo', 'YouTube video {id}', { id: v.youtube_id });
-  const meta = v.title ? metaLine(v) : tf('pick.notLookedUp', 'Could not look it up. You can still download it.');
+  const meta = [status, v.title ? metaLine(v) : tf('pick.notLookedUp', 'Could not look it up. You can still download it.')].filter(Boolean).join(' · ');
+  const badge = already
+    ? `<span class="badge badge-subtle theme-warning pick-badge">${escapeHtml(tf('pick.alreadyInPlaylist', 'Already in playlist'))}</span>`
+    : v.in_library && status === null ? `<span class="badge badge-subtle theme-success pick-badge">${escapeHtml(tf('pick.inLibrary', 'In library'))}</span>` : '';
   return `<span class="app-thumb pick-thumb"><img src="${escapeHtml(thumbUrl(v.youtube_id))}" alt="" loading="lazy"></span>
     <div class="min-w-0 flex-grow-1">
       <div class="pick-title${clamp ? '' : ' text-truncate'}" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
       <div class="fs-sm fg-3 text-truncate">${escapeHtml(meta)}</div>
     </div>
-    ${v.in_library ? `<span class="badge badge-subtle theme-success pick-badge">${escapeHtml(tf('pick.inLibrary', 'In library'))}</span>` : ''}`;
+    ${badge}`;
+}
+
+// The import's primary button: what confirming does.
+function importLabel(c) {
+  if (c.now && c.request) return tf('pick.importBoth', 'Add {now} now, request {request}', { now: c.now, request: c.request });
+  if (c.now) return tf('pick.importNow', 'Add {now} now', { now: c.now });
+  if (c.request) return tf('pick.importRequest', 'Request {request}', { request: c.request });
+  return tf('pick.importNothing', 'Add');
 }
 
 let closeOpen = null;
@@ -71,11 +88,28 @@ export function closePickDialog() {
 /**
  * @param {object} o
  * @param {string} o.input - what was typed or pasted
- * @param {boolean} [o.matchLibrary] - a playlist's add-song box: a song the
- *   library already has is the answer, without a dialog
  * @param {Element} [o.returnFocus] - gets focus back when the dialog closes
  */
-export function pickSongs({ input, matchLibrary = false, returnFocus = null }) {
+export function pickSongs({ input, returnFocus = null }) {
+  return openPick({ input, returnFocus });
+}
+
+/**
+ * The checklist for a YouTube playlist already looked up (search.js).
+ * @param {object} o
+ * @param {{title, total, videos}} o.playlist - what POST /api/jobs/picks said
+ * @param {Array<{id, name}>} o.destinations - the user's editable playlists
+ * @param {(id) => Promise<object[]>} o.loadSongs - a playlist's songs (GET /api/playlists/:id/songs)
+ * @param {string} o.newName - the new playlist's name (the YouTube playlist's)
+ * @param {string|null} [o.initial] - a playlist id to start on, else the new playlist
+ * @param {Element} [o.returnFocus]
+ * @returns {Promise<{picks, destination: {kind: 'new', name, checked} | {kind: 'existing', id, name, checked}} | null>}
+ */
+export function importPlaylist({ playlist, destinations, loadSongs, newName, initial = null, returnFocus = null }) {
+  return openPick({ returnFocus, imported: { playlist, destinations: destinations || [], loadSongs, newName, initial } });
+}
+
+function openPick({ input = '', returnFocus = null, imported = null }) {
   closePickDialog();
   return new Promise((resolve) => {
     const back = returnFocus || document.activeElement;
@@ -91,6 +125,9 @@ export function pickSongs({ input, matchLibrary = false, returnFocus = null }) {
     let listScroll = 0;
     let swap = null; // { pos, state: 'loading' | 'ready' | 'error', videos, selected, message }
     const swapResults = new Map(); // item key -> search results
+    // The import's destination: 'new' or a playlist id; keys = what it holds.
+    let builtAt = 0;
+    let dest = imported ? { value: 'new', state: 'ready', keys: new Set(), seq: 0 } : null;
 
     function finish(result) {
       if (done) return;
@@ -105,16 +142,25 @@ export function pickSongs({ input, matchLibrary = false, returnFocus = null }) {
       resolve(result);
     }
     closeOpen = () => finish(null);
-    const showTimer = setTimeout(show, SHOW_AFTER_MS);
+    const showTimer = imported ? null : setTimeout(show, SHOW_AFTER_MS);
 
     const $ = (sel) => dialog.querySelector(sel);
     const options = () => (view === 'swap' ? swap : single);
 
     async function load() {
+      if (imported) {
+        lookup = { kind: 'playlist', results: imported.playlist.videos, total: imported.playlist.total, title: imported.playlist.title };
+        items = playlistItems(lookup.results);
+        view = 'list';
+        show();
+        const start = imported.initial && imported.destinations.some((p) => p.id === imported.initial) ? imported.initial : 'new';
+        if (start !== 'new') setDestination(start);
+        return;
+      }
       view = 'loading';
       render();
       const my = ++seq;
-      const r = await post(matchLibrary ? { input, match_library: true } : { input });
+      const r = await post({ input });
       if (done || my !== seq) return;
       const outcome = lookupOutcome(r.status, r.body);
       if (outcome === 'library') return finish({ library: r.body.song });
@@ -144,6 +190,7 @@ export function pickSongs({ input, matchLibrary = false, returnFocus = null }) {
     }
 
     function build() {
+      builtAt = Date.now();
       dialog = document.createElement('div');
       dialog.id = 'pick-dialog';
       dialog.className = 'app-modal pick-overlay';
@@ -182,7 +229,8 @@ export function pickSongs({ input, matchLibrary = false, returnFocus = null }) {
     }
 
     function onClick(e) {
-      if (e.target === dialog) return finish(null);
+      // The second click of a double-click that opened it is not a click outside.
+      if (e.target === dialog) { if (Date.now() - builtAt > 500) finish(null); return; }
       if (e.target.closest('.pick-retry')) return view === 'swap' ? openSwap(swap.pos) : load();
       if (e.target.closest('.pick-first')) return finish({ passthrough: true });
       if (e.target.closest('.pick-all')) {
@@ -201,7 +249,47 @@ export function pickSongs({ input, matchLibrary = false, returnFocus = null }) {
       }
     }
 
+    // A new destination: what it already holds starts unticked (pick-rules.js withDestination).
+    async function setDestination(value) {
+      const my = ++dest.seq;
+      dest.value = value;
+      const select = $('#pick-dest');
+      if (select && select.value !== value) select.value = value;
+      if (value === 'new') {
+        dest.state = 'ready';
+        dest.keys = new Set();
+      } else {
+        dest.state = 'loading';
+        renderDestStatus();
+        renderFooter();
+        let keys = null;
+        try { keys = destinationKeys(await imported.loadSongs(value)); } catch { keys = null; }
+        if (done || my !== dest.seq) return;
+        dest.state = keys ? 'ready' : 'error';
+        dest.keys = keys || new Set();
+      }
+      items = withDestination(items, dest.keys);
+      renderDestStatus();
+      if (view === 'list' && list) renderList();
+      if (view === 'list') renderFooter();
+    }
+
+    function renderDestStatus() {
+      const el = dialog && $('.pick-dest-status');
+      if (!el) return;
+      const already = items.filter((it) => it.already).length;
+      let text = '';
+      if (dest.state === 'loading') text = tf('pick.destChecking', 'Checking what is already in it…');
+      else if (dest.state === 'error') text = tf('pick.destFailed', 'Could not check that playlist. Rows already in it may be added again.');
+      else if (dest.value === 'new') text = tf('pick.destNewHint', 'A new playlist, made with your usual settings.');
+      else text = already === 1 ? tf('pick.destAlreadyOne', '1 is already in it and is left unticked.')
+        : already ? tf('pick.destAlready', '{count} are already in it and are left unticked.', { count: already })
+        : tf('pick.destNone', 'None of these are in it yet.');
+      el.textContent = text;
+    }
+
     function onChange(e) {
+      if (e.target.id === 'pick-dest') { setDestination(e.target.value); return; }
       const box = e.target.closest('.pick-check');
       if (!box) return;
       const row = box.closest('.pick-row');
@@ -272,10 +360,17 @@ export function pickSongs({ input, matchLibrary = false, returnFocus = null }) {
         if (v) finish({ picks: [v.youtube_id] });
       } else if (view === 'list') {
         const ids = chosenIds(items);
-        if (ids.length) finish({ picks: ids });
+        if (!ids.length || (dest && dest.state === 'loading')) return;
+        if (!dest) { finish({ picks: ids }); return; }
+        const target = dest.value === 'new' ? null : imported.destinations.find((p) => p.id === dest.value);
+        // checked: what the destination holds was read, so a ticked row is wanted as it is.
+        const checked = dest.state === 'ready';
+        finish({ picks: ids, destination: target ? { kind: 'existing', id: target.id, name: target.name, checked } : { kind: 'new', name: imported.newName, checked } });
       } else if (view === 'swap' && swap.state === 'ready') {
         const v = swap.videos[swap.selected];
         if (v) items = swapped(items, swap.pos, v);
+        // An import: is the new video already in the destination?
+        if (v && dest) items = withDestination(items, dest.keys);
         closeSwap();
       }
     }
@@ -339,9 +434,11 @@ export function pickSongs({ input, matchLibrary = false, returnFocus = null }) {
     function rowHtml(pos) {
       const it = items[pos];
       const title = it.video.title || it.video.youtube_id;
+      const status = !dest || it.already ? null
+        : it.video.in_library ? tf('pick.statusNow', 'In library, added now') : tf('pick.statusRequest', 'Will be requested');
       return `<li class="list-group-item pick-item pick-row${it.checked ? '' : ' pick-off'}">
         <input type="checkbox" class="check pick-check"${it.checked ? ' checked' : ''} aria-label="${escapeHtml(tf('pick.include', 'Include {title}', { title }))}">
-        ${videoHtml(it.video)}
+        ${videoHtml(it.video, false, dest ? { status: status || '', already: !!it.already } : {})}
         ${isSwapped(it) ? `<span class="badge badge-subtle theme-secondary pick-badge">${escapeHtml(tf('pick.swappedBadge', 'Swapped'))}</span>` : ''}
         <button class="btn btn-sm pick-swap" type="button" aria-label="${escapeHtml(tf('pick.swapNamed', 'Swap {title} for another video', { title }))}">${escapeHtml(tf('pick.swap', 'Swap'))}</button>
       </li>`;
@@ -380,20 +477,21 @@ export function pickSongs({ input, matchLibrary = false, returnFocus = null }) {
           body.innerHTML = optionsHtml(single, title);
         }
       } else if (view === 'list') {
-        title = tf('pick.titlePlaylist', 'Playlist: {count} videos', { count: lookup.total });
+        title = dest && lookup.title ? tf('pick.titleImport', 'Import “{title}”', { title: lookup.title }) : tf('pick.titlePlaylist', 'Playlist: {count} videos', { count: lookup.total });
         noteText = tf('pick.playlistNote', 'Untick what you do not want. Swap replaces a video with another version.')
           + (lookup.total > items.length ? ` ${tf('pick.playlistCapped', 'Only the first {shown} of {total} are listed.', { shown: items.length, total: lookup.total })}` : '');
-        body.innerHTML = items.length
+        body.innerHTML = (dest ? destHtml() : '') + (items.length
           ? `<div class="d-flex align-items-center justify-content-between gap-2 mb-2">
               <span class="fs-sm fg-2 pick-count" role="status"></span>
               <button class="btn-text theme-secondary btn-sm pick-all" type="button"></button>
             </div>
             <div class="pick-scroll"><ul class="list-group pick-playlist" aria-label="${escapeHtml(title)}"></ul></div>`
-          : statusHtml(tf('pick.playlistEmpty', 'No videos found in that playlist.'));
+          : statusHtml(tf('pick.playlistEmpty', 'No videos found in that playlist.')));
         if (items.length) {
           list = createVirtualList({ list: $('.pick-playlist'), scroller: $('.pick-scroll') });
           renderList();
         }
+        if (dest) renderDestStatus();
       } else {
         const item = items[swap.pos];
         title = tf('pick.titleSwap', 'Swap “{title}”', { title: item.original.title || item.original.youtube_id });
@@ -410,6 +508,19 @@ export function pickSongs({ input, matchLibrary = false, returnFocus = null }) {
       renderFooter();
     }
 
+    // The destination chooser at the top of an import.
+    function destHtml() {
+      const option = (value, label) => `<option value="${escapeHtml(value)}"${dest.value === value ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+      return `<div class="mb-4 pick-dest-field">
+        <label for="pick-dest" class="form-label fw-medium">${escapeHtml(tf('pick.destLabel', 'Add to'))}</label>
+        <select id="pick-dest" class="form-control" aria-describedby="pick-dest-status">
+          ${option('new', tf('pick.destNew', 'New playlist named “{name}”', { name: imported.newName }))}
+          ${imported.destinations.length ? `<optgroup label="${escapeHtml(tf('pick.destExisting', 'Your editable playlists'))}">${imported.destinations.map((p) => option(p.id, p.name)).join('')}</optgroup>` : ''}
+        </select>
+        <p id="pick-dest-status" class="fs-sm fg-3 mt-1 mb-0 pick-dest-status" aria-live="polite"></p>
+      </div>`;
+    }
+
     function renderFooter() {
       const submit = $('.pick-submit');
       $('.pick-cancel').textContent = view === 'swap' ? tf('pick.back', 'Back') : tf('pick.cancel', 'Cancel');
@@ -421,8 +532,9 @@ export function pickSongs({ input, matchLibrary = false, returnFocus = null }) {
         if (v && v.in_library) label = tf('pick.useLibrary', 'Use the library song');
       } else if (view === 'list') {
         const c = counts(items);
-        enabled = c.chosen > 0;
-        label = c.chosen === 1 ? tf('pick.downloadOne', 'Download 1 song') : tf('pick.downloadMany', 'Download {count} songs', { count: c.chosen });
+        enabled = c.chosen > 0 && !(dest && dest.state === 'loading');
+        label = dest ? importLabel(importCounts(items))
+          : c.chosen === 1 ? tf('pick.downloadOne', 'Download 1 song') : tf('pick.downloadMany', 'Download {count} songs', { count: c.chosen });
         const count = $('.pick-count');
         if (count) {
           count.textContent = tf('pick.chosenCount', '{chosen} of {total} selected', { chosen: c.ticked, total: c.total })
@@ -440,7 +552,7 @@ export function pickSongs({ input, matchLibrary = false, returnFocus = null }) {
 
     function focusView() {
       if (!dialog) return;
-      const target = $('.pick-options') || $('.pick-retry') || $('.pick-first') || (view === 'list' && items.length ? null : $('.pick-cancel'));
+      const target = $('.pick-options') || $('.pick-retry') || $('.pick-first') || (view === 'list' && dest ? $('#pick-dest') : null) || (view === 'list' && items.length ? null : $('.pick-cancel'));
       if (target) target.focus({ preventScroll: true });
       else focusRow(0);
     }

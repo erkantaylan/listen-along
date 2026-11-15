@@ -194,7 +194,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
   (parent needs `min-w-0` inside flex rows).
 - Spacing: Bootstrap utilities on the fine scale above. Page content uses `.container`
   (`.app-narrow` = 40rem for forms/settings; the library uses 56rem; the playlist page takes the whole column,
-  with only its add-song and filter inputs capped at 56rem).
+  with only its filter input capped at 56rem; the search page 56rem).
   Vertical rhythm between cards: `mb-4`/`mb-5` or `vstack gap-6`.
 - Radii and shadows: Bootstrap defaults (buttons .5rem, cards .75rem). Shadows only on
   floating things (modals, drawer, toasts).
@@ -227,6 +227,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Artists | The landing shelf `#artists-section`, `#artists-view` (`/artists`) and `#artist-view` (`/artist/<key>`), see "Artists". Cards are `.artist-card` (`artists.js` `cardHtml`); never a second artist list. |
 | Player | The one app-wide `#player-bar` (`section.sticky-player.player-bar` in `index.html`, outside the views): see "Player bar" below. Never add a second player or a per-page `<audio>`. |
 | Context menu / small popover | `context-menu.js` (see "Context menu" below). Never a second menu implementation. |
+| Search | The one global field `#app-search` and the search page (see "Search" below). Never a second search field for the whole app (the sidebar's playlist filter, the library's and the artists' boxes filter their own lists). |
 | Icons | Inline SVG (Material paths), `fill="currentColor"`, `aria-hidden="true"`. Inside buttons they are sized automatically (1.25rem, 1rem in `.btn-sm`); elsewhere add `.icon` or `.icon-sm`. |
 
 ## Page layouts
@@ -294,7 +295,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   choice applies again from 1010px. From 1010px the right rail is on screen whenever the column is not, so chat
   and people are never hidden behind one icon.
 - Rules about what fits in the page column use `@container page (…)`: `#landing-view`, `#lobby-view`,
-  `#profile-view` and `.library-page` are size containers, so a rule such as `width < 576px` fires
+  `#profile-view`, `#search-view` and `.library-page` are size containers, so a rule such as `width < 576px` fires
   in a column of 504px at 768px. `@media (width …)` is for what follows the viewport (the two columns, the
   player bar's slim form).
 - The 19rem step still takes 39px at 1440px with the chat open (855px at 1439px, 816px at 1440px), at a width where that
@@ -369,7 +370,9 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   every other page. The back button only navigates; it never leaves the playlist or stops
   audio. Users who may edit the playlist (public: every signed-in user; private: its owner —
   the server sends `canEdit` with `lobby:joined`) get a grey "Edit" text button in the navbar
-  (solid primary "Done" while editing) and the add-song bar; the others see neither. Queue rows
+  (solid primary "Done" while editing) and the **Add songs** row: a primary "Add songs" button (plus icon) that focuses the
+  global search with this playlist as its add target (see "Search"; on phones it opens the search page), and the outline
+  icon button that opens the music library over the playlist. There is no add-song text box any more. The others see neither. Queue rows
   follow "Song rows: normal and edit mode" below; a song's source link is in its menu. The "Clear queue" button (danger icon button) shows only in edit mode.
   A playlist you cannot see (missing, deleted, someone else's private one) shows a
   "Playlist not found" toast and returns to the landing page.
@@ -377,7 +380,8 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   to" context), tabs (segmented control; tighter on phones, so all four fit at 360px) Songs/Requested/Download/Broken with count badges, search + sort toolbar, list group of
   songs (when the page column is below 576px the row's buttons go on their own line under the text; clicking / tapping the row, or Enter / Space on it, plays it — the song already playing is
   resumed, never restarted —; play button — plays in the app-wide player, shows pause on the song that is playing —, a grey
-  icon button "Replace with…" (swap arrows), Add / disabled "Added" button, ⋮ song menu), 20 per page: a compact
+  icon button "Replace with…" (swap arrows), Add / "Added" button (a song already in the playlist says "Added" in the success
+  tint and still adds again after the "Already in this playlist. Add again?" question; disabled only with no playlist open), ⋮ song menu), 20 per page: a compact
   "‹ Page n of m ›" pager above the list and the full numbered pagination + range below it
   (both follow `?page=`, both hidden when there is one page).
   "Replace with…" opens the song dialog, see "Replace with…" under "Context menu".
@@ -575,6 +579,79 @@ suffixes; a song row always shows the song's full credit. Songs with an open rep
   player's own shuffle and repeat apply. Library changes update the list on screen and the one playing; a song that left while on air
   finishes first. Presence shows "from <artist>" to everyone.
 
+### Search
+
+One field for the whole signed-in app and one page, `/search?q=…` (`search.js`, rules in `search-rules.js`, relevance on the server
+in `backend/src/songSearch.js`).
+
+- **The field** (`form#app-search[role=search]`, `#app-search-input`): one element that `search.js` moves to the top of the page panel
+  on screen, above its top bar (landing, playlist, Radio, artists, an artist, search, profile, `/app`, and the library overlay
+  while it is open); sticky at the panel's top while the panel scrolls, on the panel's opaque surface, with a plain `--app-border-subtle` divider under it once content scrolls beneath (`.is-stuck`). Not on login, pending or `/dashboard`. A `.form-control`
+  pill, 2.5rem, max 36rem, with the search icon inside at the start and a `kbd` hint at the end ("Ctrl K", "⌘K" on a Mac; hidden
+  while there is text and on touch). Placeholder "Search songs, artists, playlists, or paste a link" ("Find songs to add to <name>"
+  while an "Add songs" target is set). **Ctrl+K / Cmd+K** focuses and selects it from anywhere, also from another input (not over a
+  dialog, not on `/dashboard`); Escape clears it, a second Escape leaves it. Below 768px it is only on the search page, which the
+  **Search** place opens: a fifth icon in the phone row of places (`#places-search`) and a Search row in the drawer's places
+  (`#plnav-nav-search`, phones only).
+- **Typing** opens `/search?q=` once (one history entry from the page you were on), then replaces the URL as you type (150ms;
+  350ms for a link). IME-safe: nothing happens during a composition, Enter and Escape of a composition are the IME's. Back returns
+  to the page you came from; the page's own back button too. The title is "<query> · Search · listen-along".
+- **The page**: navbar with ☰ / back and `h1` "Search"; a line saying where a one-step add goes ("Adding to: <name>" as a
+  primary subtle badge, with × when it is an "Add songs" target, else a muted "the playlist you last played"; without one, a muted
+  "Play a playlist to add to it here in one step"); then sections, each a bold `fs-lg` heading over a list group of rows
+  (`.search-row`, 3.75rem, thumb, title over a muted meta line, buttons at the end):
+  - **Songs — in the library**, as you type (`GET /api/library?sort=relevance&limit=50`): ten, then "Show n more" up to 50 and a note
+    to narrow it. Relevance: the title, the artist, "artist title", a title or artist that starts with it, every word starting a
+    word, a substring, then the rest (Turkish i/ı/İ and accents fold); ties A–Z. Row: cover, title, "artist · length", round play
+    (pause on the song sounding), **Add** (one step to the target; "Add to…" opens the playlist chooser when there is none), ⋮.
+    A muted line says a song played from here repeats.
+  - **Artists** (up to six, from `/api/artists`, the name first, then most songs): round cover, name, "Artist · n songs"; opens
+    the artist page. **Playlists** (up to six, from the viewer's own list, so nothing they may not see): cover of initials, name,
+    "by … · n songs · Private"; opens the playlist.
+  - **From YouTube**: never per keystroke (30 lookups a minute per client). A row "Search YouTube for “…”" with an `Enter` hint;
+    Enter in the field or the row runs `POST /api/jobs/picks { query }` and scrolls to it. States: "Searching YouTube…", "YouTube
+    found nothing for “…”", rate limited (warning alert + Try again), failed (danger alert + Try again). A result the library has
+    is a library row with a success "In library" badge; any other has a 16:9 thumbnail, title, "channel · length", **Request**
+    ("Request and add to <name>" with a target; without one it asks where: a playlist or **Library only**), an icon link to
+    YouTube (new tab) and ⋮ (Request and add to ▸, Library only, Open on YouTube, Copy YouTube link). Requested = disabled
+    "Requested"; progress is in Activity. While an add, a request or an import is on its way its button is `aria-busy` /
+    `aria-disabled` (dimmed, still focusable) and a second press does nothing: the server does not dedupe jobs.
+  - Nothing matches: a centred empty state, "Nothing in the library matches “…”." with a grey "Search YouTube for “…”" button.
+  - Empty field: a short hint of what the page does.
+- **A link** (exact, never fuzzy; `POST /api/jobs/picks { input }` classifies it): a video, a bare 11-character id (only with a
+  digit, "-" or "_"; one YouTube cannot name is searched as words) or a Spotify **track** shows that one song ("From the link":
+  a library row with "In library", or a YouTube row), then **Similar in the library** (title words of the video, a hint, never in
+  the way). A Spotify track resolves as it does elsewhere (the library's exact title and artist, else the top YouTube hit) with a
+  muted "Spotify track: Artist - Title". An unsupported link is a warning alert with the server's reason in the page's language
+  ("Only Spotify track links are supported…"). A **YouTube playlist** is an import card (`.card`, a cover with a list icon, the
+  playlist's name, "17 videos · 2 already in the library", "The first 100 of …" over 100) with one primary **Import…**.
+- **Import…** opens the pick dialog's checklist (`importPlaylist` in `pick-dialog.js`) with **Add to** at the top: a
+  `select.form-control`, "New playlist named “<YouTube title>”" (the default; the usual create path, public) or one of the user's
+  editable playlists, and a muted line under it ("Checking what is already in it…", "1 is already in it and is left unticked.").
+  Rows say "In library, added now" or "Will be requested"; a row already in the chosen playlist (the same video or library song)
+  starts unticked with a warning "Already in playlist" badge, re-decided when the destination changes (a tick changed by hand
+  stays). The primary button says the outcome: "Add 12 now, request 30" / "Add 2 now" / "Request 15". The first 100 only. A
+  summary toast repeats it with **Open**. It is one `POST /api/jobs { picks, playlist_id, allow_duplicates }` (a ticked row is
+  wanted as it is; without a readable destination the flag is left out and duplicates are skipped). A taken name says so and
+  suggests importing into that playlist. If the songs cannot be queued after a new playlist was made, the playlist is kept
+  (a lost answer may still have queued downloads into it) and the toast says so, with **Open**. Select all / none count as the
+  user's own ticks: a destination change re-decides only the automatic "Already in playlist" ones.
+- **Keys**: ↓ from the field goes to the first row; ↑ / ↓ walk every row of every section (↑ from the first goes back to the field),
+  Page Up / Down, Home / End; Enter plays a song, opens an artist or playlist, runs the YouTube search or opens a YouTube row's
+  menu; **A** adds the focused row to the target (its tooltip says "(A)"); Shift+F10 / the menu key opens the song menu.
+- **Rows**: a click selects (focus and the selection tint), a double-click plays (as in Spotify's search), the play button plays,
+  a tap on touch plays. Selected (`:focus-within`) and playing (`.is-playing`, accent semibold title) are the
+  `--app-accent-subtle` tint, hover `--app-hover`, pressed `--app-pressed`, the focus ring inset; never an edge. Right-click,
+  long-press or ⋮: the usual song menu (Add to playlist ▸, Source ▸, broken, Replace with…; no Remove).
+- **Playing from search**: the song is a context of its own, `{ type: 'search', query }`, with that one song; it repeats until
+  something else is chosen, whatever the saved repeat mode (which is not touched); Next and Previous restart it; shuffle is
+  disabled. The player bar reads "artist · Search “query”" and opens the search again. Presence sends no context (a search is
+  nobody's business); listen-along followers just get the song.
+- **The current playlist** (the one-step target) is the playlist last **played** from (`listen-lastPlayedPlaylist` in this browser),
+  or for one search the playlist whose **Add songs** opened it; only while it is in the viewer's list and editable, else there is none.
+- Narrow page columns (< 576px): Add and Request become icon buttons, the "In library" badge and the YouTube link go (both stay in
+  the menu), thumbs shrink. On touch every row button is 2.5rem.
+
 ### Modal dialogs
 
 Every dialog (share, replace with, mark as broken, new playlist) is the same plain markup —
@@ -639,7 +716,7 @@ Song lists behave like Spotify's. **Normal mode** (always the default):
   toast ("… could not be played. Check your connection and try again.", or "… are not in the library yet." when that is all they were). A failure toast says "Could not play …" (+ "Skipping it." when another song came up); an automatic report gets an info toast
   with **Undo** (8s). There is no filter for unplayable songs: they stay in the list, greyed.
 
-**Stats strip** (`#playlist-stats`, `playlist-stats.js` + `queue.js`), at the top of the playlist page, above the add-song bar:
+**Stats strip** (`#playlist-stats`, `playlist-stats.js` + `queue.js`), at the top of the playlist page, above the Add songs row:
 one `fs-sm` line of plain facts that wraps between them and never inside one; muted words, the numbers and names in `--app-text`.
 No separators (a wrapped line would start with one), no cards. Always over the whole playlist, whatever the filter shows, and live.
 
@@ -734,9 +811,13 @@ Bootstrap 6 `.menu` / `.menu-item` / `.menu-header` / `.menu-divider` markup, no
   server checks the right to edit again.
 - **Add to playlist** (`add-to-playlist.js`, a submenu): search with `matchesQuery` (Turkish-aware), groups Pinned /
   Your playlists / Public playlists from `playlist-store.js`, only `canEdit` playlists, and a fixed **New playlist** at the bottom (the usual
-  dialog, "Create and add"; it stays on the page). Rows say "by … · Private". "Already added" (disabled) is known only for
-  the playlist on screen and the one playing, whose queues the page holds; elsewhere the server's `already_in_playlist` becomes an
-  "Already in “X”" toast. Goes through `POST /api/playlists/:id/songs`; a toast names the playlist. Nothing here touches playback or navigates.
+  dialog, "Create and add"; it stays on the page). Rows say "by … · Private", and "Already added" for the playlist on screen and the
+  one playing, whose queues the page holds; such a row is still choosable. Goes through `addSongToPlaylist` (`add-to-playlist.js`), the
+  one way the web adds a library song to a playlist (this menu, the library's Add, the search page): `POST /api/playlists/:id/songs`;
+  when the server answers `already_in_playlist` (the same library song / YouTube video is in it; another video of the same song is
+  not a duplicate) the **duplicate question** opens (`confirmDialog` in `playlist-actions.js`: "Already in “X”", "Already in this
+  playlist. Add again?", Cancel focused first, primary "Add again"), and only a yes sends it again with `allow_duplicates`. A toast
+  names the playlist. Nothing here touches playback or navigates.
 
 **Replace with…** (`replace-dialog.js`, an `.app-modal`, any approved user, on every library song: playlist
 rows, library rows, the Broken tab, the player bar; also the library row's swap button). One dialog, whatever is being
@@ -761,7 +842,7 @@ while it waits ("Waiting for a downloader", with Stop waiting; the file field st
 Replace jobs also show on the Download tab, under "Asked for" on the profile, and in the dashboard's Download jobs.
 
 **Pick the video** (`pick-dialog.js`, rules in `pick-rules.js`; an `.app-modal` with a 36rem card whose body scrolls).
-It opens from the Download box and from a playlist's add-song box before anything is queued, and only if there is
+It opens from the Download box before anything is queued, and only if there is
 something to choose: a song the library already has is added without it, and an answer that arrives within 300ms
 never flashes a dialog. The text stays in the input until the choice is made.
 

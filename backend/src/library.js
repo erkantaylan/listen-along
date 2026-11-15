@@ -12,6 +12,7 @@ const path = require('path');
 const db = require('./db');
 const songMatch = require('./songMatch');
 const songReports = require('./songReports');
+const songSearch = require('./songSearch');
 
 const SONGS_PATH = process.env.SONGS_PATH || '/data/songs';
 // New uploads live in a subfolder so they never mix with the legacy cache files.
@@ -373,11 +374,51 @@ async function findUnavailableUrls(urls) {
   });
 }
 
+// Relevance search: candidates fetched before ranking (songSearch.rankSongs).
+// Exact and prefix matches are ordered first in SQL so they are never cut off.
+const RELEVANCE_CANDIDATES = 400;
+
+/**
+ * The global search (sort=relevance, opt-in): every word of q somewhere in
+ * title, artist or album, folded (case, Turkish i/ı/İ, accents: songSearch.fold),
+ * best matches first (songSearch.rankSongs). offset + limit stay within
+ * RELEVANCE_CANDIDATES. An empty query lists nothing.
+ */
+async function searchRelevant({ q = '', limit = 50, offset = 0 } = {}) {
+  const words = songSearch.queryWords(q);
+  if (!words.length) return { songs: [], total: 0 };
+  const params = [songSearch.FOLD_FROM, songSearch.FOLD_TO];
+  const f = (expr) => songSearch.foldSql(expr, '$1', '$2');
+  const where = words.map((w) => {
+    params.push(`%${w.replace(/[\\%_]/g, (c) => '\\' + c)}%`);
+    return `${f("title || ' ' || artist || ' ' || COALESCE(album, '')")} LIKE $${params.length}`;
+  });
+  const whereSql = `WHERE ${where.join(' AND ')}`;
+  const total = await db.query(`SELECT COUNT(*)::int AS n FROM library_songs ${whereSql}`, params);
+  const phrase = words.join(' ');
+  params.push(phrase, `${phrase.replace(/[\\%_]/g, (c) => '\\' + c)}%`, RELEVANCE_CANDIDATES);
+  const [exact, prefix, cap] = [params.length - 2, params.length - 1, params.length];
+  const rows = await db.query(
+    `SELECT ${PUBLIC_COLUMNS} FROM library_songs ${whereSql}
+     ORDER BY CASE WHEN ${f('title')} = $${exact} OR ${f('artist')} = $${exact} THEN 0
+                   WHEN ${f('title')} LIKE $${prefix} OR ${f('artist')} LIKE $${prefix} THEN 1
+                   ELSE 2 END, lower(title), id
+     LIMIT $${cap}`,
+    params
+  );
+  const ranked = songSearch.rankSongs(q, rows.rows);
+  return { songs: ranked.slice(offset, offset + limit).map(toPublic), total: total.rows[0].n };
+}
+
 /**
  * Search/list library songs. Every whitespace-separated word of q must appear
- * (case-insensitive) in title, artist or album.
+ * (case-insensitive) in title, artist or album. sort=relevance is the global
+ * search's own order (searchRelevant).
  */
 async function list({ q = '', limit = 100, offset = 0, youtubeId = null, sort = 'recent', reported = false } = {}) {
+  if (sort === 'relevance' && !youtubeId && !reported) {
+    return searchRelevant({ q, limit: Math.min(limit, RELEVANCE_CANDIDATES), offset: Math.min(offset, RELEVANCE_CANDIDATES) });
+  }
   const where = [];
   const params = [];
   const words = String(q || '').trim().split(/\s+/).filter(Boolean).slice(0, 10);

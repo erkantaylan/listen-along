@@ -5,7 +5,9 @@
 // "Context" is what playback was last started from: a lobby queue
 // ({ type: 'lobby', lobbyId, name }), the music library list
 // ({ type: 'library' }), Radio ({ type: 'radio', stationId }), an artist's songs
-// ({ type: 'artist', key, name }, artist-page.js), or another user while listening along
+// ({ type: 'artist', key, name }, artist-page.js), one song played from the
+// search page ({ type: 'search', query }, search.js: it repeats that song until
+// something else is chosen, player-queue.js contextRepeat), or another user while listening along
 // ({ type: 'listen', leaderId, name }, no songs), plus its songs. It stays current while other pages
 // (and other lobbies) are shown, and changes only when play is pressed on a
 // song somewhere else (playFrom).
@@ -80,6 +82,7 @@ function normalizeContext(ctx) {
   if (ctx.type === 'library') return { type: 'library', name: ctx.name || null };
   if (ctx.type === 'radio') return { type: 'radio', stationId: ctx.stationId || null, name: ctx.name || null };
   if (ctx.type === 'artist') return ctx.key ? { type: 'artist', key: ctx.key, name: ctx.name || null } : null;
+  if (ctx.type === 'search') return { type: 'search', query: typeof ctx.query === 'string' ? ctx.query : '', name: ctx.name || null };
   if (ctx.type === 'listen') return ctx.leaderId ? { type: 'listen', leaderId: ctx.leaderId, name: ctx.name || null } : null;
   if (!ctx.lobbyId) return null;
   return { type: 'lobby', lobbyId: ctx.lobbyId, name: ctx.name || null };
@@ -90,6 +93,7 @@ function sameContext(a, b) {
   if (a.type === 'listen') return a.leaderId === b.leaderId;
   if (a.type === 'radio') return a.stationId === b.stationId;
   if (a.type === 'artist') return a.key === b.key;
+  if (a.type === 'search') return a.query === b.query;
   return a.type === 'library' || a.lobbyId === b.lobbyId;
 }
 
@@ -198,12 +202,13 @@ export const player = {
     if (!auto) takeover();
     // Radio is shuffled already and has its own next round: no random jumps
     // (they would repeat songs), and "repeat all" would replay the same order.
-    const radio = !!context && context.type === 'radio';
+    // A song from the search page is one song: nothing to shuffle.
+    const noShuffle = !!context && (context.type === 'radio' || context.type === 'search');
     let i = nextIndex({
       length: queue.length,
       current: this.index,
       repeat: contextRepeat(state.repeatMode, context),
-      shuffle: state.isShuffleEnabled && !radio,
+      shuffle: state.isShuffleEnabled && !noShuffle,
       auto,
       blocked: skip && ((at) => skip(queue[at])),
     });

@@ -10,7 +10,8 @@
  *   { kind: 'library', song }                     nothing to pick: the library has it
  *   { kind: 'search',   query, results }          results: up to SEARCH_COUNT videos
  *   { kind: 'video',    results: [video] }        title null when the lookup failed
- *   { kind: 'playlist', results, total }          results: the first MAX_PICKS videos
+ *   { kind: 'playlist', results, total, title }   results: the first MAX_PICKS videos; title: the
+ *                                                 playlist's name (null when YouTube gave none)
  * with video = { youtube_id, title, channel, duration_sec, in_library },
  * in_library = { id, title, artist } | null.
  *
@@ -124,12 +125,12 @@ function createPicker({ library = realLibrary, ytdlp = realYtdlp, spotify = real
         // Only what can be picked is kept and remembered, however long the playlist.
         listing = await cached(`playlist:${what.input}`, async () => {
           const entries = await ytdlp.getPlaylistEntries(what.input);
-          return { videos: entries.slice(0, MAX_PICKS).map(toVideo), total: entries.length };
+          return { videos: entries.slice(0, MAX_PICKS).map(toVideo), total: entries.length, title: entries.title || null };
         });
       } catch (err) {
         throw pickError(502, 'LOOKUP_FAILED', `Could not read that playlist: ${err.message}`);
       }
-      return { kind: 'playlist', results: await mark(listing.videos), total: listing.total };
+      return { kind: 'playlist', results: await mark(listing.videos), total: listing.total, title: listing.title || null };
     }
 
     let query = what.input;

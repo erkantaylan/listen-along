@@ -3,13 +3,21 @@
 // and "New playlist", which creates one and adds the song without leaving the page.
 // The server decides: POST /api/playlists/:id/songs says added, already in it, or
 // not in the library, and refuses what the user may not touch.
+//
+// addSongToPlaylist() is THE way the web adds one library song to a playlist
+// (this menu, the library page's Add, the search page): the same song
+// (the same library song / YouTube video) already in the playlist is refused by
+// the server, the user is asked "Add again?", and only then is it sent again
+// with allow_duplicates. Nothing is decided from a possibly stale local copy.
 import { state } from './state.js';
 import { showToast, t } from './ui.js';
 import { player } from './player.js';
-import { refreshSubmenu } from './context-menu.js';
+import { openContextMenu, refreshSubmenu } from './context-menu.js';
 import { getPlaylists, loadPlaylists, onPlaylists, scheduleReload } from './playlist-store.js';
 import { groupPlaylists } from './playlist-filter.js';
 import { openNewPlaylistDialog } from './new-playlist.js';
+import { confirmDialog } from './playlist-actions.js';
+import { addOutcome } from './search-rules.js';
 
 const ADD_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 10H3v2h11v-2zm0-4H3v2h11V6zm4 8v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zM3 16h7v-2H3v2z"/></svg>';
 const PLUS_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>';
@@ -47,23 +55,50 @@ function knownToContain(playlistId, song) {
   return held.some((queue) => (queue || []).some((entry) => matchesEntry(entry, song)));
 }
 
-async function addTo(playlist, song) {
+/** Ask before adding a song that is already in the playlist. */
+export function confirmDuplicate(name, returnFocus = null) {
+  return confirmDialog({
+    title: tf('addTo.duplicateTitle', 'Already in “{name}”', { name }),
+    message: t('addTo.duplicateMessage', 'Already in this playlist. Add again?'),
+    confirmLabel: t('addTo.addAgain', 'Add again'),
+    returnFocus,
+  });
+}
+
+/**
+ * Add one library song (song.songId) to a playlist ({ id, name }). Returns
+ * 'added' | 'kept' (a duplicate the user chose not to add) | 'failed'.
+ */
+export async function addSongToPlaylist(playlist, song, { returnFocus = null } = {}) {
   const name = nameOf(playlist);
+  const send = (allow) => postJson(`/api/playlists/${encodeURIComponent(playlist.id)}/songs`, allow ? { songs: [song.songId], allow_duplicates: true } : { songs: [song.songId] });
   try {
-    const { res, data } = await postJson(`/api/playlists/${encodeURIComponent(playlist.id)}/songs`, { songs: [song.songId] });
-    if (res.status === 404) { showToast(t('lobby.notFound', 'Playlist not found'), 'error'); return; }
-    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-    const status = data.results && data.results[0] ? data.results[0].status : null;
-    if (status === 'added') showToast(tf('addTo.added', 'Added to “{name}”', { name }), 'success');
-    else if (status === 'already_in_playlist') showToast(tf('addTo.already', 'Already in “{name}”', { name }), 'info');
-    else if (status === 'not_in_library') showToast(t('addTo.notInLibrary', 'This song is not in the library any more'), 'error');
-    else throw new Error(status || 'unexpected answer');
+    let { res, data } = await send(false);
+    let outcome = addOutcome(res.status, data);
+    let again = false;
+    if (outcome === 'duplicate') {
+      if (!(await confirmDuplicate(name, returnFocus))) return 'kept';
+      ({ res, data } = await send(true));
+      outcome = addOutcome(res.status, data);
+      again = true;
+    }
+    if (outcome === 'added') {
+      showToast(again ? tf('addTo.addedAgain', 'Added to “{name}” again', { name }) : tf('addTo.added', 'Added to “{name}”', { name }), 'success');
+      return 'added';
+    }
+    if (outcome === 'missing') showToast(t('lobby.notFound', 'Playlist not found'), 'error');
+    else if (outcome === 'notInLibrary') showToast(t('addTo.notInLibrary', 'This song is not in the library any more'), 'error');
+    else throw new Error((data && data.error) || `HTTP ${res.status}`);
+    return 'failed';
   } catch (err) {
     showToast(tf('addTo.failed', 'Could not add to “{name}”: {error}', { name, error: err.message }), 'error');
+    return 'failed';
   } finally {
     scheduleReload(0);
   }
 }
+
+const addTo = (playlist, song) => addSongToPlaylist(playlist, song, { returnFocus: song.returnFocus || null });
 
 async function createAndAdd({ name, visibility }, song) {
   let res;
@@ -82,14 +117,50 @@ function rows(playlists, song) {
     const owner = pl.isOwner ? t('landing.byYou', 'by you') : pl.ownerName ? tf('landing.byOwner', 'by {name}', { name: pl.ownerName }) : t('landing.noOwner', 'shared');
     const parts = [owner];
     if (pl.visibility === 'private') parts.push(t('landing.private', 'Private'));
-    const has = knownToContain(pl.id, song);
-    if (has) parts.push(t('addTo.alreadyMark', 'Already added'));
-    return { label: nameOf(pl), description: parts.join(' · '), disabled: has, onSelect: () => addTo(pl, song) };
+    // Known only for the queues this page holds; adding it again asks first.
+    if (knownToContain(pl.id, song)) parts.push(t('addTo.alreadyMark', 'Already added'));
+    return { label: nameOf(pl), description: parts.join(' · '), onSelect: () => addTo(pl, song) };
   });
 }
 
 function section(header, playlists, song) {
   return playlists.length ? [{ header }, ...rows(playlists, song)] : [];
+}
+
+/** The editable playlists in the menu's groups, as menu items (header rows included). */
+function playlistRows(query, song) {
+  const g = groupPlaylists(getPlaylists().filter((p) => p.canEdit), query);
+  return [
+    ...section(t('sidebar.pinned', 'Pinned'), g.pinned, song),
+    ...section(t('landing.yourPlaylists', 'Your playlists'), g.mine, song),
+    ...section(t('landing.publicPlaylists', 'Public playlists'), g.others, song),
+  ];
+}
+
+function newPlaylistItem(song) {
+  return {
+    label: t('landing.newPlaylist', 'New playlist'),
+    icon: PLUS_ICON,
+    onSelect: () => openNewPlaylistDialog(null, {
+      submitLabel: t('addTo.createAndAdd', 'Create and add'),
+      create: (fields) => createAndAdd(fields, song),
+    }),
+  };
+}
+
+/**
+ * The playlist chooser on its own (the search page's add button when there is
+ * no current playlist): the same rows as the submenu, under the button.
+ */
+export function openPlaylistChooser(anchor, song) {
+  const show = () => openContextMenu({ anchor }, [
+    { header: t('addTo.label', 'Add to playlist') },
+    ...playlistRows('', song).filter((it) => !it.header),
+    { divider: true },
+    newPlaylistItem(song),
+  ], { label: t('addTo.label', 'Add to playlist'), trigger: anchor, returnFocus: anchor, sheet: true, focusFirst: true });
+  if (getPlaylists().length) show();
+  else loadPlaylists().then(show);
 }
 
 /** The menu item. song: { songId, url?, youtubeId?, sourceUrl?, title }. No songId: disabled. */
@@ -105,22 +176,8 @@ export function addToPlaylistItem(song) {
       searchLabel: t('sidebar.search', 'Search playlists'),
       emptyText: t('addTo.none', 'No playlists to add to'),
       onOpen: () => loadPlaylists(),
-      items: (query) => {
-        const g = groupPlaylists(getPlaylists().filter((p) => p.canEdit), query);
-        return [
-          ...section(t('sidebar.pinned', 'Pinned'), g.pinned, song),
-          ...section(t('landing.yourPlaylists', 'Your playlists'), g.mine, song),
-          ...section(t('landing.publicPlaylists', 'Public playlists'), g.others, song),
-        ];
-      },
-      footer: [{
-        label: t('landing.newPlaylist', 'New playlist'),
-        icon: PLUS_ICON,
-        onSelect: () => openNewPlaylistDialog(null, {
-          submitLabel: t('addTo.createAndAdd', 'Create and add'),
-          create: (fields) => createAndAdd(fields, song),
-        }),
-      }],
+      items: (query) => playlistRows(query, song),
+      footer: [newPlaylistItem(song)],
     },
   };
 }

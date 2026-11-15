@@ -11,8 +11,6 @@ import { addedByLabel, addedDateLabel, songParts } from './queue-format.js';
 import { playlistStats, lengthParts } from './playlist-stats.js';
 import { createVirtualList } from './virtual-list.js';
 import { isEditMode, setEditMode, onEditModeChange, isDragging, bindDragReorder } from './queue-edit.js';
-import { pickSongs } from './pick-dialog.js';
-import { queuePayload } from './pick-rules.js';
 import { canRemoveFromPlaylist } from './song-menu-rules.js';
 
 // A song marked broken anywhere: the queue's badges follow.
@@ -43,33 +41,6 @@ export function handleSongAdded(data) {
   state.queue.push(data.song);
   updateQueue();
   showToast(`Added: ${data.song.title}`, 'success');
-}
-
-// Add from the playlist's box. A song the library has is added at once; anything
-// else is looked up first and the pick dialog asks which video to request
-// (pick-dialog.js). The text stays in the box until that is settled.
-let addingSong = false;
-export async function addSong() {
-  const input = elements.songInput.value.trim();
-  if (!input || addingSong) return;
-  const lobbyId = state.lobbyId;
-  const who = { addedBy: state.username, userId: state.userId };
-  addingSong = true;
-  elements.addSongBtn.disabled = true;
-  let picked;
-  try {
-    picked = input.startsWith('library:') ? { passthrough: true }
-      : await pickSongs({ input, matchLibrary: true, returnFocus: elements.songInput });
-  } finally {
-    addingSong = false;
-    elements.addSongBtn.disabled = false;
-  }
-  // Left the playlist meanwhile (navigation, eviction): nothing is added.
-  if (!picked || state.lobbyId !== lobbyId) return;
-  if (picked.picks) socket.emit('queue:add', { ...queuePayload(lobbyId, picked.picks), ...who });
-  else if (picked.library) socket.emit('queue:add', { lobbyId, query: `library:${picked.library.id}`, ...who });
-  else socket.emit('queue:add', { lobbyId, query: input, ...who });
-  if (elements.songInput.value.trim() === input) elements.songInput.value = '';
 }
 
 // Remove a song (edit mode, or the song menu). Shown gone at once; the toast offers Undo, which

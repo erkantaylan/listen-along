@@ -160,7 +160,10 @@ function syncPlaces() {
   const library = !!route.library || document.body.classList.contains('libpage-open');
   const home = !library && route.view === 'landing';
   const artists = !library && (route.view === 'artists' || route.view === 'artist');
+  const search = !library && route.view === 'search';
   const current = {
+    'plnav-nav-search': search,
+    'places-search': search,
     'plnav-nav-home': home,
     'plnav-nav-artists': artists,
     'plnav-nav-library': library,

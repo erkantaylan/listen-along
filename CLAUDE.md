@@ -190,6 +190,26 @@ where lobby persistence broke entirely on deployed instances.
   load applies, and a row older by `updated_at` never replaces a newer one), pure
   rules in `activity-rules.js` (tested), the card shown by `social.js`
   (`opts.activity`: approved only).
+- **Global search** (web only; DESIGN.md "Search"): `frontend/search.js` (the one field `#app-search`, moved into the
+  page on screen, Ctrl+K / Cmd+K; the page `/search?q=`), pure rules in `frontend/search-rules.js` (tested in
+  `search-rules.test.js`). Library songs: `GET /api/library?sort=relevance` (opt-in; `library.searchRelevant`, order in
+  `songSearch.js`, pure and tested: exact / prefix title and artist before loose all-words matches; Turkish-folded in SQL
+  with `translate()` and in JS the same way; at most 400 candidates; `searchLimiter` 120/min per account (token owner or
+  web user; the client address only without one), only for `sort=relevance`; NUL bytes in `q` are dropped; without `sort=relevance` the list is unchanged).
+  Artists and playlists are filtered in the browser from `/api/artists` and the viewer's own `/api/playlists` (so the
+  server's visibility rules are the only source; never add a playlist search that skips them). YouTube results only on
+  request (`POST /api/jobs/picks { query }`, its 30/min limiter); a pasted link goes to `picks { input }` (+
+  `match_library` for Spotify) and is exact. A song played from search is the player context `{ type: 'search', query }`:
+  one song, repeated (`contextRepeat`), presence sends no context. The page refetches its songs on `library:updated` only for a change that can touch them
+  (`libraryChangeMatters`), debounced, while on screen, and a failed background refetch keeps the results. One-step add target: the playlist last PLAYED from
+  (`listen-lastPlayedPlaylist`), or the one whose "Add songs" opened the search; only while listed and `canEdit`.
+- **Duplicates on the web** = the same library song / YouTube video already in that playlist (another video of the same
+  song is not one). Every web add of one library song goes through `addSongToPlaylist` (`add-to-playlist.js`):
+  `POST /api/playlists/:id/songs` refuses it (`already_in_playlist`, its default for every client), the user is asked,
+  and only then it is sent with `allow_duplicates`. `POST /api/jobs { picks, playlist_id }` names such songs in
+  `already_in_playlist` (additive) and adds them only with the opt-in `allow_duplicates: true`; without it, as before,
+  they are skipped. Socket `queue:add` is unchanged (the web no longer uses it to add: the playlist page's add-song box
+  is gone, replaced by "Add songs", which opens the search with that playlist as the target).
 - **Pick the video** (web only, before a job or request exists): `frontend/pick-dialog.js`
   (rules in `pick-rules.js`, tested; DESIGN.md "Pick the video") asks
   `POST /api/jobs/picks` (jobRoutes.js -> `picker.js`; approved accounts, no tokens,
@@ -202,7 +222,9 @@ where lobby persistence broke entirely on deployed instances.
   demand). The choice comes back as `picks: [youtube id]` (`cleanPicks`: 1-100
   valid ids) on `POST /api/jobs` (one `video` job per id, input = the watch URL;
   in-library ones are added to the playlist) or on socket `queue:add`
-  (`resolver.resolve({ picks })`: library song or a request with that `youtube_id`).
+  (`resolver.resolve({ picks })`: library song or a request with that `youtube_id`). A `playlist` answer carries the
+  playlist's `title` (additive; `ytdlp.getPlaylistEntries` returns it on the array). `importPlaylist()` is the same
+  checklist with a destination for the search page's import (`withDestination` / `importCounts` in `pick-rules.js`).
   Titles come from `picker.titles(ids)` (the server's own lookup; oEmbed, a few at a
   time within 10s, for ids it no longer knows), never the client. A picks POST that
   fails part way still dispatches and answers 2xx with `failed: [ids]` + `error`.

@@ -70,7 +70,7 @@ export function playlistMenuItems(pl, hooks = {}) {
 
 // ------------------------------------------------------------- dialogs
 
-function openDialog({ id, title, body, submitLabel, submitClass, busyLabel, returnFocus, onSubmit, focus }) {
+function openDialog({ id, title, body, submitLabel, submitClass, busyLabel, returnFocus, onSubmit, focus, onClose = null }) {
   document.getElementById(id)?.remove();
   const d = document.createElement('div');
   d.id = id;
@@ -92,9 +92,11 @@ function openDialog({ id, title, body, submitLabel, submitClass, busyLabel, retu
   </form>`;
   document.body.appendChild(d);
   const close = ({ restore = true } = {}) => {
+    if (!d.isConnected) return;
     d.remove();
     const target = typeof back === 'function' ? back() : back;
     if (restore && target && document.contains(target)) target.focus({ preventScroll: true });
+    if (onClose) onClose();
   };
   const form = d.querySelector('form');
   const submit = d.querySelector('[data-dialog-submit]');
@@ -173,5 +175,27 @@ export function openDeleteDialog(pl, hooks = {}) {
         c.error(err.message || t('lobbyDeleteError', 'Failed to delete playlist'));
       }
     },
+  });
+}
+
+/**
+ * A yes / no question in the usual dialog: resolves true when confirmed, false
+ * on Cancel, ×, Escape or a click outside. Cancel has focus first (the safe choice).
+ */
+export function confirmDialog({ title, message, confirmLabel, returnFocus = null }) {
+  return new Promise((resolve) => {
+    let answer = false;
+    openDialog({
+      id: 'confirm-dialog',
+      title,
+      body: `<p class="mb-0">${escapeHtml(message)}</p>`,
+      submitLabel: confirmLabel,
+      busyLabel: confirmLabel,
+      submitClass: 'btn-solid theme-primary',
+      returnFocus,
+      focus: '.card-footer .btn',
+      onSubmit: (c) => { answer = true; c.close(); },
+      onClose: () => resolve(answer),
+    });
   });
 }

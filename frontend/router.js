@@ -8,6 +8,8 @@
 //   /radio                     Radio: every song, shuffled (radio.js)
 //   /artists                   every artist in the library (artists.js)
 //   /artist/<key>              one artist's songs, read-only (artist-page.js)
+//   /search?q=<text>           the global search (search.js): library songs,
+//                              artists, playlists, YouTube on request, links
 //   /app                       Android app: download, install, connect (app-page.js)
 //   /profile                   own profile
 //   /social                    chat + people (full-screen below 1010px; from
@@ -74,6 +76,8 @@ export function parseRoute(pathname, search = '') {
   } else if (ARTIST_RE.test(pathname)) {
     const key = decodeSegment(ARTIST_RE.exec(pathname)[1]);
     if (key) return { view: 'artist', lobbyId: null, library: null, artistKey: key };
+  } else if (/^\/search\/?$/.test(pathname)) {
+    return { view: 'search', lobbyId: null, library: null, searchQuery: searchQueryOf(params.get('q')) };
   } else if (/^\/app\/?$/.test(pathname)) {
     view = 'app';
   } else if (/^\/profile\/?$/.test(pathname)) {
@@ -85,6 +89,19 @@ export function parseRoute(pathname, search = '') {
   }
 
   return { view, lobbyId, library: withLibrary ? parseLibraryParams(params) : null };
+}
+
+// The search text as the URL carries it: whitespace collapsed, at most
+// SEARCH_MAX characters (the server's bound for a library search).
+export const SEARCH_MAX = 200;
+export function searchQueryOf(value) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, SEARCH_MAX);
+}
+
+// /search, with ?q= unless the text is empty.
+export function searchPath(query = '') {
+  const q = searchQueryOf(query);
+  return q ? `/search?${new URLSearchParams({ q })}` : '/search';
 }
 
 function parseLibraryParams(params) {
@@ -107,6 +124,7 @@ export function basePath({ view, lobbyId, artistKey }) {
   if (view === 'radio') return '/radio';
   if (view === 'artists') return '/artists';
   if (view === 'artist' && artistKey) return artistPath(artistKey);
+  if (view === 'search') return '/search';
   if (view === 'app') return '/app';
   if (view === 'profile') return '/profile';
   if (view === 'social') return '/social';

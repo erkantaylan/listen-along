@@ -15,7 +15,13 @@ export function initialRepeatMode(stored) {
 // The repeat a context plays with. Radio is shuffled already and runs into its
 // own next round (player.setRefill): replaying the list would repeat the same
 // order, and Previous at the first song must not jump to the end of the round.
+//
+// A song played from the search page ({ type: 'search' }) is a context of its
+// own with that one song, and it repeats until something else is chosen,
+// whatever the saved mode: 'all' over one song loops it, and a manual Next or
+// Previous restarts it. The saved mode itself is not touched.
 export function contextRepeat(repeat, context) {
+  if (context && context.type === 'search') return 'all';
   return context && context.type === 'radio' && repeat === 'all' ? 'off' : repeat;
 }
 

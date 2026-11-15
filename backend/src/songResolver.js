@@ -20,6 +20,10 @@ const realSpotify = require('./spotify');
 
 const MAX_PLAYLIST = 100;
 
+function isSpotifyHost(text) {
+  try { return new URL(text).hostname.toLowerCase() === 'open.spotify.com'; } catch { return false; }
+}
+
 /**
  * @param {object} [deps]
  * @param {(youtubeIds) => Promise<Map<string, string>>} [deps.videoTitles] - titles
@@ -139,6 +143,8 @@ function createResolver({ library = realLibrary, ytdlp = realYtdlp, spotify = re
       // A legacy cache URL might still be registered (source_url).
       const legacy = await library.resolveQueueUrl(text);
       if (legacy) return { type: 'library', song: legacy };
+      // A Spotify album, playlist or artist page: say what is wrong with it.
+      if (isSpotifyHost(text)) return { type: 'error', message: 'Only Spotify track links are supported. Paste the link of a single song.' };
       return { type: 'error', message: 'Unsupported link. Paste a YouTube or Spotify link, or search by name.' };
     }
     return resolveText(text);
