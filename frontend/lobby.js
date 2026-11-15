@@ -14,7 +14,7 @@ import { openContextMenu, closeContextMenu, bindContextMenu } from './shared/con
 import { loadPlaylists, onPlaylists, isPinned, togglePlaylistPin, getPlaylists, isLoaded } from './features/playlists/playlist-store.js';
 import { closePickDialog } from './features/picker/pick-dialog.js';
 import { playlistCoverIndex, playlistInitials } from './features/playlists/playlist-filter.js';
-import { syncPlaylistMeta } from './queue.js';
+import { syncPlaylistMeta } from './features/queue/queue.js';
 
 // Register landing view activator
 viewActivators.landing = () => {

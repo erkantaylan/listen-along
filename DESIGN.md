@@ -732,7 +732,7 @@ Song lists behave like Spotify's. **Normal mode** (always the default):
 - Rows stay clean: thumb, title (+ broken-report icon), one muted meta line, and only the ⋮ song
   menu button on the right (the library keeps its play / replace / Add buttons). No drag handles,
   arrows or remove buttons. Buttons and links inside a row never trigger the row.
-- **Playlist rows are a table** (`queue.js`, "Song table" in `app.css`), about 56px high: `#` (position; on hover or
+- **Playlist rows are a table** (`queue.ts`, "Song table" in `app.css`), about 56px high: `#` (position; on hover or
   keyboard focus a play button, pause on the song sounding, whose number is an equaliser), Title with artist
   under it (+ 2.5rem thumb, status badges, per-row progress), Added by, Added (date, full time in its `title`),
   Duration, ⋮ at the far right (on hover / focus, always on touch; it keeps its place). The label row
@@ -758,7 +758,7 @@ Song lists behave like Spotify's. **Normal mode** (always the default):
   toast ("… could not be played. Check your connection and try again.", or "… are not in the library yet." when that is all they were). A failure toast says "Could not play …" (+ "Skipping it." when another song came up); an automatic report gets an info toast
   with **Undo** (8s). There is no filter for unplayable songs: they stay in the list, greyed.
 
-**Stats** (`playlist-stats.ts` + `queue.js`). On the playlist page they are part of the header's muted line
+**Stats** (`playlist-stats.ts` + `queue.ts`). On the playlist page they are part of the header's muted line
 (`#playlist-stats` inside `#playlist-meta-text`, `statsTextHtml`): plain text between the owner and the listener count, " · "
 between facts, one line, truncated with the whole line in its `title`. On Radio and the artist pages they are the **stats strip**
 (`.playlist-stats`, `statsHtml`): one `fs-sm` line of neutral pills that wraps between facts and never inside one; muted words, the
@@ -850,7 +850,7 @@ Bootstrap 6 `.menu` / `.menu-item` / `.menu-header` / `.menu-divider` markup, no
   broken are disabled, Source and Remove remain. The decisions are pure and tested in `song-menu-rules.ts` (`songSourceLink`,
   `sourceSubmenu`, `canRemoveFromPlaylist`).
 - **Remove from playlist**: only on rows of the playlist on screen, and only when the viewer may edit it (`state.canEdit`;
-  not the library, Radio, artist pages or the player bar). It is Edit mode's remove (`removeSong` in `queue.js`: gone at once,
+  not the library, Radio, artist pages or the player bar). It is Edit mode's remove (`removeSong` in `queue.ts`: gone at once,
   `queue:remove`, the 6s **Undo** toast sending `queue:restore`, which puts it back at the same position); no confirm. The
   server checks the right to edit again.
 - **Add to playlist** (`add-to-playlist.ts`, a submenu): search with `matchesQuery` (Turkish-aware), groups Pinned /

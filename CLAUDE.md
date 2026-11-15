@@ -368,7 +368,7 @@ where lobby persistence broke entirely on deployed instances.
   playlist's changes go only to its owner's `userRoom`. Emit it from anything that
   creates, renames, deletes or changes the visibility of a playlist.
 - The page holds the full queue (`queue:update`, about 230 bytes per song) and windows only the rows:
-  `frontend/src/shared/virtual-list.ts` (generic, reuse it for any long list), used by `queue.js`; `queue-edit.ts` drags
+  `frontend/src/shared/virtual-list.ts` (generic, reuse it for any long list), used by `queue.ts`; `queue-edit.ts` drags
   by arithmetic over it. Anything reading rows from the DOM sees only the window: use `shown` / `state.queue`.
   Stats are client-side over the full queue (`playlist-stats.ts`). `/:id/songs` still returns everything.
 - There is no per-playlist chat. There is one global chat plus a people panel

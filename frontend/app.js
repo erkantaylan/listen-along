@@ -5,11 +5,11 @@ import { setupAudioPlayer } from './shared/audio.js';
 import { player, setupPlayer } from './player/player.js';
 import { setupPlaybackFailures } from './player/playback-failures.js';
 import { setupPlayerBar, setupPlayerBarControls, refreshPlayerBar } from './player/player-bar.js';
-import { checkAuth, setupLoginView, showPendingCard, setupProfilePage, loadProfilePage } from './auth.js';
+import { checkAuth, setupLoginView, showPendingCard, setupProfilePage, loadProfilePage } from './features/account/auth.js';
 import { setupSocial, applySocialRoute, toggleSocial, refreshPeople, reportNowPlaying as reportPresence } from './features/social/social.js';
 import { setupListenAlong, listenAlongWith, isListeningWith, stopListenAlong, onListenChange } from './features/social/listen-along.js';
 import { checkUrlForDashboard, dashboardJoinLobby, dashboardRemoveLobby, dashboardApproveUser, dashboardRejectUser } from './features/admin/dashboard.js';
-import { setupLibraryPage, openLibraryPage, closeLibraryPage, isLibraryOpen, showLibraryRoute, handleLibraryUpdated, handleRequestsUpdated } from './library.js';
+import { setupLibraryPage, openLibraryPage, closeLibraryPage, isLibraryOpen, showLibraryRoute, handleLibraryUpdated, handleRequestsUpdated } from './features/library/library.js';
 import { handleJobUpdate, handleWorkersUpdate } from './features/library/jobs.js';
 import { loadReports } from './features/library/song-reports.js';
 import { parseRoute, legacyRedirect } from './router.js';
@@ -25,7 +25,7 @@ import { shareLobby, handleLobbyCreated, handleLobbyJoined, handleLobbyNotFound,
 import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, updatePlayButton, updatePlaybackModeUI, updateNowPlaying, _setQueueFns } from './player/playback.js';
 import { closePickDialog } from './features/picker/pick-dialog.js';
 import { setupSearch, openSearchPage, closeSearchPage, searchRouteChanged, handleSearchLibraryUpdated } from './search.js';
-import { handleQueueUpdated, handleSongAdded, removeSong, clearQueue, downloadPlaylist, cancelPlaylistDownload, moveSongUp, moveSongDown, playSongAt, setupQueueInteractions, setupQueueSearch, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './queue.js';
+import { handleQueueUpdated, handleSongAdded, removeSong, clearQueue, downloadPlaylist, cancelPlaylistDownload, moveSongUp, moveSongDown, playSongAt, setupQueueInteractions, setupQueueSearch, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './features/queue/queue.js';
 
 // Wire up cross-module dependencies
 _setQueueFns(updateQueue, updateListeners);

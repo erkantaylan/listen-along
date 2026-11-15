@@ -368,6 +368,13 @@ export interface QueueUpdatePayload {
   songs: QueueEntry[];
 }
 
+// queue:song-added — the server never sends it (no emit in backend/src);
+// app.js still listens for it (queue.ts handleSongAdded reads these fields).
+export interface QueueSongAddedPayload {
+  lobbyId?: string;
+  song: QueueEntry;
+}
+
 // index.js queue:add handler — queue:error
 export interface QueueErrorPayload {
   message: string;
@@ -424,7 +431,7 @@ export type LibraryUpdatedPayload =
 
 // ------------------------------------------------------------------ account
 
-// index.js GET /api/auth/me
+// authRoutes.js GET /api/auth/me
 export interface AuthUser {
   /** users.id (UUID) */
   id: string;
@@ -438,30 +445,31 @@ export interface AuthUser {
   status: AccountStatus | null;
 }
 
-// index.js GET /api/auth/me
+// authRoutes.js GET /api/auth/me (`user` is never sent with authenticated: false;
+// declared `?: undefined` there so `data.user` can be read on either branch)
 export type AuthMeResponse =
-  | { authenticated: false }
+  | { authenticated: false; user?: undefined }
   | { authenticated: true; user: AuthUser };
 
-// index.js sendOwnStatus — GET /api/auth/status, POST /api/auth/register
+// authRoutes.js sendOwnStatus — GET /api/auth/status, POST /api/auth/register
 export interface AuthStatusResponse {
   status: AccountStatus | 'unregistered';
   userId: string | null;
 }
 
-// index.js GET /api/auth/providers
+// authRoutes.js GET /api/auth/providers
 export interface AuthProvidersResponse {
   central: boolean;
   dev: boolean;
 }
 
-// index.js POST /api/auth/logout (redirect only with central login)
+// authRoutes.js POST /api/auth/logout (redirect only with central login)
 export interface LogoutResponse {
   success: true;
   redirect?: string;
 }
 
-// index.js GET /api/profile
+// profileRoutes.js GET /api/profile
 export interface Profile {
   id: string;
   displayName: string;
@@ -1050,6 +1058,8 @@ export interface ServerToClientEvents {
   'playlists:changed': () => void;
   // queue (index.js)
   'queue:update': (p: QueueUpdatePayload) => void;
+  /** Never sent by the server (no emit in backend/src); app.js keeps a listener. */
+  'queue:song-added': (p: QueueSongAddedPayload) => void;
   'queue:error': (p: QueueErrorPayload) => void;
   'queue:adding': (p: QueueAddingPayload) => void;
   'queue:requested': (p: QueueRequestedPayload) => void;

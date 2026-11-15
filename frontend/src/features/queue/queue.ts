@@ -1,17 +1,22 @@
 // Queue management, drag-drop reordering, and queue display
-import { state, elements, socket, STORAGE_KEYS, storageSet } from './shared/state.js';
-import { showToast, escapeHtml, sanitizeUrl, getCoverUrl, getInitials, formatDuration, t, toLower, syncRangeFill } from './shared/ui.js';
-import { playViewedFromTop, viewedContext } from './player/playback.js';
-import { refreshLibraryAddButtons } from './library.js';
-import { player } from './player/player.js';
-import { refreshPlayerBar } from './player/player-bar.js';
-import { bindSongMenu, songMenuButtonHtml, reportIconHtml, reportsFor, onReportsChange } from './features/library/song-reports.js';
-import { isUnplayable, unplayableBadgeHtml, onFailuresChange } from './player/playback-failures.js';
-import { addedByLabel, addedDateLabel, songParts } from './features/queue/queue-format.js';
-import { playlistStats, lengthParts } from './features/playlists/playlist-stats.js';
-import { createVirtualList } from './shared/virtual-list.js';
-import { isEditMode, setEditMode, onEditModeChange, isDragging, bindDragReorder } from './features/queue/queue-edit.js';
-import { canRemoveFromPlaylist } from './features/library/song-menu-rules.js';
+import { state, elements, socket, STORAGE_KEYS, storageSet } from '../../shared/state.ts';
+import { showToast, escapeHtml, sanitizeUrl, getCoverUrl, getInitials, formatDuration, t, toLower, syncRangeFill } from '../../shared/ui.ts';
+import { playViewedFromTop, viewedContext } from '../../player/playback.ts';
+import { refreshLibraryAddButtons } from '../library/library.ts';
+import { player } from '../../player/player.ts';
+import { refreshPlayerBar } from '../../player/player-bar.ts';
+import { bindSongMenu, songMenuButtonHtml, reportIconHtml, reportsFor, onReportsChange } from '../library/song-reports.ts';
+import { isUnplayable, unplayableBadgeHtml, onFailuresChange } from '../../player/playback-failures.ts';
+import { addedByLabel, addedDateLabel, songParts } from './queue-format.ts';
+import { playlistStats, lengthParts } from '../playlists/playlist-stats.ts';
+import { createVirtualList } from '../../shared/virtual-list.ts';
+import { isEditMode, setEditMode, onEditModeChange, isDragging, bindDragReorder } from './queue-edit.ts';
+import { canRemoveFromPlaylist } from '../library/song-menu-rules.ts';
+import { maybeById } from '../../shared/dom.ts';
+import type { DownloadState } from '../../shared/state.ts';
+import type { VirtualList } from '../../shared/virtual-list.ts';
+import type { StatsSong } from '../playlists/playlist-stats.ts';
+import type { QueueEntry, QueueSongAddedPayload, QueueUpdatePayload, Track } from '../../shared/types.ts';
 
 // A song marked broken anywhere: the queue's badges follow.
 onReportsChange(() => { if (state.lobbyId) updateQueue(); });
@@ -20,7 +25,8 @@ onFailuresChange(() => { if (state.lobbyId) updateQueue(); });
 
 // queue:update arrives for the lobby on screen and for the lobby being played
 // from (the socket stays in that one); they may be the same lobby.
-export function handleQueueUpdated(data) {
+// `queue` is an older name for `songs`; the server sends only `songs`.
+export function handleQueueUpdated(data: QueueUpdatePayload & { queue?: QueueEntry[] }) {
   const songs = data.songs || data.queue || [];
   player.updateQueue(data.lobbyId, songs);
   if (data.lobbyId && data.lobbyId !== state.lobbyId) return;
@@ -36,7 +42,7 @@ export function handleQueueUpdated(data) {
   }
 }
 
-export function handleSongAdded(data) {
+export function handleSongAdded(data: QueueSongAddedPayload) {
   if (data.lobbyId && data.lobbyId !== state.lobbyId) return;
   state.queue.push(data.song);
   updateQueue();
@@ -45,10 +51,11 @@ export function handleSongAdded(data) {
 
 // Remove a song (edit mode, or the song menu). Shown gone at once; the toast offers Undo, which
 // asks the server to put it back where it was (queue:restore, within a minute).
-export function removeSong(index) {
+export function removeSong(index: number) {
   const song = state.queue[index];
   if (!song) return;
-  const lobbyId = state.lobbyId;
+  // The queue's songs are on screen only on a playlist page, so there is a lobby id.
+  const lobbyId = state.lobbyId as string;
   socket.emit('queue:remove', { lobbyId, songId: song.id });
   const next = rowAfter(index);
   state.queue = state.queue.filter((s) => s.id !== song.id);
@@ -61,19 +68,19 @@ export function removeSong(index) {
 }
 
 // From the song menu: the list may have changed while it was open.
-function removeSongById(songId, lobbyId) {
+function removeSongById(songId: string, lobbyId: string | null) {
   if (!state.canEdit || state.lobbyId !== lobbyId) return;
   const index = state.queue.findIndex((s) => s.id === songId);
   if (index >= 0) removeSong(index);
 }
 
-function rowAfter(index) {
+function rowAfter(index: number) {
   return state.queue[index + 1] || state.queue[index - 1] || null;
 }
 
 export function clearQueue() {
   if (!state.queue.length) return;
-  socket.emit('queue:clear', { lobbyId: state.lobbyId });
+  socket.emit('queue:clear', { lobbyId: state.lobbyId as string });
 }
 
 // --- Playlist download (to device) ---------------------------------------
@@ -84,9 +91,9 @@ export function clearQueue() {
 // Downloads folder where apps like VLC can pick them up.
 
 let playlistDownloadActive = false;
-let playlistDownloadController = null;
+let playlistDownloadController: AbortController | null = null;
 
-function padNum(n, width) {
+function padNum(n: number, width: number) {
   let s = String(n);
   while (s.length < width) s = '0' + s;
   return s;
@@ -94,7 +101,7 @@ function padNum(n, width) {
 
 // Make a title safe to use as a filename (client side; the server also sets
 // a Content-Disposition fallback for direct hits).
-function safeFileName(title) {
+function safeFileName(title: string | null | undefined) {
   return String(title || 'audio')
     .replace(/[\/\\?%*:|"<>]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -102,7 +109,7 @@ function safeFileName(title) {
     .slice(0, 120) || 'audio';
 }
 
-function showDownloadProgress(done, total, title) {
+function showDownloadProgress(done: number, total: number, title: string) {
   const el = elements.playlistDownloadProgress;
   if (!el) return;
   el.hidden = false;
@@ -126,8 +133,8 @@ export function cancelPlaylistDownload() {
 // (audio/mp4) or Opus (.opus, served as audio/ogg); migrated legacy cache files
 // are mp3. The server's file name (Content-Disposition) knows best; the
 // Content-Type is the fallback.
-const AUDIO_EXTENSIONS = { 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/m4a': 'm4a', 'audio/aac': 'm4a', 'audio/mpeg': 'mp3', 'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/opus': 'opus', 'audio/wav': 'wav', 'audio/x-wav': 'wav' };
-function audioExtension(contentType, disposition) {
+const AUDIO_EXTENSIONS: Record<string, string> = { 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/m4a': 'm4a', 'audio/aac': 'm4a', 'audio/mpeg': 'mp3', 'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/opus': 'opus', 'audio/wav': 'wav', 'audio/x-wav': 'wav' };
+function audioExtension(contentType: string, disposition: string | null) {
   const named = /filename="[^"]*\.([a-z0-9]{2,5})"/i.exec(String(disposition || ''));
   if (named) return named[1].toLowerCase();
   const type = String(contentType || '').split(';')[0].trim().toLowerCase();
@@ -171,7 +178,7 @@ export async function downloadPlaylist() {
       setTimeout(() => URL.revokeObjectURL(objUrl), 4000);
       ok++;
     } catch (err) {
-      if (err && err.name === 'AbortError') break;
+      if (err && (err as Error).name === 'AbortError') break;
       console.error('Download failed for', song.title, err);
       failed++;
     }
@@ -194,7 +201,12 @@ export async function downloadPlaylist() {
 // of presses (settle: true): with a long list the echo of an earlier press would
 // otherwise arrive mid-run and put the row back where it was.
 const MOVE_SETTLE_MS = 250;
-let pendingMove = null;
+interface PendingMove {
+  lobbyId: string | null;
+  songId: string;
+  timer: ReturnType<typeof setTimeout>;
+}
+let pendingMove: PendingMove | null = null;
 
 function sendPendingMove() {
   if (!pendingMove) return;
@@ -202,10 +214,10 @@ function sendPendingMove() {
   clearTimeout(timer);
   pendingMove = null;
   const newIndex = state.queue.findIndex((s) => s.id === songId);
-  if (lobbyId === state.lobbyId && newIndex >= 0) socket.emit('queue:reorder', { lobbyId, songId, newIndex });
+  if (lobbyId === state.lobbyId && newIndex >= 0) socket.emit('queue:reorder', { lobbyId: lobbyId as string, songId, newIndex });
 }
 
-export function moveSong(fromIndex, toIndex, { settle = false } = {}) {
+export function moveSong(fromIndex: number, toIndex: number, { settle = false }: { settle?: boolean } = {}) {
   const song = state.queue[fromIndex];
   if (!song || toIndex < 0 || toIndex >= state.queue.length || toIndex === fromIndex) return;
   if (pendingMove && pendingMove.songId !== song.id) sendPendingMove();
@@ -214,7 +226,7 @@ export function moveSong(fromIndex, toIndex, { settle = false } = {}) {
     pendingMove = { lobbyId: state.lobbyId, songId: song.id, timer: setTimeout(sendPendingMove, MOVE_SETTLE_MS) };
   } else {
     sendPendingMove();
-    socket.emit('queue:reorder', { lobbyId: state.lobbyId, songId: song.id, newIndex: toIndex });
+    socket.emit('queue:reorder', { lobbyId: state.lobbyId as string, songId: song.id, newIndex: toIndex });
   }
   const songs = [...state.queue];
   songs.splice(fromIndex, 1);
@@ -223,16 +235,17 @@ export function moveSong(fromIndex, toIndex, { settle = false } = {}) {
   updateQueue({ anchor: false });
 }
 
-export function moveSongUp(index) { moveSong(index, index - 1); }
-export function moveSongDown(index) { moveSong(index, index + 1); }
+export function moveSongUp(index: number) { moveSong(index, index - 1); }
+export function moveSongDown(index: number) { moveSong(index, index + 1); }
 
 // Playing a song makes this lobby the playback context (if it was not).
 // The song already playing from here is resumed if paused, never restarted.
-export function playSongAt(index) {
+export function playSongAt(index: number) {
   const song = state.queue[index];
   if (!song) return;
   const ctx = player.context;
-  if (ctx && ctx.lobbyId === state.lobbyId && player.track && player.track.id === song.id) {
+  // Only a playlist's context has a lobbyId (the others give undefined).
+  if (ctx && (ctx as { lobbyId?: string }).lobbyId === state.lobbyId && player.track && player.track.id === song.id) {
     if (!player.isPlaying) player.play();
     return;
   }
@@ -240,17 +253,17 @@ export function playSongAt(index) {
 }
 
 // Focus a row by song, rendering it (and scrolling to it) if it is outside the window.
-function focusRow(songId, selector, { scroll = true } = {}) {
+function focusRow(songId: string, selector?: string | null, { scroll = true }: { scroll?: boolean } = {}) {
   const pos = shown.findIndex(({ song }) => song.id === songId);
   if (pos < 0) return;
   const row = scroll ? listView().scrollToIndex(pos) : listView().rowAt(pos);
   if (!row) return;
-  const target = (selector && row.querySelector(selector)) || row;
+  const target = (selector && row.querySelector<HTMLElement>(selector)) || row;
   target.focus({ preventScroll: true });
 }
 
 // Edit mode on/off: header button, toolbar, rows.
-function applyEditMode(on) {
+function applyEditMode(on: boolean) {
   sendPendingMove();
   const btn = elements.editQueueBtn;
   if (btn) {
@@ -279,10 +292,10 @@ export function exitEditMode() {
 // and press ↑/↓ (Alt+↑/↓ anywhere on the row) to move; Delete removes.
 export function setupQueueInteractions() {
   const list = elements.queueList;
-  // Right-click / long-press / ⋮ on a queue row: the song menu (song-reports.js).
+  // Right-click / long-press / ⋮ on a queue row: the song menu (song-reports.ts).
   // "Remove from playlist" (editors only) takes the edit mode's path, Undo included.
   bindSongMenu(list, '.queue-item[data-index]', (row) => {
-    const song = state.queue[parseInt(row.dataset.index, 10)];
+    const song = state.queue[parseInt(row.dataset.index as string, 10)];
     if (!song) return null;
     const page = { lobbyId: state.lobbyId, queueLobbyId: state.queueLobbyId, canEdit: state.canEdit };
     const removable = canRemoveFromPlaylist({ context: 'playlist', entryId: song.id }, page);
@@ -296,32 +309,32 @@ export function setupQueueInteractions() {
   }
   if (elements.clearQueueBtn) elements.clearQueueBtn.hidden = true;
 
-  const rowIndex = (row) => parseInt(row.dataset.index, 10);
+  const rowIndex = (row: HTMLElement) => parseInt(row.dataset.index as string, 10);
 
   list.addEventListener('click', (e) => {
     // The empty playlist's "Find songs": the global search, adding here (search.js).
-    if (e.target.closest('[data-search-focus]')) { document.dispatchEvent(new CustomEvent('app:focus-search')); return; }
-    const row = e.target.closest('.queue-item[data-index]');
+    if ((e.target as HTMLElement).closest('[data-search-focus]')) { document.dispatchEvent(new CustomEvent('app:focus-search')); return; }
+    const row = (e.target as HTMLElement).closest<HTMLElement>('.queue-item[data-index]');
     if (!row) return;
-    const remove = e.target.closest('.queue-item-remove');
+    const remove = (e.target as HTMLElement).closest('.queue-item-remove');
     if (remove) { removeSong(rowIndex(row)); return; }
-    if (e.target.closest('.queue-item-play')) {
+    if ((e.target as HTMLElement).closest('.queue-item-play')) {
       if (row.classList.contains('playing') && player.isPlaying) player.pause();
       else playSongAt(rowIndex(row));
       return;
     }
     // Buttons (⋮, broken report, handle) and links do their own thing.
-    if (e.target.closest('button, a[href], input, select, textarea')) return;
+    if ((e.target as HTMLElement).closest('button, a[href], input, select, textarea')) return;
     if (isEditMode()) return;
     playSongAt(rowIndex(row));
   });
 
   list.addEventListener('keydown', (e) => {
-    const row = e.target.closest('.queue-item[data-index]');
+    const row = (e.target as HTMLElement).closest<HTMLElement>('.queue-item[data-index]');
     if (!row) return;
     const index = rowIndex(row);
     const onRow = e.target === row;
-    const onHandle = !!e.target.closest('.queue-item-handle');
+    const onHandle = !!(e.target as HTMLElement).closest('.queue-item-handle');
     // Arrows, Home / End and Page keys walk the whole list, rendered or not.
     if (onRow && !e.altKey && moveFocus(row, e)) { e.preventDefault(); return; }
     if (!isEditMode()) {
@@ -347,7 +360,7 @@ export function setupQueueInteractions() {
     view: listView(),
     rowSelector: '.queue-item[data-index]',
     handleSelector: '.queue-item-handle',
-    scroller: list.closest('.lobby-body'),
+    scroller: list.closest('.lobby-body') as HTMLElement,
     onDrop: (from, to) => moveShownSong(shown[from].song, shown[to].song),
     onEnd: () => { if (renderPending) updateQueue(); },
   });
@@ -355,15 +368,15 @@ export function setupQueueInteractions() {
 }
 
 // By song, not by index: a queue:update may have landed during the drag.
-function moveShownSong(song, target) {
+function moveShownSong(song: QueueEntry, target: QueueEntry) {
   moveSong(state.queue.findIndex((s) => s.id === song.id), state.queue.findIndex((s) => s.id === target.id));
 }
 
-function moveFocus(row, e) {
+function moveFocus(row: HTMLElement, e: KeyboardEvent) {
   const view = listView();
   const pos = view.positionOf(row);
-  const steps = { ArrowDown: 1, ArrowUp: -1, PageDown: view.pageSize, PageUp: -view.pageSize };
-  let to;
+  const steps: Record<string, number> = { ArrowDown: 1, ArrowUp: -1, PageDown: view.pageSize, PageUp: -view.pageSize };
+  let to: number;
   if (e.key in steps) to = pos + steps[e.key];
   else if (e.key === 'Home') to = 0;
   else if (e.key === 'End') to = shown.length - 1;
@@ -377,13 +390,13 @@ function moveFocus(row, e) {
 // may be thousands of rows down. Waits here for the queue if it is still loading.
 function revealPlaying() {
   const ctx = player.context;
-  if (!ctx || !player.track || ctx.lobbyId !== state.lobbyId || !shown.length) return;
-  const pos = shown.findIndex(({ song }) => song.id === player.track.id);
+  if (!ctx || !player.track || (ctx as { lobbyId?: string }).lobbyId !== state.lobbyId || !shown.length) return;
+  const pos = shown.findIndex(({ song }) => song.id === (player.track as Track).id);
   state.revealPlayingIn = null;
   if (pos >= 0) listView().scrollToIndex(pos, { align: 'center' });
 }
 
-function getDownloadStatusHtml(downloadInfo) {
+function getDownloadStatusHtml(downloadInfo: DownloadState | undefined) {
   if (!downloadInfo) return { icon: '', badge: '', progressBar: '' };
   const status = downloadInfo.status;
   const percent = downloadInfo.percent || 0;
@@ -397,11 +410,11 @@ function getDownloadStatusHtml(downloadInfo) {
   return { icon, badge, progressBar };
 }
 
-function getListenersForSong(songTitle) {
+function getListenersForSong(songTitle: string) {
   return state.listeners.filter(user => user.currentTrack && user.currentTrack.title === songTitle);
 }
 
-function getQueueListenersHtml(songTitle) {
+function getQueueListenersHtml(songTitle: string) {
   const listeners = getListenersForSong(songTitle);
   if (listeners.length === 0) return '';
   const maxVisible = 3;
@@ -423,23 +436,24 @@ const EQ_HTML = '<span class="person-eq queue-item-eq" aria-hidden="true"><i></i
 
 // The # cell: the position, which becomes a play (or pause) button on hover and
 // focus. The song playing right now shows the equaliser instead of its number.
-export function playCellHtml(position, isPlaying) {
+export function playCellHtml(position: number | string, isPlaying: boolean) {
   const sounding = isPlaying && player.isPlaying;
   return (sounding ? EQ_HTML : `<span class="queue-item-pos">${position}</span>`)
     + `<svg class="queue-item-glyph" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="${sounding ? PAUSE_PATH : PLAY_PATH}"/></svg>`;
 }
 
-export function playCellLabel(title, sounding) {
+export function playCellLabel(title: string, sounding: boolean) {
   return sounding ? t('queue.pauseNamed', `Pause ${title}`, { title }) : t('queue.playNamed', `Play ${title}`, { title });
 }
 
 // Play and pause change only the playing row's # cell: a re-render would close
 // an open song menu.
 function refreshPlayingCell() {
-  const btn = elements.queueList.querySelector('.queue-item.playing .queue-item-play');
+  const btn = elements.queueList.querySelector<HTMLElement>('.queue-item.playing .queue-item-play');
   if (!btn) return;
-  btn.innerHTML = playCellHtml(btn.dataset.position, true);
-  const label = playCellLabel(btn.dataset.title, player.isPlaying);
+  // queueRowHtml writes both data attributes on every play button.
+  btn.innerHTML = playCellHtml(btn.dataset.position as string, true);
+  const label = playCellLabel(btn.dataset.title as string, player.isPlaying);
   btn.setAttribute('aria-label', label);
   btn.setAttribute('title', label);
 }
@@ -451,27 +465,32 @@ let renderPending = false;
 
 // The rows on offer right now, in display order: { song, index in state.queue,
 // number shown in the # cell }. The DOM only holds those near the viewport.
-let shown = [];
-let applyDragShift = null;
+interface ShownRow {
+  song: QueueEntry;
+  index: number;
+  number: number;
+}
+let shown: ShownRow[] = [];
+let applyDragShift: (() => void) | null = null;
 
-let view = null;
-function listView() {
+let view: VirtualList | null = null;
+function listView(): VirtualList {
   if (!view) {
-    const scroller = elements.queueList.closest('.lobby-body');
+    const scroller = elements.queueList.closest('.lobby-body') as HTMLElement;
     view = createVirtualList({
       list: elements.queueList,
       scroller,
-      stickyTop: () => document.getElementById('queue-head')?.offsetHeight || 0,
+      stickyTop: () => maybeById('queue-head')?.offsetHeight || 0,
       onRender: () => { if (applyDragShift) applyDragShift(); },
     });
   }
   return view;
 }
 
-function queueRowHtml(pos) {
+function queueRowHtml(pos: number) {
   const { song, index, number } = shown[pos];
   const editing = isEditMode();
-  const isContextOnScreen = !!player.context && player.context.lobbyId === state.lobbyId;
+  const isContextOnScreen = !!player.context && (player.context as { lobbyId?: string }).lobbyId === state.lobbyId;
   const thumbUrl = song.id ? getCoverUrl(song.id, song.thumbnail) : sanitizeUrl(song.thumbnail);
   const downloadHtml = getDownloadStatusHtml(state.downloadStatus[song.url]);
   const isPlaying = isContextOnScreen && !!player.track && player.track.id === song.id;
@@ -484,7 +503,7 @@ function queueRowHtml(pos) {
   const addedBy = escapeHtml(addedByLabel(song.addedBy));
   const addedOn = addedDateLabel(song.addedAt, addedLocale());
   const duration = song.duration ? formatDuration(song.duration) : '';
-  const hiddenLabel = (key, fallback) => `<span class="visually-hidden">${escapeHtml(t(key, fallback))}: </span>`;
+  const hiddenLabel = (key: string, fallback: string) => `<span class="visually-hidden">${escapeHtml(t(key, fallback))}: </span>`;
   const playLabel = escapeHtml(playCellLabel(song.title, isPlaying && player.isPlaying));
   const numCell = editing ? handle : `<button class="btn-text theme-secondary btn-icon btn-sm queue-item-play" type="button" data-position="${number}" data-title="${title}" aria-label="${playLabel}" title="${playLabel}">${playCellHtml(number, isPlaying)}</button>`;
   const remove = editing ? `<button class="btn-text theme-danger btn-icon btn-sm queue-item-remove" type="button" aria-label="Remove ${title}" title="Remove from playlist">${REMOVE_ICON}</button>` : '';
@@ -501,7 +520,7 @@ function queueRowHtml(pos) {
     + `<div class="queue-item-actions">${remove}${editing ? '' : songMenuButtonHtml(song.title)}</div></li>`;
 }
 
-function emptyRowHtml(title, hint, extra = '') {
+function emptyRowHtml(title: string, hint: string, extra = '') {
   return `<li class="list-group-item app-empty queue-empty"><p class="mb-1">${escapeHtml(title)}</p><p class="fs-sm mb-0 hint">${escapeHtml(hint)}</p>${extra}</li>`;
 }
 
@@ -520,10 +539,10 @@ function emptyQueueHtml() {
 
 // The stats strip above the table, always over the whole playlist (the page holds
 // every entry; only the rows are windowed), whatever the filter shows.
-export function statsHtml(songs) {
-  const number = (n) => `<b>${escapeHtml(new Intl.NumberFormat(addedLocale()).format(n))}</b>`;
-  const item = (html, title = '') => `<li${title ? ` title="${escapeHtml(title)}"` : ''}>${html}</li>`;
-  const name = (value) => `<b class="playlist-stat-name">${escapeHtml(value)}</b>`;
+export function statsHtml(songs: readonly StatsSong[]) {
+  const number = (n: number) => `<b>${escapeHtml(new Intl.NumberFormat(addedLocale()).format(n))}</b>`;
+  const item = (html: string, title = '') => `<li${title ? ` title="${escapeHtml(title)}"` : ''}>${html}</li>`;
+  const name = (value: string) => `<b class="playlist-stat-name">${escapeHtml(value)}</b>`;
   const stats = playlistStats(songs);
   const items = [item(stats.songs === 1
     ? t('stats.songOne', '{n} song', { n: number(1) })
@@ -556,9 +575,9 @@ export function statsHtml(songs) {
 // "11 songs · 48 min · 11 artists · Top artist: …". The same facts as the
 // strip (statsHtml) on Radio and the artist pages; a part with more to say
 // keeps its own title.
-export function statsTextHtml(songs) {
-  const number = (n) => escapeHtml(new Intl.NumberFormat(addedLocale()).format(n));
-  const part = (text, title = '') => `<span${title ? ` title="${escapeHtml(title)}"` : ''}>${text}</span>`;
+export function statsTextHtml(songs: readonly StatsSong[]) {
+  const number = (n: number) => escapeHtml(new Intl.NumberFormat(addedLocale()).format(n));
+  const part = (text: string, title = '') => `<span${title ? ` title="${escapeHtml(title)}"` : ''}>${text}</span>`;
   const stats = playlistStats(songs);
   const parts = [part(stats.songs === 1
     ? t('stats.songOne', '{n} song', { n: number(1) })
@@ -584,7 +603,7 @@ export function statsTextHtml(songs) {
 }
 
 function renderStats() {
-  const el = document.getElementById('playlist-stats');
+  const el = maybeById('playlist-stats');
   if (!el) return;
   // Off the playlist page there is nothing to count.
   const html = state.lobbyId ? statsTextHtml(state.queue) : '';
@@ -595,24 +614,24 @@ function renderStats() {
 // The header's muted line is one truncated line: its title holds all of it.
 // The " · " between owner, stats and listeners is drawn by app.css.
 export function syncPlaylistMeta() {
-  const line = document.getElementById('playlist-meta-text');
+  const line = maybeById('playlist-meta-text');
   if (!line) return;
-  const text = [...line.children].filter((el) => !el.hidden && el.textContent.trim()).map((el) => el.textContent.trim()).join(' · ');
+  const text = [...line.children as HTMLCollectionOf<HTMLElement>].filter((el) => !el.hidden && el.textContent.trim()).map((el) => el.textContent.trim()).join(' · ');
   if (line.title !== text) line.title = text;
 }
 
 function filterQuery() {
-  const input = document.getElementById('queue-search-input');
+  const input = maybeById<HTMLInputElement>('queue-search-input');
   return input ? toLower(input.value).trim() : '';
 }
 
-export function updateQueue({ anchor = true } = {}) {
+export function updateQueue({ anchor = true }: { anchor?: boolean } = {}) {
   if (isDragging()) { renderPending = true; return; }
   renderPending = false;
   refreshLibraryAddButtons();
   refreshPlayerBar();
   renderStats();
-  const head = document.getElementById('queue-head');
+  const head = maybeById('queue-head');
   if (head) head.hidden = state.queue.length === 0;
   const editing = isEditMode();
   const songsWithIndices = state.queue.map((song, index) => ({ song, index }));
@@ -626,23 +645,24 @@ export function updateQueue({ anchor = true } = {}) {
   const next = query ? numbered.filter(({ song }) => toLower(song.title || '').includes(query)) : numbered;
   // Keep keyboard focus on the same row (and the same handle / button) across re-renders.
   const active = document.activeElement;
-  const focusedRow = active && elements.queueList.contains(active) ? active.closest('.queue-item') : null;
+  const focusedRow = active && elements.queueList.contains(active) ? active.closest<HTMLElement>('.queue-item') : null;
   const focusedId = focusedRow ? focusedRow.dataset.songId : null;
+  // A focused row means `active` is set.
   const focusedPart = !focusedRow || active === focusedRow ? null
-    : ['.queue-item-handle', '.queue-item-remove', '.queue-item-play', '.song-menu-btn'].find((sel) => active.matches(sel)) || null;
+    : ['.queue-item-handle', '.queue-item-remove', '.queue-item-play', '.song-menu-btn'].find((sel) => (active as Element).matches(sel)) || null;
   shown = next;
   if (!next.length) {
     if (state.queue.length === 0) listView().clear(emptyQueueHtml());
     else listView().clear(emptyRowHtml(t('queue.noMatch', 'No songs match'), t('queue.noMatchHint', 'Try another word, or clear the filter')));
     return;
   }
-  let positions = null;
+  let positions: Map<string, number> | null = null;
   listView().setSource({
     count: next.length,
     keyOf: (pos) => next[pos].song.id,
     indexOfKey: (id) => {
       if (!positions) positions = new Map(next.map(({ song }, pos) => [song.id, pos]));
-      return positions.has(id) ? positions.get(id) : -1;
+      return positions.has(id) ? positions.get(id) as number : -1;
     },
     renderRow: queueRowHtml,
   }, { anchor });
@@ -651,13 +671,13 @@ export function updateQueue({ anchor = true } = {}) {
 }
 
 export function setupQueueSearch() {
-  const searchInput = document.getElementById('queue-search-input');
+  const searchInput = maybeById<HTMLInputElement>('queue-search-input');
   if (!searchInput) return;
   searchInput.addEventListener('input', () => updateQueue({ anchor: false }));
 }
 
 // The playlist header's listener count. Who is listening and what they play
-// is the global people panel (social.js).
+// is the global people panel (social.ts).
 export function updateListeners() {
   const listenerWord = state.listeners.length !== 1 ? t('lobby.listeners', 'listeners') : t('lobby.listener', 'listener');
   elements.userCount.textContent = `${state.listeners.length} ${listenerWord}`;
@@ -665,19 +685,19 @@ export function updateListeners() {
 }
 
 // Clear the lobby page's lists (switching or leaving a lobby page). The full
-// player follows player.js and is left alone.
+// player follows player.ts and is left alone.
 export function resetLobbyUI() {
   setEditMode(false);
   updateQueue();
   updateListeners();
 }
 
-export function openSource(index) {
+export function openSource(index: number) {
   const song = state.queue[index];
   if (song && song.url && song.url.startsWith('http')) window.open(song.url, '_blank', 'noopener,noreferrer');
 }
 
-export function copySourceUrl(index) {
+export function copySourceUrl(index: number) {
   const song = state.queue[index];
   if (song && song.url && song.url.startsWith('http')) {
     navigator.clipboard.writeText(song.url).then(() => showToast(t('queue.urlCopied', 'YouTube link copied to clipboard'))).catch(() => showToast(song.url));

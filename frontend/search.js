@@ -22,7 +22,7 @@
 import { state, storageGet, storageSet } from './shared/state.js';
 import { escapeHtml, formatDuration, navigateTo, showToast, t } from './shared/ui.js';
 import { player } from './player/player.js';
-import { isLibraryOpen, libraryTrack } from './library.js';
+import { isLibraryOpen, libraryTrack } from './features/library/library.js';
 import { searchPath, searchQueryOf, artistPath, playlistPath } from './router.js';
 import { bindSongMenu, songMenuButtonHtml } from './features/library/song-reports.js';
 import { bindContextMenu, closeContextMenu, isContextMenuOpen, openContextMenu } from './shared/context-menu.js';

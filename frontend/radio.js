@@ -9,8 +9,8 @@
 import { state } from './shared/state.js';
 import { escapeHtml, formatDuration, navigateTo, showToast, t } from './shared/ui.js';
 import { player } from './player/player.js';
-import { libraryTrack } from './library.js';
-import { playCellHtml, playCellLabel, statsHtml } from './queue.js';
+import { libraryTrack } from './features/library/library.js';
+import { playCellHtml, playCellLabel, statsHtml } from './features/queue/queue.js';
 import { closeDrawer } from './sidebar.js';
 import { bindSongMenu, songMenuButtonHtml } from './features/library/song-reports.js';
 import { isUnplayable, unplayableBadgeHtml, onFailuresChange } from './player/playback-failures.js';
