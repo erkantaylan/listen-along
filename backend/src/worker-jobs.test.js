@@ -32,6 +32,8 @@ const skip = !PostgreSqlContainer ? 'testcontainers package not installed'
   : typeof WebSocket !== 'function' ? 'no global WebSocket (Node >= 22)' : false;
 
 const tick = (ms = 20) => new Promise((r) => setTimeout(r, ms));
+// A wait that fails with its name instead of hanging until the suite's timeout.
+const within = (p, ms, what) => Promise.race([p, tick(ms).then(() => { throw new Error(`timed out waiting for ${what}`); })]);
 async function until(fn, what, ms = 8000) {
   const end = Date.now() + ms;
   for (;;) {
@@ -412,14 +414,17 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
     const j = await wb.nextJob();
     assert.equal(j.id, jq.id);
     assert.equal(j.request_id, requested.request.id);
+    // Listen before uploading: the server adds the song to the playlist while it
+    // answers the upload, so its queue:update can arrive before the 201 does.
+    const queued = new Promise((resolve) => {
+      const h = (p) => { if (p.songs.some((x) => x.url.includes('rrrrrrrrrr1'))) { s.off('queue:update', h); resolve(p.songs); } };
+      s.on('queue:update', h);
+    });
     // The upload names only the job: the server supplies the request id.
     const up = await uploadAs(tok.bob, { title: 'Requested Song', artist: 'Someone', youtube_id: 'rrrrrrrrrr1', job_id: j.id, worker_id: wb.id });
     assert.equal(up.status, 201);
     assert.deepEqual(up.body.fulfilled_requests, [requested.request.id]);
-    const queue = await new Promise((resolve) => {
-      const h = (p) => { if (p.songs.some((x) => x.url.includes('rrrrrrrrrr1'))) { s.off('queue:update', h); resolve(p.songs); } };
-      s.on('queue:update', h);
-    });
+    const queue = await within(queued, 10_000, 'the song in the playlist');
     assert.equal(queue.filter((x) => x.url.includes('rrrrrrrrrr1')).length, 1);
     done(wb, j.id, [up.body.song.id]);
     await until(() => updates.some((u) => u.id === j.id && u.status === 'done'), 'live done update');
