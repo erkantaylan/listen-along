@@ -24,8 +24,10 @@ const db = require('./shared/db.ts');
 // The library's own module, not its index: core/library/libraryRoutes.ts
 // imports this file while the library area loads (until jobs moves to core/).
 const library = require('./core/library/library.ts');
-const ytdlp = require('./ytdlp');
-const spotify = require('./spotify');
+// The requests area's own files, not its index (which loads the library,
+// whose routes import this file) until jobs moves to core/.
+const ytdlp = require('./core/requests/ytdlp.ts');
+const spotify = require('./core/requests/spotify.ts');
 
 const STATUSES = ['queued', 'assigned', 'done', 'failed', 'cancelled'];
 const ACTIVE = ['queued', 'assigned'];

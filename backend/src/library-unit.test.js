@@ -3,7 +3,7 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 
 const library = require('./core/library/index.ts').library;
-const { createResolver } = require('./songResolver');
+const { createResolver } = require('./core/requests/index.ts');
 
 describe('library.parseYoutubeId', () => {
   it('accepts bare ids and the common URL shapes', () => {
@@ -224,13 +224,13 @@ describe('songResolver', () => {
       ...over.library,
     };
     const ytdlp = {
-      parsePlaylistId: require('./ytdlp').parsePlaylistId,
+      parsePlaylistId: require('./core/requests/index.ts').ytdlp.parsePlaylistId,
       searchYoutube: async () => null,
       getOembed: async () => ({ title: 'From oEmbed', channel: 'Chan' }),
       getPlaylistEntries: async () => [],
       ...over.ytdlp,
     };
-    const spotify = { parseSpotifyUrl: require('./spotify').parseSpotifyUrl, getTrack: async () => ({}), ...over.spotify };
+    const spotify = { parseSpotifyUrl: require('./core/requests/index.ts').spotify.parseSpotifyUrl, getTrack: async () => ({}), ...over.spotify };
     return createResolver({ library: library2, ytdlp, spotify });
   }
 

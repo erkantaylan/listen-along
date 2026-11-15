@@ -27,10 +27,10 @@ const db = require('./shared/db.ts');
 const { library } = require('./core/library/index.ts');
 const jobs = require('./downloadJobs');
 const { adminAuth } = require('./auth/index.ts');
-const ytdlp = require('./ytdlp');
+const { ytdlp } = require('./core/requests/index.ts');
 const { apiLimiter, make } = require('./shared/rateLimits.ts');
 const { isOutdated } = require('./cliRelease');
-const { cleanPicks, MAX_PICKS } = require('./features/picker/index.ts');
+const { cleanPicks, MAX_PICKS } = require('./core/requests/index.ts');
 
 // Each preview may run yt-dlp once on the server; results are kept a while.
 const previewLimiter = make(30, 60 * 1000, { message: 'Too many link lookups, slow down' });

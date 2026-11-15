@@ -5,12 +5,50 @@
  * dismisses it.
  */
 
-const db = require('./shared/db.ts');
-const { isUuid } = require('./shared/ids.ts');
+import dbModule from '../../shared/db.ts';
+import type { DbModule } from '../../shared/db.ts';
+import { isUuid } from '../../shared/ids.ts';
+import type { LibrarySongRow } from '../../shared/types.ts';
 
-const STATUSES = ['pending', 'fulfilled', 'dismissed'];
+// The live module object: tests replace its functions.
+const db: DbModule = dbModule;
 
-function toPublic(row) {
+export type RequestStatus = 'pending' | 'fulfilled' | 'dismissed';
+export const STATUSES: string[] = ['pending', 'fulfilled', 'dismissed'];
+
+/** A `song_requests` row (core/requests/schema.ts). */
+export interface SongRequestRow {
+  id: string;
+  youtube_id: string | null;
+  url: string | null;
+  title: string | null;
+  artist: string | null;
+  requested_by: string;
+  requested_by_id: string | null;
+  /** the playlist it came from (no FK: the request outlives it) */
+  lobby_id: string | null;
+  status: RequestStatus;
+  song_id: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+/** A request as the API sends it. */
+export interface SongRequest {
+  id: string;
+  youtube_id: string | null;
+  url: string | null;
+  title: string | null;
+  artist: string | null;
+  requested_by: string;
+  lobby_id: string | null;
+  status: RequestStatus;
+  song_id: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+function toPublic(row: SongRequestRow): SongRequest {
   return {
     id: row.id,
     youtube_id: row.youtube_id || null,
@@ -26,18 +64,29 @@ function toPublic(row) {
   };
 }
 
-function clean(value, max) {
+function clean(value: unknown, max: number): string | null {
   if (value === undefined || value === null) return null;
   const s = String(value).replace(/[\x00-\x1f\x7f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
   return s || null;
 }
 
+/** What a new request is made of (createRequest). */
+export interface NewRequest {
+  youtubeId?: string | null;
+  url?: string | null;
+  title?: string | null;
+  artist?: string | null;
+  requestedBy?: string | null;
+  requestedById?: string | null;
+  /** the playlist it was queued in */
+  playlistId?: string | null;
+}
+
 /**
  * Create a pending request, or return the existing pending one for the same
- * song in the same lobby (youtube_id, else url, else title).
- * @returns {Promise<{request: object, created: boolean}>}
+ * song in the same playlist (youtube_id, else url, else title).
  */
-async function createRequest({ youtubeId, url, title, artist, requestedBy, requestedById, lobbyId }) {
+export async function createRequest({ youtubeId, url, title, artist, requestedBy, requestedById, playlistId }: NewRequest): Promise<{ request: SongRequest; created: boolean }> {
   const fields = {
     youtube_id: clean(youtubeId, 32),
     url: clean(url, 2000),
@@ -45,30 +94,30 @@ async function createRequest({ youtubeId, url, title, artist, requestedBy, reque
     artist: clean(artist, 300),
     requested_by: clean(requestedBy, 255) || 'anonymous',
     requested_by_id: clean(requestedById, 255),
-    lobby_id: clean(lobbyId, 8),
+    lobby_id: clean(playlistId, 8),
   };
   if (!fields.youtube_id && !fields.url && !fields.title) throw new Error('A request needs a youtube_id, url or title');
 
   let existing;
   if (fields.youtube_id) {
-    existing = await db.query(
+    existing = await db.query<SongRequestRow>(
       "SELECT * FROM song_requests WHERE status = 'pending' AND youtube_id = $1 AND lobby_id IS NOT DISTINCT FROM $2 LIMIT 1",
       [fields.youtube_id, fields.lobby_id]
     );
   } else if (fields.url) {
-    existing = await db.query(
+    existing = await db.query<SongRequestRow>(
       "SELECT * FROM song_requests WHERE status = 'pending' AND url = $1 AND lobby_id IS NOT DISTINCT FROM $2 LIMIT 1",
       [fields.url, fields.lobby_id]
     );
   } else {
-    existing = await db.query(
+    existing = await db.query<SongRequestRow>(
       "SELECT * FROM song_requests WHERE status = 'pending' AND youtube_id IS NULL AND url IS NULL AND lower(title) = lower($1) AND lobby_id IS NOT DISTINCT FROM $2 LIMIT 1",
       [fields.title, fields.lobby_id]
     );
   }
   if (existing.rows[0]) return { request: toPublic(existing.rows[0]), created: false };
 
-  const r = await db.query(
+  const r = await db.query<SongRequestRow>(
     `INSERT INTO song_requests (youtube_id, url, title, artist, requested_by, requested_by_id, lobby_id)
      VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
     [fields.youtube_id, fields.url, fields.title, fields.artist, fields.requested_by, fields.requested_by_id, fields.lobby_id]
@@ -76,8 +125,8 @@ async function createRequest({ youtubeId, url, title, artist, requestedBy, reque
   return { request: toPublic(r.rows[0]), created: true };
 }
 
-async function listRequests({ status = 'pending', limit = 500 } = {}) {
-  const params = [];
+export async function listRequests({ status = 'pending', limit = 500 }: { status?: string; limit?: number } = {}): Promise<SongRequest[]> {
+  const params: unknown[] = [];
   let where = '';
   if (status !== 'all') {
     params.push(status);
@@ -85,20 +134,20 @@ async function listRequests({ status = 'pending', limit = 500 } = {}) {
   }
   params.push(limit);
   const order = status === 'pending' ? 'created_at ASC' : 'updated_at DESC';
-  const r = await db.query(`SELECT * FROM song_requests ${where} ORDER BY ${order} LIMIT $${params.length}`, params);
+  const r = await db.query<SongRequestRow>(`SELECT * FROM song_requests ${where} ORDER BY ${order} LIMIT $${params.length}`, params);
   return r.rows.map(toPublic);
 }
 
-async function getRequest(id) {
+export async function getRequest(id: unknown): Promise<SongRequest | null> {
   if (!isUuid(id)) return null;
-  const r = await db.query('SELECT * FROM song_requests WHERE id = $1', [id]);
+  const r = await db.query<SongRequestRow>('SELECT * FROM song_requests WHERE id = $1', [id]);
   return r.rows[0] ? toPublic(r.rows[0]) : null;
 }
 
 /** Mark a request dismissed (e.g. the CLI could not find it). Returns null if missing. */
-async function dismissRequest(id) {
+export async function dismissRequest(id: unknown): Promise<SongRequest | null> {
   if (!isUuid(id)) return null;
-  const r = await db.query(
+  const r = await db.query<SongRequestRow>(
     "UPDATE song_requests SET status = 'dismissed', updated_at = now() WHERE id = $1 RETURNING *",
     [id]
   );
@@ -109,13 +158,15 @@ async function dismissRequest(id) {
  * Mark pending requests fulfilled by a library song: all pending requests
  * for the song's youtube_id, plus the explicit requestId if given (which may
  * have had no youtube_id, e.g. a text-only request).
- * @returns {Promise<object[]>} the requests that were fulfilled now
+ * @returns the requests that were fulfilled now
  */
-async function fulfillRequests(song, requestId = null, extraYoutubeId = null) {
+export async function fulfillRequests(
+  song: Pick<LibrarySongRow, 'id' | 'youtube_id'>, requestId: string | null = null, extraYoutubeId: string | null = null,
+): Promise<SongRequest[]> {
   // extraYoutubeId: the youtube_id the uploader claimed, which can differ from
   // the stored song's when an upload is a byte-identical duplicate (409).
   const ytIds = [...new Set([song.youtube_id, extraYoutubeId].filter(Boolean))];
-  const r = await db.query(
+  const r = await db.query<SongRequestRow>(
     `UPDATE song_requests SET status = 'fulfilled', song_id = $1, updated_at = now()
      WHERE status = 'pending'
        AND (youtube_id = ANY($2::text[]) OR id = $3)
@@ -124,12 +175,3 @@ async function fulfillRequests(song, requestId = null, extraYoutubeId = null) {
   );
   return r.rows.map(toPublic);
 }
-
-module.exports = {
-  STATUSES,
-  createRequest,
-  listRequests,
-  getRequest,
-  dismissRequest,
-  fulfillRequests,
-};

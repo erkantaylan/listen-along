@@ -21,13 +21,13 @@
  */
 
 import { library as realLibrary } from '../../core/library/index.ts';
-import realYtdlp from '../../ytdlp.js';
-import realSpotify from '../../spotify.js';
+import { ytdlp as realYtdlp, spotify as realSpotify, cleanPicks, MAX_PICKS } from '../../core/requests/index.ts';
 import { classifyInput as classifyInputJs } from '../../downloadJobs.js';
 import type { LibrarySongRow } from '../../shared/types.ts';
 
 export const SEARCH_COUNT = 5;
-export const MAX_PICKS = 100;
+// The chosen-videos list is checked where it arrives (core: jobs, queue).
+export { cleanPicks, MAX_PICKS };
 const CACHE_MS = 10 * 60 * 1000;
 const CACHE_SIZE = 200;
 const KNOWN_SIZE = 5000;
@@ -128,12 +128,6 @@ function pickError(status: number, code: PickError['code'], message: string): Pi
   return Object.assign(new Error(message), { status, code });
 }
 
-/** A chosen-videos list from a client: distinct ids, or null when it is not one. */
-export function cleanPicks(value: unknown): string[] | null {
-  if (!Array.isArray(value) || !value.length || value.length > MAX_PICKS) return null;
-  if (!value.every(realLibrary.isYoutubeId)) return null;
-  return [...new Set(value as string[])];
-}
 
 export function createPicker({ library = realLibrary, ytdlp = realYtdlp, spotify = realSpotify, cacheMs = CACHE_MS, now = Date.now }: PickerDeps = {}): Picker {
   const cache = new Map<string, { at: number; promise: Promise<unknown> }>(); // key -> { at, promise }

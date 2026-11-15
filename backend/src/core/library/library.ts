@@ -6,7 +6,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import type { ChildProcess } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -386,7 +386,7 @@ export function sha256File(filePath: string): Promise<string> {
  */
 export function ffprobe(filePath: string): Promise<Probe | null> {
   return new Promise((resolve) => {
-    let proc: ChildProcess;
+    let proc: ChildProcessWithoutNullStreams;
     try {
       proc = spawn('ffprobe', [
         '-v', 'error',
@@ -399,9 +399,8 @@ export function ffprobe(filePath: string): Promise<Probe | null> {
     }
     let stdout = '';
     const watchdog = setTimeout(() => { proc.kill('SIGKILL'); resolve(null); }, 20000);
-    // Spawned with the default pipes: stdout and stderr exist.
-    proc.stdout!.on('data', (d) => { stdout += d.toString(); });
-    proc.stderr!.on('data', () => {});
+    proc.stdout.on('data', (d) => { stdout += d.toString(); });
+    proc.stderr.on('data', () => {});
     proc.on('error', () => { clearTimeout(watchdog); resolve(null); });
     proc.on('close', (code) => {
       clearTimeout(watchdog);

@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
-const { parseSpotifyUrl } = require('./spotify');
+const { parseSpotifyUrl } = require('./core/requests/index.ts').spotify;
 
 describe('spotify', () => {
   describe('parseSpotifyUrl', () => {

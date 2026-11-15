@@ -13,16 +13,58 @@
  * All of these are best-effort; callers must cope with failure.
  */
 
-const { spawn } = require('child_process');
+import { spawn } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+
+/** An Error with yt-dlp's reason (parseError). */
+export type YtdlpError = Error & { code?: string };
+
+/** A playlist entry (getPlaylistEntries). */
+export interface PlaylistEntry {
+  id: string;
+  url: string;
+  title: string;
+  duration: number;
+  channel: string | null;
+  thumbnail: string | null;
+}
+
+/** getPlaylistEntries' answer: the entries, with the playlist's name riding along. */
+export type PlaylistEntries = PlaylistEntry[] & { title?: string | null };
+
+/** A search hit (searchYoutubeMany). */
+export interface SearchHit {
+  id: string;
+  url: string;
+  title: string | null;
+  duration: number;
+  channel: string | null;
+}
+
+/** What yt-dlp's -J prints, as far as it is read here. */
+interface YtdlpEntry {
+  id?: string;
+  url?: string;
+  title?: string;
+  duration?: number;
+  channel?: string;
+  uploader?: string;
+  thumbnail?: string;
+  thumbnails?: Array<{ url?: string }>;
+}
+interface YtdlpJson {
+  title?: unknown;
+  entries?: Array<YtdlpEntry | null>;
+}
 
 /**
  * Strip list/index params from a YouTube URL so yt-dlp fetches only the single
  * video, never an entire list. Search terms and non-URL targets pass through
  * unchanged.
- * @param {string} target - URL or search target
- * @returns {string} target with list-expanding params removed
+ * @param target URL or search target
+ * @returns target with list-expanding params removed
  */
-function stripListParam(target) {
+export function stripListParam<T>(target: T): T | string {
   if (typeof target !== 'string' || !/^https?:\/\//i.test(target)) return target;
   try {
     const u = new URL(target);
@@ -38,12 +80,12 @@ function stripListParam(target) {
  * its list id; otherwise null. Auto-generated radio/mix lists (list=RD…) are
  * NOT real playlists — a watch URL often carries one incidentally — so those
  * return null and are handled as a single video.
- * @param {string} target - URL or search target
- * @returns {string|null} playlist id, or null if not an importable playlist
+ * @param target URL or search target
+ * @returns playlist id, or null if not an importable playlist
  */
-function parsePlaylistId(target) {
+export function parsePlaylistId(target: unknown): string | null {
   if (typeof target !== 'string' || !/^https?:\/\//i.test(target)) return null;
-  let u;
+  let u: URL;
   try { u = new URL(target); } catch { return null; }
   if (!/(?:^|\.)youtube\.com$|(?:^|\.)youtu\.be$/i.test(u.hostname)) return null;
   const list = u.searchParams.get('list');
@@ -55,10 +97,10 @@ function parsePlaylistId(target) {
  * Enumerate a YouTube playlist's entries without downloading them
  * (--flat-playlist is fast: it lists ids/titles, not full per-video metadata).
  * Unavailable entries (deleted/private) are filtered out.
- * @param {string} url - playlist or watch?…&list= URL
- * @returns {Promise<Array<{id,url,title,duration,channel,thumbnail}>>} with .title = the playlist's name (or null)
+ * @param url playlist or watch?…&list= URL
+ * @returns the entries, with .title = the playlist's name (or null)
  */
-function getPlaylistEntries(url) {
+export function getPlaylistEntries(url: string): Promise<PlaylistEntries> {
   return new Promise((resolve, reject) => {
     const args = [
       '--flat-playlist',
@@ -82,14 +124,14 @@ function getPlaylistEntries(url) {
     proc.on('close', (code) => {
       clearTimeout(watchdog);
       if (code !== 0) return reject(parseError(stderr, code));
-      let data;
+      let data: YtdlpJson;
       try {
         data = JSON.parse(stdout);
       } catch (err) {
-        return reject(new Error(`Failed to parse playlist: ${err.message}`));
+        return reject(new Error(`Failed to parse playlist: ${(err as Error).message}`));
       }
-      const entries = (data.entries || [])
-        .filter((e) => e && e.id && e.title &&
+      const entries: PlaylistEntries = (data.entries || [])
+        .filter((e): e is YtdlpEntry & { id: string; title: string } => !!e && !!e.id && !!e.title &&
           e.title !== '[Deleted video]' && e.title !== '[Private video]' &&
           e.title !== '[Unavailable video]')
         .map((e) => ({
@@ -110,21 +152,21 @@ function getPlaylistEntries(url) {
 
 /**
  * Parse yt-dlp error output into a user-friendly error
- * @param {string} stderr - Error output from yt-dlp
- * @param {number} code - Exit code
- * @returns {Error} Parsed error with appropriate message
+ * @param stderr Error output from yt-dlp
+ * @param code Exit code
+ * @returns Parsed error with appropriate message
  */
-function parseError(stderr, code) {
+export function parseError(stderr: string, code: number | null): YtdlpError {
   const lowerErr = stderr.toLowerCase();
 
   if (lowerErr.includes('drm')) {
-    const err = new Error("This track is DRM-protected and can't be played");
+    const err: YtdlpError = new Error("This track is DRM-protected and can't be played");
     err.code = 'DRM_PROTECTED';
     return err;
   }
 
   if (lowerErr.includes('private video')) {
-    const err = new Error('This video is private');
+    const err: YtdlpError = new Error('This video is private');
     err.code = 'VIDEO_PRIVATE';
     return err;
   }
@@ -134,61 +176,60 @@ function parseError(stderr, code) {
   // server's IP is blocked; fix is cookies / a PO token / a proxy. Check this
   // BEFORE the age/sign-in cases so it isn't mislabeled as age-restricted.
   if (lowerErr.includes('not a bot') || lowerErr.includes('confirm you’re not a bot')) {
-    const err = new Error("YouTube is blocking this server's IP (bot check)");
+    const err: YtdlpError = new Error("YouTube is blocking this server's IP (bot check)");
     err.code = 'BOT_CHECK';
     return err;
   }
 
   if (lowerErr.includes('confirm your age') || lowerErr.includes('age-restricted') ||
       lowerErr.includes('age restricted') || lowerErr.includes('inappropriate for some')) {
-    const err = new Error('This video is age-restricted (needs a verified-account cookie)');
+    const err: YtdlpError = new Error('This video is age-restricted (needs a verified-account cookie)');
     err.code = 'AGE_RESTRICTED';
     return err;
   }
 
   if (lowerErr.includes('sign in') || lowerErr.includes('members-only') ||
       lowerErr.includes('join this channel') || lowerErr.includes('login required')) {
-    const err = new Error('Video requires sign-in (login-only or members-only)');
+    const err: YtdlpError = new Error('Video requires sign-in (login-only or members-only)');
     err.code = 'VIDEO_RESTRICTED';
     return err;
   }
 
   // Check region block before generic unavailable (more specific match first)
   if (lowerErr.includes('blocked') || lowerErr.includes('not available in your country')) {
-    const err = new Error('Video is blocked in this region');
+    const err: YtdlpError = new Error('Video is blocked in this region');
     err.code = 'VIDEO_BLOCKED';
     return err;
   }
 
   if (lowerErr.includes('video unavailable') || lowerErr.includes('not available')) {
-    const err = new Error('Video not available');
+    const err: YtdlpError = new Error('Video not available');
     err.code = 'VIDEO_UNAVAILABLE';
     return err;
   }
 
   if (lowerErr.includes('no video formats') || lowerErr.includes('no suitable format')) {
-    const err = new Error('No audio format available');
+    const err: YtdlpError = new Error('No audio format available');
     err.code = 'NO_FORMAT';
     return err;
   }
 
   if (lowerErr.includes('unable to extract') || lowerErr.includes('no results') || lowerErr.includes('http error 404')) {
-    const err = new Error('Video not found');
+    const err: YtdlpError = new Error('Video not found');
     err.code = 'NOT_FOUND';
     return err;
   }
 
   // Generic error
-  const err = new Error(`yt-dlp error (code ${code}): ${stderr.slice(0, 200)}`);
+  const err: YtdlpError = new Error(`yt-dlp error (code ${code}): ${stderr.slice(0, 200)}`);
   err.code = 'YTDLP_ERROR';
   return err;
 }
 
 /**
  * Check if yt-dlp is available
- * @returns {Promise<boolean>}
  */
-function checkAvailable() {
+export function checkAvailable(): Promise<boolean> {
   return new Promise((resolve) => {
     const proc = spawn('yt-dlp', ['--version']);
     // Short watchdog so a hung yt-dlp can't block the caller indefinitely.
@@ -207,13 +248,15 @@ function checkAvailable() {
  * process per request; under load that made a liveness probe take seconds.
  * The first call (and any call after the cache expires) still waits for one
  * check; concurrent callers share it.
- * @returns {Promise<boolean>}
  */
-function createAvailabilityCache({ check = checkAvailable, maxAgeMs = 10 * 60 * 1000, now = Date.now } = {}) {
-  let value = null;
+export function createAvailabilityCache(
+  { check = checkAvailable, maxAgeMs = 10 * 60 * 1000, now = Date.now }:
+  { check?: () => Promise<boolean> | boolean; maxAgeMs?: number; now?: () => number } = {},
+): () => Promise<boolean> {
+  let value: boolean | null = null;
   let at = 0;
-  let pending = null;
-  function refresh() {
+  let pending: Promise<boolean> | null = null;
+  function refresh(): Promise<boolean> {
     if (!pending) {
       pending = Promise.resolve().then(check).catch(() => false).then((ok) => {
         value = !!ok;
@@ -232,15 +275,15 @@ function createAvailabilityCache({ check = checkAvailable, maxAgeMs = 10 * 60 * 
   };
 }
 
-const availableCached = createAvailabilityCache();
+export const availableCached = createAvailabilityCache();
 
 /**
  * Run yt-dlp with args and return parsed JSON from stdout.
  */
-function runYtdlpJson(args, timeoutMs, label) {
+function runYtdlpJson(args: string[], timeoutMs: number, label: string): Promise<YtdlpJson> {
   return new Promise((resolve, reject) => {
-    let proc;
-    try { proc = spawn('yt-dlp', args); } catch (err) { return reject(new Error(`Failed to spawn yt-dlp: ${err.message}`)); }
+    let proc: ChildProcessWithoutNullStreams;
+    try { proc = spawn('yt-dlp', args); } catch (err) { return reject(new Error(`Failed to spawn yt-dlp: ${(err as Error).message}`)); }
     let stdout = '';
     let stderr = '';
     const watchdog = setTimeout(() => {
@@ -253,7 +296,7 @@ function runYtdlpJson(args, timeoutMs, label) {
     proc.on('close', (code) => {
       clearTimeout(watchdog);
       if (code !== 0) return reject(parseError(stderr, code));
-      try { resolve(JSON.parse(stdout)); } catch (err) { reject(new Error(`Failed to parse yt-dlp output: ${err.message}`)); }
+      try { resolve(JSON.parse(stdout)); } catch (err) { reject(new Error(`Failed to parse yt-dlp output: ${(err as Error).message}`)); }
     });
   });
 }
@@ -261,11 +304,10 @@ function runYtdlpJson(args, timeoutMs, label) {
 /**
  * Search YouTube for free text: the first `count` videos of the search results
  * page (no audio, no player API).
- * @returns {Promise<Array<{id, url, title, duration, channel}>>}
  */
-async function searchYoutubeMany(query, count = 5, { timeoutMs = 30000 } = {}) {
+export async function searchYoutubeMany(query: string, count = 5, { timeoutMs = 30000 }: { timeoutMs?: number } = {}): Promise<SearchHit[]> {
   const data = await runYtdlpJson(['--flat-playlist', '-J', `ytsearch${count}:${query}`], timeoutMs, 'YouTube search');
-  return (data.entries || []).filter((x) => x && /^[A-Za-z0-9_-]{11}$/.test(String(x.id || ''))).slice(0, count).map((e) => ({
+  return (data.entries || []).filter((x): x is YtdlpEntry & { id: string } => !!x && /^[A-Za-z0-9_-]{11}$/.test(String(x.id || ''))).slice(0, count).map((e) => ({
     id: e.id,
     url: `https://www.youtube.com/watch?v=${e.id}`,
     title: e.title || null,
@@ -276,23 +318,21 @@ async function searchYoutubeMany(query, count = 5, { timeoutMs = 30000 } = {}) {
 
 /**
  * Search YouTube for free text and return the top hit.
- * @returns {Promise<{id, url, title, duration, channel}|null>}
  */
-async function searchYoutube(query, opts) {
+export async function searchYoutube(query: string, opts?: { timeoutMs?: number }): Promise<SearchHit | null> {
   return (await searchYoutubeMany(query, 1, opts))[0] || null;
 }
 
 /**
  * Title + channel name for a YouTube video id via the public oEmbed endpoint
  * (plain HTTPS, not subject to the yt-dlp bot wall).
- * @returns {Promise<{title, channel}|null>}
  */
-async function getOembed(videoId, { timeoutMs = 8000 } = {}) {
+export async function getOembed(videoId: string, { timeoutMs = 8000 }: { timeoutMs?: number } = {}): Promise<{ title: string | null; channel: string | null } | null> {
   const url = `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent('https://www.youtube.com/watch?v=' + videoId)}`;
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) return null;
-    const data = await res.json();
+    const data = await res.json() as { title?: string; author_name?: string };
     return { title: data.title || null, channel: data.author_name || null };
   } catch {
     return null;
@@ -303,9 +343,9 @@ async function getOembed(videoId, { timeoutMs = 8000 } = {}) {
  * Title and duration of one video, without the player API (blocked on the
  * server's IP): oEmbed gives the title, a flat search for its id the duration
  * when that video is the top hit. Best effort.
- * @returns {Promise<{title, channel, duration_sec}|null>} null if neither answered
+ * @returns null if neither answered
  */
-async function previewVideo(videoId) {
+export async function previewVideo(videoId: string): Promise<{ title: string | null; channel: string | null; duration_sec: number | null } | null> {
   const [oembed, hit] = await Promise.all([
     getOembed(videoId),
     searchYoutube(videoId, { timeoutMs: 15000 }).catch(() => null),
@@ -319,16 +359,3 @@ async function previewVideo(videoId) {
   };
 }
 
-module.exports = {
-  parseError,
-  checkAvailable,
-  availableCached,
-  createAvailabilityCache,
-  stripListParam,
-  parsePlaylistId,
-  getPlaylistEntries,
-  searchYoutube,
-  searchYoutubeMany,
-  getOembed,
-  previewVideo
-};

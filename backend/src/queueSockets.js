@@ -15,7 +15,7 @@
  * addedBy / requester come from the account, never from the client.
  */
 
-const { cleanPicks } = require('./features/picker/index.ts');
+const { cleanPicks } = require('./core/requests/index.ts');
 const { createSocketRateLimit } = require('./shared/memoryRateLimit.ts');
 
 // Songs removed from a queue in the last minute, so the remover can undo
@@ -97,7 +97,7 @@ function createQueueSockets({ io, db, getQueueAsync, resolver, songRequests, add
       }
 
       const addedBy = await displayName(clientAddedBy);
-      const requester = { requestedBy: addedBy, requestedById: userId, lobbyId };
+      const requester = { requestedBy: addedBy, requestedById: userId, playlistId: lobbyId };
 
       if (result.type === 'error') {
         socket.emit('queue:error', { message: result.message });

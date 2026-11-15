@@ -18,7 +18,7 @@ import dbModule from '../../shared/db.ts';
 import type { DbModule } from '../../shared/db.ts';
 import * as library from './library.ts';
 import type { PublicSong, UploadFields, Uploader } from './library.ts';
-import requestsJs from '../../requests.js';
+import { requests } from '../requests/index.ts';
 import { mobileBearer, adminAuth, tokens } from '../../auth/index.ts';
 import downloadJobsJs from '../../downloadJobs.js';
 import * as songReports from './songReports.ts';
@@ -31,12 +31,6 @@ const db: DbModule = dbModule;
 
 // What these routes use of the song requests and the download jobs (still
 // CommonJS until they move to core/; their JSDoc types are looser than this).
-interface RequestsUse {
-  STATUSES: string[];
-  fulfillRequests(song: LibrarySongRow, requestId?: string | null, extraYoutubeId?: string | null): Promise<SongRequestView[]>;
-  listRequests(opts: { status: string }): Promise<SongRequestView[]>;
-  dismissRequest(id: string): Promise<SongRequestView | null>;
-}
 interface JobsUse {
   uploadContext(apiUser: Uploader, body: Record<string, unknown>, fields: Partial<UploadFields>): Promise<UploadContext>;
   getWorker(id: string | null): Promise<{ id: string; name: string } | null>;
@@ -45,7 +39,7 @@ interface JobsUse {
   finish(jobId: string, worker: { id: string; name: string; ownerName: string | null }, result: unknown): Promise<{ job: JobRow } | null>;
   cancelReplaceJobsForSong(songId: string, reason: string): Promise<JobRow[]>;
 }
-const requests = requestsJs as unknown as RequestsUse;
+
 const downloadJobs = downloadJobsJs as unknown as JobsUse;
 
 function parseIntParam(value: unknown, def: number, min: number, max: number): number {

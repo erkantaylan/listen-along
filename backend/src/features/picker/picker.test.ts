@@ -18,8 +18,9 @@ import type { Socket as ClientSocket } from 'socket.io-client';
 import { cookieFor, startServer, requester } from '../../testServer.js';
 import { createPicker, cleanPicks, MAX_PICKS, SEARCH_COUNT } from './picker.ts';
 import type { PickAnswer, PickerDeps, PickerSong, PickError, YtEntry } from './picker.ts';
-import { createResolver } from '../../songResolver.js';
-import { parseSpotifyUrl } from '../../spotify.js';
+import { createResolver, spotify } from '../../core/requests/index.ts';
+
+const { parseSpotifyUrl } = spotify;
 
 // What the server answers (HTTP, sockets, worker messages, database rows):
 // JSON, read field by field below.
@@ -295,7 +296,7 @@ describe('songResolver: chosen videos', () => {
     },
     spotify: { parseSpotifyUrl },
     ...over,
-  } as Parameters<typeof createResolver>[0]);
+  } as unknown as Parameters<typeof createResolver>[0]);
 
   const titled = (map: Record<string, string>) => async (ids: string[]) => new Map(ids.filter((id) => map[id]).map((id) => [id, map[id]]));
 
@@ -310,7 +311,7 @@ describe('songResolver: chosen videos', () => {
     assert.deepEqual(asked, [vid(2)]);
   });
   it('several: answered like a playlist, in order; a title nobody has stays empty', async () => {
-    const r = await resolver({ videoTitles: titled({ [vid(3)]: 'Three' }) }).resolve({ picks: [vid(2), vid(1), vid(3)] });
+    const r: Payload = await resolver({ videoTitles: titled({ [vid(3)]: 'Three' }) }).resolve({ picks: [vid(2), vid(1), vid(3)] });
     assert.equal(r.type, 'playlist');
     assert.equal(r.total, 3);
     assert.deepEqual(r.items.map((x: Payload) => x.type), ['request', 'library', 'request']);

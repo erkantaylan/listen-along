@@ -11,19 +11,19 @@ require('dotenv').config();
 
 const path = require('path');
 const crypto = require('crypto');
-const ytdlp = require('./ytdlp');
+const { requests: songRequests, createResolver, ytdlp, spotify } = require('./core/requests/index.ts');
 const lobby = require('./lobby');
 const { getQueueAsync, deleteQueue, hasQueue } = require('./queue');
 const db = require('./shared/db.ts');
 const { library, covers, createLibraryRouter, sendSongFile, createMediaRouter, createSilenceScanner, createSilenceRouter } = require('./core/library/index.ts');
-const songRequests = require('./requests');
+
 const { apiLimiter, make: makeLimiter } = require('./shared/rateLimits.ts');
 const { createSettings, parseRegistrationsDefault } = require('./shared/settings.ts');
-const { createResolver } = require('./songResolver');
+
 const { createPicker } = require('./features/picker/index.ts');
 const access = require('./playlistAccess');
 const playlistPins = require('./playlistPins');
-const spotify = require('./spotify');
+
 const { createAppRelease } = require('./features/app-release/index.ts');
 const { createCliRelease, createCliRouter } = require('./cliRelease');
 const {

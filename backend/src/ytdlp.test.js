@@ -1,6 +1,6 @@
 const { describe, it, mock } = require('node:test');
 const assert = require('node:assert');
-const { parseError, stripListParam, parsePlaylistId } = require('./ytdlp');
+const { parseError, stripListParam, parsePlaylistId } = require('./core/requests/index.ts').ytdlp;
 
 describe('ytdlp', () => {
   describe('stripListParam', () => {
@@ -107,7 +107,7 @@ describe('ytdlp', () => {
 });
 
 describe('ytdlp availability cache (/health)', () => {
-  const { createAvailabilityCache } = require('./ytdlp');
+  const { createAvailabilityCache } = require('./core/requests/index.ts').ytdlp;
 
   it('spawns one check for many /health calls within maxAge', async () => {
     let calls = 0;
