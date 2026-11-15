@@ -226,6 +226,7 @@ toggle. A new page must carry `data-bs-theme="dark"` on its `<html>`.
 | Radio | The one `#plnav-radio` row and `#radio-view` (see "Radio"). A future station is another rule in `stations.js`, not another page. |
 | Artists | The landing shelf `#artists-section`, `#artists-view` (`/artists`) and `#artist-view` (`/artist/<key>`), see "Artists". Cards are `.artist-card` (`artists.ts` `cardHtml`); never a second artist list. |
 | Player | The one app-wide `#player-bar` (`section.sticky-player.player-bar` in `index.html`, outside the views): see "Player bar" below. Never add a second player or a per-page `<audio>`. |
+| Sound settings | The one `#sound-panel`, opened by the player bar's `#sound-btn` (see "Sound panel"). Never a second settings place for speed, sleep timer, equalizer, boost or skip silence. |
 | Context menu / small popover | `context-menu.ts` (see "Context menu" below). Never a second menu implementation. |
 | Search | The one global field `#app-search`, in the shell's top bar, and the search page (see "Search" below). Never a second search field for the whole app (the sidebar's playlist filter, the library's, the playlist's and the artists' boxes filter their own lists). |
 | Icons | Inline SVG (Material paths), `fill="currentColor"`, `aria-hidden="true"`. Inside buttons they are sized automatically (1.25rem, 1rem in `.btn-sm`); elsewhere add `.icon` or `.icon-sm`. |
@@ -990,16 +991,18 @@ art, times, buttons).
     choice it is **all** (`DEFAULT_REPEAT`, `initialRepeatMode` in `player-queue.ts`); a stored `off` stays off. Radio
     never replays its list (`contextRepeat`: it runs into its next round), and a listen-along follower never loops on
     its own (the leader's songs drive it). The button shows the mode from page load (`.active` + its label).
-  - `.player-zone-right`, right-aligned: mute + volume, then chat at the very far right (`#social-toggle`,
+  - `.player-zone-right`, right-aligned: the sound button (`#sound-btn`, sliders icon, opens the sound panel; an accent
+    dot on its corner while a setting changes the sound, a small moon at its foot while the sleep timer is armed; never
+    an edge), mute + volume, then chat at the very far right (`#social-toggle`,
     unread badge on its corner; toggles the chat panel from 1010px, opens `/social` below that; the only opener
     below 1010px, the rail is the labelled one above that). The slider is 4.75rem at 768px, growing with the
     viewport to 7.8125rem at 1280px.
-  - Focus order follows that: song, ⋮, transport, seek, mute, volume, chat.
+  - Focus order follows that: song, ⋮, transport, seek, sound, mute, volume, chat.
 - Below 768px the zones dissolve (`display: contents`) into one row with the seek line wrapped under it, and the
   volume slider hides. The row reads song, ⋮, transport, mute, chat; the times are under the seek line. The seek
   input stays in the centre zone's markup, so there Tab reaches it before mute and chat.
-- Below 576px it is the slim form: cover, title, play/pause, next, chat and a thin seek line (`.player-extra`
-  and times hidden).
+- Below 576px it is the slim form: cover, title, play/pause, next, sound, chat and a thin seek line (`.player-extra`
+  and times hidden). The sound button is not `.player-extra`: the panel is reachable on phones.
 - On coarse pointers the seek input keeps a 2.5rem hit area around its 20px of layout; the buttons in the row
   stay above it, which leaves at least 34px under a button. Keep the zone's gap, and its bottom padding from
   768px, or that shrinks.
@@ -1009,6 +1012,38 @@ art, times, buttons).
   and the gap above it — is `--app-player-height` on `body` (`.has-player-bar`), which ends the columns, pads the
   views and lifts toasts and prompts; new fixed bottom elements must use it too.
 - Hidden only on the login / pending views.
+
+### Sound panel
+
+The listener's own sound settings (`#sound-panel` in `index.html`; `sound-panel.ts`; settings in `sound.ts` /
+`sound-settings.ts`, kept in this browser as one versioned object, `listen-sound`, next to repeat and shuffle; never
+synced to the account). Each listener hears their own; listening along uses the follower's own (speed aside).
+
+- **Opening**: `#sound-btn` (`aria-haspopup="dialog"`, `aria-expanded`, `aria-controls`; its label says "(changed)"
+  and the sleep countdown when they apply). A non-modal `role="dialog"` box labelled by its title: an `--app-overlay`
+  surface with a `--app-border-strong` edge, `--app-panel-radius` corners and `--bs-box-shadow-lg`, 24rem wide, above
+  the player bar's right end (`bottom` = `--app-player-height` + a gap) and left of the chat column when it is docked
+  (`right` = `--app-social-inset` + a gap), so it never covers the bar or the chat. Below 576px it is a sheet across the
+  window (a gap each side) above the bar. Its body scrolls inside; it is never taller than the room above the bar.
+- **Closing**: the × button, the sound button again, Escape, or a press outside. Focus moves to the panel on opening and
+  back to the sound button on closing (not after a press outside).
+- **Sections**, top to bottom, divided by `--app-border-subtle` lines:
+  - **Speed**: a `.form-range` over nine steps (0.5×-2×; arrow keys move one step; `aria-valuetext` "1.25×"), the value
+    beside the label, Reset. While listening along a note says it plays at 1× and the listener's speed comes back after.
+  - **Sleep timer**: a status ("Off", "Stops in 14:32", "Stops at the end of this song"; `role="timer"`), Cancel timer,
+    an `.app-seg.app-seg-fill` of 15 / 30 / 45 / 60 min / End of song (`aria-pressed`), and a custom field (minutes or
+    h:mm, 1 minute to 12 hours) with Start; a wrong value shows a danger line under it.
+  - **Equalizer**: a `.switch` (on/off), Reset, a `select` of presets (Flat, Bass boost, Treble boost, Vocal / speech, Rock,
+    Electronic, Classical / acoustic, Small speakers, Custom: too many for a segmented control at 360px), then ten band
+    rows (frequency, slider -12..+12 dB in half-dB steps whose fill runs from 0 dB in the middle, value). Dragging a band
+    makes the curve Custom and switches the equalizer on; so does choosing a preset. Off, the rows are dimmed.
+  - **Volume boost**: a slider 0..+100% (steps of 5), Reset, a note on the limiter. A warning-coloured status line under it
+    when effects cannot run ("off on this device", "start with your next tap", "this browser cannot").
+  - **Skip silence**: a `.switch`, on by default, and a note (not while listening along).
+- **Phones and tablets** (coarse pointer or a mobile browser): above the equalizer, a note that effects can stop the music
+  when the screen locks or the browser is in the background, and a switch "Use them on this device anyway". Until it is on,
+  the equalizer and boost controls are disabled and nothing of Web Audio runs.
+- Volume and mute stay where they are (the player bar); the boost multiplies after them.
 
 ### Chat and people panel
 

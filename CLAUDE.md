@@ -180,6 +180,52 @@ of a fresh database and of a migrated old one.
   streak stop drops it; keys carry a generation so a verdict overtaken by
   played / replaced / cleared / another account is discarded. A report hides
   the song from Radio and the artist pages for everyone.
+- **Sound settings (web only; DESIGN.md "Sound panel")**: per listener, kept in this browser as one versioned object
+  (`listen-sound`, `frontend/src/player/sound-settings.ts`: every field falls back on its own; `sound.ts` loads, saves
+  and announces), never synced. Pure rules, tested, in `player/*-rules.ts`: `speed-rules.ts`, `sleep-timer-rules.ts`,
+  `equalizer-rules.ts`, `skip-silence-rules.ts`; runtime in `speed.ts`, `sleep-timer.ts`, `audio-graph.ts`,
+  `skip-silence.ts`; UI `sound-panel.ts`. Player hooks they use: `player.setEndHook` / `finishTrack` (a song's end:
+  the 'ended' event and skip silence's early end both go there, so repeat, the search loop, Radio's refill and the
+  sleep timer see one kind of end), `player.setStartAt` + the `'start'` event (where a song the listener starts
+  begins), `'rate'`.
+  - **Speed** (0.5×-2×, `preservesPitch`, `defaultPlaybackRate` too so loads keep it; Media Session position state
+    carries the rate). A listen-along follower plays at 1× (own speed back afterwards). The leader's
+    `presence:now-playing` and `listen:sync` carry `rate` (additive, 0.25-4, else 1; `presence.ts`, `listenAlong.ts`):
+    a follower starts a song at the leader's real position and corrects drift only while the leader is at 1×, but
+    still follows the leader's seeks (`leaderJumped`), play / pause and songs.
+  - **Sleep timer**: page state only (a reload cancels it). The last 8 s fade the element's volume, then
+    `player.pause()` exactly as the listener pausing (it ends their own listening along; their followers pause). "End
+    of song" is the end hook; following, a leader's next song in the last seconds counts as the end.
+  - **Audio graph** (`audio-graph.ts`, equalizer + boost): nothing of Web Audio exists until an effect is wanted, so
+    the neutral state is the plain element. The context is created and resumed in a user gesture (panel controls, or
+    the first press on the page when effects were saved) and `createMediaElementSource` (once per element, for good)
+    is called only when it RUNS, so the reroute never lands in a silent context; suspended contexts are resumed on
+    play / visibility / gesture; back to neutral, source -> destination directly. Volume and mute stay on the element
+    (Chromium applies them before the source node). Chain: 10 biquads (31 Hz-16 kHz, shelves at the ends) -> boost
+    gain (<= 2×) -> DynamicsCompressor at -2 dBFS -> a trim that cancels Chromium's make-up gain (measured with an
+    OfflineAudioContext), only while an effect is on. Phones / tablets (`isMobileBrowser`): effects only after an
+    opt-in (Web Audio output can stop with the screen locked, iOS above all). Only same-origin sources reach the
+    element (Web Audio silences cross-origin media without CORS): keep it that way; the failure probe's `blob:` copy
+    plays in its own muted element, outside the graph.
+  - **Skip silence** (on by default): `library_songs.lead_silence_ms` / `trail_silence_ms` (NULL = not measured;
+    `core/library/schema.ts`), measured by `backend/src/core/library/silence.ts` (`nice -n 19 ffmpeg -af
+    silencedetect=noise=-50dB:d=1`; only silence from 0 or to the end; tests with generated files in
+    `silence.ffmpeg.test.ts`). The scanner: index.js hooks `songAdded` / `songReplaced` only queue (a replace first
+    resets the numbers; a result is stored only while the song still has that `file_path`), then a backfill of NULL
+    rows newest first, one pass per boot (resumable), strictly one ffmpeg at a time, 120 s limit, 2 s apart, its own
+    queue (not songVerify's); off without database / ffmpeg / songs folder, with `SILENCE_SCAN=off`, and in tests
+    unless `SILENCE_SCAN=on` (`SILENCE_START_DELAY_MS`, `SILENCE_PAUSE_MS`). `GET /api/stream/silence?q=<queue url>`
+    (`silenceRoutes.ts`, resolved like `/api/stream`, lists `apiLimiter` itself) is what the player asks when a song
+    starts; the library song view carries the two fields (additive); admins: `GET /api/admin/library/silence`
+    (counted by the library router's `/api/admin/library` scope, so it lists no limiter). The scanner opens a row's
+    file only through `library.songsFile` (inside the songs folder). Web: start at the lead-in's end
+    (or jump there when the answer is late and the listener has not moved), end through `finishTrack` when playback
+    crosses into the tail; a seek into either region plays as asked; never while following (the leader's positions).
+  - **Crossfade / gapless: not built.** A real one needs two `<audio>` elements behind one "active element" (every
+    module that reads `elements.audioPlayer` today: player, audio.ts, playback-failures, listen-along, speed, sleep
+    timer, skip silence, the graph, which would need a source per element), events re-dispatched from the active one,
+    failures of the preloading one held until it becomes active, and no crossfade while following, into a song that
+    failed or across a sleep stop.
 - **Downloaders ("workers") and download jobs.** `la worker` (cli/src/worker.js,
   commands/worker.js) runs on users' machines and connects OUT over a
   WebSocket to `/api/workers/connect` (raw `ws` server on the HTTP server's
@@ -438,7 +484,7 @@ of a fresh database and of a migrated old one.
   followers get only the song + `/api/library/:id/file`, never the playlist.
   A root going offline (after the presence grace) ends it after the current
   song. Any own playback action of the follower ends it (`player.ts`
-  play/pause/seek take `{ keepDriver }` for the driver). The old per-playlist
+  play/pause/seek take `{ keepDriver }` for the driver). Speed and skip silence while following: see "Sound settings". The old per-playlist
   follow (`follow:*`) is gone. Do not name a table `chat_messages`: `features/social/schema.ts`
   drops that (old per-playlist chat) on every boot.
 
@@ -637,7 +683,8 @@ TypeScript one area at a time; until an area is converted its files stay
   - A converted area is a folder of ES-module `.ts` (`backend/src/features/<name>/`), moved with `git mv` so
     history follows, its tests next to it as `*.test.ts` (plain `node --test` finds them). The folder holding
     converted areas has a `package.json` that is only `{"type": "module"}` (`backend/src/features/`, `shared/`,
-    `auth/`, `core/`; `core/` holds its areas' `schema.ts` files and `core/playlists/folders.ts` so far).
+    `auth/`, `core/`; `core/` holds its areas' `schema.ts` files, `core/playlists/folders.ts` and `core/library/`'s
+    silence scanner and its routes (behind its `index.ts`) so far).
     Everything under them is ES modules,
     so a file moves there only once converted (never a CommonJS `.js`). Without it Node guesses the format of each `.ts`
     and prints `MODULE_TYPELESS_PACKAGE_JSON` at boot and in tests; with it there is no warning and no flag. It
