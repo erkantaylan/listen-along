@@ -6,26 +6,29 @@
 //     client's budget by exactly one, whichever way it is limited (the route
 //     lists it, a path-scoped app.use in index.js, the guard for the playlist
 //     API), and /health, the build info and the legacy status checks never do
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const http = require('node:http');
-const express = require('express');
-const { make } = require('./shared/rateLimits.ts');
-const { createLibraryRouter } = require('./core/library/index.ts');
-const { startServer, cookieFor, adminCookie } = require('./testServer');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
+import express from 'express';
+import { make } from '../shared/rateLimits.ts';
+import { createLibraryRouter } from '../core/library/index.ts';
+import { startServer, cookieFor, adminCookie } from '../testServer.js';
+
+type Server = Awaited<ReturnType<typeof startServer>>;
 
 describe('the library router counts only its own paths', () => {
-  let server;
-  let base;
+  let server: http.Server;
+  let base: string;
   before(async () => {
     const app = express();
     app.use(createLibraryRouter({ apiLimiter: make(2) }));
     app.get('/after', (req, res) => res.json({ ok: true }));
     server = http.createServer(app);
-    await new Promise((r) => server.listen(0, '127.0.0.1', r));
-    base = `http://127.0.0.1:${server.address().port}`;
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   });
-  after(() => new Promise((r) => server.close(r)));
+  after(() => new Promise<void>((r) => server.close(() => r())));
 
   it('a route mounted after it is not charged; a library route costs exactly one', async () => {
     for (let i = 0; i < 5; i++) assert.equal((await fetch(`${base}/after`)).status, 200, 'passes by, never limited');
@@ -39,19 +42,19 @@ describe('the library router counts only its own paths', () => {
 });
 
 describe('the real server: one count per limited request', { timeout: 60_000 }, () => {
-  let srv;
+  let srv: Server | undefined;
   const alice = cookieFor('00000000-0000-4000-8000-00000000a11c');
-  const remaining = (res) => {
+  const remaining = (res: Response) => {
     const m = /remaining=(\d+)/.exec(res.headers.get('ratelimit') || '');
     return m ? Number(m[1]) : null;
   };
   before(async () => { srv = await startServer({ APP_RELEASES_API_URL: 'http://127.0.0.1:9/none' }); });
   after(() => srv && srv.stop());
 
-  const get = (url, headers = {}) => fetch(srv.base + url, { headers, redirect: 'manual' });
+  const get = (url: string, headers: Record<string, string> = {}) => fetch(srv!.base + url, { headers, redirect: 'manual' });
 
   it('every limited route lowers the budget by exactly one; the rest never touch it', async () => {
-    const limited = [
+    const limited: [string, Record<string, string>][] = [
       ['/api/stream', { cookie: alice }], // lists it
       ['/api/covers/x', { cookie: alice }],
       ['/dashboard', {}],
@@ -78,7 +81,7 @@ describe('the real server: one count per limited request', { timeout: 60_000 }, 
       ['/changelog', {}],
       ['/api/changelog', {}],
     ];
-    let before = null;
+    let before: number | null = null;
     for (const [url, headers] of limited) {
       const res = await get(url, headers);
       const left = remaining(res);
@@ -91,6 +94,6 @@ describe('the real server: one count per limited request', { timeout: 60_000 }, 
       assert.equal(remaining(res), null, `${url} is not limited`);
     }
     // ...and they did not count either.
-    assert.equal(remaining(await get('/api/stream', { cookie: alice })), before - 1);
+    assert.equal(remaining(await get('/api/stream', { cookie: alice })), before! - 1);
   });
 });

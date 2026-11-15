@@ -1,9 +1,12 @@
 // /admin moved into /dashboard: the old URL redirects, the page is a data-free
 // shell with its own login, every admin API stays behind the admin cookie, and
 // without ADMIN_PASSWORD all of it is 404.
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const { startServer, requester, adminCookie, cookieFor } = require('./testServer');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { startServer, requester, adminCookie, cookieFor } from '../testServer.js';
+
+type Server = Awaited<ReturnType<typeof startServer>>;
+type Req = ReturnType<typeof requester>;
 
 const ADMIN_APIS = [
   ['GET', '/api/admin/workers'], ['GET', '/api/admin/jobs'], ['POST', '/api/admin/jobs/x/cancel'], ['POST', '/api/admin/jobs/x/retry'],
@@ -14,7 +17,7 @@ const ADMIN_APIS = [
 ];
 
 describe('dashboard with admin enabled', () => {
-  let srv; let req;
+  let srv: Server; let req: Req;
   before(async () => { srv = await startServer(); req = requester(srv.base); });
   after(() => srv.stop());
 
@@ -59,7 +62,7 @@ describe('dashboard with admin enabled', () => {
 });
 
 describe('dashboard without ADMIN_PASSWORD', () => {
-  let srv; let req;
+  let srv: Server; let req: Req;
   before(async () => { srv = await startServer({ ADMIN_PASSWORD: '' }); req = requester(srv.base); });
   after(() => srv.stop());
 

@@ -1,19 +1,21 @@
-// Static files of the web app (frontendStatic.js): compiled TypeScript from
+// Static files of the web app (frontendStatic.ts): compiled TypeScript from
 // <frontend>/dist and the rest of <frontend>, both at the site root, with
 // build configuration answering 404. Runs the real server (no database).
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const { startServer } = require('./testServer');
-const { isBuildConfig } = require('./app/index.ts');
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { startServer } from '../testServer.js';
+import { isBuildConfig } from './index.ts';
 
-const REAL_FRONTEND = path.join(__dirname, '..', '..', 'frontend');
+type Server = Awaited<ReturnType<typeof startServer>>;
 
-function makeFrontend({ dist }) {
+const REAL_FRONTEND = path.join(import.meta.dirname, '..', '..', '..', 'frontend');
+
+function makeFrontend({ dist }: { dist: boolean }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'la-frontend-'));
-  const write = (rel, text) => {
+  const write = (rel: string, text: string) => {
     fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
     fs.writeFileSync(path.join(dir, rel), text);
   };
@@ -33,7 +35,7 @@ function makeFrontend({ dist }) {
   return dir;
 }
 
-async function get(base, url) {
+async function get(base: string, url: string) {
   const res = await fetch(base + url, { redirect: 'manual' });
   return { status: res.status, text: await res.text(), headers: res.headers };
 }
@@ -53,45 +55,45 @@ describe('isBuildConfig', () => {
 });
 
 describe('frontend static files with a built dist/', () => {
-  let srv, dir;
+  let srv: Server | undefined, dir: string;
   before(async () => { dir = makeFrontend({ dist: true }); srv = await startServer({ FRONTEND_PATH: dir }); });
   after(async () => { await srv?.stop(); fs.rmSync(dir, { recursive: true, force: true }); });
 
   it('serves compiled modules at the site root, no-cache, and they win over an old file of the same name', async () => {
-    const r = await get(srv.base, '/both.js');
+    const r = await get(srv!.base, '/both.js');
     assert.equal(r.status, 200);
     assert.match(r.text, /"compiled"/);
     assert.equal(r.headers.get('cache-control'), 'no-cache');
-    assert.match(r.headers.get('content-type'), /javascript/);
-    const deep = await get(srv.base, '/shared/deep.js');
+    assert.match(r.headers.get('content-type')!, /javascript/);
+    const deep = await get(srv!.base, '/shared/deep.js');
     assert.equal(deep.status, 200);
     assert.equal(deep.headers.get('cache-control'), 'no-cache');
   });
 
   it('still serves files that are not compiled from frontend/', async () => {
-    const r = await get(srv.base, '/old.js');
+    const r = await get(srv!.base, '/old.js');
     assert.equal(r.status, 200);
     assert.match(r.text, /"old"/);
     assert.equal(r.headers.get('cache-control'), 'no-cache');
-    const css = await get(srv.base, '/app.css');
+    const css = await get(srv!.base, '/app.css');
     assert.equal(css.status, 200);
     assert.equal(css.headers.get('cache-control'), 'no-cache');
   });
 
   it('serves source maps and the .ts sources they point at', async () => {
-    const map = await get(srv.base, '/both.js.map');
+    const map = await get(srv!.base, '/both.js.map');
     assert.equal(map.status, 200);
     assert.equal(map.headers.get('cache-control'), 'no-cache');
     // "../src/both.ts" relative to /both.js.map is /src/both.ts
-    const src = await get(srv.base, '/src/both.ts');
+    const src = await get(srv!.base, '/src/both.ts');
     assert.equal(src.status, 200);
-    assert.match(src.headers.get('content-type'), /^text\/plain/);
+    assert.match(src.headers.get('content-type')!, /^text\/plain/);
     assert.match(src.text, /compiled/);
   });
 
   it('answers 404 for build configuration and for /dist/ itself', async () => {
     for (const url of ['/package.json', '/tsconfig.json', '/%70ackage.json', '/frontend.tsbuildinfo', '/dist/both.js']) {
-      const r = await get(srv.base, url);
+      const r = await get(srv!.base, url);
       assert.equal(r.status, 404, url);
       assert.doesNotMatch(r.text, /"type"|compiled/, url);
     }
@@ -99,44 +101,44 @@ describe('frontend static files with a built dist/', () => {
 });
 
 describe('frontend static files without dist/ (fresh checkout, not built)', () => {
-  let srv, dir;
+  let srv: Server | undefined, dir: string;
   before(async () => { dir = makeFrontend({ dist: false }); srv = await startServer({ FRONTEND_PATH: dir }); });
   after(async () => { await srv?.stop(); fs.rmSync(dir, { recursive: true, force: true }); });
 
   it('serves frontend/ as before and never errors on the missing folder', async () => {
-    const r = await get(srv.base, '/both.js');
+    const r = await get(srv!.base, '/both.js');
     assert.equal(r.status, 200);
     assert.match(r.text, /stale old file/);
-    const missing = await get(srv.base, '/not-there.js');
+    const missing = await get(srv!.base, '/not-there.js');
     assert.ok(missing.status < 500, `status ${missing.status}`);
-    const health = await get(srv.base, '/health');
+    const health = await get(srv!.base, '/health');
     assert.equal(health.status, 200);
   });
 });
 
 describe('the real frontend', () => {
-  let srv;
+  let srv: Server | undefined;
   before(async () => { srv = await startServer({ FRONTEND_PATH: REAL_FRONTEND }); });
   after(async () => { await srv?.stop(); });
 
   it('hides package.json / tsconfig*.json', async () => {
-    assert.equal((await get(srv.base, '/package.json')).status, 404);
-    assert.equal((await get(srv.base, '/tsconfig.json')).status, 404);
-    assert.equal((await get(srv.base, '/tsconfig.test.json')).status, 404);
+    assert.equal((await get(srv!.base, '/package.json')).status, 404);
+    assert.equal((await get(srv!.base, '/tsconfig.json')).status, 404);
+    assert.equal((await get(srv!.base, '/tsconfig.test.json')).status, 404);
   });
 
   // The app is compiled (frontend/src/app.ts -> dist/app.js): needs `npm run
   // build` at the repo root first, as the root `npm test` does.
   const built = fs.existsSync(path.join(REAL_FRONTEND, 'dist', 'app.js'));
   it('serves the compiled /app.js and its modules, no-cache', { skip: built ? false : 'frontend not built (npm run build)' }, async () => {
-    const app = await get(srv.base, '/app.js');
+    const app = await get(srv!.base, '/app.js');
     assert.equal(app.status, 200);
     assert.equal(app.headers.get('cache-control'), 'no-cache');
     assert.match(app.text, /from '\.\/shared\/state\.js'/, 'imports name the emitted .js files');
     for (const url of ['/shared/state.js', '/shared/i18n.js', '/shared/media-session.js', '/features/playlists/playlist.js', '/app.js.map']) {
-      assert.equal((await get(srv.base, url)).status, 200, url);
+      assert.equal((await get(srv!.base, url)).status, 200, url);
     }
-    const i18n = await get(srv.base, '/shared/i18n.js');
+    const i18n = await get(srv!.base, '/shared/i18n.js');
     assert.doesNotMatch(i18n.text, /^export /m, 'a classic script, not a module');
   });
 });
