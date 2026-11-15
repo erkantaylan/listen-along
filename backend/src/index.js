@@ -8,7 +8,6 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { monitorEventLoopDelay } = require('perf_hooks');
 const ytdlp = require('./ytdlp');
 const lobby = require('./lobby');
 const { getQueue, getQueueAsync, deleteQueue, hasQueue } = require('./queue');
@@ -46,13 +45,12 @@ const { createJobRouter } = require('./jobRoutes');
 const { createActivityFeed } = require('./activityFeed');
 const { createStationRouter } = require('./stations');
 const { createArtistRouter } = require('./artists');
+const { createInfoRouter, createPageRouter } = require('./appRoutes');
+const { createMediaRouter } = require('./mediaRoutes');
 // The web's "pick the video" dialog (picker.js): lookups for it, and what they
 // said about each video, for the title of a chosen one.
 const picker = createPicker();
 const resolver = createResolver({ videoTitles: picker.titles });
-const QRCode = require('qrcode');
-const pkg = require('../package.json');
-const { getVersionInfo } = require('./build-info');
 
 const PORT = process.env.PORT || 3000;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:8080';
@@ -260,70 +258,9 @@ app.use((req, res, next) => {
 });
 
 
-// Event-loop delay (main thread busy) for /health, over the last minute.
-// (The histogram includes its own sampling interval; /health subtracts it.)
-const LOOP_DELAY_RESOLUTION_MS = 20;
-const loopDelay = monitorEventLoopDelay({ resolution: LOOP_DELAY_RESOLUTION_MS });
-loopDelay.enable();
-setInterval(() => loopDelay.reset(), 60 * 1000).unref();
-
-// How long one fs.stat waits: it runs on the libuv threadpool (shared with
-// file reads/writes, dns.lookup, crypto, zlib), so a slow answer means that
-// pool or the disk is saturated, not the main thread. Capped so /health
-// itself never hangs on it.
-function fsProbeMs(cap = 2000) {
-  const t = process.hrtime.bigint();
-  return Promise.race([
-    fs.promises.stat(frontendPath).catch(() => null),
-    new Promise((resolve) => setTimeout(resolve, cap).unref()),
-  ]).then(() => Math.round(Number(process.hrtime.bigint() - t) / 1e5) / 10);
-}
-
-// Health check endpoint (Docker healthcheck every 30s). Must stay cheap: no
-// child processes, no database round trip.
-app.get('/health', async (req, res) => {
-  // yt-dlp is only used for YouTube search / playlist listing now (no audio).
-  // Cached: spawning it per request made this probe slow under load.
-  const ytdlpAvailable = await ytdlp.availableCached();
-  const ms = (ns) => Math.max(0, Math.round(ns / 1e5 - LOOP_DELAY_RESOLUTION_MS * 10) / 10);
-  res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    ytdlp: ytdlpAvailable ? 'available' : 'unavailable',
-    database: db.isAvailable() ? 'connected' : 'unavailable',
-    library: db.isAvailable() ? 'enabled' : 'disabled',
-    diag: {
-      eventLoopDelayMs: { p50: ms(loopDelay.percentile(50)), p99: ms(loopDelay.percentile(99)), max: ms(loopDelay.max) },
-      fsProbeMs: await fsProbeMs(),
-    },
-  });
-});
-
-// Version endpoint
-app.get('/api/version', (req, res) => {
-  res.json(getVersionInfo({ pkg }));
-});
-
-// Changelog endpoint - serves CHANGELOG.md as JSON
-app.get('/api/changelog', (req, res) => {
-  // In Docker: /app/CHANGELOG.md, locally: ../../CHANGELOG.md from backend/src/
-  const changelogPath = [
-    path.join(__dirname, '..', 'CHANGELOG.md'),
-    path.join(__dirname, '..', '..', 'CHANGELOG.md')
-  ].find(p => fs.existsSync(p));
-  try {
-    const content = fs.readFileSync(changelogPath, 'utf8');
-    res.json({ changelog: content });
-  } catch {
-    res.status(404).json({ error: 'Changelog not found' });
-  }
-});
-
-// Changelog page
-app.get('/changelog', (req, res) => {
-  res.sendFile(path.join(frontendPath, 'changelog.html'));
-});
+// Health, build info, changelog, the playlist QR code (appRoutes.js). Before
+// the library router: its router.use(apiLimiter) counts everything after it.
+app.use(createInfoRouter({ db, ytdlp, frontendPath }));
 
 // Legacy registration / approval check from the localStorage-id era. The
 // caller is now always the logged-in account (or nobody): both answer that
@@ -340,27 +277,6 @@ async function sendOwnStatus(req, res) {
 }
 app.post('/api/auth/register', sendOwnStatus);
 app.get('/api/auth/status', sendOwnStatus);
-
-// Generate QR code for a playlist link. It only encodes the URL (the id comes
-// from the caller), so it reveals nothing about whether the playlist exists.
-app.get('/api/qr/:lobbyId', async (req, res) => {
-  const lobbyId = req.params.lobbyId;
-  if (!/^[a-zA-Z0-9-]{1,64}$/.test(lobbyId)) return res.status(400).json({ error: 'Invalid id' });
-  const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
-  const url = `${baseUrl}/playlist/${lobbyId}`;
-
-  try {
-    const buffer = await QRCode.toBuffer(url, {
-      width: 256,
-      margin: 2,
-      color: { dark: '#000000', light: '#ffffff' }
-    });
-    res.type('png').send(buffer);
-  } catch (err) {
-    console.error('QR code generation error:', err.message);
-    res.status(500).json({ error: 'Failed to generate QR code' });
-  }
-});
 
 // Download workers (`la worker` on users' machines) and their jobs: see
 // workerHub.js (WebSocket, routing), downloadJobs.js (store), jobRoutes.js
@@ -504,35 +420,13 @@ app.use(createJobRouter({
   picker,
 }));
 
-// The admin page moved into /dashboard. The query is dropped on purpose (the old
-// ?next= has no meaning any more).
-app.get('/admin', apiLimiter, (req, res) => res.redirect(301, '/dashboard'));
+// The latest Android release for the /app page (appRelease.js).
+const appRelease = createAppRelease(process.env.APP_RELEASES_API_URL ? { apiUrl: process.env.APP_RELEASES_API_URL } : {});
+// Redirects, SPA views, the Android release, the dashboard shell, "/" (appRoutes.js).
+app.use(createPageRouter({ frontendPath, apiLimiter, adminAuth, appRelease }));
 
-// Play audio for a queue entry. `q` is the queue entry's url: a YouTube URL
-// (looked up by youtube_id), `library:<id>`, or a legacy cache URL. The server
-// never downloads: anything not in the library is a 404 NOT_IN_LIBRARY.
-app.get('/api/stream', apiLimiter, async (req, res) => {
-  const { q } = req.query;
-  if (!q) {
-    return res.status(400).json({ error: 'Missing query parameter: q' });
-  }
-  if (!db.isAvailable()) {
-    return res.status(503).json({ error: 'Library unavailable (no database)', code: 'NO_DATABASE' });
-  }
-  // When dl is set, force the browser to save the file instead of playing it
-  // inline. Used by the "Download playlist" feature.
-  const forceDownload = req.query.dl === '1' || req.query.dl === 'true';
-  try {
-    const song = await library.resolveQueueUrl(String(q));
-    if (!song) {
-      return res.status(404).json({ error: 'This song is not in the library yet', code: 'NOT_IN_LIBRARY' });
-    }
-    sendSongFile(req, res, song, { download: forceDownload });
-  } catch (err) {
-    console.error('Stream error:', err.message);
-    res.status(500).json({ error: 'Stream error' });
-  }
-});
+// Audio for queue entries and their covers (mediaRoutes.js).
+app.use(createMediaRouter({ db, library, covers, apiLimiter, sendSongFile }));
 
 // ==========================================
 // Playlists (internally "lobbies") — HTTP API
@@ -1010,48 +904,6 @@ app.post(playlistPaths('/:id/songs/:entryId/move'), express.json(), playlistRout
   await queue.flush();
   res.json({ playlist_id: l.id, songs: await playlistSongViews(queue.getSongs()) });
 }));
-
-// Thumbnail hosts queue entries use: YouTube (library songs, search) and
-// Spotify (track links).
-const COVER_HOST_SUFFIXES = ['ytimg.com', 'youtube.com', 'ggpht.com', 'googleusercontent.com', 'scdn.co', 'spotifycdn.com'];
-function isAllowedCoverUrl(value) {
-  let u;
-  try { u = new URL(String(value)); } catch { return false; }
-  if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
-  if (u.username || u.password) return false;
-  const host = u.hostname.toLowerCase();
-  return COVER_HOST_SUFFIXES.some(sfx => host === sfx || host.endsWith('.' + sfx));
-}
-
-// Get cached cover art for a song
-app.get('/api/covers/:id', (req, res) => {
-  const songId = req.params.id;
-  const fallbackUrl = req.query.fallback;
-
-  const cached = covers.getCachedCover(songId);
-  if (cached) {
-    // Validate cached path is within COVERS_DIR to prevent path traversal
-    const resolvedPath = path.resolve(cached.path);
-    const coversBase = path.resolve(covers.COVERS_DIR);
-    if (!resolvedPath.startsWith(coversBase + path.sep) && resolvedPath !== coversBase) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-    res.setHeader('Content-Type', cached.contentType);
-    res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 1 day
-    return res.sendFile(resolvedPath);
-  }
-
-  // Not cached - redirect to the fallback thumbnail, but only on a known
-  // image host (anything else would make this an open redirect).
-  if (fallbackUrl) {
-    if (!isAllowedCoverUrl(fallbackUrl)) {
-      return res.status(400).json({ error: 'Invalid fallback URL' });
-    }
-    return res.redirect(fallbackUrl);
-  }
-
-  res.status(404).json({ error: 'Cover not found' });
-});
 
 
 // Post-login destination (?next): only same-origin relative paths.
@@ -1751,35 +1603,6 @@ app.delete('/api/chat/messages/:id', adminAuth.requireAdmin, async (req, res) =>
   res.json({ success: true });
 });
 
-// Old lobby URLs moved to /playlist/... (the client does the same for in-app
-// navigation, see legacyRedirect in frontend/router.js).
-app.get(['/lobby/:id', '/lobby/:id/library'], (req, res) => {
-  const qs = req.originalUrl.indexOf('?');
-  const rest = req.path.endsWith('/library') ? '/library' : '';
-  res.redirect(301, `/playlist/${encodeURIComponent(req.params.id)}${rest}${qs >= 0 ? req.originalUrl.slice(qs) : ''}`);
-});
-
-// SPA views (auth guard applied above; the client routes them, see frontend/router.js)
-app.get(['/playlist/:id', '/playlist/:id/library', '/library', '/radio', '/artists', '/artist/:key', '/search', '/profile', '/social', '/app'], (req, res) => {
-  res.sendFile(path.join(frontendPath, 'index.html'));
-});
-
-// The latest Android release for the /app page. Always 200: when GitHub cannot
-// be reached the page still has its link to the releases page.
-const appRelease = createAppRelease(process.env.APP_RELEASES_API_URL ? { apiUrl: process.env.APP_RELEASES_API_URL } : {});
-app.get('/api/app/latest', apiLimiter, async (req, res) => {
-  res.set('Cache-Control', 'private, no-cache');
-  res.json(await appRelease.latest());
-});
-
-// Dashboard page: the SPA shell, which holds no data. It asks /api/admin/status
-// and shows its login form until the la_admin cookie is set; everything it then
-// shows comes from APIs behind adminAuth.requireAdmin. 404 without ADMIN_PASSWORD.
-app.get('/dashboard', apiLimiter, (req, res) => {
-  if (!adminAuth.isEnabled()) return res.status(404).type('text/plain').send('Admin is disabled (ADMIN_PASSWORD not set)');
-  res.sendFile(path.join(frontendPath, 'index.html'));
-});
-
 // Login page (the SPA's login view). Someone already logged in goes on to
 // ?next (a same-origin path) or home. The sign-in round trips carry ?next
 // themselves (the central login in its flow cookie).
@@ -1798,11 +1621,6 @@ app.get('/login', async (req, res) => {
 // `google` / `github` too; missing is false to them.
 app.get('/api/auth/providers', (req, res) => {
   res.json({ central: OIDC.enabled, dev: DEV_LOGIN });
-});
-
-// Serve index for root
-app.get('/', (req, res) => {
-  res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
 // Rooms: APP_ROOM holds every socket of an approved account (library /
