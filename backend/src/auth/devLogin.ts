@@ -12,26 +12,33 @@
  * with SESSION_SECRET under its own label (so nothing signed for another
  * purpose, the old `listen_auth` cookie included, ever verifies as one). `id`
  * is users.id, `t` the sign-in time; 30 days. `GET /auth/dev/login` sets it
- * (index.js), the tests sign it directly (testServer.js cookieFor).
+ * (authRoutes.ts), the tests sign it directly (testServer.js cookieFor).
  */
 
-const crypto = require('crypto');
+import crypto from 'crypto';
+import type { Env } from './oidcConfig.ts';
 
-const DEV_COOKIE = 'la_dev_login';
-const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+export const DEV_COOKIE = 'la_dev_login';
+export const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const CLOCK_SKEW_MS = 5 * 60 * 1000;
 const LABEL = 'listen-along-dev-login-v1.';
 const ALLOWED_NODE_ENVS = new Set(['development', 'test']);
 
-class DevLoginError extends Error {}
+export class DevLoginError extends Error {}
 
-const trimmed = (v) => (typeof v === 'string' ? v.trim() : '');
+/** What a valid `la_dev_login` cookie holds: users.id and the sign-in time (ms). */
+export interface DevToken {
+  id: string | number;
+  t: number;
+}
+
+const trimmed = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 
 /**
- * @returns {boolean} whether dev sign-in is on
+ * @returns whether dev sign-in is on
  * @throws DevLoginError when it is asked for where it must not run
  */
-function readDevLogin(env = process.env) {
+export function readDevLogin(env: Env = process.env): boolean {
   const raw = trimmed(env.INSECURE_DEV_LOGIN);
   if (!raw || raw === '0') return false;
   if (raw !== '1') throw new DevLoginError(`INSECURE_DEV_LOGIN must be 1 or empty (got "${raw}")`);
@@ -48,16 +55,15 @@ function readDevLogin(env = process.env) {
   return true;
 }
 
-const sign = (secret, payload) => crypto.createHmac('sha256', secret).update(LABEL + payload).digest('base64url');
+const sign = (secret: string, payload: string): string => crypto.createHmac('sha256', secret).update(LABEL + payload).digest('base64url');
 
 /** The `la_dev_login` cookie value for users.id `userId`. */
-function signDevToken(secret, userId, t = Date.now()) {
+export function signDevToken(secret: string, userId: string, t: number = Date.now()): string {
   const payload = Buffer.from(JSON.stringify({ id: userId, t })).toString('base64url');
   return `${payload}.${sign(secret, payload)}`;
 }
 
-/** @returns {{id, t}|null} */
-function verifyDevToken(secret, token, now = Date.now()) {
+export function verifyDevToken(secret: string, token: unknown, now: number = Date.now()): DevToken | null {
   if (!secret || !token || typeof token !== 'string' || token.length > 2048) return null;
   const idx = token.indexOf('.');
   if (idx <= 0) return null;
@@ -65,12 +71,11 @@ function verifyDevToken(secret, token, now = Date.now()) {
   const sig = token.slice(idx + 1);
   const expected = sign(secret, payload);
   if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
-  let data;
+  // Parsed JSON: checked field by field below before it is returned as a DevToken.
+  let data: { id?: unknown; t?: unknown } | null;
   try { data = JSON.parse(Buffer.from(payload, 'base64url').toString()); } catch { return null; }
   if (!data || (typeof data.id !== 'string' && typeof data.id !== 'number') || data.id === '') return null;
   if (typeof data.t !== 'number' || !Number.isFinite(data.t)) return null;
   if (data.t > now + CLOCK_SKEW_MS || now - data.t > MAX_AGE_MS) return null;
-  return data;
+  return data as DevToken;
 }
-
-module.exports = { DEV_COOKIE, MAX_AGE_MS, DevLoginError, readDevLogin, signDevToken, verifyDevToken };

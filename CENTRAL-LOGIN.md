@@ -352,7 +352,7 @@ There is no password login. Two ways to sign in without the owner's IdP:
   issuers are accepted only outside production. `central-login.test.js` runs the real server
   against the same fake provider (discovery, JWKS, authorize, token with PKCE and refresh rotation,
   end-session, signed with jose).
-- **The dev sign-in** (`INSECURE_DEV_LOGIN=1`, `backend/src/devLogin.js`): no IdP at all. The
+- **The dev sign-in** (`INSECURE_DEV_LOGIN=1`, `backend/src/auth/devLogin.ts`): no IdP at all. The
   server refuses to start with it unless `NODE_ENV` is exactly `development` or `test`, and when
   `OIDC_ISSUER` / `OIDC_CLIENT_ID` are set too; neither compose file passes it through. The login
   page's button then goes to `/auth/dev/login?user=<users.id>&next=<path>` (without `?user`: a

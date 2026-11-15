@@ -24,7 +24,7 @@ const { policyFor, parseCookie } = require('./userAuth');
 const { createMobileAuthRouter } = require('./mobileAuth');
 const { FLOW_COOKIE_PATH: OIDC_FLOW_PATH, FLOW_MAX_AGE_MS: OIDC_FLOW_MAX_AGE_MS } = require('./oidc');
 const { linkCentralIdentity } = require('./oidcLink');
-const { signDevToken, DEV_COOKIE, MAX_AGE_MS: DEV_LOGIN_MAX_AGE_MS } = require('./devLogin');
+const { signDevToken, DEV_COOKIE, MAX_AGE_MS: DEV_LOGIN_MAX_AGE_MS } = require('./auth/devLogin.ts');
 
 // The old Google / GitHub login cookie. It is no login any more; sign-in and
 // logout only delete it from browsers that still carry one.

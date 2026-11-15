@@ -17,11 +17,10 @@ const db = require('./shared/db.ts');
 const library = require('./library');
 const requests = require('./requests');
 const tokens = require('./tokens');
-const { mobileBearer } = require('./mobileTokens');
+const { mobileBearer, adminAuth } = require('./auth/index.ts');
 const downloadJobs = require('./downloadJobs');
 const songReports = require('./songReports');
 const songVerify = require('./songVerify');
-const adminAuth = require('./adminAuth');
 const { apiLimiter, keyFor, make: makeLimiter } = require('./shared/rateLimits.ts');
 
 function parseIntParam(value, def, min, max) {

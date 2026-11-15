@@ -6,7 +6,7 @@ const crypto = require('node:crypto');
 const net = require('node:net');
 const os = require('node:os');
 const path = require('node:path');
-const { DEV_COOKIE, signDevToken } = require('./devLogin');
+const { DEV_COOKIE, signDevToken, adminAuth } = require('./auth/index.ts');
 
 const SECRET = 'test-session-secret';
 const ADMIN_PASSWORD = 'test-admin-pw';
@@ -25,7 +25,7 @@ function cookieFor(userId, t = Date.now(), secret = SECRET) {
 function adminCookie(password = ADMIN_PASSWORD) {
   const prev = process.env.ADMIN_PASSWORD;
   process.env.ADMIN_PASSWORD = password;
-  const v = `la_admin=${encodeURIComponent(require('./adminAuth').createSessionValue())}`;
+  const v = `la_admin=${encodeURIComponent(adminAuth.createSessionValue())}`;
   if (prev === undefined) delete process.env.ADMIN_PASSWORD; else process.env.ADMIN_PASSWORD = prev;
   return v;
 }

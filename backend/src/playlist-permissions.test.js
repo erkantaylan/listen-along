@@ -8,7 +8,7 @@ const { spawn } = require('node:child_process');
 const path = require('node:path');
 const http = require('node:http');
 const { io: ioClient } = require('socket.io-client');
-const { DEV_COOKIE, signDevToken } = require('./devLogin');
+const { DEV_COOKIE, signDevToken } = require('./auth/index.ts');
 const { listening } = require('./testServer');
 const access = require('./playlistAccess');
 

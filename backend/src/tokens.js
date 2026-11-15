@@ -11,7 +11,7 @@
 
 const crypto = require('crypto');
 const db = require('./shared/db.ts');
-const { isMobileToken } = require('./mobileTokens');
+const { isMobileToken } = require('./auth/mobileTokens.ts');
 
 const TOKEN_PREFIX = 'la_';
 /** Most active tokens one user may hold at a time. */

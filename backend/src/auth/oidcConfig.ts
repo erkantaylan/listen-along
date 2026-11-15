@@ -5,7 +5,7 @@
  * the only sign-in in production: with NODE_ENV=production it is REQUIRED
  * (OIDC_ISSUER, OIDC_CLIENT_ID, BASE_URL or FRONTEND_URL, SESSION_SECRET), and its absence
  * stops the boot. Outside production, neither set = off (then the dev sign-in,
- * devLogin.js, must be on instead; index.js checks). One without the other, or
+ * devLogin.ts, must be on instead; index.js checks). One without the other, or
  * a value that cannot work, is a configuration error: readOidcConfig() throws
  * and the server refuses to start (index.js), so a broken deploy is loud.
  *
@@ -29,15 +29,55 @@
  *                      sign-in flow cookie)
  */
 
-const DEFAULT_SCOPES = 'openid email profile entitlements offline_access';
-const DEFAULT_PROVIDER_MAP = Object.freeze({ google: 'google', github: 'github' });
-const CALLBACK_PATH = '/auth/oidc/callback';
+/** The environment as read here (process.env, or a test's object). */
+export type Env = Record<string, string | undefined>;
+/** upstream_identities' provider slug -> listen-along's provider name. */
+export type ProviderMap = Record<string, string>;
 
-class OidcConfigError extends Error {}
+/** Central login is off (outside production only): the dev sign-in must be on instead. */
+export interface OidcConfigOff {
+  enabled: false;
+}
 
-const trimmed = (v) => (typeof v === 'string' ? v.trim() : '');
+/** Central login is on: everything below was checked at boot. */
+export interface OidcConfigOn {
+  enabled: true;
+  /** production: the cookies are Secure and carry the __Host- prefix */
+  secureCookies: boolean;
+  /** `__Host-la_session` (Secure) or `la_session` */
+  sessionCookie: string;
+  /** `__Host-la_oidc_flow` (Secure) or `la_oidc_flow` */
+  flowCookie: string;
+  issuer: URL;
+  clientId: string;
+  clientSecret: string | null;
+  /** space-separated, `openid` included */
+  scopes: string;
+  /** the `upstream` scope was asked for: an id_token without upstream_identities is a missing IdP mapping */
+  upstreamExpected: boolean;
+  /** BASE_URL (or FRONTEND_URL) without a trailing slash */
+  baseUrl: string;
+  /** <baseUrl>/auth/oidc/callback */
+  redirectUri: string;
+  postLogoutRedirectUri: string;
+  providerMap: ProviderMap;
+  recheckMs: number;
+  maxUnverifiedMs: number;
+  /** a plain-http issuer (never in production) */
+  allowInsecure: boolean;
+}
 
-function positiveSeconds(env, name, fallback) {
+export type OidcConfig = OidcConfigOff | OidcConfigOn;
+
+export const DEFAULT_SCOPES = 'openid email profile entitlements offline_access';
+export const DEFAULT_PROVIDER_MAP: Readonly<ProviderMap> = Object.freeze({ google: 'google', github: 'github' });
+export const CALLBACK_PATH = '/auth/oidc/callback';
+
+export class OidcConfigError extends Error {}
+
+const trimmed = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
+
+function positiveSeconds(env: Env, name: string, fallback: number): number {
   const raw = trimmed(env[name]);
   if (!raw) return fallback;
   const n = Number(raw);
@@ -46,8 +86,8 @@ function positiveSeconds(env, name, fallback) {
 }
 
 /** "google=google,gh=github" -> { google: 'google', github: 'github', gh: 'github' } */
-function parseProviderMap(raw) {
-  const map = { ...DEFAULT_PROVIDER_MAP };
+export function parseProviderMap(raw: string): ProviderMap {
+  const map: ProviderMap = { ...DEFAULT_PROVIDER_MAP };
   if (!raw) return map;
   for (const part of raw.split(',')) {
     const item = part.trim();
@@ -59,8 +99,8 @@ function parseProviderMap(raw) {
   return map;
 }
 
-function parseUrl(name, value) {
-  let u;
+function parseUrl(name: string, value: string): URL {
+  let u: URL;
   try { u = new URL(value); } catch { throw new OidcConfigError(`${name} is not a URL: "${value}"`); }
   if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new OidcConfigError(`${name} must be http(s): "${value}"`);
   if (u.username || u.password) throw new OidcConfigError(`${name} must not carry credentials`);
@@ -68,13 +108,10 @@ function parseUrl(name, value) {
 }
 
 /**
- * @returns {{enabled: false} | {enabled: true, issuer: URL, clientId, clientSecret, scopes,
- *   baseUrl, redirectUri, postLogoutRedirectUri, providerMap, recheckMs, maxUnverifiedMs,
- *   allowInsecure}}
  * @throws OidcConfigError when half-configured, missing in production, or a
  *   value cannot work
  */
-function readOidcConfig(env = process.env) {
+export function readOidcConfig(env: Env = process.env): OidcConfig {
   const issuerRaw = trimmed(env.OIDC_ISSUER);
   const clientId = trimmed(env.OIDC_CLIENT_ID);
   const production = env.NODE_ENV === 'production';
@@ -110,7 +147,7 @@ function readOidcConfig(env = process.env) {
   // carry the __Host- prefix: Secure, Path=/, no Domain, so no other host or
   // path can set or shadow them.
   const secureCookies = production;
-  const cookieName = (base) => (secureCookies ? `__Host-${base}` : base);
+  const cookieName = (base: string) => (secureCookies ? `__Host-${base}` : base);
 
   return {
     enabled: true,
@@ -134,5 +171,3 @@ function readOidcConfig(env = process.env) {
     allowInsecure: issuer.protocol === 'http:',
   };
 }
-
-module.exports = { readOidcConfig, OidcConfigError, DEFAULT_SCOPES, DEFAULT_PROVIDER_MAP, CALLBACK_PATH, parseProviderMap };

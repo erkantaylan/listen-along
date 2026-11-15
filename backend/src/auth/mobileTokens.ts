@@ -20,38 +20,58 @@
  *                  production: the server refuses to start with it there).
  */
 
-const crypto = require('crypto');
+import crypto from 'crypto';
 
-const MOBILE_TOKEN_PREFIX = 'lam_';
+/** A request's / handshake's headers, as far as the Bearer token goes. */
+export interface AuthHeaders {
+  authorization?: string | string[];
+}
+
+/** A dev sign-in session token's content: users.id and the sign-in time (ms). */
+export type DevMobileToken = {
+  id: string;
+  t: number;
+};
+
+/** A dev sign-in "authorization code", opened. */
+export interface DevCode {
+  /** users.id asked for on the dev page, or null (the Dev User) */
+  user: string | null;
+  challenge: string;
+  nonce: string;
+  t: number;
+}
+
+export const MOBILE_TOKEN_PREFIX = 'lam_';
 /** A central-login mobile session token. */
-const CENTRAL_TOKEN_RE = /^lam_[A-Za-z0-9_-]{43}$/;
+export const CENTRAL_TOKEN_RE = /^lam_[A-Za-z0-9_-]{43}$/;
 const DEV_TOKEN_LABEL = 'listen-along-dev-mobile-session-v1.';
 const DEV_CODE_LABEL = 'listen-along-dev-mobile-code-v1.';
 const DEV_TOKEN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 const DEV_CODE_MAX_AGE_MS = 10 * 60 * 1000;
 const CLOCK_SKEW_MS = 5 * 60 * 1000;
 
-function isMobileToken(token) {
+export function isMobileToken(token: unknown): boolean {
   return typeof token === 'string' && token.startsWith(MOBILE_TOKEN_PREFIX);
 }
 
 /** The `lam_...` Bearer token of a request's / handshake's headers, or null (none, or another kind). */
-function mobileBearer(headers) {
+export function mobileBearer(headers: AuthHeaders | null | undefined): string | null {
   const header = headers && headers.authorization;
   if (typeof header !== 'string') return null;
   const m = header.match(/^Bearer\s+(\S+)\s*$/i);
   return m && isMobileToken(m[1]) ? m[1] : null;
 }
 
-const hmac = (secret, label, payload) => crypto.createHmac('sha256', secret).update(label + payload).digest('base64url');
+const hmac = (secret: string, label: string, payload: string): string => crypto.createHmac('sha256', secret).update(label + payload).digest('base64url');
 
-function signLabelled(secret, label, data) {
+function signLabelled(secret: string, label: string, data: object): string {
   const payload = Buffer.from(JSON.stringify(data)).toString('base64url');
   return `${payload}.${hmac(secret, label, payload)}`;
 }
 
 /** The object signed under `label`, or null (forged, malformed, too old, from the future). */
-function verifyLabelled(secret, label, value, maxAgeMs, now = Date.now()) {
+function verifyLabelled(secret: string, label: string, value: string, maxAgeMs: number, now: number = Date.now()): ({ t: number } & Record<string, unknown>) | null {
   if (!secret || typeof value !== 'string' || value.length > 4096) return null;
   const idx = value.indexOf('.');
   if (idx <= 0) return null;
@@ -59,31 +79,32 @@ function verifyLabelled(secret, label, value, maxAgeMs, now = Date.now()) {
   const sig = value.slice(idx + 1);
   const expected = hmac(secret, label, payload);
   if (sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
-  let data;
+  // Parsed JSON, checked below before it is returned.
+  let data: Record<string, unknown> | null;
   try { data = JSON.parse(Buffer.from(payload, 'base64url').toString()); } catch { return null; }
   if (!data || typeof data !== 'object' || typeof data.t !== 'number' || !Number.isFinite(data.t)) return null;
   if (data.t > now + CLOCK_SKEW_MS || now - data.t > maxAgeMs) return null;
-  return data;
+  return data as { t: number } & Record<string, unknown>;
 }
 
 /** Dev sign-in: the session token for users.id `userId`. */
-function signDevMobileToken(secret, userId, t = Date.now()) {
+export function signDevMobileToken(secret: string, userId: string, t: number = Date.now()): string {
   return MOBILE_TOKEN_PREFIX + signLabelled(secret, DEV_TOKEN_LABEL, { id: String(userId), t });
 }
 
 /** Dev sign-in: { id, t } from a valid token, else null. */
-function verifyDevMobileToken(secret, token, now = Date.now()) {
+export function verifyDevMobileToken(secret: string, token: string, now: number = Date.now()): DevMobileToken | null {
   if (!isMobileToken(token)) return null;
   const data = verifyLabelled(secret, DEV_TOKEN_LABEL, token.slice(MOBILE_TOKEN_PREFIX.length), DEV_TOKEN_MAX_AGE_MS, now);
-  return data && typeof data.id === 'string' && data.id ? data : null;
+  return data && typeof data.id === 'string' && data.id ? (data as DevMobileToken) : null;
 }
 
 /** Dev sign-in: the one-time "authorization code" the dev page hands to the app. */
-function signDevCode(secret, { user, challenge, nonce }, t = Date.now()) {
+export function signDevCode(secret: string, { user, challenge, nonce }: { user: string | null; challenge: string; nonce: string }, t: number = Date.now()): string {
   return 'dev.' + signLabelled(secret, DEV_CODE_LABEL, { u: user || null, c: challenge, n: nonce, t });
 }
 
-function verifyDevCode(secret, code, now = Date.now()) {
+export function verifyDevCode(secret: string, code: unknown, now: number = Date.now()): DevCode | null {
   if (typeof code !== 'string' || !code.startsWith('dev.')) return null;
   const data = verifyLabelled(secret, DEV_CODE_LABEL, code.slice(4), DEV_CODE_MAX_AGE_MS, now);
   if (!data || typeof data.c !== 'string' || typeof data.n !== 'string') return null;
@@ -91,18 +112,7 @@ function verifyDevCode(secret, code, now = Date.now()) {
 }
 
 /** PKCE S256 (RFC 7636): base64url(SHA-256(verifier)). */
-function s256(verifier) {
+export function s256(verifier: unknown): string {
   return crypto.createHash('sha256').update(String(verifier)).digest('base64url');
 }
 
-module.exports = {
-  MOBILE_TOKEN_PREFIX,
-  CENTRAL_TOKEN_RE,
-  isMobileToken,
-  mobileBearer,
-  signDevMobileToken,
-  verifyDevMobileToken,
-  signDevCode,
-  verifyDevCode,
-  s256,
-};

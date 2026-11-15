@@ -41,7 +41,7 @@
 const crypto = require('crypto');
 const { deriveKey, seal, open } = require('./shared/secretBox.ts');
 const { parseCookie } = require('./userAuth');
-const { CENTRAL_TOKEN_RE } = require('./mobileTokens');
+const { CENTRAL_TOKEN_RE } = require('./auth/mobileTokens.ts');
 
 const SESSION_COOKIE = 'la_session';
 const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;

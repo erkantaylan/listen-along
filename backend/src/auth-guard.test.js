@@ -20,7 +20,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { io: ioClient } = require('socket.io-client');
 const userAuthMod = require('./userAuth');
-const devLogin = require('./devLogin');
+const devLogin = require('./auth/devLogin.ts');
 const { listening } = require('./testServer');
 
 const SECRET = 'auth-guard-test-secret';
@@ -44,7 +44,7 @@ function legacyCookie(userId, t = Date.now(), secret = SECRET) {
 function adminCookie() {
   const prev = process.env.ADMIN_PASSWORD;
   process.env.ADMIN_PASSWORD = ADMIN_PASSWORD;
-  const v = `la_admin=${encodeURIComponent(require('./adminAuth').createSessionValue())}`;
+  const v = `la_admin=${encodeURIComponent(require('./auth/adminAuth.ts').createSessionValue())}`;
   if (prev === undefined) delete process.env.ADMIN_PASSWORD; else process.env.ADMIN_PASSWORD = prev;
   return v;
 }

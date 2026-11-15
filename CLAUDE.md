@@ -80,7 +80,7 @@ of a fresh database and of a migrated old one.
   duplicate checks + replace), songMatch.js (normalized "artist|title" key for
   probable duplicates; bump META_KEY_VERSION when changing it — boot recomputes),
   requests.js (song requests), tokens.js (CLI tokens), mobileAuth.js (the
-  Android app's sign-in, below), adminAuth.js (/dashboard),
+  Android app's sign-in, below), auth/adminAuth.ts (/dashboard),
   libraryRoutes.js (library/requests/admin HTTP API), songResolver.js
   (what a user typed -> library song or song request)
 - **The server does not download audio.** Songs are uploaded by the
@@ -454,7 +454,7 @@ of a fresh database and of a migrated old one.
   `OIDC_CLIENT_ID`; required with `NODE_ENV=production`, together with
   `BASE_URL` (or its fallback `FRONTEND_URL`) and `SESSION_SECRET`, else the
   boot stops; with `NODE_ENV` unset it is still central login) or the **dev sign-in**
-  (`INSECURE_DEV_LOGIN=1`, `devLogin.js`, below; refused at boot unless
+  (`INSECURE_DEV_LOGIN=1`, `auth/devLogin.ts`, below; refused at boot unless
   `NODE_ENV` is `development` or `test`, and next to `OIDC_*`). Neither = the
   boot stops. `/api/auth/providers` answers `{ central, dev }`; the login page
   has one "Sign in" button. Central login: the owner's authentik over OIDC
@@ -464,7 +464,7 @@ of a fresh database and of a migrated old one.
   (`oidcSessions.js`, table `user_sessions`: the session cookie's SHA-256, refresh
   token + id_token AES-GCM encrypted via `shared/secretBox.ts`, 30 days; cookies
   `__Host-la_session` / `__Host-la_oidc_flow` when Secure (production), plain
-  `la_session` / `la_oidc_flow` on http: names from `oidcConfig.js`) re-checked
+  `la_session` / `la_oidc_flow` on http: names from `auth/oidcConfig.ts`) re-checked
   with the refresh token every `OIDC_RECHECK_SECONDS` (3 s timeout; only
   `invalid_grant` or an invalid / foreign id_token ends session + sockets; other
   OAuth errors = kept + `CONFIGURATION PROBLEM` log; IdP silent = kept with
@@ -493,7 +493,7 @@ of a fresh database and of a migrated old one.
   (`mode` 'central' | 'dev'); each socket gets `socket.data.userId` (and, with central login,
   `socket.data.sessionId` + the `session:<hash>` room). Never trust a user id or
   name sent by the client.
-- **The Android app's session** (`mobileAuth.js`, `mobileTokens.js`;
+- **The Android app's session** (`mobileAuth.js`, `auth/mobileTokens.ts`;
   CENTRAL-LOGIN.md "The Android app"): the app runs code + PKCE in a Custom
   Tab via `GET /auth/mobile/start` (302 to the IdP with the app's
   `redirect_uri`, one of exactly two: `<BASE_URL>/auth/mobile/callback` or
@@ -545,7 +545,7 @@ of a fresh database and of a migrated old one.
   and still work. Uploads record `library_songs.uploaded_by_user_id` (owner)
   plus the `uploaded_by` display-name snapshot the UI shows.
 - Admin (`/dashboard`; `/admin` 301s to it) is a separate `la_admin` cookie
-  (`ADMIN_PASSWORD`, `adminAuth.js`), not a user account. The page itself is the
+  (`ADMIN_PASSWORD`, `auth/adminAuth.ts`), not a user account. The page itself is the
   data-free SPA shell with its own login form (404 without `ADMIN_PASSWORD`);
   all admin data comes from APIs behind `adminAuth.requireAdmin`.
   Frontend: `dashboard.ts` + `dashboard-admin.ts`.
@@ -558,7 +558,7 @@ of a fresh database and of a migrated old one.
   `/auth/dev/login?user=<users.id>&next=/` (no `?user`: a "Dev User" account
   with provider `dev`, made once; no database: the id `dev`). It sets the
   HMAC-signed `la_dev_login` cookie (own label, 30 days); for curl, sign one
-  with `node -e "console.log('la_dev_login=' + require('./src/devLogin')
+  with `node -e "console.log('la_dev_login=' + require('./src/auth/index.ts')
   .signDevToken('dev', '<users.id>'))"`. Without a database any validly signed
   cookie counts as an approved account. Tests: `testServer.js` `cookieFor` is
   that cookie and `startServer()` turns `INSECURE_DEV_LOGIN` on unless the test

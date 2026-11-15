@@ -43,8 +43,8 @@
  *   'approved' ... whose status is 'approved'
  */
 
-const { DEV_COOKIE, verifyDevToken } = require('./devLogin');
-const { mobileBearer, verifyDevMobileToken } = require('./mobileTokens');
+const { DEV_COOKIE, verifyDevToken } = require('./auth/devLogin.ts');
+const { mobileBearer, verifyDevMobileToken } = require('./auth/mobileTokens.ts');
 
 const BLOCKED_STATUSES = new Set(['denied', 'rejected']);
 

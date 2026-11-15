@@ -8,7 +8,7 @@ const { spawn } = require('node:child_process');
 const net = require('node:net');
 const path = require('node:path');
 const { io: ioClient } = require('socket.io-client');
-const { DEV_COOKIE, signDevToken } = require('./devLogin');
+const { DEV_COOKIE, signDevToken } = require('./auth/index.ts');
 const { chat, createPresence, viewNowPlaying, normalizeReport } = require('./features/social/index.ts');
 
 const SECRET = 'social-test-secret';
@@ -251,7 +251,7 @@ describe('global chat and people panel against a running server', { timeout: 60_
     // Same credentials as the server, so this is a valid admin cookie there.
     const prev = process.env.ADMIN_PASSWORD;
     process.env.ADMIN_PASSWORD = ADMIN_PASSWORD;
-    adminCookie = `la_admin=${encodeURIComponent(require('./adminAuth').createSessionValue())}`;
+    adminCookie = `la_admin=${encodeURIComponent(require('./auth/index.ts').adminAuth.createSessionValue())}`;
     if (prev === undefined) delete process.env.ADMIN_PASSWORD; else process.env.ADMIN_PASSWORD = prev;
   });
 
