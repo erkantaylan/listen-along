@@ -10,6 +10,12 @@
 // than DRIFT_S seconds off. A song that cannot be loaded here shows a notice
 // and we wait for the leader's next song.
 //
+// Speed (speed-rules.ts): a follower plays at 1× (speed.ts), whatever their
+// own saved speed. The sync carries the leader's `rate`: a song starts where the
+// leader really is, and drift is corrected only while the leader is at 1× (a
+// follower at 1× behind a leader at 1.5× drifts on purpose; it is not pulled
+// back every few seconds). Song changes and play / pause follow at any speed.
+//
 // Leader: `listen:followers` says who is listening along ("Ayşe and 2 others
 // are listening along", player bar); while someone is, playback is
 // re-reported every few seconds so their position anchor stays fresh.
@@ -20,6 +26,7 @@ import { player } from '../../player/player.ts';
 import { showToast, t } from '../../shared/ui.ts';
 import { state } from '../../shared/state.ts';
 import { maybeById } from '../../shared/dom.ts';
+import { followsPosition, leaderJumped, leaderPosition } from '../../player/speed-rules.ts';
 import type {
   ListenEndPayload, ListenFollowAck, ListenFollowersPayload, ListenFollowingPayload, ListenPerson,
   ListenSyncPayload, PresenceEntry, Track,
@@ -106,8 +113,7 @@ function ask(event: 'listen:follow', arg: { userId: string }): Promise<ListenFol
 
 function targetPosition(s: ListenSyncPayload | null = L.sync): number {
   if (!s) return 0;
-  const elapsed = s.playing ? (Date.now() + L.offset - s.updatedAt) / 1000 : 0;
-  return Math.max(0, (s.position || 0) + elapsed);
+  return leaderPosition({ position: s.position || 0, elapsedS: (Date.now() + L.offset - s.updatedAt) / 1000, playing: !!s.playing, rate: s.rate });
 }
 
 // Called only for a song with a src, which the server sets only with a libraryId.
@@ -136,11 +142,14 @@ function correct(): void {
   if (s.playing && !player.isPlaying) player.play({ keepDriver: true });
   else if (!s.playing && player.isPlaying) player.pause({ keepDriver: true });
   if (!duration) return; // not loaded yet; checked again shortly
+  // A leader at another speed: the song started at their position; no pulling back.
+  if (!followsPosition(s.rate as number)) return;
   if (Math.abs(player.currentTime - target) > DRIFT_S) player.seek(target, { keepDriver: true });
 }
 
 function applySync(sync: ListenSyncPayload | null | undefined): void {
   if (!sync || !L.leader || sync.leaderId !== L.leader.id) return;
+  const prev = L.sync;
   L.offset = (sync.serverNow || Date.now()) - Date.now();
   L.sync = sync;
   const st = sync.track;
@@ -161,7 +170,12 @@ function applySync(sync: ListenSyncPayload | null | undefined): void {
   }
   L.missing = null;
   if (!sameSong(st)) player.playTrack(trackFrom(st), { position: targetPosition(sync), autoplay: !!sync.playing });
-  else correct();
+  else {
+    // A leader at another speed is not followed for drift, but a seek of theirs is.
+    const samePrev = prev && prev.track && prev.track.libraryId === st.libraryId ? prev : null;
+    if (!followsPosition(sync.rate as number) && player.duration && leaderJumped(samePrev, sync)) player.seek(targetPosition(sync), { keepDriver: true });
+    correct();
+  }
   changed();
 }
 

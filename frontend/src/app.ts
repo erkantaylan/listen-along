@@ -5,6 +5,8 @@ import { setupAudioPlayer } from './shared/audio.ts';
 import { player, setupPlayer } from './player/player.ts';
 import { setupPlaybackFailures } from './player/playback-failures.ts';
 import { setupPlayerBar, setupPlayerBarControls, refreshPlayerBar } from './player/player-bar.ts';
+import { setupSpeed } from './player/speed.ts';
+import { setupSoundPanel } from './player/sound-panel.ts';
 import { checkAuth, setupLoginView, showPendingCard, setupProfilePage, loadProfilePage } from './features/account/auth.ts';
 import { setupSocial, applySocialRoute, toggleSocial, refreshPeople, reportNowPlaying as reportPresence } from './features/social/social.ts';
 import type { SocialOptions } from './features/social/social.ts';
@@ -291,6 +293,9 @@ function initAuthenticatedApp(): void {
   setupPlayer();
   setupPlaybackFailures();
   setupPlayerBarControls();
+  // The listener's own sound settings (sound panel): speed.
+  setupSpeed();
+  setupSoundPanel();
   setupRadio();
   setupArtists({ play: playArtistFromTop });
   setupArtistPage();

@@ -35,11 +35,14 @@
  *   listen:stop   (ack) -> { ok }
  * Server -> client
  *   listen:following { leader: { id, name } | null, chosen, reason }  follower's socket
- *   listen:sync      { leaderId, track, playing, position, duration, updatedAt, serverNow }
+ *   listen:sync      { leaderId, track, playing, position, duration, rate, updatedAt, serverNow }
  *   listen:end       { reason: 'offline', leader }                   follower's socket
  *   listen:followers { count, names }                                every socket of a root
  *   people:listeners { userId, count }                               the 'social' room (people card)
  *
+ * rate (sync) = the root's playback speed (1 = normal, additive): a follower
+ * plays at 1× and corrects drift only while the root is at 1× (the web's
+ * player/speed-rules.ts).
  * track (sync) = { title, artist, thumbnail, libraryId, src } | null; src is
  * null when the song cannot be resolved to a library file (the follower
  * shows a notice and waits for the next song).
@@ -176,6 +179,8 @@ export interface ListenNowPlaying {
   playing: boolean;
   position: number;
   duration: number;
+  /** playback speed (1 = normal); absent = 1 */
+  rate?: number;
   /** server time of the report: the anchor for `position` */
   updatedAt: number;
 }
@@ -228,6 +233,8 @@ export interface ListenSync {
   playing: boolean;
   position: number;
   duration: number;
+  /** the root's playback speed, 1 = normal */
+  rate: number;
   updatedAt: number;
   serverNow: number;
 }
@@ -258,7 +265,7 @@ export function createListenAlong({ io, presence, nameOf = () => 'User', isAppro
 
   async function buildSync(r: string): Promise<ListenSync> {
     const entry = presence.getNowPlaying(r);
-    if (!entry) return { leaderId: r, track: null, playing: false, position: 0, duration: 0, updatedAt: now(), serverNow: now() };
+    if (!entry) return { leaderId: r, track: null, playing: false, position: 0, duration: 0, rate: 1, updatedAt: now(), serverNow: now() };
     const libraryId = await resolveSource(entry.source);
     // Re-read: the position anchor must be the latest report.
     const e = presence.getNowPlaying(r) || entry;
@@ -274,6 +281,7 @@ export function createListenAlong({ io, presence, nameOf = () => 'User', isAppro
       playing: e.playing,
       position: e.position,
       duration: e.duration,
+      rate: e.rate || 1,
       updatedAt: e.updatedAt,
       serverNow: now(),
     };

@@ -130,8 +130,8 @@ describe('listen along against a running server', { timeout: 60_000 }, () => {
       setTimeout(() => { sock.off(event, h); resolve(got); }, ms);
     });
   }
-  const play = (sock: ClientSocket, { song = SONG1, title = 'Song One', playing = true, position = 0, context = { type: 'library' } as object | null } = {}) =>
-    sock.emit('presence:now-playing', { track: { id: 'q1', title, artist: 'Artist', url: `library:${song}` }, context, playing, position, duration: 200 });
+  const play = (sock: ClientSocket, { song = SONG1, title = 'Song One', playing = true, position = 0, context = { type: 'library' } as object | null, rate = undefined as unknown } = {}) =>
+    sock.emit('presence:now-playing', { track: { id: 'q1', title, artist: 'Artist', url: `library:${song}` }, context, playing, position, duration: 200, ...(rate === undefined ? {} : { rate }) });
 
   let privId: string;
 
@@ -193,6 +193,21 @@ describe('listen along against a running server', { timeout: 60_000 }, () => {
     assert.equal(got.track.title, 'Song Two');
     assert.equal(got.track.src, `/api/library/${SONG2}/file`);
     assert.equal(got.playing, true);
+  });
+
+  it('passes the leader playback speed on (1 when none or nonsense is reported)', async () => {
+    let sync = next(s.B, 'listen:sync');
+    play(s.C, { song: SONG2, title: 'Song Two', position: 4 });
+    assert.equal((await sync).rate, 1, 'a client that sends no rate is at 1×');
+    sync = next(s.B, 'listen:sync');
+    play(s.C, { song: SONG2, title: 'Song Two', position: 5, rate: 1.5 });
+    assert.equal((await sync).rate, 1.5);
+    sync = next(s.B, 'listen:sync');
+    play(s.C, { song: SONG2, title: 'Song Two', position: 6, rate: 'fast' });
+    assert.equal((await sync).rate, 1);
+    sync = next(s.B, 'listen:sync');
+    play(s.C, { song: SONG2, title: 'Song Two', position: 7, rate: 99 });
+    assert.equal((await sync).rate, 4, 'clamped');
   });
 
   it('a song that is not a library file reaches the follower without a source', async () => {

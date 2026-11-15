@@ -533,6 +533,7 @@ export function reportNowPlaying(): void {
       playing: player.isPlaying,
       position: player.currentTime,
       duration: player.duration,
+      rate: player.playbackRate,
     } : { track: null });
   }, 250);
 }
@@ -622,6 +623,8 @@ export function setupSocial(socket: AppSocket, opts: SocialOptions = {}): void {
     player.on('context', reportNowPlaying);
     // Seeks move the position anchor listen-along followers sync to.
     player.on('seeked', reportNowPlaying);
+    // So does the speed: followers place the leader with it (speed-rules.ts).
+    player.on('rate', reportNowPlaying);
   }
 
   // DOM wiring

@@ -824,6 +824,65 @@
     transform: translateX(-50%);
   }
 
+  /* Sound panel (sound-panel.js, DESIGN.md "Sound panel"): #sound-btn in the
+     player bar's right zone opens a popover above the bar's right end, left of the
+     chat column when it is docked; below 576px a sheet across the window above
+     the bar. It never covers the player bar or the chat column. */
+  .sound-btn { position: relative; }
+  .sound-btn-dot {
+    position: absolute;
+    top: 0.3125rem;
+    right: 0.3125rem;
+    width: 0.4375rem;
+    height: 0.4375rem;
+    background-color: var(--app-accent);
+    border-radius: 50%;
+  }
+  .sound-panel {
+    position: fixed;
+    right: calc(var(--app-social-inset, 0px) + var(--app-gap));
+    bottom: calc(var(--app-player-height, 6rem) + var(--app-gap));
+    z-index: var(--bs-z-popover);
+    display: flex;
+    flex-direction: column;
+    width: min(24rem, calc(100vw - 2 * var(--app-gap)));
+    max-height: calc(100dvh - var(--app-player-height, 6rem) - 2 * var(--app-gap));
+    color: var(--app-text);
+    background-color: var(--app-overlay);
+    border: var(--bs-border-width) solid var(--app-border-strong);
+    border-radius: var(--app-panel-radius);
+    box-shadow: var(--bs-box-shadow-lg);
+  }
+  .sound-panel[hidden] { display: none; }
+  .sound-panel:focus-visible { outline-offset: -2px; }
+  .sound-panel-head {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0.5rem 0.25rem 1rem;
+  }
+  .sound-panel-body {
+    min-height: 0;
+    padding: 0 1rem 0.75rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .sound-section { padding-block: 0.75rem; }
+  .sound-section + .sound-section { border-top: var(--bs-border-width) solid var(--app-border-subtle); }
+  .sound-row { display: flex; gap: 0.5rem; align-items: center; min-height: 2rem; }
+  .sound-label { margin: 0; font-size: var(--bs-font-size-sm); font-weight: var(--bs-font-weight-medium); }
+  .sound-value { margin-inline-end: auto; font-size: var(--bs-font-size-sm); color: var(--app-text-secondary); font-variant-numeric: tabular-nums; }
+  .sound-note { margin: 0.375rem 0 0; font-size: var(--bs-font-size-xs); color: var(--app-text-muted); }
+  .sound-section .form-range { margin-top: 0.25rem; }
+  @media (width < 576px) {
+    .sound-panel {
+      right: var(--app-gap);
+      left: var(--app-gap);
+      width: auto;
+    }
+  }
+
   /* ------------------------------------------------------ Playlists sidebar */
   /* sidebar.js. Two rounded panels in one column from 768px, pushing the page
      right: the places (brand, profile, collapse; Home, Radio, Artists, Library

@@ -620,5 +620,14 @@
     "limit": "100 klasörünüz var, bu en fazlası. Yer açmak için birini silin.",
     "notFound": "Bu klasör artık yok",
     "dropTop": "Çalma listesini klasöründen çıkarmak için buraya bırakın"
+  },
+  "sound": {
+    "title": "Ses",
+    "open": "Ses ayarları",
+    "openActive": "Ses ayarları (değiştirildi)",
+    "close": "Kapat",
+    "speed": "Hız",
+    "reset": "Sıfırla",
+    "speedFollowing": "Biriyle birlikte dinlerken müzik 1× çalar. Durdurduğunda kendi hızın geri gelir."
   }
 }

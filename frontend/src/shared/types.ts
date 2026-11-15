@@ -613,6 +613,8 @@ export interface ListenSyncPayload {
   playing: boolean;
   position: number;
   duration: number;
+  /** The leader's playback speed; absent from older servers (= 1). */
+  rate?: number;
   /** ms */
   updatedAt: number;
   /** ms */
@@ -1123,6 +1125,8 @@ export type NowPlayingReport =
     playing?: boolean;
     position?: number;
     duration?: number;
+    /** Playback speed (1 = normal); listen-along followers read it (speed-rules.ts). Additive. */
+    rate?: number;
   }
   /** Nothing is playing. */
   | { track: null };

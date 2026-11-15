@@ -35,6 +35,7 @@
 //     'context' (context | null)
 //     'queue'   (songs)
 //     'seeked'  (currentTime)       any seek finished (also the driver's)
+//     'rate'    (playbackRate)      the playback speed changed (speed.ts)
 //   player.setDriver({ name, onTakeover, onEnded }) lets something else steer
 //     playback (listen-along, listen-along.ts) through playTrack and
 //     play/pause/seek with { keepDriver: true }. The listener's first own
@@ -77,6 +78,7 @@ export interface PlayerEvents {
   context: PlayerContext | null;
   queue: Track[];
   seeked: number;
+  rate: number;
 }
 export type PlayerEvent = keyof PlayerEvents;
 export type PlayerHandler<E extends PlayerEvent> = (payload: PlayerEvents[E]) => void;
@@ -172,6 +174,7 @@ export const player = {
   get isPlaying(): boolean { return hasSource() && !audio().paused; },
   get currentTime(): number { return audio().currentTime || 0; },
   get duration(): number { return audio().duration || 0; },
+  get playbackRate(): number { return audio().playbackRate || 1; },
   get driver(): PlayerDriver | null { return driver; },
 
   // keepDriver: the driver itself is switching the context (listen-along).
@@ -375,6 +378,7 @@ export function setupPlayer(): void {
   a.addEventListener('play', () => emit('state', { playing: true }));
   a.addEventListener('pause', () => emit('state', { playing: false }));
   a.addEventListener('timeupdate', () => emit('time', { currentTime: a.currentTime, duration: a.duration || 0 }));
+  a.addEventListener('ratechange', () => emit('rate', a.playbackRate || 1));
 
   const ms = window.MediaSessionManager;
   if (!ms) return;
@@ -390,9 +394,10 @@ export function setupPlayer(): void {
     else ms.updatePlaybackState('none');
   });
   player.on('state', ({ playing }) => ms.updatePlaybackState(playing ? 'playing' : 'paused'));
-  player.on('time', ({ currentTime, duration }) => {
-    if (duration) ms.updatePositionState({ duration, position: currentTime });
-  });
+  // The lock screen's position moves at the playback speed.
+  const position = () => { if (a.duration) ms.updatePositionState({ duration: a.duration, position: a.currentTime, playbackRate: a.playbackRate || 1 }); };
+  player.on('time', position);
+  player.on('rate', position);
 }
 
 // One player per browser: when this tab starts playing it tells the other tabs

@@ -20,7 +20,10 @@
  *   'now-playing' (userId, entry | null)
  *
  * entry = { socketId, track: { id, title, artist, thumbnail }, source, context,
- *           playing, position, duration, updatedAt }
+ *           playing, position, duration, rate, updatedAt }
+ * rate = the playback speed (1 = normal; 0.25-4, anything else is 1): listen
+ * along passes it to followers (the web's speed-rules.ts). Additive: a client
+ * that sends none is at 1.
  * source = the track's queue url (`library:<uuid>` or a YouTube URL) so
  * listen-along can resolve the library file; kept out of `track` and never
  * sent to clients by viewNowPlaying(). updatedAt = server time of the report,
@@ -58,6 +61,8 @@ export interface NowPlayingReport {
   playing: boolean;
   position: number;
   duration: number;
+  /** playback speed, 1 = normal */
+  rate: number;
 }
 
 /** What presence keeps per user: the report, the socket that sent it, and when. */
@@ -140,6 +145,7 @@ interface RawReport {
   playing?: unknown;
   position?: unknown;
   duration?: unknown;
+  rate?: unknown;
 }
 
 /** Validate a client report. Returns null when nothing is playing. */
@@ -165,7 +171,15 @@ export function normalizeReport(input: unknown): NowPlayingReport | null {
     playing: !!report.playing,
     position: num(report.position),
     duration: num(report.duration),
+    rate: rateOf(report.rate),
   };
+}
+
+/** A reported playback speed: 0.25-4, rounded to 1/100; anything else is 1. */
+function rateOf(v: unknown): number {
+  const n = Number(v);
+  if (v === null || v === undefined || !Number.isFinite(n) || n <= 0) return 1;
+  return Math.round(Math.min(4, Math.max(0.25, n)) * 100) / 100;
 }
 
 export function createPresence({ graceMs = 5000, now = Date.now }: { graceMs?: number; now?: () => number } = {}): Presence {

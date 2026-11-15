@@ -620,5 +620,14 @@
     "limit": "You have 100 folders, the most there can be. Delete one to make room.",
     "notFound": "That folder is gone",
     "dropTop": "Drop here to take a playlist out of its folder"
+  },
+  "sound": {
+    "title": "Sound",
+    "open": "Sound settings",
+    "openActive": "Sound settings (changed)",
+    "close": "Close",
+    "speed": "Speed",
+    "reset": "Reset",
+    "speedFollowing": "While you listen along with someone, music plays at 1×. Your speed comes back when you stop."
   }
 }
