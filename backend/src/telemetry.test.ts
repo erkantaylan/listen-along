@@ -1,5 +1,7 @@
 // OpenTelemetry (telemetry.ts preload + telemetryRules.ts): off by default with
 // nothing loaded, patched or hooked, and when on, what reaches an OTLP receiver.
+// Also the old opt-in path (telemetry.js, --require), which must never stop the
+// server from starting.
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, execSync, spawnSync } from 'node:child_process';
@@ -17,6 +19,8 @@ import * as rules from './telemetryRules.ts';
 type Payload = any;
 
 const TELEMETRY = path.join(import.meta.dirname, 'telemetry.ts');
+// The old opt-in: NODE_OPTIONS=--require=/app/src/telemetry.js.
+const OLD_PATH = path.join(import.meta.dirname, 'telemetry.js');
 const BACKEND = path.join(import.meta.dirname, '..');
 
 /** The environment minus every OTEL_* variable a developer's shell may carry. */
@@ -152,6 +156,28 @@ describe('telemetry: off by default', () => {
     assert.equal(report.httpPatched, true);
     assert.equal(report.pgPatched, true, 'pg imported as an ES module is patched');
     assert.equal(report.consolePatched, true);
+  });
+});
+
+describe('telemetry: the old --require path (telemetry.js)', () => {
+  const run = (env: Record<string, string>) => spawnSync(process.execPath, [
+    '--require', OLD_PATH, '-e', `console.log(Object.keys(require.cache).filter((k) => k.includes('@opentelemetry')).length)`,
+  ], { cwd: BACKEND, env: cleanEnv(env), encoding: 'utf8' });
+
+  it('without an endpoint it loads nothing and says nothing', () => {
+    const r = run({});
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout, '0\n');
+    assert.equal(r.stderr, '');
+  });
+
+  it('with an endpoint it does not crash: one line says how to opt in now, nothing is loaded', () => {
+    const r = run({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:9' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout, '0\n');
+    const lines = r.stderr.trim().split('\n');
+    assert.equal(lines.length, 1, r.stderr);
+    assert.match(lines[0], /^\[telemetry\] not started: .*--import=\/app\/src\/telemetry\.ts/);
   });
 });
 

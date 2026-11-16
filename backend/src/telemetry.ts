@@ -21,6 +21,7 @@
  * instrumentations patch, then loads the SDK with a plain synchronous require
  * (no top-level await) and creates the instrumentations, which patch those
  * packages whether they are imported or required. Off, it registers nothing.
+ * The old `--require=/app/src/telemetry.js` path is a shim (telemetry.js).
  *
  * What is recorded and what is not: telemetryRules.ts. In short, no bodies, no
  * headers (cookies, Authorization, session ids), no query strings (the OIDC

@@ -174,6 +174,12 @@ made outside an HTTP request (socket handlers, timers, boot) are not either.
 The rules are in `backend/src/telemetryRules.ts` and tested in
 `telemetry.test.ts`.
 
+The old opt-in, `NODE_OPTIONS=--require=/app/src/telemetry.js` (from before the
+server was ES modules), no longer starts telemetry: that path is a small shim
+that only prints one `[telemetry] not started: …` line when an endpoint is set
+(nothing at all without one), so the server still starts. Use `--import` as
+above.
+
 ## Project Structure
 
 ```
