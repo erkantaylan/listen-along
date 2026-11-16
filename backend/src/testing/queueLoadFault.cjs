@@ -8,7 +8,7 @@ const fs = require('fs');
 const { Client } = require('pg');
 
 const flag = process.env.QUEUE_LOAD_FAULT_FILE;
-const LOAD = /FROM queue_songs WHERE lobby_id = \$1 ORDER BY sort_order/;
+const LOAD = /FROM queue_songs WHERE playlist_id = \$1 ORDER BY sort_order/;
 const query = Client.prototype.query;
 Client.prototype.query = function (config, ...rest) {
   const text = typeof config === 'string' ? config : config && config.text;

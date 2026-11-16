@@ -30,7 +30,7 @@ const SONGS = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-
 describe('a queue that fails to load', { skip, timeout: 180_000 }, () => {
   let container: StartedPostgreSqlContainer | undefined;
   let pg: pgModule.Client;
-  const count = async (id: string) => (await pg.query('SELECT count(*)::int AS n FROM queue_songs WHERE lobby_id = $1', [id])).rows[0].n as number;
+  const count = async (id: string) => (await pg.query('SELECT count(*)::int AS n FROM queue_songs WHERE playlist_id = $1', [id])).rows[0].n as number;
 
   before(async () => {
     container = await new PostgreSqlContainer!('postgres:16-alpine').withDatabase('listen_qload').withUsername('t').withPassword('t').start();
@@ -40,13 +40,13 @@ describe('a queue that fails to load', { skip, timeout: 180_000 }, () => {
     await pg.connect();
     const now = Date.now();
     for (const id of ['qload001', 'qload002']) {
-      await pg.query(`INSERT INTO lobbies (id, host_id, name, visibility, created_at, last_activity) VALUES ($1, $2, $1, 'public', $3, $3)`, [id, ALICE, now]);
+      await pg.query(`INSERT INTO playlists (id, host_id, name, visibility, created_at, last_activity) VALUES ($1, $2, $1, 'public', $3, $3)`, [id, ALICE, now]);
     }
     for (const [i, s] of SONGS.entries()) {
       await pg.query(`INSERT INTO library_songs (id, title, artist, duration_sec, file_path, sha256, uploaded_by) VALUES ($1, $2, 'Band', 3, '/x', $3, 't')`,
         [s, `Song ${i}`, String(i).repeat(64)]);
       for (const id of ['qload001', 'qload002']) {
-        await pg.query(`INSERT INTO queue_songs (id, lobby_id, url, title, added_at, sort_order) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)`,
+        await pg.query(`INSERT INTO queue_songs (id, playlist_id, url, title, added_at, sort_order) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)`,
           [id, `library:${s}`, `Song ${i} - Band`, now, i]);
       }
     }
@@ -67,7 +67,7 @@ describe('a queue that fails to load', { skip, timeout: 180_000 }, () => {
       forgetAll();
       let fail = true;
       db.query = (async (text: string, params?: unknown[]) => {
-        if (fail && /FROM queue_songs WHERE lobby_id/.test(text)) { fail = false; throw new Error('connection terminated'); }
+        if (fail && /FROM queue_songs WHERE playlist_id/.test(text)) { fail = false; throw new Error('connection terminated'); }
         return real(text, params);
       }) as typeof db.query;
       await assert.rejects(getQueueAsync('qload001'), (err: Error) => err instanceof QueueUnavailableError && (err as Payload).code === 'QUEUE_UNAVAILABLE');
@@ -80,7 +80,7 @@ describe('a queue that fails to load', { skip, timeout: 180_000 }, () => {
       forgetAll();
       let selects = 0;
       db.query = (async (text: string, params?: unknown[]) => {
-        if (/FROM queue_songs WHERE lobby_id/.test(text)) { selects++; await new Promise((r) => setTimeout(r, 200)); }
+        if (/FROM queue_songs WHERE playlist_id/.test(text)) { selects++; await new Promise((r) => setTimeout(r, 200)); }
         return real(text, params);
       }) as typeof db.query;
       const all = await Promise.all([getQueueAsync('qload001'), getQueueAsync('qload001'), getQueueAsync('qload001')]);
@@ -93,7 +93,7 @@ describe('a queue that fails to load', { skip, timeout: 180_000 }, () => {
       forgetAll();
       let fail = true;
       db.query = (async (text: string, params?: unknown[]) => {
-        if (fail && /FROM queue_songs WHERE lobby_id/.test(text)) { await new Promise((r) => setTimeout(r, 100)); fail = false; throw new Error('boom'); }
+        if (fail && /FROM queue_songs WHERE playlist_id/.test(text)) { await new Promise((r) => setTimeout(r, 100)); fail = false; throw new Error('boom'); }
         return real(text, params);
       }) as typeof db.query;
       const results = await Promise.allSettled([getQueueAsync('qload001'), getQueueAsync('qload001')]);
@@ -174,7 +174,7 @@ describe('a queue that fails to load', { skip, timeout: 180_000 }, () => {
     });
 
     it('library_id null is only for an entry the library does not have', async () => {
-      await pg.query(`INSERT INTO queue_songs (id, lobby_id, url, title, added_at, sort_order) VALUES (gen_random_uuid(), 'qload001', 'https://www.youtube.com/watch?v=zzzzzzzzzzz', 'Not here', 1, 10)`);
+      await pg.query(`INSERT INTO queue_songs (id, playlist_id, url, title, added_at, sort_order) VALUES (gen_random_uuid(), 'qload001', 'https://www.youtube.com/watch?v=zzzzzzzzzzz', 'Not here', 1, 10)`);
       // The server never loaded qload001 (every load so far failed): this one reads it all.
       const r = await req('GET', '/api/playlists/qload001/songs', { cookie });
       assert.equal(r.status, 200);

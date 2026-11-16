@@ -52,9 +52,9 @@ describe('writes on a playlist whose songs did not load', { skip, timeout: 180_0
   let pg: pgModule.Client;
   let original: string;
   const snapshot = async () => JSON.stringify((await pg.query(
-    'SELECT id, lobby_id, url, title, sort_order FROM queue_songs ORDER BY lobby_id, sort_order, id')).rows);
+    'SELECT id, playlist_id, url, title, sort_order FROM queue_songs ORDER BY playlist_id, sort_order, id')).rows);
   const entryIds = async (id: string) => (await pg.query(
-    'SELECT id FROM queue_songs WHERE lobby_id = $1 ORDER BY sort_order', [id])).rows.map((r) => r.id as string);
+    'SELECT id FROM queue_songs WHERE playlist_id = $1 ORDER BY sort_order', [id])).rows.map((r) => r.id as string);
 
   before(async () => {
     container = await new PostgreSqlContainer!('postgres:16-alpine').withDatabase('listen_qwrite').withUsername('t').withPassword('t').start();
@@ -65,7 +65,7 @@ describe('writes on a playlist whose songs did not load', { skip, timeout: 180_0
     const now = Date.now();
     await pg.query(`INSERT INTO users (id, provider, provider_id, status, created_at) VALUES ($1, 'dev', 'alice2', 'approved', 1)`, [ALICE]);
     for (const id of LISTS) {
-      await pg.query(`INSERT INTO lobbies (id, host_id, name, visibility, created_at, last_activity) VALUES ($1, $2, $1, 'public', $3, $3)`, [id, ALICE, now]);
+      await pg.query(`INSERT INTO playlists (id, host_id, name, visibility, created_at, last_activity) VALUES ($1, $2, $1, 'public', $3, $3)`, [id, ALICE, now]);
     }
     for (const [i, s] of [...SONGS, EXTRA].entries()) {
       await pg.query(`INSERT INTO library_songs (id, title, artist, duration_sec, file_path, sha256, uploaded_by, youtube_id) VALUES ($1, $2, 'Band', 3, '/x', $3, 't', $4)`,
@@ -73,7 +73,7 @@ describe('writes on a playlist whose songs did not load', { skip, timeout: 180_0
     }
     for (const [i, s] of SONGS.entries()) {
       for (const id of LISTS) {
-        await pg.query(`INSERT INTO queue_songs (id, lobby_id, url, title, added_at, sort_order) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)`,
+        await pg.query(`INSERT INTO queue_songs (id, playlist_id, url, title, added_at, sort_order) VALUES (gen_random_uuid(), $1, $2, $3, $4, $5)`,
           [id, `library:${s}`, `Song ${i} - Band`, now, i]);
       }
     }
@@ -125,15 +125,15 @@ describe('writes on a playlist whose songs did not load', { skip, timeout: 180_0
         await new Promise<void>((r) => s.on('connect', () => r()));
         // Joining puts the socket in the playlist's room (so the writes reach
         // the queue), then says the songs could not be loaded.
-        const joined = next(s, 'lobby:error');
-        s.emit('lobby:join', { lobbyId: LISTS[1] });
-        answers.push(`lobby:join: ${(await joined.catch((e: Error) => ({ code: e.message }))).code}`);
+        const joined = next(s, 'playlist:error');
+        s.emit('playlist:join', { playlistId: LISTS[1] });
+        answers.push(`playlist:join: ${(await joined.catch((e: Error) => ({ code: e.message }))).code}`);
         const writes: Array<[string, Payload]> = [
-          ['queue:add', { lobbyId: LISTS[1], libraryId: EXTRA }],
-          ['queue:add', { lobbyId: LISTS[1], picks: [EXTRA_YT] }],
-          ['queue:remove', { lobbyId: LISTS[1], songId: first }],
-          ['queue:reorder', { lobbyId: LISTS[1], songId: second, newIndex: 0 }],
-          ['queue:clear', { lobbyId: LISTS[1] }],
+          ['queue:add', { playlistId: LISTS[1], libraryId: EXTRA }],
+          ['queue:add', { playlistId: LISTS[1], picks: [EXTRA_YT] }],
+          ['queue:remove', { playlistId: LISTS[1], songId: first }],
+          ['queue:reorder', { playlistId: LISTS[1], songId: second, newIndex: 0 }],
+          ['queue:clear', { playlistId: LISTS[1] }],
         ];
         for (const [event, body] of writes) {
           const err = next(s, 'queue:error');
@@ -169,7 +169,7 @@ describe('writes on a playlist whose songs did not load', { skip, timeout: 180_0
       await db.init();
       forgetAll();
       db.query = (async (text: string, params?: unknown[]) => {
-        if (failing && /FROM queue_songs WHERE lobby_id = \$1 ORDER BY sort_order/.test(text)) throw new Error('connection terminated');
+        if (failing && /FROM queue_songs WHERE playlist_id = \$1 ORDER BY sort_order/.test(text)) throw new Error('connection terminated');
         return real(text, params);
       }) as typeof db.query;
       const deps = {
@@ -198,7 +198,7 @@ describe('writes on a playlist whose songs did not load', { skip, timeout: 180_0
       const song0 = await library.getById(SONGS[0]);
       assert.ok(extra && song0);
       // An upload fulfilled a request of each playlist: the auto-add.
-      await reactions.handleLibrarySongAdded(extra, LISTS.map((id) => ({ id: `r-${id}`, lobby_id: id, requested_by: 'Bob' })) as Payload);
+      await reactions.handleLibrarySongAdded(extra, LISTS.map((id) => ({ id: `r-${id}`, playlist_id: id, requested_by: 'Bob' })) as Payload);
       // A web download job for a playlist finished.
       await assert.rejects(reactions.addJobSongsToPlaylist({ source: 'web', playlist_id: LISTS[0], requested_by_user_id: ALICE, requested_by: 'Alice' } as Payload, [extra]));
       // A song in both playlists was replaced, then had its details edited.
@@ -212,9 +212,9 @@ describe('writes on a playlist whose songs did not load', { skip, timeout: 180_0
     it('with the load working again, the same auto-add appends after the stored songs', async () => {
       failing = false;
       const extra = await library.getById(EXTRA);
-      await reactions.handleLibrarySongAdded(extra!, [{ id: 'r', lobby_id: LISTS[0], requested_by: 'Bob' }] as Payload);
+      await reactions.handleLibrarySongAdded(extra!, [{ id: 'r', playlist_id: LISTS[0], requested_by: 'Bob' }] as Payload);
       await sleep(300);
-      const urls = (await pg.query('SELECT url FROM queue_songs WHERE lobby_id = $1 ORDER BY sort_order', [LISTS[0]])).rows.map((r) => r.url);
+      const urls = (await pg.query('SELECT url FROM queue_songs WHERE playlist_id = $1 ORDER BY sort_order', [LISTS[0]])).rows.map((r) => r.url);
       assert.deepEqual(urls, [...SONGS.map((s) => `library:${s}`), library.queueUrlFor(extra!)]);
     });
   });

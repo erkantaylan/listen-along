@@ -573,7 +573,7 @@ and un-renamed with the SQL above and run by the older image.
   add took sort_order 0 next to them). The playlist routes answer 503 `{ error, code: 'QUEUE_UNAVAILABLE' }` (also
   `GET /api/playlists`, whose song counts need every queue), the songs view 503 `LIBRARY_UNAVAILABLE` when the
   library lookup fails (`library_id: null` only ever means "not in the library"), `/api/dashboard/stats` 503;
-  socket handlers answer `queue:error` / `lobby:error` with that code and change nothing. The playlists themselves
+  socket handlers answer `queue:error` / `playlist:error` (and `lobby:error` for old clients) with that code and change nothing. The playlists themselves
   load at boot: a failure stops the boot instead of serving no playlists. Clients treat a 5xx as "keep what you
   have". A library song's own routes (`GET /api/library/:id`, `/file`, `/replacements`) answer 503
   `LIBRARY_UNAVAILABLE` when the lookup fails (an unknown id stays 404). Tested in `core/queue/queueLoad.test.ts`
