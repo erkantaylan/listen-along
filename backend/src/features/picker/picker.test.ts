@@ -15,7 +15,7 @@ import pg from 'pg';
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { io as ioClient } from 'socket.io-client';
 import type { Socket as ClientSocket } from 'socket.io-client';
-import { cookieFor, startServer, requester } from '../../testServer.js';
+import { cookieFor, startServer, requester } from '../../testing/testServer.ts';
 import { createPicker, MAX_PICKS, SEARCH_COUNT } from './picker.ts';
 import type { PickAnswer, PickerDeps, PickerSong, PickError, YtEntry } from './picker.ts';
 import { createResolver, spotify } from '../../core/requests/index.ts';

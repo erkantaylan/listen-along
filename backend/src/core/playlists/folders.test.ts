@@ -17,7 +17,7 @@ import pg from 'pg';
 import { io as ioClient } from 'socket.io-client';
 import type { Socket } from 'socket.io-client';
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
-import { SECRET, cookieFor, requester, startServer } from '../../testServer.js';
+import { SECRET, cookieFor, requester, startServer } from '../../testing/testServer.ts';
 import { policyFor } from '../../auth/userAuth.ts';
 import { signDevMobileToken } from '../../auth/mobileTokens.ts';
 import { cleanFolderName, MAX_FOLDERS } from './folders.ts';

@@ -3,7 +3,7 @@
 // job picks add, socket queue:add (library id and picks) / remove / reorder /
 // clear, and the reactions that write into queues (a fulfilled request's
 // auto-add, a web job's songs, a replace rewriting entries). Only the load
-// fails here (queueLoadFault.js), the writes would reach the database: so the
+// fails here (testing/queueLoadFault.cjs), the writes would reach the database: so the
 // stored songs being intact afterwards proves the server refused them. Then
 // the load works again and every request sees the original songs.
 import { describe, it, before, after } from 'node:test';
@@ -20,7 +20,7 @@ import { getQueueAsync, hasQueue, deleteQueue, forgetAll } from '../core/queue/i
 import { library } from '../core/library/index.ts';
 import { createReactions } from './reactions.ts';
 import type { ReactionsDeps } from './reactions.ts';
-import { startServer, cookieFor, requester } from '../testServer.js';
+import { startServer, cookieFor, requester } from '../testing/testServer.ts';
 
 // Server and database JSON.
 type Payload = any;
@@ -98,7 +98,7 @@ describe('writes on a playlist whose songs did not load', { skip, timeout: 180_0
       srv = await startServer({
         DATABASE_URL: process.env.DATABASE_URL!,
         QUEUE_LOAD_FAULT_FILE: flag,
-        NODE_OPTIONS: `${process.env.NODE_OPTIONS || ''} --require ${path.join(import.meta.dirname, '..', 'queueLoadFault.js')}`.trim(),
+        NODE_OPTIONS: `${process.env.NODE_OPTIONS || ''} --require ${path.join(import.meta.dirname, '..', 'testing', 'queueLoadFault.cjs')}`.trim(),
       });
       req = requester(srv.base);
     });

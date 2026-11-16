@@ -117,10 +117,10 @@ let backend = builder
   .waitFor(db);
 
 if (withOidc) {
-  // The repo's fake OpenID provider (backend/src/fakeOidcIssuer.js): every
+  // The repo's fake OpenID provider (backend/src/testing/fakeOidcIssuer.ts): every
   // sign-in is "Dev User" (sub dev-1), whom the seed links to its Dev User.
   const idp = await builder
-    .addExecutable('idp', 'node', path.join(repo, 'backend'), ['src/fakeOidcIssuer.js', '--port', String(IDP_PORT)])
+    .addExecutable('idp', 'node', path.join(repo, 'backend'), ['src/testing/fakeOidcIssuer.ts', '--port', String(IDP_PORT)])
     .withHttpEndpoint({ port: IDP_PORT, isProxied: false })
     .withHttpHealthCheck({ path: '/application/o/listen-along/.well-known/openid-configuration', statusCode: 200 });
   backend = backend

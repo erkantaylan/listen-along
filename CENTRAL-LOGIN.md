@@ -228,7 +228,7 @@ exchange checks the PKCE verifier and the nonce against it and answers
 and the derived-nonce check apply there too (the https one only when `BASE_URL` is set). Release builds of the
 app refuse a `dev` session; production servers refuse to start with the dev
 sign-in. The app's stub server (`android/tools/stub_server.py`) does the same.
-Against a fake IdP (`node src/fakeOidcIssuer.js`) the real flow works too; the
+Against a fake IdP (`node src/testing/fakeOidcIssuer.ts`) the real flow works too; the
 phone must reach both the server and the fake IdP (e.g. `adb reverse` for both
 ports, `BASE_URL`/issuer on `localhost`).
 
@@ -345,7 +345,7 @@ sends none).
 There is no password login. Two ways to sign in without the owner's IdP:
 
 - **A fake IdP** (the real protocol, end to end): from `backend/`,
-  `node src/fakeOidcIssuer.js` starts a local OpenID provider (port 9400; `--sub`, `--email`,
+  `node src/testing/fakeOidcIssuer.ts` starts a local OpenID provider (port 9400; `--sub`, `--email`,
   `--name`, `--port` to change the one user it signs in) and prints the variables to start the app
   with (`NODE_ENV=development OIDC_ISSUER=http://127.0.0.1:9400/application/o/listen-along/
   OIDC_CLIENT_ID=listen-along BASE_URL=http://localhost:3000 SESSION_SECRET=dev`). Plain http
@@ -358,11 +358,11 @@ There is no password login. Two ways to sign in without the owner's IdP:
   page's button then goes to `/auth/dev/login?user=<users.id>&next=<path>` (without `?user`: a
   "Dev User" account, made once; without a database: the id `dev`), which sets a signed
   `la_dev_login` cookie (HMAC with `SESSION_SECRET` under its own label, 30 days). The tests sign
-  it directly: `testServer.js` `cookieFor`, and `startServer()` turns the dev sign-in on unless the
+  it directly: `testing/testServer.ts` `cookieFor`, and `startServer()` turns the dev sign-in on unless the
   test configures central login.
 - A central session without the IdP (the central-login counterpart of `cookieFor`): with the server
   on Postgres and `OIDC_*` set, insert a row with
-  `node -e "require('./src/testServer').centralSessionCookie(process.env.DATABASE_URL, '<users.id>').then(console.log)"`
+  `node -e "require('./src/testing/testServer.ts').centralSessionCookie(process.env.DATABASE_URL, '<users.id>').then(console.log)"`
   (from `backend/`) and send the printed `la_session=...` as the cookie (local http only; in
   production the name is `__Host-la_session`). It has no refresh token, so it is not re-checked and
   lasts until `OIDC_MAX_UNVERIFIED_SECONDS`.

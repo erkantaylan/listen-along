@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import pg from 'pg';
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
-import { startServer, cookieFor, adminCookie, requester } from '../../testServer.js';
+import { startServer, cookieFor, adminCookie, requester } from '../../testing/testServer.ts';
 
 let PostgreSqlContainer: typeof import('@testcontainers/postgresql').PostgreSqlContainer | undefined;
 try { ({ PostgreSqlContainer } = await import('@testcontainers/postgresql')); } catch {}

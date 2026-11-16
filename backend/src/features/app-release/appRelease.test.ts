@@ -7,7 +7,7 @@ import type { AddressInfo } from 'node:net';
 import { createAppRelease, pickLatest, RELEASES_PAGE } from './appRelease.ts';
 import type { AppLatest, AppReleaseView, FetchAnswer, FetchImpl, GithubAsset, GithubRelease } from './appRelease.ts';
 import { policyFor } from '../../auth/index.ts';
-import { startServer, cookieFor } from '../../testServer.js';
+import { startServer, cookieFor } from '../../testing/testServer.ts';
 
 const SHA = 'a'.repeat(64);
 const DIGEST_SHA = 'b'.repeat(64);

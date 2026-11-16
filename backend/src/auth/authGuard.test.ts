@@ -27,7 +27,7 @@ import type { Request } from 'express';
 import * as userAuthMod from './userAuth.ts';
 import * as devLogin from './devLogin.ts';
 import * as adminAuth from './adminAuth.ts';
-import { listening } from '../testServer.js';
+import { listening, SERVER_ENTRY } from '../testing/testServer.ts';
 import type { AuthIo } from './authRoutes.ts';
 import type { SessionLookup, UserAuthDb } from './userAuth.ts';
 import type { Account } from './types.ts';
@@ -78,7 +78,7 @@ async function startServer(extraEnv: Record<string, string> = {}) {
     COVERS_DIR: path.join(os.tmpdir(), 'la-auth-test-covers'), ...extraEnv,
   };
   if (!extraEnv.DATABASE_URL) delete env.DATABASE_URL;
-  const proc = spawn(process.execPath, [path.join(import.meta.dirname, '..', 'index.js')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const proc = spawn(process.execPath, [SERVER_ENTRY], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   const port = await listening(proc);
   return { proc, base: `http://127.0.0.1:${port}` };
 }
@@ -87,7 +87,7 @@ async function startServer(extraEnv: Record<string, string> = {}) {
 function boot(env: Record<string, string>): Promise<{ code: number | null; listening: boolean; log: string }> {
   return new Promise((resolve) => {
     const full = { PATH: process.env.PATH, PORT: '0', FRONTEND_PATH: FRONTEND, PRESENCE_GRACE_MS: '0', ...env };
-    const proc = spawn(process.execPath, [path.join(import.meta.dirname, '..', 'index.js')], { env: full, stdio: ['ignore', 'pipe', 'pipe'] });
+    const proc = spawn(process.execPath, [SERVER_ENTRY], { env: full, stdio: ['ignore', 'pipe', 'pipe'] });
     let log = '';
     let listening = false;
     proc.stdout.on('data', (d) => { log += d; if (/Server running on port/.test(log)) { listening = true; proc.kill('SIGKILL'); } });
@@ -301,7 +301,7 @@ describe('sign-in at boot: production needs the central login and refuses the de
   });
 
   it('a production server never accepts the dev sign-in cookie, and has no dev sign-in route', async () => {
-    const proc = spawn(process.execPath, [path.join(import.meta.dirname, '..', 'index.js')], {
+    const proc = spawn(process.execPath, [SERVER_ENTRY], {
       env: { PATH: process.env.PATH, PORT: '0', FRONTEND_PATH: FRONTEND, ...prod }, stdio: ['ignore', 'pipe', 'pipe'],
     });
     try {

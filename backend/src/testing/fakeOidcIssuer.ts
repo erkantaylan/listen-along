@@ -13,23 +13,58 @@
 // to this over HTTP.
 //
 // Also a local development IdP (no authentik needed), from backend/:
-//   node src/fakeOidcIssuer.js [--port 9400] [--sub dev-1] [--email dev@example.com] [--name "Dev User"]
+//   node src/testing/fakeOidcIssuer.ts [--port 9400] [--sub dev-1] [--email dev@example.com] [--name "Dev User"]
 // Every sign-in is that one user, at once (no page). It prints the variables
 // for the app; plain http, so the app must not run with NODE_ENV=production.
-const http = require('node:http');
-const crypto = require('node:crypto');
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
+import crypto from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import * as jose from 'jose';
 
-const b64sha256 = (s) => crypto.createHash('sha256').update(s).digest('base64url');
+const b64sha256 = (s: string) => crypto.createHash('sha256').update(s).digest('base64url');
 const rand = () => crypto.randomBytes(24).toString('base64url');
 
-async function startFakeIssuer({ clientId = 'listen-along', slug = 'listen-along', port = 0 } = {}) {
-  const jose = await import('jose');
+// The tests set and read these freely (claims, one-shot tampering, overrides).
+type Loose = any;
+
+/** The fake IdP a test controls (see the top of this file). */
+export interface FakeIssuer {
+  clientId: string;
+  origin: string;
+  issuer: string;
+  user: Loose;
+  tamper: Loose;
+  down: false | 'http503' | 'reset';
+  refreshDelayMs: number;
+  refreshError: string | null;
+  metadataOverride: ((md: Loose) => Loose) | null;
+  redirectMatch: boolean;
+  registeredRedirects: Set<string> | null;
+  disabled: Set<string>;
+  codes: Map<string, Loose>;
+  refreshTokens: Map<string, { sub: string; claims: Loose; active: boolean }>;
+  calls: { authorize: number; token: number; refresh: number; refreshOf: Record<string, number>; endSession: Record<string, string>[] };
+  lastTokenError: string | null;
+  authorizeRequests: Record<string, string>[];
+  disable(sub: string): void;
+  enable(sub: string): void;
+  reset(): void;
+  close: () => Promise<void>;
+}
+
+export async function startFakeIssuer(
+  { clientId = 'listen-along', slug = 'listen-along', port = 0 }: { clientId?: string; slug?: string; port?: number } = {},
+): Promise<FakeIssuer> {
   const keys = await jose.generateKeyPair('RS256', { extractable: true });
   const otherKeys = await jose.generateKeyPair('RS256', { extractable: true });
   const jwk = { ...(await jose.exportJWK(keys.publicKey)), kid: 'k1', alg: 'RS256', use: 'sig' };
 
-  const idp = {
+  const idp: FakeIssuer = {
     clientId,
+    origin: '',
+    issuer: '',
     user: null,
     tamper: null,           // one-shot changes to the next id_token
     down: false,            // 'http503' | 'reset': the token endpoint fails
@@ -52,16 +87,17 @@ async function startFakeIssuer({ clientId = 'listen-along', slug = 'listen-along
       this.user = null; this.tamper = null; this.down = false; this.refreshDelayMs = 0; this.refreshError = null;
       this.metadataOverride = null; this.redirectMatch = true; this.registeredRedirects = null; this.disabled.clear();
     },
+    close: () => Promise.resolve(),
   };
 
   const server = http.createServer(async (req, res) => {
     try { await handle(req, res); } catch (err) {
       res.writeHead(500, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: 'server_error', error_description: String(err && err.message) }));
+      res.end(JSON.stringify({ error: 'server_error', error_description: String(err && (err as Error).message) }));
     }
   });
-  await new Promise((resolve) => server.listen(port, '127.0.0.1', resolve));
-  const origin = `http://127.0.0.1:${server.address().port}`;
+  await new Promise<void>((resolve) => server.listen(port, '127.0.0.1', resolve));
+  const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   const base = `/application/o/${slug}/`;
   idp.origin = origin;
   idp.issuer = origin + base;
@@ -85,10 +121,10 @@ async function startFakeIssuer({ clientId = 'listen-along', slug = 'listen-along
     return idp.metadataOverride ? idp.metadataOverride(md) : md;
   }
 
-  async function idToken(claims, { nonce } = {}) {
+  async function idToken(claims: Loose, { nonce }: { nonce?: string } = {}): Promise<string> {
     // One-shot; with `forSub`, only for that user's next token (so a refresh
     // of someone else's session in between does not use it up).
-    let t = idp.tamper || {};
+    let t: Loose = idp.tamper || {};
     if (t.forSub && t.forSub !== claims.sub) t = {};
     else idp.tamper = null;
     const now = Math.floor(Date.now() / 1000);
@@ -102,7 +138,7 @@ async function startFakeIssuer({ clientId = 'listen-along', slug = 'listen-along
       iat: t.exp ? t.exp - 600 : now, exp: t.exp || now + 600,
     };
     if (t.alg === 'none') {
-      const enc = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+      const enc = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
       return `${enc({ alg: 'none', typ: 'JWT' })}.${enc(full)}.`;
     }
     if (t.alg === 'HS256') {
@@ -113,19 +149,19 @@ async function startFakeIssuer({ clientId = 'listen-along', slug = 'listen-along
     return new jose.SignJWT(full).setProtectedHeader({ alg: 'RS256', kid: 'k1' }).sign(key);
   }
 
-  function json(res, status, body, headers = {}) {
+  function json(res: http.ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}) {
     res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...headers });
     res.end(JSON.stringify(body));
   }
 
-  async function readForm(req) {
+  async function readForm(req: http.IncomingMessage) {
     let body = '';
     for await (const chunk of req) body += chunk;
     return new URLSearchParams(body);
   }
 
-  async function handle(req, res) {
-    const url = new URL(req.url, origin);
+  async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
+    const url = new URL(req.url!, origin);
     const p = url.pathname;
 
     if (p === `${base}.well-known/openid-configuration`) return json(res, 200, metadata());
@@ -155,7 +191,7 @@ async function startFakeIssuer({ clientId = 'listen-along', slug = 'listen-along
         scope: q.get('scope'), at: Date.now(),
       });
       back.searchParams.set('code', code);
-      if (q.has('state')) back.searchParams.set('state', q.get('state'));
+      if (q.has('state')) back.searchParams.set('state', q.get('state')!);
       res.writeHead(302, { location: back.href });
       return res.end();
     }
@@ -168,8 +204,8 @@ async function startFakeIssuer({ clientId = 'listen-along', slug = 'listen-along
       if (form.get('client_id') !== clientId) return json(res, 401, { error: 'invalid_client' });
       const grant = form.get('grant_type');
       if (grant === 'authorization_code') {
-        const c = idp.codes.get(form.get('code'));
-        idp.codes.delete(form.get('code'));
+        const c = idp.codes.get((form.get('code') as string));
+        idp.codes.delete((form.get('code') as string));
         if (!c) { idp.lastTokenError = 'unknown code'; return json(res, 400, { error: 'invalid_grant', error_description: 'unknown code' }); }
         // RFC 6749 4.1.3. authentik (2026.8) does not do this: it only checks
         // that redirect_uri is registered (idp.redirectMatch = false).
@@ -190,7 +226,7 @@ async function startFakeIssuer({ clientId = 'listen-along', slug = 'listen-along
         idp.calls.refresh++;
         if (idp.refreshDelayMs) await new Promise((r) => setTimeout(r, idp.refreshDelayMs));
         if (idp.refreshError) return json(res, idp.refreshError === 'invalid_client' ? 401 : 400, { error: idp.refreshError });
-        const old = form.get('refresh_token');
+        const old = form.get('refresh_token') as string;
         const rec = idp.refreshTokens.get(old);
         if (rec) idp.calls.refreshOf[rec.sub] = (idp.calls.refreshOf[rec.sub] || 0) + 1;
         if (!rec || !rec.active) return json(res, 400, { error: 'invalid_grant', error_description: 'refresh token unknown or used' });
@@ -221,11 +257,10 @@ async function startFakeIssuer({ clientId = 'listen-along', slug = 'listen-along
   return idp;
 }
 
-module.exports = { startFakeIssuer };
-
-if (require.main === module) {
+// Run directly (`node src/testing/fakeOidcIssuer.ts`): the local development IdP.
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
-  const opt = (name, fallback) => {
+  const opt = (name: string, fallback: string) => {
     const i = args.indexOf(`--${name}`);
     return i >= 0 && args[i + 1] !== undefined ? args[i + 1] : fallback;
   };
@@ -244,7 +279,7 @@ if (require.main === module) {
     process.on('SIGINT', stop);
     process.on('SIGTERM', stop);
   }).catch((err) => {
-    console.error(`fake OpenID provider: ${err.message}`);
+    console.error(`fake OpenID provider: ${(err as Error).message}`);
     process.exit(1);
   });
 }

@@ -15,6 +15,7 @@ import { access } from '../../core/playlists/index.ts';
 import type { AccessPlaylist } from '../../core/playlists/index.ts';
 import { chat, createPresence, viewNowPlaying, normalizeReport } from './index.ts';
 import type { NowPlayingEntry } from './index.ts';
+import { SERVER_ENTRY } from '../../testing/testServer.ts';
 
 // Socket payloads and the views sent to clients.
 type Payload = any;
@@ -249,7 +250,7 @@ describe('global chat and people panel against a running server', { timeout: 60_
     base = `http://127.0.0.1:${port}`;
     const env: NodeJS.ProcessEnv = { ...process.env, PORT: String(port), SESSION_SECRET: SECRET, NODE_ENV: 'test', INSECURE_DEV_LOGIN: '1', ADMIN_PASSWORD, PRESENCE_GRACE_MS: '0', FRONTEND_PATH: path.join(import.meta.dirname, '..', '..', '..', '..', 'frontend') };
     delete env.DATABASE_URL;
-    const proc = spawn(process.execPath, [path.join(import.meta.dirname, '..', '..', 'index.js')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const proc = spawn(process.execPath, [SERVER_ENTRY], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     server = proc;
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('server did not start')), 20_000);

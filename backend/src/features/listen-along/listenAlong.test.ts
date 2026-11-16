@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { io as ioClient } from 'socket.io-client';
 import type { Socket as ClientSocket } from 'socket.io-client';
 import { createListenGraph, createSourceResolver } from './listenAlong.ts';
-import { startServer, cookieFor } from '../../testServer.js';
+import { startServer, cookieFor } from '../../testing/testServer.ts';
 import type { ListenIo, ListenPresence, ListenSocket } from './listenAlong.ts';
 import type { Presence } from '../social/index.ts';
 import type { AppSocket, Io } from '../../shared/types.ts';

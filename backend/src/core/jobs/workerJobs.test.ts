@@ -22,7 +22,7 @@ import pgModule from 'pg';
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { io as ioClient } from 'socket.io-client';
 import type { Socket as ClientSocket } from 'socket.io-client';
-import { cookieFor, adminCookie, startServer, requester } from '../../testServer.js';
+import { cookieFor, adminCookie, startServer, requester } from '../../testing/testServer.ts';
 import { planAssignments, downloadJobs } from './index.ts';
 
 // What the server answers (HTTP, sockets, worker messages, database rows):

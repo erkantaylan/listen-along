@@ -17,7 +17,7 @@ import pgModule from 'pg';
 import { io as ioClient } from 'socket.io-client';
 import type { Socket } from 'socket.io-client';
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
-import { cookieFor, startServer, requester } from '../../testServer.js';
+import { cookieFor, startServer, requester } from '../../testing/testServer.ts';
 
 // Server JSON.
 type Payload = any;

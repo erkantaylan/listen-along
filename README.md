@@ -101,7 +101,7 @@ Environment variables of `make up`:
   config under `.dev-data/la/`), so the Download box and song requests work
   locally. It needs `yt-dlp` and `ffmpeg`, and downloads from YouTube.
 - `LISTEN_AUTH=oidc`: real sign-in instead of the dev sign-in. The AppHost runs
-  `node backend/src/fakeOidcIssuer.js --port 9400` and points `OIDC_ISSUER` /
+  `node backend/src/testing/fakeOidcIssuer.ts --port 9400` and points `OIDC_ISSUER` /
   `OIDC_CLIENT_ID` at it; **Sign in** goes through the whole OpenID Connect
   round trip and lands on Dev User (the seed links it to the IdP's `sub`).
 - `LISTEN_PGWEB=0`: no pgweb.

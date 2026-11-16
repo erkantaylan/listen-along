@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { startServer } from '../testServer.js';
+import { startServer } from '../testing/testServer.ts';
 import { isBuildConfig } from './index.ts';
 
 type Server = Awaited<ReturnType<typeof startServer>>;

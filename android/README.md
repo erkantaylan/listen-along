@@ -524,7 +524,7 @@ CLAUDE.md), `adb reverse tcp:3000 tcp:3000` and launch with `--es server
 http://localhost:3000`: Sign in shows "Continue as Dev User" (or another
 account by `users.id`). That session says `mode: dev`, which only debug builds
 accept; release builds refuse it, and production servers cannot run the dev
-sign-in at all. With the fake IdP (`node src/fakeOidcIssuer.js`) instead, the
+sign-in at all. With the fake IdP (`node src/testing/fakeOidcIssuer.ts`) instead, the
 real protocol runs; reverse its port too.
 
 Cleartext HTTP is allowed only for `localhost`, `127.0.0.1` and `10.0.2.2`

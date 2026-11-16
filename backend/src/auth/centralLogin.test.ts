@@ -24,8 +24,8 @@ import pgModule from 'pg';
 import { io as ioClient } from 'socket.io-client';
 import type { Socket } from 'socket.io-client';
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
-import { startFakeIssuer } from '../fakeOidcIssuer.js';
-import { SECRET, cookieFor, adminCookie, startServer, centralSessionCookie, freePort } from '../testServer.js';
+import { startFakeIssuer } from '../testing/fakeOidcIssuer.ts';
+import { SECRET, cookieFor, adminCookie, startServer, centralSessionCookie, freePort, SERVER_ENTRY } from '../testing/testServer.ts';
 import { readOidcConfig, OidcConfigError } from './oidcConfig.ts';
 import type { OidcConfigOn } from './oidcConfig.ts';
 import * as secretBox from '../shared/secretBox.ts';
@@ -116,7 +116,7 @@ function centralEnv(idp: Idp, extra: Record<string, string> = {}) {
 /** Spawn the server expecting it to exit; resolves { code, log }. */
 function runUntilExit(env: Record<string, string>): Promise<{ code: number | null; log: string }> {
   return new Promise((resolve) => {
-    const proc = spawn(process.execPath, [path.join(import.meta.dirname, '..', 'index.js')], {
+    const proc = spawn(process.execPath, [SERVER_ENTRY], {
       env: { ...process.env, PORT: '0', SESSION_SECRET: SECRET, NODE_ENV: 'test', ...env, DATABASE_URL: '' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });

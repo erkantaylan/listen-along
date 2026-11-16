@@ -11,7 +11,7 @@ import http from 'node:http';
 import { io as ioClient } from 'socket.io-client';
 import type { Socket } from 'socket.io-client';
 import { DEV_COOKIE, signDevToken } from '../../auth/index.ts';
-import { listening } from '../../testServer.js';
+import { listening, SERVER_ENTRY } from '../../testing/testServer.ts';
 import { access } from './index.ts';
 import type { AccessPlaylist } from './index.ts';
 
@@ -105,7 +105,7 @@ describe('playlist permissions against a running server', { timeout: 60_000 }, (
     const env: NodeJS.ProcessEnv = { ...process.env, PORT: '0', SESSION_SECRET: SECRET, NODE_ENV: 'test', INSECURE_DEV_LOGIN: '1', FRONTEND_PATH: path.join(import.meta.dirname, '..', '..', '..', '..', 'frontend') };
     delete env.DATABASE_URL;
     delete env.ADMIN_PASSWORD;
-    server = spawn(process.execPath, [path.join(import.meta.dirname, '..', '..', 'index.js')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    server = spawn(process.execPath, [SERVER_ENTRY], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     base = `http://127.0.0.1:${await listening(server, 20_000)}`;
   });
 

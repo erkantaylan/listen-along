@@ -39,7 +39,7 @@ our_processes() {
     exe=${cmd%% *}
     case "${exe##*/}" in node|aspire-managed|dcp) ;; *) continue ;; esac
     case "$cmd" in
-      *src/index.js*|*"tsc -b frontend -w"*|*scripts/dev-seed.js*|*fakeOidcIssuer.js*|*"la.js worker"*|*apphost.mts*|*aspire-managed*|*nodemon*|*/dcp/dcp\ *)
+      *src/index.js*|*"tsc -b frontend -w"*|*scripts/dev-seed.js*|*fakeOidcIssuer.ts*|*"la.js worker"*|*apphost.mts*|*aspire-managed*|*nodemon*|*/dcp/dcp\ *)
         echo "$pid" ;;
     esac
   done

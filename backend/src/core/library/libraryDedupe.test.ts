@@ -18,7 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 import pgModule from 'pg';
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
-import { cookieFor, startServer, requester } from '../../testServer.js';
+import { cookieFor, startServer, requester } from '../../testing/testServer.ts';
 
 // Server JSON and database rows.
 type Payload = any;

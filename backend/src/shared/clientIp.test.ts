@@ -7,7 +7,7 @@ import type { AddressInfo } from 'node:net';
 import express from 'express';
 import * as clientIp from './clientIp.ts';
 import { make } from './rateLimits.ts';
-import { startServer, requester } from '../testServer.js';
+import { startServer, requester } from '../testing/testServer.ts';
 
 const CF_EDGE = '162.158.10.1'; // inside 162.158.0.0/15
 const CF_EDGE6 = '2606:4700:10::1';

@@ -3,7 +3,7 @@
 // without ADMIN_PASSWORD all of it is 404.
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startServer, requester, adminCookie, cookieFor } from '../testServer.js';
+import { startServer, requester, adminCookie, cookieFor } from '../testing/testServer.ts';
 
 type Server = Awaited<ReturnType<typeof startServer>>;
 type Req = ReturnType<typeof requester>;

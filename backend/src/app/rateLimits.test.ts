@@ -13,7 +13,7 @@ import type { AddressInfo } from 'node:net';
 import express from 'express';
 import { make } from '../shared/rateLimits.ts';
 import { createLibraryRouter } from '../core/library/index.ts';
-import { startServer, cookieFor, adminCookie } from '../testServer.js';
+import { startServer, cookieFor, adminCookie } from '../testing/testServer.ts';
 
 type Server = Awaited<ReturnType<typeof startServer>>;
 

@@ -524,7 +524,7 @@ of a fresh database and of a migrated old one.
   load at boot: a failure stops the boot instead of serving no playlists. Clients treat a 5xx as "keep what you
   have". A library song's own routes (`GET /api/library/:id`, `/file`, `/replacements`) answer 503
   `LIBRARY_UNAVAILABLE` when the lookup fails (an unknown id stays 404). Tested in `core/queue/queueLoad.test.ts`
-  and, for every write path with only the load failing (preload `queueLoadFault.js`), `app/queueLoadWrites.test.ts`.
+  and, for every write path with only the load failing (preload `testing/queueLoadFault.cjs`), `app/queueLoadWrites.test.ts`.
 - There is no per-playlist chat. There is one global chat plus a people panel
   (web: column from 1200px, full-screen `/social` below; `#social-rail` is the opener from 1024px, DESIGN.md)
   (presence + now playing): `backend/src/features/social/`: `social.ts` (socket events, privacy),
@@ -667,14 +667,14 @@ of a fresh database and of a migrated old one.
   HMAC-signed `la_dev_login` cookie (own label, 30 days); for curl, sign one
   with `node -e "console.log('la_dev_login=' + require('./src/auth/index.ts')
   .signDevToken('dev', '<users.id>'))"`. Without a database any validly signed
-  cookie counts as an approved account. Tests: `testServer.js` `cookieFor` is
+  cookie counts as an approved account. Tests: `testing/testServer.ts` `cookieFor` is
   that cookie and `startServer()` turns `INSECURE_DEV_LOGIN` on unless the test
   sets `OIDC_*` (never add it to a compose file; production refuses it, tested
   in `auth/authGuard.test.ts`); the server binds `PORT=0` and `listening()` reads the port from its
-  "Server running on port N" line (never pick a free port first and bind it later: that races). Or **a fake IdP**: `node src/fakeOidcIssuer.js`
+  "Server running on port N" line (never pick a free port first and bind it later: that races). Or **a fake IdP**: `node src/testing/fakeOidcIssuer.ts`
   (prints the `OIDC_*` / `BASE_URL` to start the app with; plain http, so not
   with `NODE_ENV=production`); `auth/centralLogin.test.ts` drives the real flow
-  against it, and `testServer.js` `centralSessionCookie(DATABASE_URL,
+  against it, and `testing/testServer.ts` `centralSessionCookie(DATABASE_URL,
   '<users.id>')` inserts a `user_sessions` row (prints `la_session=...`).
 
 ## TypeScript
@@ -872,7 +872,7 @@ nodemon / testcontainers depend on a fixed version.
   `node --watch --require ./src/telemetry.js src/index.js`, port 3100, not proxied, health `/health` 200,
   `INSECURE_DEV_LOGIN=1`, `ADMIN_PASSWORD=dev-admin`, `SONGS_PATH` / `COVERS_DIR` under `.dev-data/`, OTLP
   http/protobuf to the dashboard), `seed` (after the server is healthy), `worker` (`LISTEN_WORKER=1`), `idp`
-  (`LISTEN_AUTH=oidc`: `fakeOidcIssuer.js --port 9400`, then `OIDC_ISSUER` / `OIDC_CLIENT_ID` instead of the dev
+  (`LISTEN_AUTH=oidc`: `testing/fakeOidcIssuer.ts --port 9400`, then `OIDC_ISSUER` / `OIDC_CLIENT_ID` instead of the dev
   sign-in). `DATABASE_URL` is a `postgres://` URL built with `refExpr` (Aspire's `ConnectionStrings__*` is ADO
   format); the Postgres password is pinned and URL-safe.
 - `backend/scripts/dev-seed.js` (plain Node, idempotent, never in the image: `.dockerignore` drops

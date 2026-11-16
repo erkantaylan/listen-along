@@ -11,7 +11,7 @@ import { io as ioClient } from 'socket.io-client';
 import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import db from '../../shared/db.ts';
 import { getQueueAsync, forgetAll, QueueUnavailableError } from './index.ts';
-import { startServer, cookieFor, requester } from '../../testServer.js';
+import { startServer, cookieFor, requester } from '../../testing/testServer.ts';
 
 // Server and database JSON.
 type Payload = any;
