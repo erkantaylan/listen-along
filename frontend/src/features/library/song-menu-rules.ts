@@ -30,8 +30,8 @@ export interface SongMenuRow {
 }
 
 export interface SongMenuPage {
-  lobbyId: string | null;
-  queueLobbyId: string | null;
+  playlistId: string | null;
+  queuePlaylistId: string | null;
   canEdit: boolean;
 }
 
@@ -69,10 +69,10 @@ export function sourceSubmenu(link: Partial<SourceLink> | null | undefined): Sou
  * "Remove from playlist" appears only on a row of the playlist on screen, for
  * someone who may edit it. The server checks again (queue:remove).
  * row: { context: 'playlist' | 'library' | 'radio' | 'artist' | 'player', entryId }
- * page: { lobbyId, queueLobbyId, canEdit }
+ * page: { playlistId, queuePlaylistId, canEdit }
  */
 export function canRemoveFromPlaylist(row: SongMenuRow | null | undefined, page: SongMenuPage | null | undefined): boolean {
   if (!row || row.context !== 'playlist' || !row.entryId) return false;
-  if (!page || !page.canEdit || !page.lobbyId) return false;
-  return page.queueLobbyId === page.lobbyId;
+  if (!page || !page.canEdit || !page.playlistId) return false;
+  return page.queuePlaylistId === page.playlistId;
 }

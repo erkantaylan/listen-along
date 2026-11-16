@@ -1,4 +1,4 @@
-// Pure queue-navigation and lobby-membership rules for the player. No DOM,
+// Pure queue-navigation and playlist-membership rules for the player. No DOM,
 // so they can be unit tested in Node (player-queue.test.ts).
 
 // Previous restarts the current track instead when it has played this long.
@@ -89,38 +89,38 @@ export function previousIndex({ length, current = -1, repeat = 'off', blocked = 
   return open(current) ? current : -1;
 }
 
-// --- Lobby membership --------------------------------------------------------
-// The server lists a socket in one lobby (member: listener list, now-playing)
+// --- Playlist membership --------------------------------------------------------
+// The server lists a socket in one playlist (member: listener list, now-playing)
 // and lets it watch one more (viewing: queue/chat updates, adding
-// songs). The member lobby is the playback context while there is one, so the
-// queue being played stays live; otherwise it is the lobby on screen. Any
-// other lobby on screen is only viewed.
+// songs). The member playlist is the playback context while there is one, so the
+// queue being played stays live; otherwise it is the playlist on screen. Any
+// other playlist on screen is only viewed.
 
 export interface Membership {
   member: string | null;
   viewing: string | null;
 }
 
-export type MembershipAction = { type: 'join' | 'leave' | 'view' | 'unview'; lobbyId: string };
+export type MembershipAction = { type: 'join' | 'leave' | 'view' | 'unview'; playlistId: string };
 
-export function desiredMembership({ viewedLobbyId = null, contextLobbyId = null }: { viewedLobbyId?: string | null; contextLobbyId?: string | null } = {}): Membership {
-  const member = contextLobbyId || viewedLobbyId || null;
-  const viewing = viewedLobbyId && viewedLobbyId !== member ? viewedLobbyId : null;
+export function desiredMembership({ viewedPlaylistId = null, contextPlaylistId = null }: { viewedPlaylistId?: string | null; contextPlaylistId?: string | null } = {}): Membership {
+  const member = contextPlaylistId || viewedPlaylistId || null;
+  const viewing = viewedPlaylistId && viewedPlaylistId !== member ? viewedPlaylistId : null;
   return { member, viewing };
 }
 
 // Socket events that move the server from `current` to `desired`
-// ({ member, viewing } each). lobby:join leaves the old member lobby and turns
-// a view of the same lobby into membership; lobby:view replaces the old view.
+// ({ member, viewing } each). playlist:join leaves the old member playlist and turns
+// a view of the same playlist into membership; playlist:view replaces the old view.
 export function membershipActions(current: Membership, desired: Membership): MembershipAction[] {
   const actions: MembershipAction[] = [];
   if (desired.member !== current.member) {
-    if (desired.member) actions.push({ type: 'join', lobbyId: desired.member });
-    else if (current.member) actions.push({ type: 'leave', lobbyId: current.member });
+    if (desired.member) actions.push({ type: 'join', playlistId: desired.member });
+    else if (current.member) actions.push({ type: 'leave', playlistId: current.member });
   }
   if (desired.viewing !== current.viewing) {
-    if (desired.viewing) actions.push({ type: 'view', lobbyId: desired.viewing });
-    else if (current.viewing && current.viewing !== desired.member) actions.push({ type: 'unview', lobbyId: current.viewing });
+    if (desired.viewing) actions.push({ type: 'view', playlistId: desired.viewing });
+    else if (current.viewing && current.viewing !== desired.member) actions.push({ type: 'unview', playlistId: current.viewing });
   }
   return actions;
 }

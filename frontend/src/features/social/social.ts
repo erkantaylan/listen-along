@@ -517,7 +517,7 @@ function presenceContext(ctx: PlayerContext | null): PresenceContextReport | nul
   if (!ctx) return null;
   if (ctx.type === 'library' || ctx.type === 'radio') return { type: ctx.type };
   if (ctx.type === 'artist') return { type: 'artist', key: ctx.key, name: ctx.name || null };
-  if (ctx.type === 'lobby') return { type: 'lobby', lobbyId: ctx.lobbyId };
+  if (ctx.type === 'playlist') return { type: 'playlist', playlistId: ctx.playlistId };
   return null;
 }
 // Also the listen-along heartbeat (listen-along.ts) while someone listens along.

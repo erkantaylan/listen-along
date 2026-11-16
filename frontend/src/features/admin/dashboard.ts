@@ -4,7 +4,7 @@
 import { state, elements, viewActivators, setDashboardInterval } from '../../shared/state.ts';
 import { showView, showToast, escapeHtml, formatUptime, formatAge, formatDuration, formatFileSize, toLower, t, notifyViewChange } from '../../shared/ui.ts';
 import { byId, maybeById } from '../../shared/dom.ts';
-import type { AccountStatus, AdminSettings, AdminStatus, ApiError, DashboardLobby, DashboardStats, DashboardUser, DashboardUserStatusResponse, DashboardUsersResponse } from '../../shared/types.ts';
+import type { AccountStatus, AdminSettings, AdminStatus, ApiError, DashboardPlaylist, DashboardStats, DashboardUser, DashboardUserStatusResponse, DashboardUsersResponse } from '../../shared/types.ts';
 import { startAdminSections, stopAdminSections } from './dashboard-admin.ts';
 
 let dashboardUsers: DashboardUser[] = [];
@@ -162,8 +162,8 @@ export function fetchDashboardStats(): void {
     })
     .then(data => {
       const n = (value: number) => Number(value).toLocaleString();
-      if (elements.statLobbies) elements.statLobbies.textContent = n(data.totalLobbies);
-      setMeta(maybeById('stat-lobbies-private'), data.privateLobbies ? tf('dashboard.privateCount', '{count} private', { count: n(data.privateLobbies) }) : '');
+      if (elements.statPlaylists) elements.statPlaylists.textContent = n(data.totalPlaylists);
+      setMeta(maybeById('stat-playlists-private'), data.privatePlaylists ? tf('dashboard.privateCount', '{count} private', { count: n(data.privatePlaylists) }) : '');
       if (elements.statUsers) elements.statUsers.textContent = n(data.totalUsers);
       if (elements.statMemory) elements.statMemory.textContent = n(Math.round(data.memoryUsage.heapUsed / 1024 / 1024));
       if (elements.statDisk) {
@@ -174,29 +174,29 @@ export function fetchDashboardStats(): void {
           : '');
       }
       if (elements.dashboardUptime) elements.dashboardUptime.textContent = `Uptime: ${formatUptime(data.uptime)}`;
-      if (elements.dashboardLobbyList) updateDashboardLobbies(data.lobbies);
+      if (elements.dashboardPlaylistList) updateDashboardPlaylists(data.playlists);
     })
     .catch((err: Error) => { if (err.message !== 'Admin login required') console.error('Failed to fetch dashboard stats:', err); });
 }
 
-function updateDashboardLobbies(lobbies: DashboardLobby[]): void {
-  if (!lobbies || lobbies.length === 0) {
-    elements.dashboardLobbyList.innerHTML = '<li class="list-group-item app-empty dashboard-empty">No public playlists</li>';
+function updateDashboardPlaylists(playlists: DashboardPlaylist[]): void {
+  if (!playlists || playlists.length === 0) {
+    elements.dashboardPlaylistList.innerHTML = '<li class="list-group-item app-empty dashboard-empty">No public playlists</li>';
     return;
   }
-  elements.dashboardLobbyList.innerHTML = lobbies.map(lobby => {
-    const age = formatAge(lobby.createdAt);
-    return `<li class="list-group-item dashboard-lobby-item">
-      <div class="fw-medium text-truncate dashboard-lobby-id">${lobby.name ? escapeHtml(lobby.name) : escapeHtml(lobby.id)}</div>
-      <div class="d-flex flex-wrap column-gap-4 fs-sm fg-3 dashboard-lobby-info">
-        <span class="dashboard-lobby-users">${lobby.userCount} user${lobby.userCount !== 1 ? 's' : ''}</span>
-        <span class="dashboard-lobby-queue">${lobby.queueLength} in queue</span>
+  elements.dashboardPlaylistList.innerHTML = playlists.map(playlist => {
+    const age = formatAge(playlist.createdAt);
+    return `<li class="list-group-item dashboard-playlist-item">
+      <div class="fw-medium text-truncate dashboard-playlist-id">${playlist.name ? escapeHtml(playlist.name) : escapeHtml(playlist.id)}</div>
+      <div class="d-flex flex-wrap column-gap-4 fs-sm fg-3 dashboard-playlist-info">
+        <span class="dashboard-playlist-users">${playlist.userCount} user${playlist.userCount !== 1 ? 's' : ''}</span>
+        <span class="dashboard-playlist-queue">${playlist.queueLength} in queue</span>
       </div>
-      <div class="d-flex gap-2 dashboard-lobby-actions">
-        <button class="btn btn-sm" type="button" onclick="window.dashboardJoinLobby(${escapeHtml(JSON.stringify(lobby.id))})">Open</button>
-        <button class="btn-outline theme-danger btn-sm" type="button" onclick="window.dashboardRemoveLobby(${escapeHtml(JSON.stringify(lobby.id))})">Delete</button>
+      <div class="d-flex gap-2 dashboard-playlist-actions">
+        <button class="btn btn-sm" type="button" onclick="window.dashboardJoinPlaylist(${escapeHtml(JSON.stringify(playlist.id))})">Open</button>
+        <button class="btn-outline theme-danger btn-sm" type="button" onclick="window.dashboardRemovePlaylist(${escapeHtml(JSON.stringify(playlist.id))})">Delete</button>
       </div>
-      <div class="fs-xs fg-3 dashboard-lobby-age">${age}</div>
+      <div class="fs-xs fg-3 dashboard-playlist-age">${age}</div>
     </li>`;
   }).join('');
 }
@@ -302,11 +302,11 @@ export function renderDashboardUserList(): void {
   }).join('');
 }
 
-export function dashboardJoinLobby(lobbyId: string): void { window.location.href = `/playlist/${encodeURIComponent(lobbyId)}`; }
+export function dashboardJoinPlaylist(playlistId: string): void { window.location.href = `/playlist/${encodeURIComponent(playlistId)}`; }
 
-export function dashboardRemoveLobby(lobbyId: string): void {
-  if (!confirm(`Delete playlist ${lobbyId}? Everyone who has it open loses it.`)) return;
-  fetch(`/api/dashboard/lobbies/${encodeURIComponent(lobbyId)}`, { method: 'DELETE' })
+export function dashboardRemovePlaylist(playlistId: string): void {
+  if (!confirm(`Delete playlist ${playlistId}? Everyone who has it open loses it.`)) return;
+  fetch(`/api/dashboard/playlists/${encodeURIComponent(playlistId)}`, { method: 'DELETE' })
     .then(res => { if (res.ok) fetchDashboardStats(); else alert('Failed to delete playlist'); })
     .catch(() => alert('Failed to delete playlist'));
 }

@@ -6,22 +6,22 @@ import { parseRoute, libraryPath, basePath, legacyRedirect, artistPath, LIBRARY_
 
 describe('frontend router: parseRoute', () => {
   it('maps the top-level views', () => {
-    assert.deepEqual(parseRoute('/'), { view: 'landing', lobbyId: null, library: null });
-    assert.deepEqual(parseRoute('/profile'), { view: 'profile', lobbyId: null, library: null });
-    assert.deepEqual(parseRoute('/dashboard'), { view: 'dashboard', lobbyId: null, library: null });
-    assert.deepEqual(parseRoute('/social'), { view: 'social', lobbyId: null, library: null });
-    assert.deepEqual(parseRoute('/radio'), { view: 'radio', lobbyId: null, library: null });
-    assert.deepEqual(parseRoute('/radio/'), { view: 'radio', lobbyId: null, library: null });
-    assert.deepEqual(parseRoute('/app'), { view: 'app', lobbyId: null, library: null });
+    assert.deepEqual(parseRoute('/'), { view: 'landing', playlistId: null, library: null });
+    assert.deepEqual(parseRoute('/profile'), { view: 'profile', playlistId: null, library: null });
+    assert.deepEqual(parseRoute('/dashboard'), { view: 'dashboard', playlistId: null, library: null });
+    assert.deepEqual(parseRoute('/social'), { view: 'social', playlistId: null, library: null });
+    assert.deepEqual(parseRoute('/radio'), { view: 'radio', playlistId: null, library: null });
+    assert.deepEqual(parseRoute('/radio/'), { view: 'radio', playlistId: null, library: null });
+    assert.deepEqual(parseRoute('/app'), { view: 'app', playlistId: null, library: null });
     assert.equal(basePath({ view: 'app' }), '/app');
-    assert.deepEqual(parseRoute('/playlist/abc-123'), { view: 'lobby', lobbyId: 'abc-123', library: null });
+    assert.deepEqual(parseRoute('/playlist/abc-123'), { view: 'playlist', playlistId: 'abc-123', library: null });
   });
 
   it('maps the artist views, with encoded keys both ways', () => {
-    assert.deepEqual(parseRoute('/artists'), { view: 'artists', lobbyId: null, library: null });
-    assert.deepEqual(parseRoute('/artists/'), { view: 'artists', lobbyId: null, library: null });
-    assert.deepEqual(parseRoute('/artist/barismanco'), { view: 'artist', lobbyId: null, library: null, artistKey: 'barismanco' });
-    assert.deepEqual(parseRoute('/artist/%D0%BA%D0%B8%D0%BD%D0%BE/'), { view: 'artist', lobbyId: null, library: null, artistKey: 'кино' });
+    assert.deepEqual(parseRoute('/artists'), { view: 'artists', playlistId: null, library: null });
+    assert.deepEqual(parseRoute('/artists/'), { view: 'artists', playlistId: null, library: null });
+    assert.deepEqual(parseRoute('/artist/barismanco'), { view: 'artist', playlistId: null, library: null, artistKey: 'barismanco' });
+    assert.deepEqual(parseRoute('/artist/%D0%BA%D0%B8%D0%BD%D0%BE/'), { view: 'artist', playlistId: null, library: null, artistKey: 'кино' });
     assert.equal(parseRoute('/artist/%E0%A4%A').view, 'landing');
     assert.equal(parseRoute('/artist/').view, 'landing');
     assert.equal(parseRoute('/artist/a/b').view, 'landing');
@@ -30,17 +30,17 @@ describe('frontend router: parseRoute', () => {
     assert.equal(artistPath('barismanco'), '/artist/barismanco');
   });
 
-  it('falls back to the landing page for unknown paths and bad lobby ids', () => {
+  it('falls back to the landing page for unknown paths and bad playlist ids', () => {
     assert.equal(parseRoute('/nope').view, 'landing');
-    assert.equal(parseRoute('/playlist/a%20b').lobbyId, null);
-    assert.equal(parseRoute('/playlist/x/y').lobbyId, null);
+    assert.equal(parseRoute('/playlist/a%20b').playlistId, null);
+    assert.equal(parseRoute('/playlist/x/y').playlistId, null);
   });
 
-  it('opens the library with defaults, alone or over a lobby', () => {
-    assert.deepEqual(parseRoute('/library'), { view: 'landing', lobbyId: null, library: { ...LIBRARY_DEFAULTS } });
+  it('opens the library with defaults, alone or over a playlist', () => {
+    assert.deepEqual(parseRoute('/library'), { view: 'landing', playlistId: null, library: { ...LIBRARY_DEFAULTS } });
     const r = parseRoute('/playlist/xyz/library');
-    assert.equal(r.view, 'lobby');
-    assert.equal(r.lobbyId, 'xyz');
+    assert.equal(r.view, 'playlist');
+    assert.equal(r.playlistId, 'xyz');
     assert.deepEqual(r.library, { ...LIBRARY_DEFAULTS });
   });
 
@@ -69,13 +69,13 @@ describe('frontend router: building URLs', () => {
     const lib = { tab: 'requests', query: 'ünïcode ?&=', sort: 'artist', page: 4, requestStatus: 'dismissed' } as const;
     const url = new URL(libraryPath('lob-1', lib), 'http://x');
     const r = parseRoute(url.pathname, url.search);
-    assert.equal(r.lobbyId, 'lob-1');
+    assert.equal(r.playlistId, 'lob-1');
     assert.deepEqual(r.library, lib);
   });
 
   it('builds base paths', () => {
     assert.equal(basePath({ view: 'landing' }), '/');
-    assert.equal(basePath({ view: 'lobby', lobbyId: 'q' }), '/playlist/q');
+    assert.equal(basePath({ view: 'playlist', playlistId: 'q' }), '/playlist/q');
     assert.equal(basePath({ view: 'profile' }), '/profile');
     assert.equal(basePath({ view: 'radio' }), '/radio');
   });

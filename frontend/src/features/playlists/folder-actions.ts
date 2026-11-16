@@ -70,7 +70,7 @@ function nameDialog({ id, title, value, submitLabel, busyLabel, returnFocus, sav
         const err = e as FolderApiError;
         c.busy(false);
         if (err.code === 'FOLDER_LIMIT') c.error(t('folders.limit', 'You have 100 folders, the most there can be. Delete one to make room.'));
-        else if (err.code === 'NOT_FOUND') c.error(t('lobby.notFound', 'Playlist not found'));
+        else if (err.code === 'NOT_FOUND') c.error(t('playlist.notFound', 'Playlist not found'));
         else if (err.status === 400) fail(err.message);
         else c.error(err.message || t('error.generic', 'Something went wrong'));
       }

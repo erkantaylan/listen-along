@@ -9,7 +9,7 @@
 // clicked, no text is selected, nothing navigates twice. A mouse only: a tap,
 // also a double tap, stays one navigation. A row's own controls keep their clicks.
 
-const ROWS = '#plnav-radio, .plnav-row[data-playlist-id], .lobby-card[data-playlist-id], .artist-card[data-artist-key]';
+const ROWS = '#plnav-radio, .plnav-row[data-playlist-id], .playlist-entry[data-playlist-id], .artist-card[data-artist-key]';
 const CONTROLS = 'button, input, textarea, select, [contenteditable="true"]';
 const SLOP_PX = 8;
 

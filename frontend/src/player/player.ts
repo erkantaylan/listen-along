@@ -2,14 +2,14 @@
 // views, so it keeps playing while the user moves around the SPA, and only one
 // tab of the browser plays at a time (BroadcastChannel, see below).
 //
-// "Context" is what playback was last started from: a lobby queue
-// ({ type: 'lobby', lobbyId, name }), the music library list
+// "Context" is what playback was last started from: a playlist queue
+// ({ type: 'playlist', playlistId, name }), the music library list
 // ({ type: 'library' }), Radio ({ type: 'radio', stationId }), an artist's songs
 // ({ type: 'artist', key, name }, artist-page.ts), one song played from the
 // search page ({ type: 'search', query }, search.ts: it repeats that song until
 // something else is chosen, player-queue.ts contextRepeat), or another user while listening along
 // ({ type: 'listen', leaderId, name }, no songs), plus its songs. It stays current while other pages
-// (and other lobbies) are shown, and changes only when play is pressed on a
+// (and other playlists) are shown, and changes only when play is pressed on a
 // song somewhere else (playFrom).
 //
 // Tracks are queue entries ({ id, url, title, artist, thumbnail }) streamed
@@ -18,9 +18,9 @@
 // API (everything the UI and listen-along use):
 //   player.playFrom(ctx, songs, index)   start playing a context's songs at index
 //   player.setContext(ctx, songs, { keepDriver })  make a queue current without playing
-//   player.updateQueue(lobbyId, songs)   live queue update (ignored unless that lobby is the context)
-//   player.renameContext(lobbyId, name)
-//   player.replaceQueue(ctx, songs)      new order for a context that is no lobby (ignored unless it is current)
+//   player.updateQueue(playlistId, songs)   live queue update (ignored unless that playlist is the context)
+//   player.renameContext(playlistId, name)
+//   player.replaceQueue(ctx, songs)      new order for a context that is no playlist (ignored unless it is current)
 //   player.setRefill(fn)                 fn(context, track) -> songs | null: what comes after the last song (Radio)
 //   player.setSkip(fn)                   fn(track) -> true for a song next / previous go past (it failed to play, playback-failures.ts)
 //   player.setEndHook(fn)                fn() -> true when it handled a song's end itself (the sleep timer's "end of song")
@@ -54,20 +54,20 @@ import { findTrackIndex, nextIndex, previousIndex, contextRepeat, RESTART_THRESH
 import type { LibrarySong, LibraryUpdatedPayload, Track } from '../shared/types.ts';
 
 // The contexts playback can be started from (normalizeContext makes them).
-export type LobbyContext = { type: 'lobby'; lobbyId: string; name: string | null };
+export type PlaylistContext = { type: 'playlist'; playlistId: string; name: string | null };
 export type LibraryContext = { type: 'library'; name: string | null };
 export type RadioContext = { type: 'radio'; stationId: string | null; name: string | null };
 export type ArtistContext = { type: 'artist'; key: string; name: string | null };
 export type SearchContext = { type: 'search'; query: string; name: string | null };
 export type ListenContext = { type: 'listen'; leaderId: string; name: string | null };
-export type PlayerContext = LobbyContext | LibraryContext | RadioContext | ArtistContext | SearchContext | ListenContext;
+export type PlayerContext = PlaylistContext | LibraryContext | RadioContext | ArtistContext | SearchContext | ListenContext;
 
 // What callers hand in (setContext, playFrom, replaceQueue): a context or
-// something like one; a lobby's comes without `type` (playback.ts viewedContext).
+// something like one; a playlist's comes without `type` (playback.ts viewedContext).
 export interface PlayerContextInput {
   type?: string;
   name?: string | null;
-  lobbyId?: string | null;
+  playlistId?: string | null;
   stationId?: string | null;
   key?: string | null;
   query?: unknown;
@@ -148,8 +148,8 @@ function normalizeContext(ctx: PlayerContextInput | null | undefined): PlayerCon
   if (ctx.type === 'artist') return ctx.key ? { type: 'artist', key: ctx.key, name: ctx.name || null } : null;
   if (ctx.type === 'search') return { type: 'search', query: typeof ctx.query === 'string' ? ctx.query : '', name: ctx.name || null };
   if (ctx.type === 'listen') return ctx.leaderId ? { type: 'listen', leaderId: ctx.leaderId, name: ctx.name || null } : null;
-  if (!ctx.lobbyId) return null;
-  return { type: 'lobby', lobbyId: ctx.lobbyId, name: ctx.name || null };
+  if (!ctx.playlistId) return null;
+  return { type: 'playlist', playlistId: ctx.playlistId, name: ctx.name || null };
 }
 
 // Past the first line b has a's type (TypeScript does not narrow b from a.type === b.type).
@@ -159,11 +159,11 @@ function sameContext(a: PlayerContext | null, b: PlayerContext | null): boolean 
   if (a.type === 'radio') return a.stationId === (b as typeof a).stationId;
   if (a.type === 'artist') return a.key === (b as typeof a).key;
   if (a.type === 'search') return a.query === (b as typeof a).query;
-  return a.type === 'library' || a.lobbyId === (b as typeof a).lobbyId;
+  return a.type === 'library' || a.playlistId === (b as typeof a).playlistId;
 }
 
-function isLobbyContext(lobbyId: string): boolean {
-  return !!context && context.type === 'lobby' && context.lobbyId === lobbyId;
+function isPlaylistContext(playlistId: string): boolean {
+  return !!context && context.type === 'playlist' && context.playlistId === playlistId;
 }
 
 function hasSource(): boolean {
@@ -200,14 +200,14 @@ export const player = {
     emit('queue', queue);
   },
 
-  renameContext(lobbyId: string, name: string | null | undefined): void {
-    if (!isLobbyContext(lobbyId)) return;
-    context = { ...(context as LobbyContext), name: name || null };
+  renameContext(playlistId: string, name: string | null | undefined): void {
+    if (!isPlaylistContext(playlistId)) return;
+    context = { ...(context as PlaylistContext), name: name || null };
     emit('context', context);
   },
 
-  updateQueue(lobbyId: string, songs: Track[]): void {
-    if (!isLobbyContext(lobbyId)) return;
+  updateQueue(playlistId: string, songs: Track[]): void {
+    if (!isPlaylistContext(playlistId)) return;
     queue = Array.isArray(songs) ? songs.slice() : [];
     emit('queue', queue);
   },
@@ -329,7 +329,7 @@ export const player = {
     a.currentTime = Math.max(0, Math.min(seconds, a.duration));
   },
 
-  // Unload everything (e.g. the context lobby was deleted).
+  // Unload everything (e.g. the context playlist was deleted).
   stop(): void {
     takeover();
     const a = audio();

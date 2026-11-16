@@ -135,7 +135,7 @@ async function loadRequests(): Promise<void> {
       <li class="list-group-item d-flex align-items-center gap-3 adm-item">
         <div class="min-w-0 flex-grow-1 adm-item-main">
           <div class="fw-medium text-break adm-item-title">${link ? `<a href="${esc(link)}" target="_blank" rel="noopener noreferrer">${esc(title)}</a>` : esc(title)}</div>
-          <div class="fs-xs fg-3 text-break adm-item-sub">${r.artist ? esc(r.artist) + ' · ' : ''}by ${esc(r.requested_by)}${r.lobby_id ? ' in playlist ' + esc(r.lobby_id) : ''} · ${esc(when(r.created_at))} · ${esc(r.status)}</div>
+          <div class="fs-xs fg-3 text-break adm-item-sub">${r.artist ? esc(r.artist) + ' · ' : ''}by ${esc(r.requested_by)}${r.playlist_id ? ' in playlist ' + esc(r.playlist_id) : ''} · ${esc(when(r.created_at))} · ${esc(r.status)}</div>
         </div>
         ${r.status === 'pending' ? `<button class="btn btn-sm" data-dismiss="${esc(r.id)}" type="button">Dismiss</button>` : ''}
       </li>`;

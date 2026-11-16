@@ -75,7 +75,7 @@ describe('frontend: the shell top bar and the playlist header', () => {
     assert.equal((html.match(/id="app-search-input"/g) || []).length, 1);
     const at = html.indexOf('<form id="app-search"');
     assert.ok(at < html.indexOf('<div id="search-view"') && at < html.indexOf('<div id="landing-view"'), 'before the views');
-    for (const id of ['search-view', 'landing-view', 'lobby-view', 'profile-view']) assert.doesNotMatch(viewHtml(id), /id="app-search"/, id);
+    for (const id of ['search-view', 'landing-view', 'playlist-view', 'profile-view']) assert.doesNotMatch(viewHtml(id), /id="app-search"/, id);
     assert.doesNotMatch(read('src/features/search/search.ts'), /\.prepend\(bar\)|is-stuck/, 'never moved into a page');
   });
   it('the side columns are full height; the page column starts under it (--app-top), field centred in that column, no rule or accent edge', () => {
@@ -97,10 +97,10 @@ describe('frontend: the shell top bar and the playlist header', () => {
     assert.doesNotMatch(bar[1], /border|box-shadow/);
   });
   it('the playlist page: header, then one toolbar; no Add songs, library button or stats pills', () => {
-    const lobby = viewHtml('lobby-view');
-    assert.doesNotMatch(lobby, /add-songs-btn|browse-library-btn|class="playlist-stats"|add-song"/);
-    assert.match(lobby, /id="playlist-meta-text"[^>]*>.*id="playlist-owner".*id="playlist-stats".*id="user-count"/);
-    const toolbar = lobby.slice(lobby.indexOf('queue-toolbar'), lobby.indexOf('playlist-download-progress'));
+    const playlist = viewHtml('playlist-view');
+    assert.doesNotMatch(playlist, /add-songs-btn|browse-library-btn|class="playlist-stats"|add-song"/);
+    assert.match(playlist, /id="playlist-meta-text"[^>]*>.*id="playlist-owner".*id="playlist-stats".*id="user-count"/);
+    const toolbar = playlist.slice(playlist.indexOf('queue-toolbar'), playlist.indexOf('playlist-download-progress'));
     for (const id of ['queue-search-input', 'queue-sort', 'download-queue-btn', 'clear-queue-btn']) assert.match(toolbar, new RegExp(`id="${id}"`), id);
     assert.ok(toolbar.indexOf('queue-search-input') < toolbar.indexOf('queue-sort'), 'filter first');
     for (const lang of ['en', 'tr']) {

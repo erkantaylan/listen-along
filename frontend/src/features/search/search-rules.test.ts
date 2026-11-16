@@ -161,12 +161,12 @@ describe('search: the current playlist (where a one-step add goes)', () => {
     assert.deepEqual(m.addTarget({ sessionId: 'theirs', lastPlayedId: 'road', playlists: pls }), { playlist: pls[0], session: false }, 'a session target that went read-only falls back');
   });
   it('an editable playlist page on screen is a target; anything else is not', () => {
-    assert.equal(m.pageTarget({ view: 'lobby', lobbyId: 'road', canEdit: true }), 'road');
-    assert.equal(m.pageTarget({ view: 'lobby', lobbyId: 'theirs', canEdit: false }), null, 'read-only');
-    assert.equal(m.pageTarget({ view: 'lobby', lobbyId: 'road', canEdit: true, libraryOpen: true }), null, 'under the library overlay');
-    assert.equal(m.pageTarget({ view: 'lobby', lobbyId: null, canEdit: true }), null, 'not joined yet');
+    assert.equal(m.pageTarget({ view: 'playlist', playlistId: 'road', canEdit: true }), 'road');
+    assert.equal(m.pageTarget({ view: 'playlist', playlistId: 'theirs', canEdit: false }), null, 'read-only');
+    assert.equal(m.pageTarget({ view: 'playlist', playlistId: 'road', canEdit: true, libraryOpen: true }), null, 'under the library overlay');
+    assert.equal(m.pageTarget({ view: 'playlist', playlistId: null, canEdit: true }), null, 'not joined yet');
     for (const view of ['landing', 'radio', 'artists', 'artist', 'search', 'profile', null] as const) {
-      assert.equal(m.pageTarget({ view, lobbyId: 'road', canEdit: true }), null, String(view));
+      assert.equal(m.pageTarget({ view, playlistId: 'road', canEdit: true }), null, String(view));
     }
     assert.equal(m.pageTarget(), null);
   });
@@ -180,9 +180,9 @@ describe('search: the current playlist (where a one-step add goes)', () => {
   });
   it('the target lasts while its search does', () => {
     assert.equal(m.keepTarget('road', { view: 'search' }), 'road');
-    assert.equal(m.keepTarget('road', { view: 'lobby', lobbyId: 'road' }), 'road', 'back on its page');
-    assert.equal(m.keepTarget('road', fake<Parameters<typeof m.keepTarget>[1]>({ view: 'lobby', lobbyId: 'road', library: 'library' })), null, 'its library');
-    assert.equal(m.keepTarget('road', { view: 'lobby', lobbyId: 'mine' }), null, 'another playlist');
+    assert.equal(m.keepTarget('road', { view: 'playlist', playlistId: 'road' }), 'road', 'back on its page');
+    assert.equal(m.keepTarget('road', fake<Parameters<typeof m.keepTarget>[1]>({ view: 'playlist', playlistId: 'road', library: 'library' })), null, 'its library');
+    assert.equal(m.keepTarget('road', { view: 'playlist', playlistId: 'mine' }), null, 'another playlist');
     for (const view of ['landing', 'radio', 'artists', 'profile', 'social'] as const) assert.equal(m.keepTarget('road', { view }), null, view);
     assert.equal(m.keepTarget(null, { view: 'search' }), null);
   });
@@ -194,8 +194,8 @@ describe('search: the current playlist (where a one-step add goes)', () => {
     assert.equal(m.placeholderTarget({ playlists: pls }), null);
   });
   it('only a playlist context is remembered as last played (not opened)', () => {
-    assert.equal(m.lastPlayedFrom({ type: 'lobby', lobbyId: 'road' }), 'road');
-    for (const ctx of [null, { type: 'radio' }, { type: 'artist', key: 'x' }, { type: 'search', query: 'x' }, { type: 'library' }, { type: 'lobby' }]) {
+    assert.equal(m.lastPlayedFrom({ type: 'playlist', playlistId: 'road' }), 'road');
+    for (const ctx of [null, { type: 'radio' }, { type: 'artist', key: 'x' }, { type: 'search', query: 'x' }, { type: 'library' }, { type: 'playlist' }]) {
       assert.equal(m.lastPlayedFrom(ctx), null, JSON.stringify(ctx));
     }
   });
@@ -264,8 +264,8 @@ describe('search: artists and playlists', () => {
 
 describe('search: the route', () => {
   it('/search?q= is a page of its own, deep-linkable', () => {
-    assert.deepEqual(router.parseRoute('/search', '?q=daft%20punk'), { view: 'search', lobbyId: null, library: null, searchQuery: 'daft punk' });
-    assert.deepEqual(router.parseRoute('/search/'), { view: 'search', lobbyId: null, library: null, searchQuery: '' });
+    assert.deepEqual(router.parseRoute('/search', '?q=daft%20punk'), { view: 'search', playlistId: null, library: null, searchQuery: 'daft punk' });
+    assert.deepEqual(router.parseRoute('/search/'), { view: 'search', playlistId: null, library: null, searchQuery: '' });
     assert.equal(router.parseRoute('/search', `?q=${'x'.repeat(500)}`).searchQuery?.length, router.SEARCH_MAX);
     assert.equal(router.parseRoute('/search', '?q=%20%20a%20%20%20b%20').searchQuery, 'a b');
   });
@@ -282,7 +282,7 @@ describe('search: a song played from search repeats', () => {
   const ctx = { type: 'search', query: 'x' };
   it('whatever the saved repeat mode, and without changing it', () => {
     for (const saved of ['off', 'all', 'one'] as const) assert.equal(pq.contextRepeat(saved, ctx), 'all', saved);
-    assert.equal(pq.contextRepeat('off', { type: 'lobby', lobbyId: 'p' }), 'off', 'other contexts keep the saved mode');
+    assert.equal(pq.contextRepeat('off', { type: 'playlist', playlistId: 'p' }), 'off', 'other contexts keep the saved mode');
   });
   it('it ends: the same song again; Next and Previous restart it', () => {
     const repeat = pq.contextRepeat('off', ctx);

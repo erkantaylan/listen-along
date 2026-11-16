@@ -56,7 +56,7 @@ export async function togglePlaylistPin(id: string, { toast = false }: { toast?:
   writes++;
   try {
     const res = await fetch(`/api/playlists/${encodeURIComponent(id)}/pin`, { method: next ? 'PUT' : 'DELETE', credentials: 'same-origin' });
-    if (res.status === 404) showToast(t('lobby.notFound', 'Playlist not found'), 'error');
+    if (res.status === 404) showToast(t('playlist.notFound', 'Playlist not found'), 'error');
     else if (!res.ok) throw new Error(String(res.status));
     else if (toast) showToast(next ? t('sidebar.pinnedToast', 'Pinned') : t('sidebar.unpinnedToast', 'Unpinned'), 'success');
   } catch {

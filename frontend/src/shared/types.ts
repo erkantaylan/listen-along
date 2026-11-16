@@ -7,6 +7,10 @@
 //   - number (ms): Date.now(), or a BIGINT column the server converts itself.
 //   - string: a BIGINT column sent raw (node-postgres returns int8 as a string;
 //     db.js sets no type parser), e.g. users.created_at on the dashboard.
+// For one release after the playlist rename the server also emits every
+// playlist:* event under its old name and adds the old id field next to
+// `playlistId` (backend/src/shared/legacyWire.ts, for tabs opened before the
+// deploy); this client uses only the new names, so neither is typed here.
 
 // ------------------------------------------------------------------ shared
 
@@ -134,7 +138,7 @@ export interface LibrarySongResponse {
   song: LibrarySong;
 }
 
-// core/requests/requests.ts rows (SELECT * FROM song_requests); GET /api/requests drops lobby_id for web users
+// core/requests/requests.ts rows (SELECT * FROM song_requests); GET /api/requests drops playlist_id for web users
 export interface SongRequest {
   id: string;
   youtube_id: string | null;
@@ -144,7 +148,7 @@ export interface SongRequest {
   requested_by: string;
   requested_by_id: string | null;
   /** Only for CLI tokens and admins on GET /api/requests; always on socket payloads. */
-  lobby_id?: string | null;
+  playlist_id?: string | null;
   status: 'pending' | 'fulfilled' | 'dismissed';
   song_id: string | null;
   /** ISO string (TIMESTAMPTZ). */
@@ -196,7 +200,7 @@ export interface Track {
 }
 
 // core/playlists/playlist.ts joinPlaylist — a listener of a playlist (getPlaylistUsers)
-export interface LobbyUser {
+export interface PlaylistUser {
   socketId: string;
   username: string;
   emoji: string | null;
@@ -215,7 +219,7 @@ export interface PlaylistSummary {
   isOwner: boolean;
   canManage: boolean;
   canEdit: boolean;
-  /** The old shared pin (lobby:pin). */
+  /** The old shared pin (playlist:pin). */
   pinned: boolean;
   pinnedByMe: boolean;
   /** ms, null when not pinned by the viewer. */
@@ -226,10 +230,9 @@ export interface PlaylistSummary {
   createdAt: number;
 }
 
-// core/playlists/playlistRoutes.ts GET /api/playlists (`lobbies` is the same list, for old clients)
+// core/playlists/playlistRoutes.ts GET /api/playlists
 export interface PlaylistListResponse {
   playlists: PlaylistSummary[];
-  lobbies: PlaylistSummary[];
 }
 
 // core/playlists/folders.ts FolderView — the caller's own sidebar folder (GET /api/playlist-folders;
@@ -256,7 +259,7 @@ export interface PlaylistCreated extends PlaylistSummary {
 
 // core/playlists/playlistRoutes.ts GET /api/playlists/:id
 export interface PlaylistDetail extends PlaylistSummary {
-  users: LobbyUser[];
+  users: PlaylistUser[];
 }
 
 // core/playlists/playlistRoutes.ts setPlaylistPin — PUT|DELETE /api/playlists/:id/pin
@@ -304,9 +307,9 @@ export interface PlaylistAddResponse {
   song_count: number;
 }
 
-// core/playlists/playlistSockets.ts sendPlaylistState — lobby:joined
-export interface LobbyJoinedPayload {
-  lobbyId: string;
+// core/playlists/playlistSockets.ts sendPlaylistState — playlist:joined
+export interface PlaylistJoinedPayload {
+  playlistId: string;
   viewing: boolean;
   name: string | null;
   pinned: boolean;
@@ -316,16 +319,16 @@ export interface LobbyJoinedPayload {
   isOwner: boolean;
   canEdit: boolean;
   /** Set when this socket just joined as a member. */
-  user: LobbyUser | null;
-  users: LobbyUser[];
+  user: PlaylistUser | null;
+  users: PlaylistUser[];
 }
 
-/** The playlist state a client keeps from lobby:joined. */
-export type LobbyState = LobbyJoinedPayload;
+/** The playlist state a client keeps from playlist:joined. */
+export type PlaylistState = PlaylistJoinedPayload;
 
-// core/playlists/playlistSockets.ts lobby:create handler — lobby:created (no canEdit: the creator owns it)
-export interface LobbyCreatedPayload {
-  lobbyId: string;
+// core/playlists/playlistSockets.ts playlist:create handler — playlist:created (no canEdit: the creator owns it)
+export interface PlaylistCreatedPayload {
+  playlistId: string;
   viewing: boolean;
   name: string | null;
   visibility: Visibility;
@@ -333,71 +336,71 @@ export interface LobbyCreatedPayload {
   ownerName: string | null;
   isOwner: true;
   pinned: boolean;
-  user: LobbyUser | null;
-  users: LobbyUser[];
+  user: PlaylistUser | null;
+  users: PlaylistUser[];
 }
 
-// core/playlists/playlistRoutes.ts broadcastPlaylistUpdated — lobby:updated
-export interface LobbyUpdatedPayload {
-  lobbyId: string;
+// core/playlists/playlistRoutes.ts broadcastPlaylistUpdated — playlist:updated
+export interface PlaylistUpdatedPayload {
+  playlistId: string;
   name: string | null;
   visibility: Visibility;
   ownerId: string | null;
   ownerName: string | null;
 }
 
-// core/playlists/playlistSockets.ts / core/playlists/playlistRoutes.ts — lobby:renamed (socket rename and HTTP PATCH)
-export interface LobbyRenamedPayload {
-  lobbyId: string;
+// core/playlists/playlistSockets.ts / core/playlists/playlistRoutes.ts — playlist:renamed (socket rename and HTTP PATCH)
+export interface PlaylistRenamedPayload {
+  playlistId: string;
   name: string | null;
 }
 
-// core/playlists/playlistSockets.ts lobby:pin handler — lobby:pinned
-export interface LobbyPinnedPayload {
-  lobbyId: string;
+// core/playlists/playlistSockets.ts playlist:pin handler — playlist:pinned
+export interface PlaylistPinnedPayload {
+  playlistId: string;
   pinned: boolean;
 }
 
-// app/reactions.ts destroyPlaylist / core/playlists/playlistRoutes.ts evictNonOwners — lobby:closed
-export interface LobbyClosedPayload {
-  lobbyId: string;
+// app/reactions.ts destroyPlaylist / core/playlists/playlistRoutes.ts evictNonOwners — playlist:closed
+export interface PlaylistClosedPayload {
+  playlistId: string;
   message: string;
 }
 
-// core/playlists/playlistSockets.ts lobby:join / lobby:view — lobby:not-found (echoes the id the client sent)
-export interface LobbyNotFoundPayload {
-  lobbyId: string;
+// core/playlists/playlistSockets.ts playlist:join / playlist:view — playlist:not-found (echoes the id the client sent)
+export interface PlaylistNotFoundPayload {
+  playlistId: string;
 }
 
-// core/playlists/playlistSockets.ts — lobby:error (code only from refusePending)
-export interface LobbyErrorPayload {
+// core/playlists/playlistSockets.ts — playlist:error (code only from refusePending)
+export interface PlaylistErrorPayload {
   message: string;
   code?: 'ACCOUNT_PENDING';
 }
 
-// core/playlists/playlistSockets.ts lobby:join handler / handleLeave — lobby:user-joined, lobby:user-left
-export interface LobbyUserChangePayload {
-  lobbyId: string;
-  user: LobbyUser;
-  users: LobbyUser[];
+// core/playlists/playlistSockets.ts playlist:join handler / handleLeave — playlist:user-joined, playlist:user-left
+export interface PlaylistUserChangePayload {
+  playlistId: string;
+  user: PlaylistUser;
+  users: PlaylistUser[];
 }
 
 // core/playlists/playlistSockets.ts user:update / listener:now-playing — users:updated
 export interface UsersUpdatedPayload {
-  lobbyId: string;
-  users: LobbyUser[];
+  playlistId: string;
+  users: PlaylistUser[];
 }
 
 // core/queue/queueSockets.ts, app/reactions.ts — queue:update
 export interface QueueUpdatePayload {
-  lobbyId: string;
+  playlistId: string;
   songs: QueueEntry[];
 }
 
 // queue:song-added — the server never sends it (no emit in backend/src);
 // app.ts still listens for it (queue.ts handleSongAdded reads these fields).
 export interface QueueSongAddedPayload {
-  lobbyId?: string;
+  playlistId?: string;
   song: QueueEntry;
 }
 
@@ -538,7 +541,7 @@ export type NowPlayingContext =
   | { type: 'radio' }
   | { type: 'artist'; key: string; name: string | null }
   /** Only when the viewer may see the playlist. */
-  | { type: 'lobby'; lobbyId: string; name: string | null; socketId: string };
+  | { type: 'playlist'; playlistId: string; name: string | null; socketId: string };
 
 // presence.viewNowPlaying
 export interface NowPlayingView {
@@ -965,8 +968,8 @@ export interface AdminSettings {
   central_login: boolean;
 }
 
-// app/adminRoutes.ts GET /api/dashboard/stats — stats.lobbies items (public playlists only)
-export interface DashboardLobby {
+// app/adminRoutes.ts GET /api/dashboard/stats — stats.playlists items (public playlists only)
+export interface DashboardPlaylist {
   id: string;
   name: string | null;
   userCount: number;
@@ -979,15 +982,15 @@ export interface DashboardLobby {
 
 // app/adminRoutes.ts GET /api/dashboard/stats
 export interface DashboardStats {
-  totalLobbies: number;
-  privateLobbies: number;
+  totalPlaylists: number;
+  privatePlaylists: number;
   totalUsers: number;
   /** Seconds (process.uptime()). */
   uptime: number;
   /** process.memoryUsage() */
   memoryUsage: { rss: number; heapTotal: number; heapUsed: number; external: number; arrayBuffers: number };
   diskUsage: { bytes: number; fileCount: number; unregisteredFiles: number; unregisteredBytes: number };
-  lobbies: DashboardLobby[];
+  playlists: DashboardPlaylist[];
 }
 
 // app/adminRoutes.ts GET /api/dashboard/users (raw users rows)
@@ -1071,16 +1074,16 @@ export type AppLatestResponse =
 // listenAlong.js, activityFeed.js). For Socket<ServerToClientEvents, ClientToServerEvents>.
 export interface ServerToClientEvents {
   // playlists (core/playlists/playlistSockets.ts, core/playlists/playlistRoutes.ts, app/reactions.ts)
-  'lobby:joined': (p: LobbyJoinedPayload) => void;
-  'lobby:created': (p: LobbyCreatedPayload) => void;
-  'lobby:updated': (p: LobbyUpdatedPayload) => void;
-  'lobby:renamed': (p: LobbyRenamedPayload) => void;
-  'lobby:pinned': (p: LobbyPinnedPayload) => void;
-  'lobby:closed': (p: LobbyClosedPayload) => void;
-  'lobby:not-found': (p: LobbyNotFoundPayload) => void;
-  'lobby:error': (p: LobbyErrorPayload) => void;
-  'lobby:user-joined': (p: LobbyUserChangePayload) => void;
-  'lobby:user-left': (p: LobbyUserChangePayload) => void;
+  'playlist:joined': (p: PlaylistJoinedPayload) => void;
+  'playlist:created': (p: PlaylistCreatedPayload) => void;
+  'playlist:updated': (p: PlaylistUpdatedPayload) => void;
+  'playlist:renamed': (p: PlaylistRenamedPayload) => void;
+  'playlist:pinned': (p: PlaylistPinnedPayload) => void;
+  'playlist:closed': (p: PlaylistClosedPayload) => void;
+  'playlist:not-found': (p: PlaylistNotFoundPayload) => void;
+  'playlist:error': (p: PlaylistErrorPayload) => void;
+  'playlist:user-joined': (p: PlaylistUserChangePayload) => void;
+  'playlist:user-left': (p: PlaylistUserChangePayload) => void;
   'users:updated': (p: UsersUpdatedPayload) => void;
   /** No payload: refetch /api/playlists. */
   'playlists:changed': () => void;
@@ -1124,7 +1127,7 @@ export type PresenceContextReport =
   | { type: 'library' }
   | { type: 'radio' }
   | { type: 'artist'; key: string; name?: string | null }
-  | { type: 'lobby'; lobbyId: string };
+  | { type: 'playlist'; playlistId: string };
 
 // presence.normalizeReport input
 export type NowPlayingReport =
@@ -1141,10 +1144,10 @@ export type NowPlayingReport =
   | { track: null };
 
 // Every event the server handles from a web socket (core/playlists/playlistSockets.ts, core/queue/queueSockets.ts, social.js,
-// listenAlong.js), payloads as the handlers read them. `userId` in lobby:*
+// listenAlong.js), payloads as the handlers read them. `userId` in playlist:*
 // payloads is sent by the web and ignored by the server (it uses the login).
 export interface ClientToServerEvents {
-  'lobby:create': (p: {
+  'playlist:create': (p: {
     username?: string;
     emoji?: string | null;
     name?: string;
@@ -1152,21 +1155,21 @@ export interface ClientToServerEvents {
     asViewer?: boolean;
     userId?: string | null;
   }) => void;
-  'lobby:join': (p: { lobbyId: string; username?: string; emoji?: string | null; userId?: string | null }) => void;
-  'lobby:view': (p: { lobbyId: string; userId?: string | null }) => void;
+  'playlist:join': (p: { playlistId: string; username?: string; emoji?: string | null; userId?: string | null }) => void;
+  'playlist:view': (p: { playlistId: string; userId?: string | null }) => void;
   /** The server ignores the payload. */
-  'lobby:unview': (p?: { lobbyId?: string | null }) => void;
-  /** No lobbyId: leave the member playlist. */
-  'lobby:leave': (p: { lobbyId?: string | null }) => void;
-  'user:update': (p: { lobbyId?: string; username?: string; emoji?: string | null }) => void;
-  'listener:now-playing': (p: { lobbyId?: string; track: { title: string; thumbnail?: string | null } | null }) => void;
+  'playlist:unview': (p?: { playlistId?: string | null }) => void;
+  /** No playlistId: leave the member playlist. */
+  'playlist:leave': (p: { playlistId?: string | null }) => void;
+  'user:update': (p: { playlistId?: string; username?: string; emoji?: string | null }) => void;
+  'listener:now-playing': (p: { playlistId?: string; track: { title: string; thumbnail?: string | null } | null }) => void;
   /** Handled by the server; the web no longer emits it. */
-  'lobby:pin': (p: { lobbyId?: string; pinned: boolean }) => void;
+  'playlist:pin': (p: { playlistId?: string; pinned: boolean }) => void;
   /** Handled by the server; the web renames over PATCH /api/playlists/:id. */
-  'lobby:rename': (p: { lobbyId?: string; name: string }) => void;
+  'playlist:rename': (p: { playlistId?: string; name: string }) => void;
   /** Handled by the server; the web adds over HTTP (CLAUDE.md "Duplicates on the web"). */
   'queue:add': (p: {
-    lobbyId: string;
+    playlistId: string;
     query?: string;
     url?: string;
     title?: string;
@@ -1175,12 +1178,12 @@ export interface ClientToServerEvents {
     picks?: string[];
     addedBy?: string;
   }) => void;
-  'queue:remove': (p: { lobbyId: string; songId: string }) => void;
-  'queue:restore': (p: { lobbyId: string; songId: string }) => void;
-  'queue:reorder': (p: { lobbyId: string; songId: string; newIndex: number }) => void;
-  'queue:clear': (p: { lobbyId: string }) => void;
+  'queue:remove': (p: { playlistId: string; songId: string }) => void;
+  'queue:restore': (p: { playlistId: string; songId: string }) => void;
+  'queue:reorder': (p: { playlistId: string; songId: string; newIndex: number }) => void;
+  'queue:clear': (p: { playlistId: string }) => void;
   /** Handled by the server (answers queue:update); the web does not emit it. The payload is the bare id. */
-  'queue:get': (lobbyId: string) => void;
+  'queue:get': (playlistId: string) => void;
   // social.js
   /** Only used without a database. */
   'social:hello': (p: { name: string; emoji?: string | null }) => void;

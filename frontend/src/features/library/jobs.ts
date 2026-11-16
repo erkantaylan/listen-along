@@ -206,7 +206,7 @@ async function loadPlaylists() {
     const opts = ['<option value="">The library only</option>'].concat((playlists || []).map((p) =>
       `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name || p.id)}${p.visibility === 'private' ? ' (private)' : ''}</option>`));
     select.innerHTML = opts.join('');
-    const want = keep || state.lobbyId || '';
+    const want = keep || state.playlistId || '';
     if ([...select.options].some((o) => o.value === want)) select.value = want;
   } catch { /* keep "library only" */ }
 }

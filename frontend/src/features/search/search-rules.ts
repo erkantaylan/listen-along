@@ -155,8 +155,8 @@ export function similarQuery(title: string | null | undefined): string {
  * page showing (not under the library overlay, which has its own Add) and the
  * viewer may edit it; else null.
  */
-export function pageTarget({ view = null, lobbyId = null, canEdit = false, libraryOpen = false }: { view?: string | null; lobbyId?: string | null; canEdit?: boolean; libraryOpen?: boolean } = {}): string | null {
-  return view === 'lobby' && !libraryOpen && canEdit && typeof lobbyId === 'string' && lobbyId ? lobbyId : null;
+export function pageTarget({ view = null, playlistId = null, canEdit = false, libraryOpen = false }: { view?: string | null; playlistId?: string | null; canEdit?: boolean; libraryOpen?: boolean } = {}): string | null {
+  return view === 'playlist' && !libraryOpen && canEdit && typeof playlistId === 'string' && playlistId ? playlistId : null;
 }
 
 /**
@@ -173,10 +173,10 @@ export function startTarget(sessionId: string | null = null, pageId: string | nu
  * page and on its own playlist page (not that playlist's library). Anywhere
  * else it ends. Returns the target to keep, or null.
  */
-export function keepTarget(sessionId: string | null, route: Pick<Route, 'view'> & Partial<Pick<Route, 'lobbyId' | 'library'>> | null | undefined): string | null {
+export function keepTarget(sessionId: string | null, route: Pick<Route, 'view'> & Partial<Pick<Route, 'playlistId' | 'library'>> | null | undefined): string | null {
   if (!sessionId || !route) return null;
   if (route.view === 'search') return sessionId;
-  return route.view === 'lobby' && route.lobbyId === sessionId && !route.library ? sessionId : null;
+  return route.view === 'playlist' && route.playlistId === sessionId && !route.library ? sessionId : null;
 }
 
 /**
@@ -211,8 +211,8 @@ export function placeholderTarget<P extends TargetPlaylist>({ sessionId = null, 
 }
 
 /** The playlist to remember as "last played from", or null for any other context. */
-export function lastPlayedFrom(context: { type: string; lobbyId?: unknown } | null | undefined): string | null {
-  return context && context.type === 'lobby' && typeof context.lobbyId === 'string' && context.lobbyId ? context.lobbyId : null;
+export function lastPlayedFrom(context: { type: string; playlistId?: unknown } | null | undefined): string | null {
+  return context && context.type === 'playlist' && typeof context.playlistId === 'string' && context.playlistId ? context.playlistId : null;
 }
 
 /** POST /api/playlists/:id/songs as addOutcome reads the answer: PlaylistAddResponse (200) or an ApiError. */

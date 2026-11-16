@@ -63,7 +63,7 @@ export function contextLabel(ctx: PlayerContext | null | undefined): string {
     const { leader } = listenState();
     return leader && leader.id === ctx.leaderId ? tf('listen.withName', 'Listening along with {name}', { name: leader.name }) : '';
   }
-  return ctx.name || `Playlist ${ctx.lobbyId}`;
+  return ctx.name || `Playlist ${ctx.playlistId}`;
 }
 
 function contextPath(ctx: PlayerContext | null | undefined): string | null {
@@ -73,7 +73,7 @@ function contextPath(ctx: PlayerContext | null | undefined): string | null {
   if (ctx.type === 'artist') return artistPath(ctx.key);
   if (ctx.type === 'search') return searchPath(ctx.query);
   if (ctx.type === 'listen') return null;
-  return playlistPath(ctx.lobbyId);
+  return playlistPath(ctx.playlistId);
 }
 
 // Empty state, enabled controls and the "artist · from" line.
@@ -88,7 +88,7 @@ export function refreshPlayerBar(): void {
   if (shuffle && player.context && (player.context.type === 'radio' || player.context.type === 'search')) shuffle.disabled = true;
   // With nothing loaded, Play starts the playlist or Radio on screen if it has songs.
   const play = $<HTMLButtonElement>('play-btn');
-  if (play) play.disabled = !track && !state.viewPlay && !(state.lobbyId && state.queue.length);
+  if (play) play.disabled = !track && !state.viewPlay && !(state.playlistId && state.queue.length);
   const open = $<HTMLButtonElement>('player-open');
   const ctx = player.context;
   if (open) {
@@ -157,8 +157,8 @@ export function setupPlayerBarControls(): void {
     const path = contextPath(player.context);
     if (!path) return;
     // The playlist page brings the current song into view (queue.ts).
-    // A path means a context; only a playlist's has a lobbyId (the others give null).
-    state.revealPlayingIn = (player.context as { lobbyId?: string }).lobbyId || null;
+    // A path means a context; only a playlist's has a playlistId (the others give null).
+    state.revealPlayingIn = (player.context as { playlistId?: string }).playlistId || null;
     navigateTo(path);
     document.dispatchEvent(new CustomEvent('app:reveal-playing'));
   });

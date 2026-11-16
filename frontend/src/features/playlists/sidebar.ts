@@ -50,7 +50,7 @@ const tf = (key: string, fallback: string, vars: Record<string, string | number>
 // index.html has every element looked up with $ (maybeById where it may be missing).
 const $ = byId;
 // The playlist the player is playing from right now (equaliser + accent name), or null.
-const playingId = (): string | null => (player.isPlaying && player.track && player.context && player.context.type === 'lobby' ? player.context.lobbyId : null);
+const playingId = (): string | null => (player.isPlaying && player.track && player.context && player.context.type === 'playlist' ? player.context.playlistId : null);
 let query = '';
 let filter: PlaylistFilter = 'all';
 let sort: PlaylistSort = 'date';
@@ -229,7 +229,7 @@ function render(): void {
   if (!list) return;
   // Never under a drag: the dragged row must stay where the browser holds it.
   if (dragging) { renderDeferred = true; return; }
-  const currentId = parseRoute(window.location.pathname).lobbyId;
+  const currentId = parseRoute(window.location.pathname).playlistId;
   const html = listHtml(currentId);
   if (html === lastHtml) return;
   const hadFocus = list.contains(document.activeElement);
@@ -566,7 +566,7 @@ function menuItemsFor(row: HTMLElement): MenuItem[] | null {
     onDeleted: () => {
       loadPlaylists();
       loadFolders();
-      if (parseRoute(window.location.pathname).lobbyId === id) navigateTo('/');
+      if (parseRoute(window.location.pathname).playlistId === id) navigateTo('/');
     },
   });
 }

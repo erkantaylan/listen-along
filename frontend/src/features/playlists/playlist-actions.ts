@@ -78,7 +78,7 @@ const api = <T = unknown>(id: string, init: RequestInit): Promise<T> => fetch(`/
 
 export function setPlaylistVisibility(id: string, visibility: Visibility): Promise<PlaylistSummary | null> {
   return api<PlaylistSummary>(id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ visibility }) })
-    .catch(() => { showToast(t('lobbyVisibilityError', 'Failed to update visibility'), 'error'); return null; });
+    .catch(() => { showToast(t('playlistVisibilityError', 'Failed to update visibility'), 'error'); return null; });
 }
 
 /**
@@ -89,7 +89,7 @@ export function playlistMenuItems(pl: PlaylistMenuTarget, hooks: PlaylistMenuHoo
   const items: MenuItem[] = [];
   if (hooks.onPlay && (pl.songCount as number) > 0) items.push({ label: t('playlistMenu.play', 'Play'), icon: PLAY_SVG, onSelect: hooks.onPlay });
   if (hooks.onTogglePin) {
-    items.push({ label: pl.pinnedByMe ? t('sidebar.unpin', 'Unpin playlist') : t('lobby.pinPlaylist', 'Pin playlist'), icon: PIN_SVG, onSelect: hooks.onTogglePin });
+    items.push({ label: pl.pinnedByMe ? t('sidebar.unpin', 'Unpin playlist') : t('playlist.pinPlaylist', 'Pin playlist'), icon: PIN_SVG, onSelect: hooks.onTogglePin });
   }
   if (hooks.folderItem) items.push(hooks.folderItem);
   items.push({
@@ -99,9 +99,9 @@ export function playlistMenuItems(pl: PlaylistMenuTarget, hooks: PlaylistMenuHoo
   if (pl.canManage) {
     const priv = pl.visibility === 'private';
     items.push({ divider: true });
-    items.push({ label: t('lobby.renamePlaylist', 'Rename'), icon: PEN_SVG, onSelect: () => openRenameDialog(pl, hooks) });
+    items.push({ label: t('playlist.renamePlaylist', 'Rename'), icon: PEN_SVG, onSelect: () => openRenameDialog(pl, hooks) });
     items.push({
-      label: priv ? t('lobby.makePublic', 'Make public') : t('lobby.makePrivate', 'Make private'),
+      label: priv ? t('playlist.makePublic', 'Make public') : t('playlist.makePrivate', 'Make private'),
       description: priv ? t('playlistMenu.publicHint', 'Every signed-in user can see and edit it.') : t('playlistMenu.privateHint', 'Only you can see it.'),
       icon: priv ? GLOBE_SVG : LOCK_SVG,
       onSelect: () => setPlaylistVisibility(pl.id, priv ? 'public' : 'private').then((info) => {
@@ -110,7 +110,7 @@ export function playlistMenuItems(pl: PlaylistMenuTarget, hooks: PlaylistMenuHoo
         if (hooks.onChanged) hooks.onChanged(info);
       }),
     });
-    items.push({ label: t('lobby.deletePlaylist', 'Delete playlist'), icon: TRASH_SVG, theme: 'danger', onSelect: () => openDeleteDialog(pl, hooks) });
+    items.push({ label: t('playlist.deletePlaylist', 'Delete playlist'), icon: TRASH_SVG, theme: 'danger', onSelect: () => openDeleteDialog(pl, hooks) });
   }
   return items;
 }
@@ -168,7 +168,7 @@ export function openDialog({ id, title, body, submitLabel, submitClass, busyLabe
 export function openRenameDialog(pl: PlaylistMenuTarget, hooks: PlaylistMenuHooks = {}): void {
   const ctl = openDialog({
     id: 'rename-playlist-dialog',
-    title: t('lobby.renamePlaylist', 'Rename playlist'),
+    title: t('playlist.renamePlaylist', 'Rename playlist'),
     body: `<div><label for="rename-playlist-name" class="form-label fw-medium">${escapeHtml(t('landing.playlistName', 'Playlist name'))}</label>
       <input type="text" id="rename-playlist-name" class="form-control" maxlength="${MAX_NAME}" required autocomplete="off" value="${escapeHtml(pl.name || '')}" aria-describedby="rename-playlist-error">
       <div id="rename-playlist-error" class="fs-sm mt-1 new-playlist-field-error" aria-live="polite"></div></div>`,
@@ -204,7 +204,7 @@ export function openDeleteDialog(pl: PlaylistMenuTarget, hooks: PlaylistMenuHook
   const name = pl.name || pl.id;
   openDialog({
     id: 'delete-playlist-dialog',
-    title: t('lobby.deletePlaylist', 'Delete playlist'),
+    title: t('playlist.deletePlaylist', 'Delete playlist'),
     body: `<p class="mb-0">${escapeHtml(t('playlistMenu.confirmDelete', `Delete “${name}”? It is removed for everyone, permanently.`, { name }))}</p>`,
     submitLabel: t('playlistMenu.delete', 'Delete'),
     busyLabel: t('playlistMenu.deleting', 'Deleting…'),
@@ -221,7 +221,7 @@ export function openDeleteDialog(pl: PlaylistMenuTarget, hooks: PlaylistMenuHook
         if (hooks.onDeleted) hooks.onDeleted();
       } catch (err) {
         c.busy(false);
-        c.error((err as Error).message || t('lobbyDeleteError', 'Failed to delete playlist'));
+        c.error((err as Error).message || t('playlistDeleteError', 'Failed to delete playlist'));
       }
     },
   });

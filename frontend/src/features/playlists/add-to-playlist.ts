@@ -74,8 +74,8 @@ function matchesEntry(entry: Pick<Track, 'url'> | null | undefined, song: Addabl
 // server answers "already in it" when the song is added.
 function knownToContain(playlistId: string, song: AddableSong): boolean {
   const held: (readonly Pick<Track, 'url'>[] | null | undefined)[] = [];
-  if (playlistId === state.lobbyId) held.push(state.queue);
-  if (player.context && player.context.type === 'lobby' && player.context.lobbyId === playlistId) held.push(player.queue);
+  if (playlistId === state.playlistId) held.push(state.queue);
+  if (player.context && player.context.type === 'playlist' && player.context.playlistId === playlistId) held.push(player.queue);
   return held.some((queue) => (queue || []).some((entry) => matchesEntry(entry, song)));
 }
 
@@ -110,7 +110,7 @@ export async function addSongToPlaylist(playlist: PlaylistTarget, song: AddableS
       showToast(again ? tf('addTo.addedAgain', 'Added to “{name}” again', { name }) : tf('addTo.added', 'Added to “{name}”', { name }), 'success');
       return 'added';
     }
-    if (outcome === 'missing') showToast(t('lobby.notFound', 'Playlist not found'), 'error');
+    if (outcome === 'missing') showToast(t('playlist.notFound', 'Playlist not found'), 'error');
     else if (outcome === 'notInLibrary') showToast(t('addTo.notInLibrary', 'This song is not in the library any more'), 'error');
     else throw new Error((data && data.error) || `HTTP ${res.status}`);
     return 'failed';

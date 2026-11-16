@@ -76,32 +76,32 @@ describe('player-queue: going past blocked songs', () => {
   });
 });
 
-describe('player-queue: lobby membership', () => {
-  it('members the playback context and only views other lobbies', () => {
+describe('player-queue: playlist membership', () => {
+  it('members the playback context and only views other playlists', () => {
     assert.deepEqual(m.desiredMembership({}), { member: null, viewing: null });
-    assert.deepEqual(m.desiredMembership({ viewedLobbyId: 'b' }), { member: 'b', viewing: null });
-    assert.deepEqual(m.desiredMembership({ contextLobbyId: 'a' }), { member: 'a', viewing: null });
-    assert.deepEqual(m.desiredMembership({ viewedLobbyId: 'a', contextLobbyId: 'a' }), { member: 'a', viewing: null });
-    assert.deepEqual(m.desiredMembership({ viewedLobbyId: 'b', contextLobbyId: 'a' }), { member: 'a', viewing: 'b' });
+    assert.deepEqual(m.desiredMembership({ viewedPlaylistId: 'b' }), { member: 'b', viewing: null });
+    assert.deepEqual(m.desiredMembership({ contextPlaylistId: 'a' }), { member: 'a', viewing: null });
+    assert.deepEqual(m.desiredMembership({ viewedPlaylistId: 'a', contextPlaylistId: 'a' }), { member: 'a', viewing: null });
+    assert.deepEqual(m.desiredMembership({ viewedPlaylistId: 'b', contextPlaylistId: 'a' }), { member: 'a', viewing: 'b' });
   });
 
   it('plans the socket events between two states', () => {
     const none = { member: null, viewing: null };
     assert.deepEqual(m.membershipActions(none, none), []);
-    assert.deepEqual(m.membershipActions(none, { member: 'b', viewing: null }), [{ type: 'join', lobbyId: 'b' }]);
-    // Leaving a lobby page with nothing played from it
-    assert.deepEqual(m.membershipActions({ member: 'b', viewing: null }, none), [{ type: 'leave', lobbyId: 'b' }]);
+    assert.deepEqual(m.membershipActions(none, { member: 'b', viewing: null }), [{ type: 'join', playlistId: 'b' }]);
+    // Leaving a playlist page with nothing played from it
+    assert.deepEqual(m.membershipActions({ member: 'b', viewing: null }, none), [{ type: 'leave', playlistId: 'b' }]);
     // Playing from A, opening B
-    assert.deepEqual(m.membershipActions({ member: 'a', viewing: null }, { member: 'a', viewing: 'b' }), [{ type: 'view', lobbyId: 'b' }]);
+    assert.deepEqual(m.membershipActions({ member: 'a', viewing: null }, { member: 'a', viewing: 'b' }), [{ type: 'view', playlistId: 'b' }]);
     // ... then C (the server drops the view of B itself)
-    assert.deepEqual(m.membershipActions({ member: 'a', viewing: 'b' }, { member: 'a', viewing: 'c' }), [{ type: 'view', lobbyId: 'c' }]);
+    assert.deepEqual(m.membershipActions({ member: 'a', viewing: 'b' }, { member: 'a', viewing: 'c' }), [{ type: 'view', playlistId: 'c' }]);
     // ... then back to landing
-    assert.deepEqual(m.membershipActions({ member: 'a', viewing: 'c' }, { member: 'a', viewing: null }), [{ type: 'unview', lobbyId: 'c' }]);
+    assert.deepEqual(m.membershipActions({ member: 'a', viewing: 'c' }, { member: 'a', viewing: null }), [{ type: 'unview', playlistId: 'c' }]);
     // Pressing play in viewed B: join B, no unview (the join turns the view into membership)
-    assert.deepEqual(m.membershipActions({ member: 'a', viewing: 'b' }, { member: 'b', viewing: null }), [{ type: 'join', lobbyId: 'b' }]);
+    assert.deepEqual(m.membershipActions({ member: 'a', viewing: 'b' }, { member: 'b', viewing: null }), [{ type: 'join', playlistId: 'b' }]);
     // Created B as a member while playing A
     assert.deepEqual(m.membershipActions({ member: 'b', viewing: null }, { member: 'a', viewing: 'b' }),
-      [{ type: 'join', lobbyId: 'a' }, { type: 'view', lobbyId: 'b' }]);
+      [{ type: 'join', playlistId: 'a' }, { type: 'view', playlistId: 'b' }]);
   });
 });
 
@@ -125,7 +125,7 @@ describe('player-queue: repeat default', () => {
     const radio = { type: 'radio', stationId: 'all' };
     assert.equal(m.contextRepeat('all', radio), 'off');
     assert.equal(m.contextRepeat('one', radio), 'one');
-    assert.equal(m.contextRepeat('all', { type: 'lobby', lobbyId: 'a' }), 'all');
+    assert.equal(m.contextRepeat('all', { type: 'playlist', playlistId: 'a' }), 'all');
     assert.equal(m.contextRepeat('all', { type: 'artist', key: 'x' }), 'all');
     assert.equal(m.contextRepeat('all', null), 'all');
     // Previous at Radio's first song restarts it instead of jumping to the end.

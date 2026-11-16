@@ -1,8 +1,8 @@
-// Playlists (on the wire still "lobbies": lobby:* events, lobbyId fields):
+// Playlists (playlist:* socket events, playlistId fields):
 // creating, opening, sharing, the landing list and the owner controls. The
 // server decides who may see / edit what (backend/src/core/playlists/playlistAccess.ts); this
 // only mirrors it in the UI.
-import { state, elements, socket, STORAGE_KEYS, viewActivators, storageSet, storageRemove, setSuppressJoinToasts, setLobbiesInterval } from '../../shared/state.ts';
+import { state, elements, socket, STORAGE_KEYS, viewActivators, storageSet, storageRemove, setSuppressJoinToasts, setPlaylistsInterval } from '../../shared/state.ts';
 import { showView, showToast, escapeHtml, formatAge, copyToClipboard, t, navigateTo } from '../../shared/ui.ts';
 import { maybeById, byId } from '../../shared/dom.ts';
 import { parseRoute, playlistPath } from '../../router.ts';
@@ -20,8 +20,8 @@ import { closePickDialog } from '../picker/pick-dialog.ts';
 import { playlistCoverIndex, playlistInitials } from './playlist-filter.ts';
 import { syncPlaylistMeta } from '../queue/queue.ts';
 import type {
-  LobbyClosedPayload, LobbyCreatedPayload, LobbyErrorPayload, LobbyJoinedPayload, LobbyNotFoundPayload,
-  LobbyRenamedPayload, LobbyUpdatedPayload, LobbyUser, LobbyUserChangePayload, PlaylistDetail, PlaylistSummary, Visibility,
+  PlaylistClosedPayload, PlaylistCreatedPayload, PlaylistErrorPayload, PlaylistJoinedPayload, PlaylistNotFoundPayload,
+  PlaylistRenamedPayload, PlaylistUpdatedPayload, PlaylistUser, PlaylistUserChangePayload, PlaylistDetail, PlaylistSummary, Visibility,
 } from '../../shared/types.ts';
 
 // Who owns a playlist, as ownerText reads it (a PlaylistSummary or the page's state).
@@ -31,8 +31,8 @@ export interface PlaylistOwnerInfo {
   ownerName: string | null;
 }
 
-// What applyPlaylistMeta copies into the page's state: lobby:joined,
-// lobby:created, lobby:updated or a PATCH answer (fields it lacks stay).
+// What applyPlaylistMeta copies into the page's state: playlist:joined,
+// playlist:created, playlist:updated or a PATCH answer (fields it lacks stay).
 interface PlaylistMeta {
   name: string | null;
   visibility?: Visibility;
@@ -42,18 +42,18 @@ interface PlaylistMeta {
   canEdit?: boolean;
 }
 
-// A playback context that may be a playlist's (only that kind has a lobbyId).
-type MaybePlaylistContext = { lobbyId?: string };
+// A playback context that may be a playlist's (only that kind has a playlistId).
+type MaybePlaylistContext = { playlistId?: string };
 
 // Register landing view activator
 viewActivators.landing = () => {
   loadPlaylists();
-  setLobbiesInterval(setInterval(loadPlaylists, 10000));
+  setPlaylistsInterval(setInterval(loadPlaylists, 10000));
 };
 
 
 const visibilityLabel = (v: Visibility): string => v === 'private' ? t('landing.private', 'Private') : t('landing.public', 'Public');
-export const playlistTitle = (name: string | null | undefined, id: string | null | undefined): string => name || `${t('lobby.playlist', 'Playlist')} ${id}`;
+export const playlistTitle = (name: string | null | undefined, id: string | null | undefined): string => name || `${t('playlist.playlist', 'Playlist')} ${id}`;
 
 // "by you" / "by <name>" / "shared" (ownerless legacy playlists).
 export function ownerText({ isOwner, ownerId, ownerName }: PlaylistOwnerInfo): string {
@@ -66,14 +66,14 @@ export function ownerText({ isOwner, ownerId, ownerName }: PlaylistOwnerInfo): s
 // an action), owner, and the owner's ⋮ menu (Rename, Make private / public,
 // Delete).
 function renderPlaylistHeader(): void {
-  elements.lobbyName.textContent = playlistTitle(state.lobbyName, state.lobbyId);
+  elements.playlistName.textContent = playlistTitle(state.playlistName, state.playlistId);
   // The cover of initials, as in the sidebar and on the landing tiles.
-  const avatar = maybeById('lobby-avatar');
+  const avatar = maybeById('playlist-page-avatar');
   if (avatar) {
-    avatar.className = `playlist-avatar view-avatar cover-${playlistCoverIndex(state.lobbyId)}`;
-    avatar.textContent = playlistInitials(playlistTitle(state.lobbyName, state.lobbyId));
+    avatar.className = `playlist-avatar view-avatar cover-${playlistCoverIndex(state.playlistId)}`;
+    avatar.textContent = playlistInitials(playlistTitle(state.playlistName, state.playlistId));
   }
-  document.title = `${playlistTitle(state.lobbyName, state.lobbyId)} · listen-along`;
+  document.title = `${playlistTitle(state.playlistName, state.playlistId)} · listen-along`;
   const priv = state.visibility === 'private';
   if (elements.visibilityBadge) {
     elements.visibilityBadge.hidden = !priv;
@@ -95,23 +95,23 @@ function renderPlaylistHeader(): void {
 // The playlist page's ⋮ (owner only).
 export function openPlaylistHeaderMenu(e?: MouseEvent | null): void {
   const btn = elements.playlistMenuBtn;
-  if (!btn || !state.lobbyId || !state.isOwner) return;
+  if (!btn || !state.playlistId || !state.isOwner) return;
   if (btn.getAttribute('aria-expanded') === 'true') { closeContextMenu(); return; }
-  const playlistId = state.lobbyId;
-  const pl = { id: playlistId, name: state.lobbyName, visibility: state.visibility, canManage: state.isOwner };
+  const playlistId = state.playlistId;
+  const pl = { id: playlistId, name: state.playlistName, visibility: state.visibility, canManage: state.isOwner };
   openContextMenu({ anchor: btn }, playlistMenuItems(pl, {
     returnFocus: btn,
     onChanged: (info) => {
-      if (!info || info.id !== state.lobbyId) return;
+      if (!info || info.id !== state.playlistId) return;
       applyPlaylistMeta(info);
       renderPlaylistHeader();
     },
-    onDeleted: () => { if (state.lobbyId === playlistId) navigateTo('/'); },
+    onDeleted: () => { if (state.playlistId === playlistId) navigateTo('/'); },
   }), { label: t('playlistMenu.label', 'Playlist actions'), trigger: btn, focusFirst: !!e && e.detail === 0 });
 }
 
 function applyPlaylistMeta(data: PlaylistMeta): void {
-  state.lobbyName = data.name || null;
+  state.playlistName = data.name || null;
   if (data.visibility) state.visibility = data.visibility;
   if ('ownerId' in data) state.ownerId = data.ownerId || null;
   if ('ownerName' in data) state.ownerName = data.ownerName || null;
@@ -125,9 +125,9 @@ function clearPlaylistState(): void {
   state.ownerId = null;
   state.ownerName = null;
   state.visibility = 'public';
-  state.lobbyName = null;
+  state.playlistName = null;
   state.queue = [];
-  state.queueLobbyId = null;
+  state.queuePlaylistId = null;
   state.listeners = [];
 }
 
@@ -142,24 +142,24 @@ export function getMemberPlaylist(): string | null {
   return membership.member;
 }
 
-function emitMembership({ type, lobbyId: playlistId }: MembershipAction): void {
-  if (type === 'join') socket.emit('lobby:join', { lobbyId: playlistId, username: state.username, emoji: state.emoji, userId: state.userId });
-  else if (type === 'view') socket.emit('lobby:view', { lobbyId: playlistId, userId: state.userId });
-  else if (type === 'unview') socket.emit('lobby:unview', { lobbyId: playlistId });
-  else if (type === 'leave') socket.emit('lobby:leave', { lobbyId: playlistId });
+function emitMembership({ type, playlistId }: MembershipAction): void {
+  if (type === 'join') socket.emit('playlist:join', { playlistId, username: state.username, emoji: state.emoji, userId: state.userId });
+  else if (type === 'view') socket.emit('playlist:view', { playlistId, userId: state.userId });
+  else if (type === 'unview') socket.emit('playlist:unview', { playlistId });
+  else if (type === 'leave') socket.emit('playlist:leave', { playlistId });
 }
 
 // Bring the server in line with the page on screen and the playback context.
-// refresh: the playlist page needs its state (lobby:joined + queue) even when
+// refresh: the playlist page needs its state (playlist:joined + queue) even when
 // the socket is already in that playlist.
 export function syncMembership({ refresh = false }: { refresh?: boolean } = {}): void {
-  const desired = desiredMembership({ viewedLobbyId: state.lobbyId, contextLobbyId: player.context && (player.context as MaybePlaylistContext).lobbyId });
+  const desired = desiredMembership({ viewedPlaylistId: state.playlistId, contextPlaylistId: player.context && (player.context as MaybePlaylistContext).playlistId });
   const actions = membershipActions(membership, desired);
   actions.forEach(emitMembership);
   membership.member = desired.member;
   membership.viewing = desired.viewing;
-  if (refresh && state.lobbyId && !actions.some(a => a.lobbyId === state.lobbyId && (a.type === 'join' || a.type === 'view'))) {
-    emitMembership({ type: state.lobbyId === membership.member ? 'join' : 'view', lobbyId: state.lobbyId });
+  if (refresh && state.playlistId && !actions.some(a => a.playlistId === state.playlistId && (a.type === 'join' || a.type === 'view'))) {
+    emitMembership({ type: state.playlistId === membership.member ? 'join' : 'view', playlistId: state.playlistId });
   }
 }
 
@@ -170,11 +170,11 @@ export function resyncMembership(): void {
   syncMembership({ refresh: true });
 }
 
-// Show a playlist page (the view itself appears once lobby:joined arrives).
+// Show a playlist page (the view itself appears once playlist:joined arrives).
 export function openPlaylistPage(playlistId: string, resetPlaylistPage?: (() => void) | null): void {
   hideRejoinPrompt();
-  if (state.autoplayLobbyId !== playlistId) state.autoplayLobbyId = null;
-  state.lobbyId = playlistId;
+  if (state.autoplayPlaylistId !== playlistId) state.autoplayPlaylistId = null;
+  state.playlistId = playlistId;
   clearPlaylistState();
   if (resetPlaylistPage) resetPlaylistPage();
   syncMembership({ refresh: true });
@@ -183,10 +183,10 @@ export function openPlaylistPage(playlistId: string, resetPlaylistPage?: (() => 
 // Leave the playlist page. Playback is not touched; the socket stays in the
 // playlist being played from so its queue stays live.
 export function closePlaylistPage(resetPlaylistPage?: (() => void) | null): void {
-  state.autoplayLobbyId = null;
+  state.autoplayPlaylistId = null;
   closePickDialog();
-  if (!state.lobbyId) return;
-  state.lobbyId = null;
+  if (!state.playlistId) return;
+  state.playlistId = null;
   clearPlaylistState();
   document.title = 'listen-along';
   if (resetPlaylistPage) resetPlaylistPage();
@@ -194,8 +194,8 @@ export function closePlaylistPage(resetPlaylistPage?: (() => void) | null): void
 }
 
 export function sharePlaylist(): void {
-  const url = `${window.location.origin}${playlistPath(state.lobbyId as string)}`;
-  const qrUrl = `/api/qr/${state.lobbyId}`;
+  const url = `${window.location.origin}${playlistPath(state.playlistId as string)}`;
+  const qrUrl = `/api/qr/${state.playlistId}`;
   const existing = maybeById('share-dialog');
   if (existing) existing.remove();
   const dialog = document.createElement('div');
@@ -218,40 +218,40 @@ export function sharePlaylist(): void {
   byId<HTMLButtonElement>('share-copy-btn').focus();
 }
 
-export function handlePlaylistCreated(data: LobbyCreatedPayload, updatePinButton: () => void): void {
-  if (data.viewing) membership.viewing = data.lobbyId;
-  else { membership.member = data.lobbyId; membership.viewing = null; }
-  state.lobbyId = data.lobbyId;
+export function handlePlaylistCreated(data: PlaylistCreatedPayload, updatePinButton: () => void): void {
+  if (data.viewing) membership.viewing = data.playlistId;
+  else { membership.member = data.playlistId; membership.viewing = null; }
+  state.playlistId = data.playlistId;
   clearPlaylistState();
   state.listeners = data.users || [];
   applyPlaylistMeta({ ...data, isOwner: true, canEdit: true });
-  storageSet(STORAGE_KEYS.LAST_LOBBY, data.lobbyId);
+  storageSet(STORAGE_KEYS.LAST_PLAYLIST, data.playlistId);
   newPlaylistCreated();
-  pushPlaylistUrl(data.lobbyId);
+  pushPlaylistUrl(data.playlistId);
   renderPlaylistHeader();
   updatePinButton();
-  showView('lobby');
+  showView('playlist');
   syncMembership();
   showToast(data.visibility === 'private' ? 'Private playlist created. Only you can see it.' : 'Playlist created! Share the link to invite friends.', 'success');
 }
 
-export function handlePlaylistJoined(data: LobbyJoinedPayload, updatePinButton: () => void, updateListeners: () => void, updateQueue: () => void): void {
-  if (player.context && (player.context as MaybePlaylistContext).lobbyId === data.lobbyId) {
-    player.renameContext(data.lobbyId, data.name);
+export function handlePlaylistJoined(data: PlaylistJoinedPayload, updatePinButton: () => void, updateListeners: () => void, updateQueue: () => void): void {
+  if (player.context && (player.context as MaybePlaylistContext).playlistId === data.playlistId) {
+    player.renameContext(data.playlistId, data.name);
     // A now-playing sent before the join completed was dropped by the server.
     if (!data.viewing) reportNowPlaying();
   }
-  if (data.lobbyId !== state.lobbyId) return;
+  if (data.playlistId !== state.playlistId) return;
   applyPlaylistMeta(data);
   // The server never sends `listeners` (backend/src/core/playlists/playlistSockets.ts sends `users`); read as before.
-  state.listeners = (data as LobbyJoinedPayload & { listeners?: LobbyUser[] }).listeners || data.users || [];
+  state.listeners = (data as PlaylistJoinedPayload & { listeners?: PlaylistUser[] }).listeners || data.users || [];
   setSuppressJoinToasts(true);
   setTimeout(function() { setSuppressJoinToasts(false); }, 2000);
-  storageSet(STORAGE_KEYS.LAST_LOBBY, data.lobbyId);
+  storageSet(STORAGE_KEYS.LAST_PLAYLIST, data.playlistId);
   hideRejoinPrompt();
   renderPlaylistHeader();
   updatePinButton();
-  showView('lobby');
+  showView('playlist');
   updateListeners();
   updateQueue();
 }
@@ -260,54 +260,54 @@ export function handlePlaylistJoined(data: LobbyJoinedPayload, updatePinButton: 
 export function reportNowPlaying(): void {
   const t = player.track;
   if (!player.context || !t) return;
-  socket.emit('listener:now-playing', { lobbyId: (player.context as MaybePlaylistContext).lobbyId, track: { title: t.title, thumbnail: t.thumbnail } });
+  socket.emit('listener:now-playing', { playlistId: (player.context as MaybePlaylistContext).playlistId, track: { title: t.title, thumbnail: t.thumbnail } });
 }
 
 // Missing, deleted, or someone else's private playlist: the server answers
 // all of them the same way, and so does the page.
-export function handlePlaylistNotFound({ lobbyId: playlistId }: LobbyNotFoundPayload): void {
+export function handlePlaylistNotFound({ playlistId }: PlaylistNotFoundPayload): void {
   // The join/view did not happen. A failed join leaves the server in the
   // previous member playlist (only possible with nothing playing): leave it.
-  if (membership.member === playlistId) { membership.member = null; socket.emit('lobby:leave', {}); }
+  if (membership.member === playlistId) { membership.member = null; socket.emit('playlist:leave', {}); }
   if (membership.viewing === playlistId) membership.viewing = null;
-  if (storageGet_internal(STORAGE_KEYS.LAST_LOBBY) === playlistId) storageRemove(STORAGE_KEYS.LAST_LOBBY);
-  if (state.autoplayLobbyId === playlistId) state.autoplayLobbyId = null;
-  if (playlistId !== state.lobbyId) return;
-  showToast(t('lobby.notFound', 'Playlist not found'), 'error');
+  if (storageGet_internal(STORAGE_KEYS.LAST_PLAYLIST) === playlistId) storageRemove(STORAGE_KEYS.LAST_PLAYLIST);
+  if (state.autoplayPlaylistId === playlistId) state.autoplayPlaylistId = null;
+  if (playlistId !== state.playlistId) return;
+  showToast(t('playlist.notFound', 'Playlist not found'), 'error');
   navigateTo('/');
 }
 
-export function handlePlaylistError(data: LobbyErrorPayload): void {
+export function handlePlaylistError(data: PlaylistErrorPayload): void {
   if (isNewPlaylistPending()) { newPlaylistFailed(data.message); return; }
   if (data.message && data.message.toLowerCase().includes('not found')) {
-    storageRemove(STORAGE_KEYS.LAST_LOBBY);
+    storageRemove(STORAGE_KEYS.LAST_PLAYLIST);
     hideRejoinPrompt();
   }
   showToast(data.message || 'Playlist error', 'error');
 }
 
-export function handlePlaylistRenamed(data: LobbyRenamedPayload): void {
-  player.renameContext(data.lobbyId, data.name);
-  if (data.lobbyId !== state.lobbyId) return;
-  state.lobbyName = data.name || null;
+export function handlePlaylistRenamed(data: PlaylistRenamedPayload): void {
+  player.renameContext(data.playlistId, data.name);
+  if (data.playlistId !== state.playlistId) return;
+  state.playlistName = data.name || null;
   renderPlaylistHeader();
   showToast(`Playlist renamed to "${data.name}"`, 'success');
 }
 
 // Name / visibility / owner changed (sent to everyone with the playlist open).
-export function handlePlaylistUpdated(data: LobbyUpdatedPayload): void {
-  if (data.name !== undefined) player.renameContext(data.lobbyId, data.name);
-  if (data.lobbyId !== state.lobbyId) return;
+export function handlePlaylistUpdated(data: PlaylistUpdatedPayload): void {
+  if (data.name !== undefined) player.renameContext(data.playlistId, data.name);
+  if (data.playlistId !== state.playlistId) return;
   applyPlaylistMeta({ ...data, isOwner: state.isOwner, canEdit: state.canEdit });
   renderPlaylistHeader();
 }
 
 // The navbar's pin is the viewer's own pin (same as the sidebar's), not the old
-// shared lobby:pin flag, which the web no longer sets or shows.
+// shared playlist:pin flag, which the web no longer sets or shows.
 export function updatePinButton(): void {
   if (!elements.pinBtn) return;
-  const pinned = !!state.lobbyId && isPinned(state.lobbyId);
-  const label = pinned ? t('sidebar.unpin', 'Unpin playlist') : t('lobby.pinPlaylist', 'Pin playlist');
+  const pinned = !!state.playlistId && isPinned(state.playlistId);
+  const label = pinned ? t('sidebar.unpin', 'Unpin playlist') : t('playlist.pinPlaylist', 'Pin playlist');
   elements.pinBtn.classList.toggle('active', pinned);
   elements.pinBtn.setAttribute('aria-pressed', pinned ? 'true' : 'false');
   elements.pinBtn.title = label;
@@ -315,11 +315,11 @@ export function updatePinButton(): void {
 }
 
 export function togglePin(): void {
-  if (state.lobbyId) togglePlaylistPin(state.lobbyId, { toast: true });
+  if (state.playlistId) togglePlaylistPin(state.playlistId, { toast: true });
 }
 
-export function handleUserJoined(data: LobbyUserChangePayload, updateListeners: () => void): void {
-  if (data.lobbyId && data.lobbyId !== state.lobbyId) return;
+export function handleUserJoined(data: PlaylistUserChangePayload, updateListeners: () => void): void {
+  if (data.playlistId && data.playlistId !== state.playlistId) return;
   if (data.users) { state.listeners = data.users; }
   else { state.listeners.push(data.user); }
   updateListeners();
@@ -333,22 +333,22 @@ export function handleUserJoined(data: LobbyUserChangePayload, updateListeners: 
   });
 }
 
-export function handleUserLeft(data: LobbyUserChangePayload, updateListeners: () => void): void {
-  if (data.lobbyId && data.lobbyId !== state.lobbyId) return;
+export function handleUserLeft(data: PlaylistUserChangePayload, updateListeners: () => void): void {
+  if (data.playlistId && data.playlistId !== state.playlistId) return;
   if (data.users) state.listeners = data.users;
   else if (data.user) state.listeners = state.listeners.filter(u => u.socketId !== data.user.socketId);
   updateListeners();
 }
 
-export function handlePlaylistClosed(data: LobbyClosedPayload, resetPlaylistPage?: (() => void) | null): void {
-  const playlistId = data.lobbyId || state.lobbyId;
-  const wasContext = !!player.context && (player.context as MaybePlaylistContext).lobbyId === playlistId;
+export function handlePlaylistClosed(data: PlaylistClosedPayload, resetPlaylistPage?: (() => void) | null): void {
+  const playlistId = data.playlistId || state.playlistId;
+  const wasContext = !!player.context && (player.context as MaybePlaylistContext).playlistId === playlistId;
   if (membership.member === playlistId) membership.member = null;
   if (membership.viewing === playlistId) membership.viewing = null;
   if (wasContext) player.stop();
-  if (playlistId === state.lobbyId) {
+  if (playlistId === state.playlistId) {
     showToast(data.message || 'This playlist is no longer available.', 'error');
-    storageRemove(STORAGE_KEYS.LAST_LOBBY);
+    storageRemove(STORAGE_KEYS.LAST_PLAYLIST);
     closePlaylistPage(resetPlaylistPage);
     navigateTo('/');
   } else {
@@ -359,25 +359,25 @@ export function handlePlaylistClosed(data: LobbyClosedPayload, resetPlaylistPage
 
 // Adds a history entry for the playlist unless the address bar is already on it.
 function pushPlaylistUrl(playlistId: string): void {
-  if (parseRoute(window.location.pathname).lobbyId === playlistId) return;
-  window.history.pushState({ lobbyId: playlistId }, '', playlistPath(playlistId));
+  if (parseRoute(window.location.pathname).playlistId === playlistId) return;
+  window.history.pushState({ playlistId }, '', playlistPath(playlistId));
 }
 
 // "Back to your last playlist?" names the playlist, so look it up first. A
 // playlist that is gone (or private to someone else: the API answers 404 for
 // both) is forgotten and no prompt is shown.
 export function checkForLastPlaylist(): void {
-  const lastPlaylist = storageGet_internal(STORAGE_KEYS.LAST_LOBBY);
+  const lastPlaylist = storageGet_internal(STORAGE_KEYS.LAST_PLAYLIST);
   if (!lastPlaylist) return;
   fetch(`/api/playlists/${encodeURIComponent(lastPlaylist)}`, { credentials: 'same-origin' })
     .then((res) => {
-      if (res.status === 404 || res.status === 403) { storageRemove(STORAGE_KEYS.LAST_LOBBY); return null; }
+      if (res.status === 404 || res.status === 403) { storageRemove(STORAGE_KEYS.LAST_PLAYLIST); return null; }
       return res.ok ? res.json() as Promise<PlaylistDetail> : null;
     })
     .then((info) => {
       if (!info || info.id !== lastPlaylist) return;
       // The user may have moved on while this was loading.
-      if (state.lobbyId || storageGet_internal(STORAGE_KEYS.LAST_LOBBY) !== lastPlaylist) return;
+      if (state.playlistId || storageGet_internal(STORAGE_KEYS.LAST_PLAYLIST) !== lastPlaylist) return;
       if (!elements.landingView || !elements.landingView.classList.contains('active')) return;
       showRejoinPrompt(lastPlaylist, playlistTitle(info.name, info.id));
     })
@@ -395,7 +395,7 @@ function showRejoinPrompt(playlistId: string, name: string): void {
   prompt.id = 'rejoin-prompt';
   prompt.className = 'toast show rejoin-prompt';
   prompt.setAttribute('role', 'status');
-  prompt.innerHTML = `<div class="toast-body"><p class="mb-1 fw-medium">Back to your last playlist?</p><div class="fs-sm fg-3 text-truncate mb-3 rejoin-lobby-name">${escapeHtml(name)}</div><div class="d-flex justify-content-end gap-2 rejoin-actions"><button class="btn btn-sm rejoin-btn" id="rejoin-no" type="button">No thanks</button><button class="btn-solid theme-primary btn-sm rejoin-btn" id="rejoin-yes" type="button">Open</button></div></div>`;
+  prompt.innerHTML = `<div class="toast-body"><p class="mb-1 fw-medium">Back to your last playlist?</p><div class="fs-sm fg-3 text-truncate mb-3 rejoin-playlist-name">${escapeHtml(name)}</div><div class="d-flex justify-content-end gap-2 rejoin-actions"><button class="btn btn-sm rejoin-btn" id="rejoin-no" type="button">No thanks</button><button class="btn-solid theme-primary btn-sm rejoin-btn" id="rejoin-yes" type="button">Open</button></div></div>`;
   if (elements.landingView) elements.landingView.appendChild(prompt);
   byId<HTMLButtonElement>('rejoin-yes').addEventListener('click', () => {
     hideRejoinPrompt();
@@ -403,7 +403,7 @@ function showRejoinPrompt(playlistId: string, name: string): void {
   });
   byId<HTMLButtonElement>('rejoin-no').addEventListener('click', () => {
     hideRejoinPrompt();
-    storageRemove(STORAGE_KEYS.LAST_LOBBY);
+    storageRemove(STORAGE_KEYS.LAST_PLAYLIST);
   });
 }
 
@@ -433,18 +433,18 @@ const LIBRARY_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="
 const ARTIST_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>';
 
 // The playlist the player is playing from right now, or null.
-const playingPlaylistId = (): string | null => (player.isPlaying && player.track && player.context && player.context.type === 'lobby' ? player.context.lobbyId : null);
+const playingPlaylistId = (): string | null => (player.isPlaying && player.track && player.context && player.context.type === 'playlist' ? player.context.playlistId : null);
 
 // The landing page ("Home"): "Your playlists" (everything you own, public and
 // private) as tiles, followed by tiles for Radio, the music library and Artists;
 // then the Artists shelf (artists.ts) and a shelf of cards for other people's
 // public playlists (and ownerless shared ones). The server only sends what you
 // may see. Your pins first, then newest. Owner controls (visibility, delete)
-// only on your own playlists. Tiles and cards are .lobby-card (role="link"):
+// only on your own playlists. Tiles and cards are .playlist-entry (role="link"):
 // click / Enter / Space opens, ⋮ / right-click / long-press is the menu, a
 // double-click plays (row-double-click.ts).
 function renderPlaylists(playlists: PlaylistSummary[]): void {
-  if (!elements.lobbiesSection || !elements.lobbiesList || !elements.myPlaylistsList) return;
+  if (!elements.playlistsSection || !elements.playlistsList || !elements.myPlaylistsList) return;
   playlistCache.clear();
   for (const l of playlists) playlistCache.set(l.id, l);
   const sorted = [...playlists].sort((a, b) => (Number(b.pinnedByMe) - Number(a.pinnedByMe)) || (b.createdAt - a.createdAt));
@@ -453,8 +453,8 @@ function renderPlaylists(playlists: PlaylistSummary[]): void {
   const nowId = playingPlaylistId();
   elements.myPlaylistsList.removeAttribute('aria-busy');
   setListHtml(elements.myPlaylistsList, (mine.length ? mine.map(l => tileHtml(l, nowId)).join('') : myPlaylistsEmptyHtml()) + shortcutTilesHtml());
-  elements.lobbiesSection.hidden = others.length === 0;
-  setListHtml(elements.lobbiesList, others.map(l => cardHtml(l, nowId)).join(''));
+  elements.playlistsSection.hidden = others.length === 0;
+  setListHtml(elements.playlistsList, others.map(l => cardHtml(l, nowId)).join(''));
   updatePlaylistsShelfNav();
 }
 
@@ -466,7 +466,7 @@ function setListHtml(list: HTMLElement, html: string): void {
   const active = document.activeElement as HTMLElement;
   const row = list.contains(active) ? active.closest<HTMLElement>('[data-playlist-id]') : null;
   const id = row && row.dataset.playlistId;
-  const part = !row ? null : active === row ? '' : ['lobby-quick-play', 'lobby-menu-btn'].find(c => active.classList.contains(c));
+  const part = !row ? null : active === row ? '' : ['playlist-quick-play', 'playlist-entry-menu-btn'].find(c => active.classList.contains(c));
   list.innerHTML = html;
   list.dataset.html = html;
   if (id && part != null) {
@@ -477,13 +477,13 @@ function setListHtml(list: HTMLElement, html: string): void {
 }
 
 function myPlaylistsEmptyHtml(): string {
-  return `<li class="app-empty lobbies-empty"><p class="fw-medium fg-1 mb-1">${escapeHtml(t('landing.noPlaylists', 'No playlists yet'))}</p>`
+  return `<li class="app-empty playlists-empty"><p class="fw-medium fg-1 mb-1">${escapeHtml(t('landing.noPlaylists', 'No playlists yet'))}</p>`
     + `<p class="fs-sm fg-3 mb-4">${escapeHtml(t('landing.emptyHint', 'Make one, add songs, and share the link to listen together.'))}</p>`
-    + `<button type="button" class="btn lobbies-empty-new" aria-haspopup="dialog" onclick="window.app.newPlaylist(this)">${PLUS_ICON}${escapeHtml(t('landing.newPlaylist', 'New playlist'))}</button></li>`;
+    + `<button type="button" class="btn playlists-empty-new" aria-haspopup="dialog" onclick="window.app.newPlaylist(this)">${PLUS_ICON}${escapeHtml(t('landing.newPlaylist', 'New playlist'))}</button></li>`;
 }
 
 const songsText = (n: number): string => (n === 1 ? t('sidebar.oneSong', '1 song') : t('sidebar.songs', `${n} songs`, { count: n }));
-const listenersText = (n: number): string => `${n} ${n === 1 ? t('lobby.listener', 'listener') : t('lobby.listeners', 'listeners')}`;
+const listenersText = (n: number): string => `${n} ${n === 1 ? t('playlist.listener', 'listener') : t('playlist.listeners', 'listeners')}`;
 
 // What a tile or card says about a playlist, and its buttons.
 function playlistParts(l: PlaylistSummary, nowId: string | null) {
@@ -499,11 +499,11 @@ function playlistParts(l: PlaylistSummary, nowId: string | null) {
   const playLabel = playing ? t('landing.pause', `Pause ${title}`, { name: title }) : t('landing.play', `Play ${title}`, { name: title });
   const menuLabel = t('playlistMenu.labelFor', `Actions for ${title}`, { name: title });
   const playBtn = (cls: string): string => (l.songCount > 0 || playing
-    ? `<button type="button" class="${cls} lobby-quick-play" title="${escapeHtml(playLabel)}" aria-label="${escapeHtml(playLabel)}" onclick="event.stopPropagation();window.app.toggleLobbyPlayback(${idArg})">${playing ? PAUSE_ICON : PLAY_ICON}</button>` : '');
-  const menuBtn = `<button type="button" class="btn-text theme-secondary btn-icon btn-sm lobby-menu-btn" aria-haspopup="menu" aria-expanded="false" title="${escapeHtml(menuLabel)}" aria-label="${escapeHtml(menuLabel)}">${MORE_ICON}</button>`;
+    ? `<button type="button" class="${cls} playlist-quick-play" title="${escapeHtml(playLabel)}" aria-label="${escapeHtml(playLabel)}" onclick="event.stopPropagation();window.app.togglePlaylistPlayback(${idArg})">${playing ? PAUSE_ICON : PLAY_ICON}</button>` : '');
+  const menuBtn = `<button type="button" class="btn-text theme-secondary btn-icon btn-sm playlist-entry-menu-btn" aria-haspopup="menu" aria-expanded="false" title="${escapeHtml(menuLabel)}" aria-label="${escapeHtml(menuLabel)}">${MORE_ICON}</button>`;
   const open = `data-playlist-id="${escapeHtml(l.id)}" tabindex="0" role="link" aria-label="${escapeHtml(label)}"`
-    + ` onclick="if(!event.target.closest('.lobby-menu-btn'))window.app.joinLobbyFromCard(${idArg})"`
-    + ` onkeydown="if((event.key==='Enter'||event.key===' ')&&event.target===this){event.preventDefault();window.app.joinLobbyFromCard(${idArg})}"`;
+    + ` onclick="if(!event.target.closest('.playlist-entry-menu-btn'))window.app.joinPlaylistFromCard(${idArg})"`
+    + ` onkeydown="if((event.key==='Enter'||event.key===' ')&&event.target===this){event.preventDefault();window.app.joinPlaylistFromCard(${idArg})}"`;
   const avatar = (cls = ''): string => `<span class="playlist-avatar ${cls} cover-${playlistCoverIndex(l.id)}" aria-hidden="true">${escapeHtml(playlistInitials(title))}</span>`;
   const name = `${l.pinnedByMe ? PIN_ICON : ''}${escapeHtml(title)}`;
   return { title, priv, playing, owner, songs, listeners, playBtn, menuBtn, open, avatar, name };
@@ -513,10 +513,10 @@ function playlistParts(l: PlaylistSummary, nowId: string | null) {
 function tileHtml(l: PlaylistSummary, nowId: string | null): string {
   const p = playlistParts(l, nowId);
   const meta = [p.songs, p.listeners].filter(Boolean).join(' · ');
-  return `<li class="landing-tile lobby-card${p.priv ? ' is-private' : ''}${p.playing ? ' is-playing' : ''}" ${p.open}>`
+  return `<li class="landing-tile playlist-entry${p.priv ? ' is-private' : ''}${p.playing ? ' is-playing' : ''}" ${p.open}>`
     + p.avatar()
     + `<span class="landing-tile-text"><span class="landing-tile-name">${p.name}</span>`
-    + `<span class="landing-tile-meta">${p.playing ? EQ_HTML : ''}${p.priv ? privateBadgeHtml('lobby-visibility-badge') : ''}<span class="text-truncate">${escapeHtml(meta)}</span></span></span>`
+    + `<span class="landing-tile-meta">${p.playing ? EQ_HTML : ''}${p.priv ? privateBadgeHtml('playlist-entry-visibility-badge') : ''}<span class="text-truncate">${escapeHtml(meta)}</span></span></span>`
     + p.playBtn('btn-text theme-secondary btn-icon btn-sm') + p.menuBtn
     + `</li>`;
 }
@@ -525,7 +525,7 @@ function tileHtml(l: PlaylistSummary, nowId: string | null): string {
 function cardHtml(l: PlaylistSummary, nowId: string | null): string {
   const p = playlistParts(l, nowId);
   const meta = [p.owner, p.songs, p.listeners].filter(Boolean).join(' · ');
-  return `<li class="playlist-card lobby-card${p.priv ? ' is-private' : ''}${p.playing ? ' is-playing' : ''}" ${p.open}>`
+  return `<li class="playlist-card playlist-entry${p.priv ? ' is-private' : ''}${p.playing ? ' is-playing' : ''}" ${p.open}>`
     + `<span class="playlist-card-media">${p.avatar('playlist-card-art')}${p.playBtn('btn btn-icon')}${p.menuBtn}</span>`
     + `<span class="playlist-card-title" title="${escapeHtml(p.title)}">${p.name}</span>`
     + `<span class="playlist-card-meta">${p.playing ? EQ_HTML : ''}<span class="text-truncate">${escapeHtml(meta)}</span></span>`
@@ -547,9 +547,9 @@ function shortcutTilesHtml(): string {
 
 // The public playlists shelf's ‹ ›: only with a mouse and only while the row overflows (CSS + this).
 function updatePlaylistsShelfNav(): void {
-  const shelf = elements.lobbiesList;
-  const prev = maybeById<HTMLButtonElement>('lobbies-shelf-prev');
-  const next = maybeById<HTMLButtonElement>('lobbies-shelf-next');
+  const shelf = elements.playlistsList;
+  const prev = maybeById<HTMLButtonElement>('playlists-shelf-prev');
+  const next = maybeById<HTMLButtonElement>('playlists-shelf-next');
   if (!shelf || !prev || !next) return;
   const overflow = shelf.scrollWidth - shelf.clientWidth > 1;
   prev.hidden = !overflow;
@@ -559,7 +559,7 @@ function updatePlaylistsShelfNav(): void {
 }
 
 function scrollPlaylistsShelf(direction: number): void {
-  const shelf = elements.lobbiesList;
+  const shelf = elements.playlistsList;
   const rtl = getComputedStyle(shelf).direction === 'rtl' ? -1 : 1;
   shelf.scrollBy({ left: direction * rtl * Math.max(shelf.clientWidth * 0.8, 160), behavior: 'smooth' });
 }
@@ -575,16 +575,16 @@ export function togglePlaylistPlayback(playlistId: string): void {
 // it is on screen with its queue, else once the queue arrives (handleQueueUpdated
 // in queue.ts).
 export function quickPlayPlaylist(playlistId: string): void {
-  if (player.context && (player.context as MaybePlaylistContext).lobbyId === playlistId && player.track) {
+  if (player.context && (player.context as MaybePlaylistContext).playlistId === playlistId && player.track) {
     if (!player.isPlaying) player.play();
     return;
   }
-  if (state.lobbyId === playlistId && state.queueLobbyId === playlistId) {
+  if (state.playlistId === playlistId && state.queuePlaylistId === playlistId) {
     navigateTo(playlistPath(playlistId));
     playViewedFromTop();
     return;
   }
-  state.autoplayLobbyId = playlistId;
+  state.autoplayPlaylistId = playlistId;
   navigateTo(playlistPath(playlistId));
 }
 
@@ -596,19 +596,19 @@ export function setupLandingMenus(): void {
   const rerender = () => { if (isLoaded()) renderPlaylists(getPlaylists()); };
   for (const event of ['state', 'context', 'track'] as const) player.on(event, rerender);
   window.addEventListener('languageChanged', rerender);
-  const shelf = elements.lobbiesList;
+  const shelf = elements.playlistsList;
   if (shelf) {
     shelf.addEventListener('scroll', updatePlaylistsShelfNav, { passive: true });
     if (window.ResizeObserver) new ResizeObserver(updatePlaylistsShelfNav).observe(shelf);
   }
-  maybeById('lobbies-shelf-prev')?.addEventListener('click', () => scrollPlaylistsShelf(-1));
-  maybeById('lobbies-shelf-next')?.addEventListener('click', () => scrollPlaylistsShelf(1));
+  maybeById('playlists-shelf-prev')?.addEventListener('click', () => scrollPlaylistsShelf(-1));
+  maybeById('playlists-shelf-next')?.addEventListener('click', () => scrollPlaylistsShelf(1));
   onPlaylists(updatePinButton);
   window.addEventListener('languageChanged', updatePinButton);
-  for (const list of [elements.myPlaylistsList, elements.lobbiesList]) {
+  for (const list of [elements.myPlaylistsList, elements.playlistsList]) {
     bindContextMenu(list, {
-      rowSelector: '.lobby-card',
-      triggerSelector: '.lobby-menu-btn',
+      rowSelector: '.playlist-entry',
+      triggerSelector: '.playlist-entry-menu-btn',
       label: (row) => { const l = playlistCache.get(row.dataset.playlistId as string); return t('playlistMenu.labelFor', `Actions for ${l ? playlistTitle(l.name, l.id) : ''}`, { name: l ? playlistTitle(l.name, l.id) : '' }); },
       getItems: (row) => {
         // Rows are rendered with data-playlist-id.
@@ -616,7 +616,7 @@ export function setupLandingMenus(): void {
         const l = playlistCache.get(id);
         if (!l) return null;
         // Rows re-render every 10s: return focus to the row by id.
-        const returnFocus = () => document.querySelector<HTMLElement>(`.lobby-card[data-playlist-id="${CSS.escape(id)}"] .lobby-menu-btn`);
+        const returnFocus = () => document.querySelector<HTMLElement>(`.playlist-entry[data-playlist-id="${CSS.escape(id)}"] .playlist-entry-menu-btn`);
         return playlistMenuItems(l, {
           returnFocus,
           onPlay: () => quickPlayPlaylist(id),

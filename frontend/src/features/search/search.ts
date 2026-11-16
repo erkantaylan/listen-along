@@ -119,7 +119,7 @@ const LIBRARY_REFRESH_MS = 1500; // library changes come in bursts (an import's 
 const LAST_PLAYED_KEY = 'listen-lastPlayedPlaylist';
 // Views with the top bar (from 768px, and the library overlay; below that only
 // the search page). Not login, pending or /dashboard: no bar, no gap.
-const VIEWS_WITH_FIELD = ['landing-view', 'lobby-view', 'radio-view', 'artists-view', 'artist-view', 'search-view', 'profile-view', 'app-view'];
+const VIEWS_WITH_FIELD = ['landing-view', 'playlist-view', 'radio-view', 'artists-view', 'artist-view', 'search-view', 'profile-view', 'app-view'];
 
 const ICON = {
   play: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>',
@@ -170,7 +170,7 @@ function currentTarget(): { playlist: PlaylistSummary; session: boolean } | null
   return addTarget({ sessionId: S.sessionTarget, lastPlayedId: storageGet(LAST_PLAYED_KEY), playlists: getPlaylists() });
 }
 
-const playlistName = (p: NamedPlaylist): string => p.name || `${t('lobby.playlist', 'Playlist')} ${p.id}`;
+const playlistName = (p: NamedPlaylist): string => p.name || `${t('playlist.playlist', 'Playlist')} ${p.id}`;
 
 function renderTarget(): void {
   const el = $('search-target');
@@ -190,7 +190,7 @@ function renderTarget(): void {
 // The editable playlist page on screen, if any (search-rules.ts pageTarget).
 function pagePlaylistId(): string | null {
   const view = document.querySelector('.view.active');
-  return pageTarget({ view: view ? view.id.replace(/-view$/, '') : null, lobbyId: state.lobbyId, canEdit: state.canEdit, libraryOpen: isLibraryOpen() });
+  return pageTarget({ view: view ? view.id.replace(/-view$/, '') : null, playlistId: state.playlistId, canEdit: state.canEdit, libraryOpen: isLibraryOpen() });
 }
 
 function refreshPlaceholder(): void {
@@ -918,7 +918,7 @@ async function requestVideo(video: PickVideo, playlist: PlaylistSummary | null, 
     } else if (outcome === 'library') {
       showToast(tf('search.alreadyLibrary', '“{title}” is already in the library', { title }), 'info');
     } else if (outcome === 'missing') {
-      showToast(t('lobby.notFound', 'Playlist not found'), 'error');
+      showToast(t('playlist.notFound', 'Playlist not found'), 'error');
     } else {
       throw new Error((r.body && r.body.error) || `HTTP ${r.status}`);
     }

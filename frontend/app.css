@@ -18,7 +18,7 @@
   /* The page column is a size container: rules about what fits in it use
      @container page, because the sidebar and chat panel take a viewport-sized
      guess out of it. Not the dashboard: it has fixed children of its own. */
-  #landing-view, #lobby-view, #radio-view, #artists-view, #artist-view, #search-view, #profile-view, #app-view, .library-page { container: page / inline-size; }
+  #landing-view, #playlist-view, #radio-view, #artists-view, #artist-view, #search-view, #profile-view, #app-view, .library-page { container: page / inline-size; }
 
   /* With a mouse the page column scrolls instead of the document, so the fixed
      chat panel and player bar never move when a page starts or stops overflowing
@@ -27,12 +27,12 @@
      with it) and has overlay scrollbars. */
   @media (pointer: fine) {
     html, body { overflow: hidden; }
-    .view.active:not(#lobby-view, #radio-view, #artist-view) {
+    .view.active:not(#playlist-view, #radio-view, #artist-view) {
       height: var(--app-view-height);
       min-height: 0;
       overflow: hidden auto;
     }
-    body.has-player-bar .view.active:not(#lobby-view, #radio-view, #artist-view) { padding-bottom: 0; }
+    body.has-player-bar .view.active:not(#playlist-view, #radio-view, #artist-view) { padding-bottom: 0; }
     .view .dashboard-layout { min-height: auto; } /* grows with its content, the view scrolls */
   }
 
@@ -140,25 +140,25 @@
   }
 
   /* -------------------------------------------------------------- Landing */
-  /* Home (lobby.js): "Your playlists" as tiles, then shelves of artist and
-     playlist cards. Every tile / card is a .lobby-card (role="link"); hover and
+  /* Home (playlist.ts): "Your playlists" as tiles, then shelves of artist and
+     playlist cards. Every tile / card is a .playlist-entry (role="link"); hover and
      press are the grey fills, the one playing is the accent tint, never an edge. */
   .landing-main { max-width: none; padding-inline: 1.5rem; }
   .landing-section { margin-bottom: 2rem; }
   .landing-section-head { display: flex; gap: 0.25rem; align-items: center; min-height: 2.25rem; margin-bottom: 0.5rem; }
   .landing-section-title { margin: 0; font-size: var(--bs-font-size-lg); font-weight: var(--bs-font-weight-bold); }
-  .lobby-card { cursor: pointer; user-select: none; } /* a double-click plays */
-  .lobby-card:focus-visible { outline: 2px solid var(--app-focus); outline-offset: 2px; }
+  .playlist-entry { cursor: pointer; user-select: none; } /* a double-click plays */
+  .playlist-entry:focus-visible { outline: 2px solid var(--app-focus); outline-offset: 2px; }
   /* Quick play and ⋮: shown on hover / keyboard focus; always there on touch. */
-  .lobby-quick-play, .lobby-card .lobby-menu-btn { opacity: 0; }
-  .lobby-card:hover :is(.lobby-quick-play, .lobby-menu-btn),
-  .lobby-card:focus-within :is(.lobby-quick-play, .lobby-menu-btn),
-  .lobby-card.is-playing .lobby-quick-play,
-  .lobby-card .lobby-menu-btn[aria-expanded="true"],
-  .lobby-quick-play:focus-visible { opacity: 1; }
-  @media (hover: none) { .lobby-quick-play, .lobby-card .lobby-menu-btn { opacity: 1; } }
-  .landing-tiles-empty, .lobbies-empty { grid-column: 1 / -1; padding-block: 2rem; text-align: center; list-style: none; }
-  .lobbies-empty { background-color: var(--app-raised); border-radius: var(--bs-radius-5); }
+  .playlist-quick-play, .playlist-entry .playlist-entry-menu-btn { opacity: 0; }
+  .playlist-entry:hover :is(.playlist-quick-play, .playlist-entry-menu-btn),
+  .playlist-entry:focus-within :is(.playlist-quick-play, .playlist-entry-menu-btn),
+  .playlist-entry.is-playing .playlist-quick-play,
+  .playlist-entry .playlist-entry-menu-btn[aria-expanded="true"],
+  .playlist-quick-play:focus-visible { opacity: 1; }
+  @media (hover: none) { .playlist-quick-play, .playlist-entry .playlist-entry-menu-btn { opacity: 1; } }
+  .landing-tiles-empty, .playlists-empty { grid-column: 1 / -1; padding-block: 2rem; text-align: center; list-style: none; }
+  .playlists-empty { background-color: var(--app-raised); border-radius: var(--bs-radius-5); }
   /* Tiles: three columns of wide, short rows (two in a narrower page column, one on phones). */
   .landing-tiles {
     display: grid;
@@ -229,14 +229,14 @@
   .playlist-card:focus-visible { outline-offset: -2px; }
   .playlist-card-media { position: relative; margin-bottom: 0.25rem; }
   .playlist-avatar.playlist-card-art { width: 100%; height: auto; aspect-ratio: 1; font-size: var(--bs-font-size-xl); border-radius: var(--bs-radius-5); }
-  .playlist-card .lobby-quick-play {
+  .playlist-card .playlist-quick-play {
     position: absolute;
     right: 0.375rem;
     bottom: 0.375rem;
     border-radius: 50%;
     box-shadow: var(--bs-box-shadow);
   }
-  .playlist-card .lobby-menu-btn { position: absolute; top: 0.375rem; right: 0.375rem; background-color: var(--app-overlay); }
+  .playlist-card .playlist-entry-menu-btn { position: absolute; top: 0.375rem; right: 0.375rem; background-color: var(--app-overlay); }
   .playlist-card-title { overflow: hidden; font-size: var(--bs-font-size-sm); font-weight: var(--bs-font-weight-semibold); text-overflow: ellipsis; white-space: nowrap; }
   .playlist-card.is-playing .playlist-card-title { color: var(--app-accent-text-strong); }
   .playlist-card-meta { display: flex; gap: 0.25rem; align-items: center; min-width: 0; font-size: var(--bs-font-size-xs); color: var(--app-text-muted); }
@@ -284,7 +284,7 @@
     .app-thumb.pick-thumb { width: 3.5rem; height: 2rem; }
     .pick-option .pick-open { display: none; }
   }
-  .lobby-card-stat {
+  .playlist-entry-stat {
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
@@ -375,16 +375,16 @@
   .artists-show-all { white-space: nowrap; }
   .app-thumb.artist-nav-cover { flex-shrink: 0; width: 2.25rem; height: 2.25rem; border-radius: 50%; }
 
-  /* ---------------------------------------------------------------- Lobby */
-  #lobby-view.active, #radio-view.active, #artist-view.active {
+  /* ---------------------------------------------------------------- Playlist */
+  #playlist-view.active, #radio-view.active, #artist-view.active {
     height: 100vh;
     height: 100dvh;
     min-height: 0;
     overflow: hidden;
   }
-  body.has-plnav :is(#lobby-view, #radio-view, #artist-view).active { height: var(--app-view-height); }
-  .lobby-info { line-height: 1.2; }
-  .lobby-body {
+  body.has-plnav :is(#playlist-view, #radio-view, #artist-view).active { height: var(--app-view-height); }
+  .playlist-info { line-height: 1.2; }
+  .playlist-body {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
@@ -392,9 +392,9 @@
   }
   /* The song table takes the whole column, as do the library's lists. */
   .libpage-header > .container,
-  .lobby-header > .container,
-  .lobby-container { max-width: none; }
-  .lobby-container { padding-block: 1rem; }
+  .playlist-header > .container,
+  .playlist-container { max-width: none; }
+  .playlist-container { padding-block: 1rem; }
   /* The header's muted line: owner · stats · listeners, one line, truncated
      (its title has all of it, queue.js syncPlaylistMeta). */
   .playlist-meta-text > :not([hidden], :empty) ~ :not([hidden], :empty)::before { content: " · "; }
@@ -606,8 +606,8 @@
   }
   body.app-dragging, body.app-dragging * { cursor: grabbing !important; user-select: none; }
   @container page (width < 576px) {
-    .lobby-header .btn-icon:not(.btn-xs) { --bs-btn-min-height: 2rem; }
-    .lobby-header .container { gap: 0.25rem; }
+    .playlist-header .btn-icon:not(.btn-xs) { --bs-btn-min-height: 2rem; }
+    .playlist-header .container { gap: 0.25rem; }
   }
   /* Touch: 2.5rem targets. The broken icon keeps its size in the title line and
      gets a larger invisible hit area instead. */
@@ -1836,14 +1836,14 @@
   .stat-warning { color: var(--app-warning); }
   .adm-item { flex-wrap: wrap; }
   .adm-item-main { flex-basis: 12rem; }
-  .dashboard-lobby-item {
+  .dashboard-playlist-item {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 0.25rem 1rem;
     align-items: center;
   }
-  .dashboard-lobby-age { grid-row: 1; grid-column: 2; text-align: right; }
-  .dashboard-lobby-actions { grid-column: 2; }
+  .dashboard-playlist-age { grid-row: 1; grid-column: 2; text-align: right; }
+  .dashboard-playlist-actions { grid-column: 2; }
   .dashboard-user-item { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
   .dashboard-user-avatar { font-size: 1.25rem; }
   .dashboard-user-avatar,

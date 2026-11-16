@@ -29,22 +29,22 @@ export function handleDownloadProgress(data: DownloadProgressPayload): void {
   updateQueueProgress(data.url, data.percent);
 }
 
-// users:updated for the lobby on screen refreshes its listener list.
+// users:updated for the playlist on screen refreshes its listener list.
 export function handleUsersUpdated(data: UsersUpdatedPayload): void {
-  const lobbyId = data.lobbyId || state.lobbyId;
+  const playlistId = data.playlistId || state.playlistId;
   const users = data.users || [];
-  if (lobbyId !== state.lobbyId) return;
+  if (playlistId !== state.playlistId) return;
   state.listeners = users;
   if (_updateListeners) _updateListeners();
   if (_updateQueue) _updateQueue();
 }
 
-// The lobby page's queue as a player context.
-export function viewedContext(): { lobbyId: string | null; name: string | null } {
-  return { lobbyId: state.lobbyId, name: state.lobbyName };
+// The playlist page's queue as a player context.
+export function viewedContext(): { playlistId: string | null; name: string | null } {
+  return { playlistId: state.playlistId, name: state.playlistName };
 }
 
-// Start the lobby on screen from its first song (shuffle, when on, takes over
+// Start the playlist on screen from its first song (shuffle, when on, takes over
 // from the next one). Songs waiting as requests are not in the queue.
 export function playViewedFromTop(): void {
   if (state.queue.length) player.playFrom(viewedContext(), state.queue, 0);
@@ -79,11 +79,11 @@ export function toggleShuffle(): void {
   updatePlaybackModeUI();
 }
 
-// Full-player buttons. With nothing loaded, Play starts the lobby on screen.
+// Full-player buttons. With nothing loaded, Play starts the playlist on screen.
 export function togglePlayback(): void {
   if (player.track) { player.toggle(); return; }
   if (state.viewPlay) { state.viewPlay(); return; }
-  if (state.lobbyId && state.queue.length) player.playFrom(viewedContext(), state.queue, 0);
+  if (state.playlistId && state.queue.length) player.playFrom(viewedContext(), state.queue, 0);
 }
 
 export function playPrevious(): void { player.previous(); }

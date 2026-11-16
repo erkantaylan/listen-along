@@ -2,7 +2,7 @@
 import { state, elements, STORAGE_KEYS, storageSet } from './state.ts';
 import { showToast, formatTime, syncRangeFill } from './ui.ts';
 
-// Full (lobby page) player readouts and audio housekeeping. Track changes,
+// Full (playlist page) player readouts and audio housekeeping. Track changes,
 // ended -> next and the Media Session live in player.ts; a song that fails to
 // play is playback-failures.ts.
 export function setupAudioPlayer(): void {

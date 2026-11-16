@@ -1,6 +1,6 @@
 // Music library page: every song in the library (searchable, with uploader)
 // plus the list of song requests waiting for an upload. Songs are added to the
-// current lobby's queue from here.
+// current playlist's queue from here.
 import { state } from '../../shared/state.ts';
 import { showToast, formatDuration, notifyViewChange } from '../../shared/ui.ts';
 import { byId, maybeById } from '../../shared/dom.ts';
@@ -64,7 +64,7 @@ const lib: LibraryPage = {
 // controls work. The context is the library page as shown (current search and
 // sort), starting at the clicked song, so Next continues down the page and
 // stops at its end (pages are fetched from the server one at a time). Playing
-// from here replaces the current context (e.g. a lobby queue). Each row's
+// from here replaces the current context (e.g. a playlist queue). Each row's
 // button follows the player: the song that is playing shows pause.
 
 const PLAY_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
@@ -72,7 +72,7 @@ const REPLACE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="
 const PAUSE_ICON = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
 
 // Library songs as player tracks. Queue entries refer to library songs as
-// `library:<id>`, so the same song playing from a lobby also counts.
+// `library:<id>`, so the same song playing from a playlist also counts.
 export function libraryTrack(song: TrackSource): Track {
   return {
     libraryId: song.id,
@@ -161,8 +161,8 @@ function uploaderHtml(song: LibrarySong): string {
 function updateContext(): void {
   const el = maybeById('libpage-context');
   if (!el) return;
-  if (state.lobbyId) {
-    el.textContent = `Adding to: ${state.lobbyName || state.lobbyId}`;
+  if (state.playlistId) {
+    el.textContent = `Adding to: ${state.playlistName || state.playlistId}`;
     el.classList.remove('muted');
   } else {
     el.textContent = 'Open a playlist to add songs to it';
@@ -197,19 +197,19 @@ function isQueued(song: LibrarySong, keys: Set<string>): boolean {
     || (!!song.source_url && keys.has(song.source_url));
 }
 
-// Add button state: no lobby, already in this lobby's queue (it can still be
+// Add button state: no playlist, already in this playlist's queue (it can still be
 // added again, after a question), or addable.
 function setAddButton(btn: HTMLButtonElement, song: LibrarySong, keys: Set<string>): void {
-  const queued = !!state.lobbyId && isQueued(song, keys);
-  btn.disabled = !state.lobbyId;
+  const queued = !!state.playlistId && isQueued(song, keys);
+  btn.disabled = !state.playlistId;
   btn.classList.toggle('added', queued);
   btn.textContent = queued ? 'Added' : 'Add';
-  if (!state.lobbyId) btn.title = 'Open a playlist first';
+  if (!state.playlistId) btn.title = 'Open a playlist first';
   else if (queued) btn.title = 'Already in this playlist. Click to add it again';
   else btn.removeAttribute('title');
 }
 
-// Called whenever the queue (or the lobby) changes, so the buttons follow
+// Called whenever the queue (or the playlist) changes, so the buttons follow
 // songs being added elsewhere or removed from the queue.
 export function refreshLibraryAddButtons(): void {
   if (!lib.open) return;
@@ -376,14 +376,14 @@ async function loadSongs({ page = 0, refresh = false }: { page?: number; refresh
 // The same path as the song menu's Add to playlist: the server refuses the same
 // song twice, and the user is asked before it is added again.
 async function addToQueue(songId: string, btn: HTMLButtonElement | null): Promise<void> {
-  if (!state.lobbyId) { showToast('Open a playlist first', 'error'); return; }
+  if (!state.playlistId) { showToast('Open a playlist first', 'error'); return; }
   const song = lib.songs.find((s) => s.id === songId);
   if (btn) btn.disabled = true;
   try {
-    await addSongToPlaylist({ id: state.lobbyId, name: state.lobbyName }, { songId, title: song ? song.title : '' }, { returnFocus: btn });
+    await addSongToPlaylist({ id: state.playlistId, name: state.playlistName }, { songId, title: song ? song.title : '' }, { returnFocus: btn });
   } finally {
     // The queue:update that follows marks it "Added".
-    if (btn && document.contains(btn)) btn.disabled = !state.lobbyId;
+    if (btn && document.contains(btn)) btn.disabled = !state.playlistId;
   }
 }
 
@@ -448,7 +448,7 @@ async function refreshRequestCount(): Promise<void> {
 // in-app, so closing it can step back past them instead of adding another.
 
 function syncUrl(mode: 'push' | 'replace'): void {
-  const url = libraryPath(state.lobbyId, lib);
+  const url = libraryPath(state.playlistId, lib);
   if (window.location.pathname + window.location.search === url) return;
   if (mode === 'push') {
     const depth: number | null | undefined = history.state && history.state.libDepth;
@@ -508,7 +508,7 @@ function requestCloseLibrary(): void {
   const depth: number | null | undefined = history.state && history.state.libDepth;
   closeLibraryPage();
   if (depth) history.go(-depth);
-  else history.pushState(null, '', basePath({ view: state.lobbyId ? 'lobby' : 'landing', lobbyId: state.lobbyId }));
+  else history.pushState(null, '', basePath({ view: state.playlistId ? 'playlist' : 'landing', playlistId: state.playlistId }));
 }
 
 // --- Page -----------------------------------------------------------------
@@ -544,7 +544,7 @@ export function openLibraryPage(tab: LibraryTab = 'library'): void {
   loadSongs();
   refreshRequestCount();
   syncControls();
-  history.pushState({ libDepth: 1 }, '', libraryPath(state.lobbyId, lib));
+  history.pushState({ libDepth: 1 }, '', libraryPath(state.playlistId, lib));
   const search = maybeById<HTMLInputElement>('libpage-search');
   if (search && tab === 'library' && window.matchMedia('(pointer: fine)').matches) search.focus();
   const dlInput = maybeById<HTMLInputElement>('dl-input');

@@ -38,7 +38,7 @@ describe('song-menu-rules: sourceSubmenu', () => {
 });
 
 describe('song-menu-rules: canRemoveFromPlaylist', () => {
-  const page: SongMenuPage = { lobbyId: 'p1', queueLobbyId: 'p1', canEdit: true };
+  const page: SongMenuPage = { playlistId: 'p1', queuePlaylistId: 'p1', canEdit: true };
   const row: SongMenuRow = { context: 'playlist', entryId: 'e1' };
   it('is offered on a playlist row the viewer may edit', () => {
     assert.equal(m.canRemoveFromPlaylist(row, page), true);
@@ -52,7 +52,7 @@ describe('song-menu-rules: canRemoveFromPlaylist', () => {
     }
   });
   it('is not offered while the queue on screen belongs to another playlist, or without an entry', () => {
-    assert.equal(m.canRemoveFromPlaylist(row, { ...page, queueLobbyId: 'p2' }), false);
+    assert.equal(m.canRemoveFromPlaylist(row, { ...page, queuePlaylistId: 'p2' }), false);
     assert.equal(m.canRemoveFromPlaylist({ context: 'playlist' }, page), false);
     assert.equal(m.canRemoveFromPlaylist(row, null), false);
   });

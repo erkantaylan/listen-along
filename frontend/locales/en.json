@@ -40,7 +40,7 @@
     "artistsTileMeta": "Every artist in the library",
     "emptyPlaylist": "This playlist has no songs yet"
   },
-  "lobby": {
+  "playlist": {
     "playlist": "Playlist",
     "listeners": "listeners",
     "listener": "listener",
@@ -123,10 +123,10 @@
     "unregistered": "{count} unregistered ({size})",
     "privateCount": "{count} private",
     "title": "Dashboard",
-    "activeLobbies": "Playlists",
+    "activePlaylists": "Playlists",
     "connectedUsers": "Connected Users",
     "memory": "Memory (MB)",
-    "noActiveLobbies": "No public playlists",
+    "noActivePlaylists": "No public playlists",
     "songCache": "Song Cache",
     "clearAll": "Clear All",
     "ready": "Ready",

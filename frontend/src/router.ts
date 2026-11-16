@@ -2,7 +2,7 @@
 // so they can be unit tested in Node (router.test.ts).
 //
 //   /                          landing (playlist list)
-//   /playlist/<id>             playlist (internally the view is still "lobby")
+//   /playlist/<id>             playlist
 //   /library                   music library (no playlist; Add is disabled)
 //   /playlist/<id>/library     music library over a playlist (Add targets it)
 //   /radio                     Radio: every song, shuffled (radio.ts)
@@ -42,12 +42,12 @@ export interface LibraryState {
 
 export const LIBRARY_DEFAULTS: Readonly<LibraryState> = Object.freeze({ tab: 'library', query: '', sort: 'recent', page: 0, requestStatus: 'pending' });
 
-// The views the router knows ("lobby" is the playlist page).
-export type View = 'landing' | 'lobby' | 'radio' | 'artists' | 'artist' | 'search' | 'app' | 'profile' | 'social' | 'dashboard';
+// The views the router knows.
+export type View = 'landing' | 'playlist' | 'radio' | 'artists' | 'artist' | 'search' | 'app' | 'profile' | 'social' | 'dashboard';
 
 export interface Route {
   view: View;
-  lobbyId: string | null;
+  playlistId: string | null;
   library: LibraryState | null;
   artistKey?: string;
   searchQuery?: string;
@@ -57,19 +57,19 @@ function oneOf<T extends string>(list: readonly T[], value: string | null): valu
   return (list as readonly (string | null)[]).includes(value);
 }
 
-const LOBBY_RE = /^\/playlist\/([a-zA-Z0-9-]+)(\/library)?\/?$/;
+const PLAYLIST_RE = /^\/playlist\/([a-zA-Z0-9-]+)(\/library)?\/?$/;
 const ARTIST_RE = /^\/artist\/([^/]+)\/?$/;
-const LEGACY_LOBBY_RE = /^\/lobby\/([a-zA-Z0-9-]+)(\/library)?\/?$/;
+const LEGACY_PLAYLIST_RE = /^\/lobby\/([a-zA-Z0-9-]+)(\/library)?\/?$/;
 
 // The /playlist/... path for an old /lobby/... path (search kept), else null.
 export function legacyRedirect(pathname: string, search = ''): string | null {
-  const m = LEGACY_LOBBY_RE.exec(pathname);
+  const m = LEGACY_PLAYLIST_RE.exec(pathname);
   if (!m) return null;
   return `/playlist/${m[1]}${m[2] ? '/library' : ''}${search || ''}`;
 }
 
-export function playlistPath(lobbyId: string): string {
-  return `/playlist/${lobbyId}`;
+export function playlistPath(playlistId: string): string {
+  return `/playlist/${playlistId}`;
 }
 
 // An artist's key is artistCredits.artistNameKey on the server (letters and digits, maybe not Latin).
@@ -81,20 +81,20 @@ function decodeSegment(s: string): string | null {
   try { return decodeURIComponent(s); } catch { return null; }
 }
 
-// pathname + search -> { view, lobbyId, library } (+ artistKey on the artist
+// pathname + search -> { view, playlistId, library } (+ artistKey on the artist
 // view). library is null when the library overlay is closed, else its state
 // ({ tab, query, sort, page, requestStatus }).
 export function parseRoute(pathname: string, search = ''): Route {
   const params = new URLSearchParams(search);
   let view: View = 'landing';
-  let lobbyId: string | null = null;
+  let playlistId: string | null = null;
   let withLibrary = false;
 
-  const lobbyMatch = LOBBY_RE.exec(pathname);
-  if (lobbyMatch) {
-    view = 'lobby';
-    lobbyId = lobbyMatch[1];
-    withLibrary = !!lobbyMatch[2];
+  const playlistMatch = PLAYLIST_RE.exec(pathname);
+  if (playlistMatch) {
+    view = 'playlist';
+    playlistId = playlistMatch[1];
+    withLibrary = !!playlistMatch[2];
   } else if (/^\/library\/?$/.test(pathname)) {
     withLibrary = true;
   } else if (/^\/radio\/?$/.test(pathname)) {
@@ -103,9 +103,9 @@ export function parseRoute(pathname: string, search = ''): Route {
     view = 'artists';
   } else if (ARTIST_RE.test(pathname)) {
     const key = decodeSegment((ARTIST_RE.exec(pathname) as RegExpExecArray)[1]);
-    if (key) return { view: 'artist', lobbyId: null, library: null, artistKey: key };
+    if (key) return { view: 'artist', playlistId: null, library: null, artistKey: key };
   } else if (/^\/search\/?$/.test(pathname)) {
-    return { view: 'search', lobbyId: null, library: null, searchQuery: searchQueryOf(params.get('q')) };
+    return { view: 'search', playlistId: null, library: null, searchQuery: searchQueryOf(params.get('q')) };
   } else if (/^\/app\/?$/.test(pathname)) {
     view = 'app';
   } else if (/^\/profile\/?$/.test(pathname)) {
@@ -116,7 +116,7 @@ export function parseRoute(pathname: string, search = ''): Route {
     view = 'dashboard';
   }
 
-  return { view, lobbyId, library: withLibrary ? parseLibraryParams(params) : null };
+  return { view, playlistId, library: withLibrary ? parseLibraryParams(params) : null };
 }
 
 // The search text as the URL carries it: whitespace collapsed, at most
@@ -147,8 +147,8 @@ function parseLibraryParams(params: URLSearchParams): LibraryState {
 }
 
 // The path for a view without the library overlay.
-export function basePath({ view, lobbyId, artistKey }: { view: string; lobbyId?: string | null; artistKey?: string | null }): string {
-  if (view === 'lobby' && lobbyId) return playlistPath(lobbyId);
+export function basePath({ view, playlistId, artistKey }: { view: string; playlistId?: string | null; artistKey?: string | null }): string {
+  if (view === 'playlist' && playlistId) return playlistPath(playlistId);
   if (view === 'radio') return '/radio';
   if (view === 'artists') return '/artists';
   if (view === 'artist' && artistKey) return artistPath(artistKey);
@@ -161,7 +161,7 @@ export function basePath({ view, lobbyId, artistKey }: { view: string; lobbyId?:
 }
 
 // The library URL for the given state; inside a playlist it stays under it.
-export function libraryPath(lobbyId: string | null | undefined, lib: Partial<LibraryState> = {}): string {
+export function libraryPath(playlistId: string | null | undefined, lib: Partial<LibraryState> = {}): string {
   const s: LibraryState = { ...LIBRARY_DEFAULTS, ...lib };
   const params = new URLSearchParams();
   if (s.tab !== LIBRARY_DEFAULTS.tab) params.set('tab', s.tab);
@@ -170,5 +170,5 @@ export function libraryPath(lobbyId: string | null | undefined, lib: Partial<Lib
   if (s.sort !== LIBRARY_DEFAULTS.sort) params.set('sort', s.sort);
   if (s.page > 0) params.set('page', String(s.page + 1));
   const qs = params.toString();
-  return `${lobbyId ? `${playlistPath(lobbyId)}/library` : '/library'}${qs ? `?${qs}` : ''}`;
+  return `${playlistId ? `${playlistPath(playlistId)}/library` : '/library'}${qs ? `?${qs}` : ''}`;
 }

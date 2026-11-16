@@ -40,7 +40,7 @@
     "artistsTileMeta": "Kitaplıktaki tüm sanatçılar",
     "emptyPlaylist": "Bu çalma listesinde henüz şarkı yok"
   },
-  "lobby": {
+  "playlist": {
     "playlist": "Çalma listesi",
     "listeners": "dinleyici",
     "listener": "dinleyici",
@@ -123,10 +123,10 @@
     "unregistered": "{count} kayıtsız ({size})",
     "privateCount": "{count} özel",
     "title": "Kontrol Paneli",
-    "activeLobbies": "Çalma listeleri",
+    "activePlaylists": "Çalma listeleri",
     "connectedUsers": "Bağlı Kullanıcılar",
     "memory": "Bellek (MB)",
-    "noActiveLobbies": "Herkese açık çalma listesi yok",
+    "noActivePlaylists": "Herkese açık çalma listesi yok",
     "songCache": "Şarkı Önbelleği",
     "clearAll": "Hepsini Temizle",
     "ready": "Hazır",

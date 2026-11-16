@@ -19,31 +19,31 @@ import type { StatsSong } from '../playlists/playlist-stats.ts';
 import type { QueueEntry, QueueSongAddedPayload, QueueUpdatePayload, Track } from '../../shared/types.ts';
 
 // A song marked broken anywhere: the queue's badges follow.
-onReportsChange(() => { if (state.lobbyId) updateQueue(); });
+onReportsChange(() => { if (state.playlistId) updateQueue(); });
 // A song failed to play, or plays again: its row greys or clears.
-onFailuresChange(() => { if (state.lobbyId) updateQueue(); });
+onFailuresChange(() => { if (state.playlistId) updateQueue(); });
 
-// queue:update arrives for the lobby on screen and for the lobby being played
-// from (the socket stays in that one); they may be the same lobby.
+// queue:update arrives for the playlist on screen and for the playlist being played
+// from (the socket stays in that one); they may be the same playlist.
 // `queue` is an older name for `songs`; the server sends only `songs`.
 export function handleQueueUpdated(data: QueueUpdatePayload & { queue?: QueueEntry[] }) {
   const songs = data.songs || data.queue || [];
-  player.updateQueue(data.lobbyId, songs);
-  if (data.lobbyId && data.lobbyId !== state.lobbyId) return;
+  player.updateQueue(data.playlistId, songs);
+  if (data.playlistId && data.playlistId !== state.playlistId) return;
   // This list is about to be out of date: the send below brings the final one.
   if (pendingMove) return;
   state.queue = songs;
-  state.queueLobbyId = state.lobbyId;
+  state.queuePlaylistId = state.playlistId;
   updateQueue();
   // Quick play: start this playlist from the top.
-  if (state.autoplayLobbyId && state.autoplayLobbyId === (data.lobbyId || state.lobbyId)) {
-    state.autoplayLobbyId = null;
+  if (state.autoplayPlaylistId && state.autoplayPlaylistId === (data.playlistId || state.playlistId)) {
+    state.autoplayPlaylistId = null;
     playViewedFromTop();
   }
 }
 
 export function handleSongAdded(data: QueueSongAddedPayload) {
-  if (data.lobbyId && data.lobbyId !== state.lobbyId) return;
+  if (data.playlistId && data.playlistId !== state.playlistId) return;
   state.queue.push(data.song);
   updateQueue();
   showToast(`Added: ${data.song.title}`, 'success');
@@ -54,22 +54,22 @@ export function handleSongAdded(data: QueueSongAddedPayload) {
 export function removeSong(index: number) {
   const song = state.queue[index];
   if (!song) return;
-  // The queue's songs are on screen only on a playlist page, so there is a lobby id.
-  const lobbyId = state.lobbyId as string;
-  socket.emit('queue:remove', { lobbyId, songId: song.id });
+  // The queue's songs are on screen only on a playlist page, so there is a playlist id.
+  const playlistId = state.playlistId as string;
+  socket.emit('queue:remove', { playlistId, songId: song.id });
   const next = rowAfter(index);
   state.queue = state.queue.filter((s) => s.id !== song.id);
   updateQueue({ anchor: false });
   if (next) focusRow(next.id, '.queue-item-remove');
   showToast(t('queue.removed', `Removed "${song.title}"`, { title: song.title }), 'info', {
     duration: 6000,
-    action: { label: t('queue.undo', 'Undo'), onClick: () => socket.emit('queue:restore', { lobbyId, songId: song.id }) },
+    action: { label: t('queue.undo', 'Undo'), onClick: () => socket.emit('queue:restore', { playlistId, songId: song.id }) },
   });
 }
 
 // From the song menu: the list may have changed while it was open.
-function removeSongById(songId: string, lobbyId: string | null) {
-  if (!state.canEdit || state.lobbyId !== lobbyId) return;
+function removeSongById(songId: string, playlistId: string | null) {
+  if (!state.canEdit || state.playlistId !== playlistId) return;
   const index = state.queue.findIndex((s) => s.id === songId);
   if (index >= 0) removeSong(index);
 }
@@ -80,7 +80,7 @@ function rowAfter(index: number) {
 
 export function clearQueue() {
   if (!state.queue.length) return;
-  socket.emit('queue:clear', { lobbyId: state.lobbyId as string });
+  socket.emit('queue:clear', { playlistId: state.playlistId as string });
 }
 
 // --- Playlist download (to device) ---------------------------------------
@@ -202,7 +202,7 @@ export async function downloadPlaylist() {
 // otherwise arrive mid-run and put the row back where it was.
 const MOVE_SETTLE_MS = 250;
 interface PendingMove {
-  lobbyId: string | null;
+  playlistId: string | null;
   songId: string;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -210,11 +210,11 @@ let pendingMove: PendingMove | null = null;
 
 function sendPendingMove() {
   if (!pendingMove) return;
-  const { lobbyId, songId, timer } = pendingMove;
+  const { playlistId, songId, timer } = pendingMove;
   clearTimeout(timer);
   pendingMove = null;
   const newIndex = state.queue.findIndex((s) => s.id === songId);
-  if (lobbyId === state.lobbyId && newIndex >= 0) socket.emit('queue:reorder', { lobbyId: lobbyId as string, songId, newIndex });
+  if (playlistId === state.playlistId && newIndex >= 0) socket.emit('queue:reorder', { playlistId: playlistId as string, songId, newIndex });
 }
 
 export function moveSong(fromIndex: number, toIndex: number, { settle = false }: { settle?: boolean } = {}) {
@@ -223,10 +223,10 @@ export function moveSong(fromIndex: number, toIndex: number, { settle = false }:
   if (pendingMove && pendingMove.songId !== song.id) sendPendingMove();
   if (settle) {
     if (pendingMove) clearTimeout(pendingMove.timer);
-    pendingMove = { lobbyId: state.lobbyId, songId: song.id, timer: setTimeout(sendPendingMove, MOVE_SETTLE_MS) };
+    pendingMove = { playlistId: state.playlistId, songId: song.id, timer: setTimeout(sendPendingMove, MOVE_SETTLE_MS) };
   } else {
     sendPendingMove();
-    socket.emit('queue:reorder', { lobbyId: state.lobbyId as string, songId: song.id, newIndex: toIndex });
+    socket.emit('queue:reorder', { playlistId: state.playlistId as string, songId: song.id, newIndex: toIndex });
   }
   const songs = [...state.queue];
   songs.splice(fromIndex, 1);
@@ -238,14 +238,14 @@ export function moveSong(fromIndex: number, toIndex: number, { settle = false }:
 export function moveSongUp(index: number) { moveSong(index, index - 1); }
 export function moveSongDown(index: number) { moveSong(index, index + 1); }
 
-// Playing a song makes this lobby the playback context (if it was not).
+// Playing a song makes this playlist the playback context (if it was not).
 // The song already playing from here is resumed if paused, never restarted.
 export function playSongAt(index: number) {
   const song = state.queue[index];
   if (!song) return;
   const ctx = player.context;
-  // Only a playlist's context has a lobbyId (the others give undefined).
-  if (ctx && (ctx as { lobbyId?: string }).lobbyId === state.lobbyId && player.track && player.track.id === song.id) {
+  // Only a playlist's context has a playlistId (the others give undefined).
+  if (ctx && (ctx as { playlistId?: string }).playlistId === state.playlistId && player.track && player.track.id === song.id) {
     if (!player.isPlaying) player.play();
     return;
   }
@@ -297,9 +297,9 @@ export function setupQueueInteractions() {
   bindSongMenu(list, '.queue-item[data-index]', (row) => {
     const song = state.queue[parseInt(row.dataset.index as string, 10)];
     if (!song) return null;
-    const page = { lobbyId: state.lobbyId, queueLobbyId: state.queueLobbyId, canEdit: state.canEdit };
+    const page = { playlistId: state.playlistId, queuePlaylistId: state.queuePlaylistId, canEdit: state.canEdit };
     const removable = canRemoveFromPlaylist({ context: 'playlist', entryId: song.id }, page);
-    return { url: song.url, title: song.title, onRemove: removable ? () => removeSongById(song.id, page.lobbyId) : undefined };
+    return { url: song.url, title: song.title, onRemove: removable ? () => removeSongById(song.id, page.playlistId) : undefined };
   });
   onEditModeChange(applyEditMode);
   player.on('state', refreshPlayingCell);
@@ -360,7 +360,7 @@ export function setupQueueInteractions() {
     view: listView(),
     rowSelector: '.queue-item[data-index]',
     handleSelector: '.queue-item-handle',
-    scroller: list.closest('.lobby-body') as HTMLElement,
+    scroller: list.closest('.playlist-body') as HTMLElement,
     onDrop: (from, to) => moveShownSong(shown[from].song, shown[to].song),
     onEnd: () => { if (renderPending) updateQueue(); },
   });
@@ -390,7 +390,7 @@ function moveFocus(row: HTMLElement, e: KeyboardEvent) {
 // may be thousands of rows down. Waits here for the queue if it is still loading.
 function revealPlaying() {
   const ctx = player.context;
-  if (!ctx || !player.track || (ctx as { lobbyId?: string }).lobbyId !== state.lobbyId || !shown.length) return;
+  if (!ctx || !player.track || (ctx as { playlistId?: string }).playlistId !== state.playlistId || !shown.length) return;
   const pos = shown.findIndex(({ song }) => song.id === (player.track as Track).id);
   state.revealPlayingIn = null;
   if (pos >= 0) listView().scrollToIndex(pos, { align: 'center' });
@@ -476,7 +476,7 @@ let applyDragShift: (() => void) | null = null;
 let view: VirtualList | null = null;
 function listView(): VirtualList {
   if (!view) {
-    const scroller = elements.queueList.closest('.lobby-body') as HTMLElement;
+    const scroller = elements.queueList.closest('.playlist-body') as HTMLElement;
     view = createVirtualList({
       list: elements.queueList,
       scroller,
@@ -490,7 +490,7 @@ function listView(): VirtualList {
 function queueRowHtml(pos: number) {
   const { song, index, number } = shown[pos];
   const editing = isEditMode();
-  const isContextOnScreen = !!player.context && (player.context as { lobbyId?: string }).lobbyId === state.lobbyId;
+  const isContextOnScreen = !!player.context && (player.context as { playlistId?: string }).playlistId === state.playlistId;
   const thumbUrl = song.id ? getCoverUrl(song.id, song.thumbnail) : sanitizeUrl(song.thumbnail);
   const downloadHtml = getDownloadStatusHtml(state.downloadStatus[song.url]);
   const isPlaying = isContextOnScreen && !!player.track && player.track.id === song.id;
@@ -606,7 +606,7 @@ function renderStats() {
   const el = maybeById('playlist-stats');
   if (!el) return;
   // Off the playlist page there is nothing to count.
-  const html = state.lobbyId ? statsTextHtml(state.queue) : '';
+  const html = state.playlistId ? statsTextHtml(state.queue) : '';
   if (el.dataset.html !== html) { el.innerHTML = html; el.dataset.html = html; }
   syncPlaylistMeta();
 }
@@ -667,7 +667,7 @@ export function updateQueue({ anchor = true }: { anchor?: boolean } = {}) {
     renderRow: queueRowHtml,
   }, { anchor });
   if (focusedId && !elements.queueList.contains(document.activeElement)) focusRow(focusedId, focusedPart, { scroll: false });
-  if (state.revealPlayingIn && state.revealPlayingIn === state.lobbyId) revealPlaying();
+  if (state.revealPlayingIn && state.revealPlayingIn === state.playlistId) revealPlaying();
 }
 
 export function setupQueueSearch() {
@@ -679,14 +679,14 @@ export function setupQueueSearch() {
 // The playlist header's listener count. Who is listening and what they play
 // is the global people panel (social.ts).
 export function updateListeners() {
-  const listenerWord = state.listeners.length !== 1 ? t('lobby.listeners', 'listeners') : t('lobby.listener', 'listener');
+  const listenerWord = state.listeners.length !== 1 ? t('playlist.listeners', 'listeners') : t('playlist.listener', 'listener');
   elements.userCount.textContent = `${state.listeners.length} ${listenerWord}`;
   syncPlaylistMeta();
 }
 
-// Clear the lobby page's lists (switching or leaving a lobby page). The full
+// Clear the playlist page's lists (switching or leaving a playlist page). The full
 // player follows player.ts and is left alone.
-export function resetLobbyUI() {
+export function resetPlaylistUI() {
   setEditMode(false);
   updateQueue();
   updateListeners();

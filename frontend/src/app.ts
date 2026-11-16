@@ -14,7 +14,7 @@ import { checkAuth, setupLoginView, showPendingCard, setupProfilePage, loadProfi
 import { setupSocial, applySocialRoute, toggleSocial, refreshPeople, reportNowPlaying as reportPresence } from './features/social/social.ts';
 import type { SocialOptions } from './features/social/social.ts';
 import { setupListenAlong, listenAlongWith, isListeningWith, stopListenAlong, onListenChange } from './features/social/listen-along.ts';
-import { checkUrlForDashboard, dashboardJoinLobby, dashboardRemoveLobby, dashboardApproveUser, dashboardRejectUser } from './features/admin/dashboard.ts';
+import { checkUrlForDashboard, dashboardJoinPlaylist, dashboardRemovePlaylist, dashboardApproveUser, dashboardRejectUser } from './features/admin/dashboard.ts';
 import { setupLibraryPage, openLibraryPage, closeLibraryPage, isLibraryOpen, showLibraryRoute, handleLibraryUpdated, handleRequestsUpdated } from './features/library/library.ts';
 import { handleJobUpdate, handleWorkersUpdate } from './features/library/jobs.ts';
 import { loadReports } from './features/library/song-reports.ts';
@@ -32,7 +32,7 @@ import { sharePlaylist, handlePlaylistCreated, handlePlaylistJoined, handlePlayl
 import { handleDownloadStatus, handleDownloadProgress, handleUsersUpdated, cycleRepeatMode, toggleShuffle, togglePlayback, playPrevious, playNext, seekTo, updatePlayButton, updatePlaybackModeUI, updateNowPlaying, _setQueueFns } from './player/playback.ts';
 import { closePickDialog } from './features/picker/pick-dialog.ts';
 import { setupSearch, openSearchPage, closeSearchPage, searchRouteChanged, handleSearchLibraryUpdated } from './features/search/search.ts';
-import { handleQueueUpdated, handleSongAdded, removeSong, clearQueue, downloadPlaylist, cancelPlaylistDownload, moveSongUp, moveSongDown, playSongAt, setupQueueInteractions, setupQueueSearch, updateQueue, updateListeners, resetLobbyUI, openSource, copySourceUrl } from './features/queue/queue.ts';
+import { handleQueueUpdated, handleSongAdded, removeSong, clearQueue, downloadPlaylist, cancelPlaylistDownload, moveSongUp, moveSongDown, playSongAt, setupQueueInteractions, setupQueueSearch, updateQueue, updateListeners, resetPlaylistUI, openSource, copySourceUrl } from './features/queue/queue.ts';
 
 // Wire up cross-module dependencies
 _setQueueFns(updateQueue, updateListeners);
@@ -72,16 +72,16 @@ function setupSocket(): void {
     });
     s.on('disconnect', () => { console.log('Disconnected from server'); showToast(t('toast.connectionLost', 'Connection lost. Reconnecting...'), 'error'); });
 
-    // Playlist Events (lobby:* on the wire)
-    s.on('lobby:created', (data) => handlePlaylistCreated(data, updatePinButton));
-    s.on('lobby:joined', (data) => handlePlaylistJoined(data, updatePinButton, updateListeners, updateQueue));
-    s.on('lobby:not-found', handlePlaylistNotFound);
-    s.on('lobby:error', handlePlaylistError);
-    s.on('lobby:user-joined', (data) => handleUserJoined(data, updateListeners));
-    s.on('lobby:user-left', (data) => handleUserLeft(data, updateListeners));
-    s.on('lobby:closed', (data) => { if ((data.lobbyId || state.lobbyId) === state.lobbyId) closeLibraryPage(); handlePlaylistClosed(data, resetLobbyPage); });
-    s.on('lobby:renamed', handlePlaylistRenamed);
-    s.on('lobby:updated', handlePlaylistUpdated);
+    // Playlist Events (playlist:* on the wire)
+    s.on('playlist:created', (data) => handlePlaylistCreated(data, updatePinButton));
+    s.on('playlist:joined', (data) => handlePlaylistJoined(data, updatePinButton, updateListeners, updateQueue));
+    s.on('playlist:not-found', handlePlaylistNotFound);
+    s.on('playlist:error', handlePlaylistError);
+    s.on('playlist:user-joined', (data) => handleUserJoined(data, updateListeners));
+    s.on('playlist:user-left', (data) => handleUserLeft(data, updateListeners));
+    s.on('playlist:closed', (data) => { if ((data.playlistId || state.playlistId) === state.playlistId) closeLibraryPage(); handlePlaylistClosed(data, resetPlaylistPage); });
+    s.on('playlist:renamed', handlePlaylistRenamed);
+    s.on('playlist:updated', handlePlaylistUpdated);
     // The list changed somewhere: refetch it (sidebar, landing rows, pin button).
     s.on('playlists:changed', () => { scheduleReload(); scheduleFolderReload(); });
 
@@ -171,12 +171,12 @@ function setupEventListeners(): void {
 }
 
 // Switching or leaving a playlist page: clear its lists.
-function resetLobbyPage(): void {
-  resetLobbyUI();
+function resetPlaylistPage(): void {
+  resetPlaylistUI();
 }
 
-type ViewElement = 'landingView' | 'lobbyView' | 'profileView' | 'radioView' | 'appView' | 'artistsView' | 'artistView' | 'searchView';
-const routeViews: Record<string, ViewElement> = { landing: 'landingView', lobby: 'lobbyView', profile: 'profileView', radio: 'radioView', app: 'appView', artists: 'artistsView', artist: 'artistView', search: 'searchView' };
+type ViewElement = 'landingView' | 'playlistView' | 'profileView' | 'radioView' | 'appView' | 'artistsView' | 'artistView' | 'searchView';
+const routeViews: Record<string, ViewElement> = { landing: 'landingView', playlist: 'playlistView', profile: 'profileView', radio: 'radioView', app: 'appView', artists: 'artistsView', artist: 'artistView', search: 'searchView' };
 // The path applyRoute last showed (an artist page's back button returns to /artists from there).
 let lastPath: string | null = null;
 function isViewActive(view: string): boolean {
@@ -203,13 +203,13 @@ function applyRoute(): void {
   if (route.view === 'social') {
     // Phones: the Social view covers the page; desktop: the sidebar over the
     // landing page (a playlist page under it would be left anyway).
-    closePlaylistPage(resetLobbyPage);
+    closePlaylistPage(resetPlaylistPage);
     if (!isViewActive('landing') && !isViewActive('profile')) showView('landing');
-  } else if (route.lobbyId) {
-    // The playlist view (#lobby-view) shows once lobby:joined arrives.
-    if (route.lobbyId !== state.lobbyId) openPlaylistPage(route.lobbyId, resetLobbyPage);
+  } else if (route.playlistId) {
+    // The playlist view (#playlist-view) shows once playlist:joined arrives.
+    if (route.playlistId !== state.playlistId) openPlaylistPage(route.playlistId, resetPlaylistPage);
   } else {
-    closePlaylistPage(resetLobbyPage);
+    closePlaylistPage(resetPlaylistPage);
     if (!isViewActive(route.view)) showView(route.view);
     if (route.view === 'radio') openRadioPage();
     if (route.view === 'artists') openArtistsPage();
@@ -292,7 +292,7 @@ function initAuthenticatedApp(): void {
   setupEventListeners();
   setupProfilePage();
   applyRoute();
-  if (!route.lobbyId && !ownView) checkForLastPlaylist();
+  if (!route.playlistId && !ownView) checkForLastPlaylist();
   setupRangeFill();
   setupAudioPlayer();
   setupPlayer();
@@ -318,7 +318,7 @@ function initAuthenticatedApp(): void {
   });
   // Songs marked "needs replacement" (badges everywhere; song-reports.ts).
   loadReports();
-  // The full player and the lobby page follow the app-wide player.
+  // The full player and the playlist page follow the app-wide player.
   player.on('state', updatePlayButton);
   player.on('track', (track) => {
     updateNowPlaying(track);
@@ -344,14 +344,14 @@ declare global {
       playSongAt: typeof playSongAt;
       openSource: typeof openSource;
       copySourceUrl: typeof copySourceUrl;
-      joinLobbyFromCard: typeof joinPlaylistFromCard;
+      joinPlaylistFromCard: typeof joinPlaylistFromCard;
       quickPlayPlaylist: typeof quickPlayPlaylist;
-      toggleLobbyPlayback: typeof togglePlaylistPlayback;
+      togglePlaylistPlayback: typeof togglePlaylistPlayback;
       playRadio: () => void;
       newPlaylist: (btn: HTMLElement | null) => void;
     };
-    dashboardJoinLobby: typeof dashboardJoinLobby;
-    dashboardRemoveLobby: typeof dashboardRemoveLobby;
+    dashboardJoinPlaylist: typeof dashboardJoinPlaylist;
+    dashboardRemovePlaylist: typeof dashboardRemovePlaylist;
     dashboardApproveUser: typeof dashboardApproveUser;
     dashboardRejectUser: typeof dashboardRejectUser;
   }
@@ -359,14 +359,14 @@ declare global {
 window.app = {
   removeSong, moveSongUp, moveSongDown, playSongAt,
   openSource, copySourceUrl,
-  // Keys named in generated HTML (playlist.ts onclick="window.app.…") keep their names.
-  joinLobbyFromCard: joinPlaylistFromCard,
-  quickPlayPlaylist, toggleLobbyPlayback: togglePlaylistPlayback,
+  // Keys named in generated HTML (playlist.ts onclick="window.app.…").
+  joinPlaylistFromCard,
+  quickPlayPlaylist, togglePlaylistPlayback,
   playRadio: () => playRadioFromTop(),
   newPlaylist: (btn: HTMLElement | null) => openNewPlaylistDialog(btn)
 };
-window.dashboardJoinLobby = dashboardJoinLobby;
-window.dashboardRemoveLobby = dashboardRemoveLobby;
+window.dashboardJoinPlaylist = dashboardJoinPlaylist;
+window.dashboardRemovePlaylist = dashboardRemovePlaylist;
 window.dashboardApproveUser = dashboardApproveUser;
 window.dashboardRejectUser = dashboardRejectUser;
 

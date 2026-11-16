@@ -1,11 +1,11 @@
 // UI utilities, view management, and helper functions
-import { elements, state, viewActivators, dashboardInterval, lobbiesInterval, setDashboardInterval, setLobbiesInterval } from './state.ts';
+import { elements, state, viewActivators, dashboardInterval, playlistsInterval, setDashboardInterval, setPlaylistsInterval } from './state.ts';
 import { maybeById } from './dom.ts';
 
 export function showView(viewName: string): void {
   if (elements.loginView) elements.loginView.classList.remove('active');
   elements.landingView.classList.remove('active');
-  elements.lobbyView.classList.remove('active');
+  elements.playlistView.classList.remove('active');
   if (elements.radioView) elements.radioView.classList.remove('active');
   if (elements.artistsView) elements.artistsView.classList.remove('active');
   if (elements.artistView) elements.artistView.classList.remove('active');
@@ -16,7 +16,7 @@ export function showView(viewName: string): void {
   if (elements.profileView) elements.profileView.classList.remove('active');
 
   if (dashboardInterval) { clearInterval(dashboardInterval); setDashboardInterval(null); }
-  if (lobbiesInterval) { clearInterval(lobbiesInterval); setLobbiesInterval(null); }
+  if (playlistsInterval) { clearInterval(playlistsInterval); setPlaylistsInterval(null); }
 
   switch (viewName) {
     case 'login':
@@ -25,8 +25,8 @@ export function showView(viewName: string): void {
     case 'landing':
       elements.landingView.classList.add('active');
       break;
-    case 'lobby':
-      elements.lobbyView.classList.add('active');
+    case 'playlist':
+      elements.playlistView.classList.add('active');
       break;
     case 'radio':
       if (elements.radioView) elements.radioView.classList.add('active');

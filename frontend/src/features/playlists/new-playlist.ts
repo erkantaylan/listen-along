@@ -1,6 +1,6 @@
 // "New playlist" dialog (landing page). An .app-modal card: name (required,
 // 50 chars like the server), Public / Private, Cancel + primary Create.
-// Creating goes over the socket (lobby:create); playlist.ts tells this module
+// Creating goes over the socket (playlist:create); playlist.ts tells this module
 // how it went (newPlaylistCreated / newPlaylistFailed). options.create replaces
 // that: it is awaited and the dialog closes without opening the new playlist
 // ("Add to playlist" in the song menu, which must not leave the page).
@@ -10,7 +10,7 @@ import { player } from '../../player/player.ts';
 import { maybeById } from '../../shared/dom.ts';
 import type { Visibility } from '../../shared/types.ts';
 
-/** options.create: called with the form's fields instead of lobby:create. */
+/** options.create: called with the form's fields instead of playlist:create. */
 export type CreatePlaylistFn = (fields: { name: string; visibility: Visibility }) => Promise<unknown>;
 
 export interface NewPlaylistOptions {
@@ -118,7 +118,7 @@ export function openNewPlaylistDialog(returnFocus: HTMLElement | null = null, { 
       create({ name, visibility }).then(closeNewPlaylistDialog, (err: Error) => newPlaylistFailed(err.message));
       return;
     }
-    socket.emit('lobby:create', { username: state.username, emoji: state.emoji, name, visibility, userId: state.userId, asViewer: !!player.context });
+    socket.emit('playlist:create', { username: state.username, emoji: state.emoji, name, visibility, userId: state.userId, asViewer: !!player.context });
   });
   input.focus();
 }
@@ -134,7 +134,7 @@ function setBusy(busy: boolean): void {
   if (busy) (d.querySelector('.new-playlist-error') as HTMLElement).hidden = true;
 }
 
-// lobby:created arrived: the caller navigates; just close (no focus return,
+// playlist:created arrived: the caller navigates; just close (no focus return,
 // the view changes).
 export function newPlaylistCreated(): void {
   const d = dialogEl();
@@ -142,7 +142,7 @@ export function newPlaylistCreated(): void {
   closeNewPlaylistDialog();
 }
 
-// lobby:error while creating: show it in the dialog. A name clash goes under
+// playlist:error while creating: show it in the dialog. A name clash goes under
 // the name field, anything else in the alert.
 export function newPlaylistFailed(message: string | null | undefined): void {
   setBusy(false);

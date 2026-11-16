@@ -2,13 +2,13 @@
 import { initialRepeatMode } from '../player/player-queue.ts';
 import type { RepeatMode } from '../player/player-queue.ts';
 import { byId } from './dom.ts';
-import type { AuthUser, LobbyUser, QueueEntry, Track, Visibility } from './types.ts';
+import type { AuthUser, PlaylistUser, QueueEntry, Track, Visibility } from './types.ts';
 
 export const STORAGE_KEYS = {
   USER_ID: 'listen-userId',
   USERNAME: 'listen-username',
   EMOJI: 'listen-emoji',
-  LAST_LOBBY: 'listen-lastLobby',
+  LAST_PLAYLIST: 'listen-lastPlaylist',
   REPEAT_MODE: 'listen-repeatMode',
   SHUFFLE_ENABLED: 'listen-shuffleEnabled',
   PLAYBACK_MODE: 'listen-playbackMode',
@@ -33,6 +33,21 @@ export function storageRemove(key: string): void {
   try { localStorage.removeItem(key); }
   catch (e) { console.warn('localStorage unavailable:', e); }
 }
+
+// A key renamed in this browser's storage: when only the old name is there, its
+// value moves to the new name (once; the old key is removed), so a saved value
+// survives the rename.
+function moveStorageKey(oldKey: string, newKey: string): void {
+  try {
+    if (localStorage.getItem(newKey) !== null) return;
+    const value = localStorage.getItem(oldKey);
+    if (value === null) return;
+    localStorage.setItem(newKey, value);
+    localStorage.removeItem(oldKey);
+  } catch { /* storage blocked */ }
+}
+// The last playlist's key before the playlist rename.
+moveStorageKey('listen-lastLobby', STORAGE_KEYS.LAST_PLAYLIST);
 
 // User identity
 export function getOrCreateUserId(): string {
@@ -110,15 +125,15 @@ export interface PendingPlay {
 }
 
 export interface AppState {
-  lobbyId: string | null;
-  autoplayLobbyId: string | null;
-  queueLobbyId: string | null;
+  playlistId: string | null;
+  autoplayPlaylistId: string | null;
+  queuePlaylistId: string | null;
   ownerId: string | null;
   isPlaying: boolean;
   isShuffleEnabled: boolean;
   currentTrack: Track | null;
   queue: QueueEntry[];
-  listeners: LobbyUser[];
+  listeners: PlaylistUser[];
   userId: string;
   username: string;
   emoji: string;
@@ -137,7 +152,7 @@ export interface AppState {
   revealPlayingIn: string | null;
   listeningAlong: boolean;
   playRequested: boolean;
-  lobbyName: string | null;
+  playlistName: string | null;
   // The page on screen's "play from the top" (radio.ts, artist-page.ts set it;
   // the player bar's Play uses it with nothing loaded). Not in the initial state.
   viewPlay?: (() => void) | null;
@@ -145,11 +160,11 @@ export interface AppState {
 
 // App State
 export const state: AppState = {
-  lobbyId: null,
+  playlistId: null,
   // Quick play from the landing page: play this playlist once its queue arrives.
-  autoplayLobbyId: null,
-  // The lobby whose queue has arrived, so state.queue is its list and not just empty.
-  queueLobbyId: null,
+  autoplayPlaylistId: null,
+  // The playlist whose queue has arrived, so state.queue is its list and not just empty.
+  queuePlaylistId: null,
   ownerId: null,
   isPlaying: false,
   isShuffleEnabled: getStoredShuffleEnabled(),
@@ -171,17 +186,17 @@ export const state: AppState = {
   isMuted: false,
   volumeBeforeMute: 1,
   queueSort: storageGet(STORAGE_KEYS.QUEUE_SORT) || 'default',
-  revealPlayingIn: null,  // lobby id: bring the current song into view once its queue is here
+  revealPlayingIn: null,  // playlist id: bring the current song into view once its queue is here
   listeningAlong: false,  // listen-along.ts drives the player
   playRequested: false,   // the last load was meant to sound (audio.ts playAudioWithUnlock)
-  lobbyName: null
+  playlistName: null
 };
 
 // DOM Elements
 export const elements = {
   loginView: byId('login-view'),
   landingView: byId('landing-view'),
-  lobbyView: byId('lobby-view'),
+  playlistView: byId('playlist-view'),
   radioView: byId('radio-view'),
   artistsView: byId('artists-view'),
   artistView: byId('artist-view'),
@@ -197,7 +212,7 @@ export const elements = {
   newPlaylistBtn: byId<HTMLButtonElement>('new-playlist-btn'),
   backBtn: byId<HTMLButtonElement>('back-btn'),
   shareBtn: byId<HTMLButtonElement>('share-btn'),
-  lobbyName: byId('lobby-name'),
+  playlistName: byId('playlist-name'),
   pinBtn: byId<HTMLButtonElement>('pin-btn'),
   userCount: byId('user-count'),
   albumArt: byId('album-art'),
@@ -228,14 +243,14 @@ export const elements = {
   audioPlayer: byId<HTMLAudioElement>('audio-player'),
   toastContainer: byId('toast-container'),
   dashboardUptime: byId('dashboard-uptime'),
-  statLobbies: byId('stat-lobbies'),
+  statPlaylists: byId('stat-playlists'),
   statUsers: byId('stat-users'),
   statMemory: byId('stat-memory'),
   statDisk: byId('stat-disk'),
-  dashboardLobbyList: byId('dashboard-lobby-list'),
-  lobbiesSection: byId('lobbies-section'),
+  dashboardPlaylistList: byId('dashboard-playlist-list'),
+  playlistsSection: byId('playlists-section'),
   myPlaylistsList: byId('my-playlists-list'),
-  lobbiesList: byId('lobbies-list'),
+  playlistsList: byId('playlists-list'),
   dashboardUserList: byId('dashboard-user-list'),
   usersApproved: byId('users-approved'),
   usersPending: byId('users-pending'),
@@ -252,12 +267,12 @@ export const elements = {
 export let socket: AppSocket = null as unknown as AppSocket;
 export let suppressJoinToasts = false;
 export let dashboardInterval: ReturnType<typeof setInterval> | null = null;
-export let lobbiesInterval: ReturnType<typeof setInterval> | null = null;
+export let playlistsInterval: ReturnType<typeof setInterval> | null = null;
 
 export function setSocket(s: AppSocket): void { socket = s; }
 export function setSuppressJoinToasts(v: boolean): void { suppressJoinToasts = v; }
 export function setDashboardInterval(v: ReturnType<typeof setInterval> | null): void { dashboardInterval = v; }
-export function setLobbiesInterval(v: ReturnType<typeof setInterval> | null): void { lobbiesInterval = v; }
+export function setPlaylistsInterval(v: ReturnType<typeof setInterval> | null): void { playlistsInterval = v; }
 
 // View activator callbacks — modules register here, showView() reads from here
 export const viewActivators: Record<string, () => void> = {};

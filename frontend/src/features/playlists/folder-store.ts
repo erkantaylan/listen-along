@@ -93,7 +93,7 @@ async function change(apply: () => void, undo: () => void, send: () => Promise<u
   } catch (e) {
     const err = e as FolderApiError;
     undo();
-    if (err.status === 404) showToast(err.code === 'NOT_FOUND' ? t('lobby.notFound', 'Playlist not found') : t('folders.notFound', 'That folder is gone'), 'error');
+    if (err.status === 404) showToast(err.code === 'NOT_FOUND' ? t('playlist.notFound', 'Playlist not found') : t('folders.notFound', 'That folder is gone'), 'error');
     else showToast(failText, 'error');
     return false;
   } finally {

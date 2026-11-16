@@ -238,7 +238,7 @@ async function saveProfilePage(): Promise<void> {
     });
   } catch { /* ignore */ }
   if (socket) {
-    // No lobbyId: the server updates the lobby this socket is listed in.
+    // No playlistId: the server updates the playlist this socket is listed in.
     socket.emit('user:update', { username: state.username, emoji: state.emoji });
   }
   // The people panel and chat pick the new name up from the server; without a
