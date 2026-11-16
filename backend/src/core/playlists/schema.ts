@@ -44,14 +44,14 @@ export const before: readonly string[] = [
   // leaves when it is started against the renamed database (it creates an
   // empty lobbies, then fails on the renamed columns and runs without a
   // database): empty, it is dropped; with rows, the boot stops (CLAUDE.md,
-  // "Rolling back the playlist rename").
+  // "The lobby -> playlist rename (and rolling it back)").
   `
     DO $rename$
     DECLARE t text;
     BEGIN
       IF to_regclass('public.lobbies') IS NOT NULL AND to_regclass('public.playlists') IS NOT NULL THEN
         IF EXISTS (SELECT 1 FROM public.lobbies) THEN
-          RAISE EXCEPTION 'lobbies and playlists both exist and lobbies holds rows: see CLAUDE.md "Rolling back the playlist rename"';
+          RAISE EXCEPTION 'lobbies and playlists both exist and lobbies holds rows: see CLAUDE.md "The lobby -> playlist rename (and rolling it back)"';
         END IF;
         DROP TABLE public.lobbies;
       END IF;
