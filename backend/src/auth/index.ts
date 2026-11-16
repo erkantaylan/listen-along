@@ -1,8 +1,8 @@
-// Sign-in and access: what the composition root (index.js) and the other areas
+// Sign-in and access: what the composition root (main.ts) and the other areas
 // use of auth/. Which sign-in exists is fixed at boot: central login (OIDC) or,
 // in development and tests only, the dev sign-in. See CENTRAL-LOGIN.md.
 //
-// index.js builds, in this order: readDevLogin / readOidcConfig (boot stops on
+// main.ts builds, in this order: readDevLogin / readOidcConfig (boot stops on
 // a bad configuration), createOidcClient + createSessionStore +
 // createOidcSessions (central login only), createUserAuth, then
 // createAuthRoutes (the guard, the legacy status checks, the sign-in routes

@@ -1,5 +1,5 @@
 // Central login (OIDC) end to end, against a fake OpenID provider
-// (fakeOidcIssuer.js) and the real server (src/index.js as a child process):
+// (testing/fakeOidcIssuer.ts) and the real server (src/main.ts as a child process):
 //   1. unit rules: configuration, upstream_identities parsing,
 //      userAuth in central-login mode
 //   2. boot: half-configured / malformed issuer refuse to start; an unreachable
@@ -39,7 +39,7 @@ import type { Request } from 'express';
 
 // The server's, the IdP's and the database's JSON, read as the tests need it.
 type Payload = any;
-/** The fake IdP (fakeOidcIssuer.js): the tests set its fields freely. */
+/** The fake IdP (testing/fakeOidcIssuer.ts): the tests set its fields freely. */
 type Idp = Payload;
 type Server = Awaited<ReturnType<typeof startServer>>;
 // The fake IdP, typed loosely: the tests set its fields freely.

@@ -2,7 +2,7 @@
  * The Express app and its HTTP server, with everything that runs before any
  * route, in this order: the client IP (shared/clientIp.ts), CORS, the JSON body
  * parser, one log line per dynamic request, and the static frontend files
- * (frontendStatic.ts). index.js mounts the auth guard and the routes after.
+ * (frontendStatic.ts). main.ts mounts the auth guard and the routes after.
  */
 
 import express from 'express';

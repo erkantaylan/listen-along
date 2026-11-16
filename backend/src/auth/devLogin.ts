@@ -3,7 +3,7 @@
  * never in production.
  *
  *   INSECURE_DEV_LOGIN=1   turns it on. Refused at boot (readDevLogin throws,
- *                          index.js exits) unless NODE_ENV is exactly
+ *                          main.ts exits) unless NODE_ENV is exactly
  *                          `development` or `test`, and when central login
  *                          (OIDC_ISSUER + OIDC_CLIENT_ID) is set too: one way
  *                          in at a time. Anything but empty / 0 / 1 is refused.
@@ -12,7 +12,7 @@
  * with SESSION_SECRET under its own label (so nothing signed for another
  * purpose, the old `listen_auth` cookie included, ever verifies as one). `id`
  * is users.id, `t` the sign-in time; 30 days. `GET /auth/dev/login` sets it
- * (authRoutes.ts), the tests sign it directly (testServer.js cookieFor).
+ * (authRoutes.ts), the tests sign it directly (testing/testServer.ts cookieFor).
  */
 
 import crypto from 'crypto';

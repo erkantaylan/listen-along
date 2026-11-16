@@ -1,7 +1,7 @@
 // Playlists (core): the playlists and their listeners (playlist.ts; table
 // `lobbies`), who may see and change one (playlistAccess.ts), the per-user pins
 // (playlistPins.ts) and sidebar folders (folders.ts), the HTTP API
-// (playlistRoutes.ts) and the socket handlers (playlistSockets.ts). index.js
+// (playlistRoutes.ts) and the socket handlers (playlistSockets.ts). main.ts
 // mounts the routers and registers the handlers; the other areas use the
 // modules below, always through this file.
 export * as playlist from './playlist.ts';

@@ -43,7 +43,7 @@ export function coverRedirectTarget(value: unknown): string | null {
 }
 export const isAllowedCoverUrl = (value: unknown): boolean => coverRedirectTarget(value) !== null;
 
-/** What the media routes need (index.js passes the library's own modules). */
+/** What the media routes need (main.ts passes the library's own modules). */
 export interface MediaRouterDeps {
   db: { isAvailable(): boolean };
   library: { resolveQueueUrl(url: string): Promise<LibrarySongRow | null> };

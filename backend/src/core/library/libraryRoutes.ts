@@ -1,6 +1,6 @@
 /**
  * HTTP API for the music library, song requests, the dashboard (incl. the
- * list of all CLI tokens). Mounted by index.js; also mounted standalone in tests.
+ * list of all CLI tokens). Mounted by main.ts; also mounted standalone in tests.
  *
  * CLI endpoints authenticate with `Authorization: Bearer <token>`. Read-only
  * endpoints (library list/song/file, requests list) take a Bearer token (CLI,

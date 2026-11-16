@@ -4,7 +4,7 @@
 //     is not charged to it)
 //   - on the real server (no database), every limited route lowers the
 //     client's budget by exactly one, whichever way it is limited (the route
-//     lists it, a path-scoped app.use in index.js, the guard for the playlist
+//     lists it, a path-scoped app.use in main.ts, the guard for the playlist
 //     API), and /health, the build info and the legacy status checks never do
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -64,7 +64,7 @@ describe('the real server: one count per limited request', { timeout: 60_000 }, 
       ['/api/playlists', { cookie: alice }], // the guard, cookie
       ['/api/playlists', { authorization: 'Bearer la_not-a-token' }], // the guard, before the token check
       ['/api/admin/settings', { cookie: adminCookie() }], // lists it
-      ['/api/dashboard/stats', { cookie: adminCookie() }], // index.js, path-scoped
+      ['/api/dashboard/stats', { cookie: adminCookie() }], // main.ts, path-scoped
       ['/api/auth/users', { cookie: adminCookie() }],
       ['/api/auth/me', { cookie: alice }],
       ['/api/profile', { cookie: alice }],

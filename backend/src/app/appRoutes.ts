@@ -1,5 +1,5 @@
 /**
- * The app's own HTTP routes, two routers because of where index.js mounts them:
+ * The app's own HTTP routes, two routers because of where main.ts mounts them:
  *
  *   createInfoRouter   GET /health, /api/version, /api/changelog, /changelog,
  *                      /api/qr/:lobbyId. Mounted before the library router;

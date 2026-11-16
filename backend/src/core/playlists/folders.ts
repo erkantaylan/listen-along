@@ -246,7 +246,7 @@ export type FolderStore = ReturnType<typeof createFolderStore>;
 
 // ------------------------------------------------------------------ the routes
 
-/** The folders API, mounted by index.js (after apiLimiter for its path). */
+/** The folders API, mounted by main.ts (after apiLimiter for its path). */
 export function createPlaylistFolderRouter(deps: FolderDeps, store: FolderStore = createFolderStore()): Router {
   const router = express.Router();
   const BASE = '/api/playlist-folders';

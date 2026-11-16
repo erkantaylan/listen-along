@@ -1,7 +1,7 @@
 // Download jobs (core): the job and worker store (downloadJobs.ts), the hub
 // `la worker` processes connect to (workerHub.ts, protocol in protocol.ts), the
 // HTTP API (jobRoutes.ts) and the la bundle offered for self-update
-// (cliRelease.ts). index.js builds the hub and the routers; reactions emit
+// (cliRelease.ts). main.ts builds the hub and the routers; reactions emit
 // every job change.
 export * as downloadJobs from './downloadJobs.ts';
 export type {

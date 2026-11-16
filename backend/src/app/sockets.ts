@@ -107,7 +107,7 @@ export function attachSocketHandlers({ io, env, db, userAuth, oidc: OIDC, oidcSe
 
   // Central login: sockets live for hours, so their sessions are re-checked on
   // a timer too (oidcSessions.check refreshes only when due). A session that
-  // ends takes its sockets with it (oidcSessions' onEnded, index.js).
+  // ends takes its sockets with it (oidcSessions' onEnded, main.ts).
   if (OIDC.enabled) {
     // Central login has its re-check interval and its sessions.
     const SOCKET_CHECK_MS = Math.max(5_000, Math.min(60_000, OIDC.recheckMs!));

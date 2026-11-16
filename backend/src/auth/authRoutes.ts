@@ -1,16 +1,16 @@
 /**
  * Sign-in over HTTP: the deny-by-default auth guard and the routes around
- * signing in and out. Which sign-in exists is fixed at boot (index.js reads
+ * signing in and out. Which sign-in exists is fixed at boot (main.ts reads
  * it): central login (OIDC; oidc.ts, oidcSessions.ts, oidcLink.ts) or the
  * dev sign-in (INSECURE_DEV_LOGIN, devLogin.ts). See CENTRAL-LOGIN.md.
  *
- * createAuthRoutes() returns three routers, mounted by index.js at different
+ * createAuthRoutes() returns three routers, mounted by main.ts at different
  * places because mount order is semantics in Express:
  *
  *   guard          the old Google / GitHub addresses (404) and the auth
  *                  guard; right after the static files, before every route.
  *   statusRouter   POST /api/auth/register, GET /api/auth/status (legacy
- *                  status checks); mounted before index.js counts /api/auth
+ *                  status checks); mounted before main.ts counts /api/auth
  *                  against apiLimiter, so outside it.
  *   router         /auth/oidc/login|callback (central login only),
  *                  /auth/dev/login (dev sign-in only), GET /api/auth/me,
@@ -62,7 +62,7 @@ export interface AuthIo {
   in(room: string): { disconnectSockets(close?: boolean): void };
 }
 
-/** What createAuthRoutes() needs from the composition root (index.js). */
+/** What createAuthRoutes() needs from the composition root (main.ts). */
 export interface AuthRoutesDeps {
   /** oidcConfig.readOidcConfig() */
   oidc: OidcConfig;
@@ -309,7 +309,7 @@ export function createAuthRoutes({
   // Dev sign-in (devLogin.ts): INSECURE_DEV_LOGIN=1, development and tests only
   // ==========================================
   // The process refuses to start with it in production (readDevLogin in
-  // index.js), so this route never exists there. /auth/dev/login?user=<users.id>&next=<path>
+  // main.ts), so this route never exists there. /auth/dev/login?user=<users.id>&next=<path>
   // signs that user in; without ?user, a "Dev User" account (provider 'dev',
   // created once) or, without a database, the id 'dev'.
   if (DEV_LOGIN) {

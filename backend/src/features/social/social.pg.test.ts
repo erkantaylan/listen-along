@@ -15,7 +15,7 @@ import { createPresence } from './presence.ts';
 import type { SocialSocket } from './social.ts';
 import type { AppSocket, Db, Io } from '../../shared/types.ts';
 
-// What index.js and app/sockets.ts pass (typecheck only).
+// What main.ts and app/sockets.ts pass (typecheck only).
 export const realServerFits = (io: Io): SocialIo => io;
 export const realSocketFits = (socket: AppSocket): SocialSocket => socket;
 

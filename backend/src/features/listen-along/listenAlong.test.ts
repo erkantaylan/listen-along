@@ -10,10 +10,10 @@ import type { ListenIo, ListenPresence, ListenSocket } from './listenAlong.ts';
 import type { Presence } from '../social/index.ts';
 import type { AppSocket, Io } from '../../shared/types.ts';
 
-// What index.js and app/sockets.ts pass (typecheck only).
+// What main.ts and app/sockets.ts pass (typecheck only).
 export const realServerFits = (io: Io): ListenIo => io;
 export const realSocketFits = (socket: AppSocket): ListenSocket => socket;
-// index.js hands it social's presence.
+// main.ts hands it social's presence.
 export const presenceFits = (presence: Presence): ListenPresence => presence;
 
 // What the server sends over the socket: JSON, read field by field below.

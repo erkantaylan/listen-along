@@ -1,4 +1,4 @@
-// The web's "pick the video" lookups (picker.ts): built by index.js and handed
+// The web's "pick the video" lookups (picker.ts): built by main.ts and handed
 // to the job routes (POST /api/jobs/picks) and the resolver (titles). The
 // chosen-videos list that comes back is checked by core/requests (cleanPicks,
 // MAX_PICKS) wherever it arrives (POST /api/jobs, socket queue:add); yt-dlp and

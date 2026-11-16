@@ -1,7 +1,7 @@
 // The music library (core): songs, uploads, duplicates, replace and edit,
 // broken-song reports and the server's own check of them, the relevance
 // search, covers, the audio routes, and the silence measurements behind the
-// web player's "Skip silence". index.js builds the routers; the other areas
+// web player's "Skip silence". main.ts builds the routers; the other areas
 // use the modules below (always through this file).
 //
 // library.ts comes first: the routes below import the jobs and requests areas,

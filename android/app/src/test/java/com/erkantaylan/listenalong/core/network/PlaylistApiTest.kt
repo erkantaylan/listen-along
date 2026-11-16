@@ -18,7 +18,7 @@ import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 
-/** The playlist endpoints, against the shapes backend/src/index.js answers with. */
+/** The playlist endpoints, against the shapes backend/src/core/playlists/playlistRoutes.ts answers with. */
 class PlaylistApiTest {
 
     private lateinit var server: MockWebServer

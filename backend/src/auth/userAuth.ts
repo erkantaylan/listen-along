@@ -3,7 +3,7 @@
  * a request (or a socket handshake's headers) into a user id: resolve(),
  * userIdFor(), identify().
  *
- * One way in, fixed at boot (index.js):
+ * One way in, fixed at boot (main.ts):
  *
  * - Central login (`sessions` given; OIDC_ISSUER + OIDC_CLIENT_ID; the only
  *   one in production): identity is the opaque `la_session` cookie, looked up
@@ -153,7 +153,7 @@ const PUBLIC_PREFIXES: readonly string[] = [
   '/lobby/',                // 301 to /playlist/..., which is guarded
 ];
 
-// Routes with their own middleware (see index.js / core/library/libraryRoutes.ts).
+// Routes with their own middleware (see main.ts / core/library/libraryRoutes.ts).
 const SELF_EXACT: ReadonlySet<string> = new Set(['/api/me', '/api/library', '/api/requests', '/dashboard', '/api/auth/users']);
 const SELF_PREFIXES: readonly string[] = [
   '/api/library/',

@@ -1,4 +1,4 @@
-// The app's own wiring, used by the composition root (index.js) only: the
+// The app's own wiring, used by the composition root (main.ts) only: the
 // Express app and HTTP server (http.ts, frontendStatic.ts), the Socket.IO server
 // and its connection handler (sockets.ts), the cross-area reactions
 // (reactions.ts), and the routes that belong to no single area: health /

@@ -5,9 +5,9 @@
  * the only sign-in in production: with NODE_ENV=production it is REQUIRED
  * (OIDC_ISSUER, OIDC_CLIENT_ID, BASE_URL or FRONTEND_URL, SESSION_SECRET), and its absence
  * stops the boot. Outside production, neither set = off (then the dev sign-in,
- * devLogin.ts, must be on instead; index.js checks). One without the other, or
+ * devLogin.ts, must be on instead; main.ts checks). One without the other, or
  * a value that cannot work, is a configuration error: readOidcConfig() throws
- * and the server refuses to start (index.js), so a broken deploy is loud.
+ * and the server refuses to start (main.ts), so a broken deploy is loud.
  *
  *   OIDC_ISSUER        https://id.example.com/application/o/listen-along/
  *   OIDC_CLIENT_ID     listen-along
@@ -159,7 +159,7 @@ export function readOidcConfig(env: Env = process.env): OidcConfig {
     clientSecret: trimmed(env.OIDC_CLIENT_SECRET) || null,
     scopes: [...new Set(scopes)].join(' '),
     // `upstream` requested: an id_token without upstream_identities means the
-    // IdP mapping is missing (index.js warns).
+    // IdP mapping is missing (main.ts warns).
     upstreamExpected: scopes.includes('upstream'),
     baseUrl,
     redirectUri: baseUrl + CALLBACK_PATH,

@@ -133,7 +133,7 @@ async function createAndAdd({ name, visibility }: { name: string; visibility: Vi
     throw new Error(t('error.generic', 'Something went wrong'));
   }
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-  // 201: the new playlist (index.js POST /api/playlists).
+  // 201: the new playlist (core/playlists/playlistRoutes.ts POST /api/playlists).
   await addTo(data as PlaylistCreated, song);
 }
 

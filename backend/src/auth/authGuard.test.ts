@@ -39,7 +39,7 @@ type Payload = any;
 type Server = Awaited<ReturnType<typeof startServer>>;
 type Client = ReturnType<typeof client>;
 
-// What index.js passes (index.js is not typechecked): the real Socket.IO server
+// What main.ts passes: the real Socket.IO server
 // fits what sign-in uses of it, and the central login's sessions fit userAuth.
 export const realServerFits = (io: Io): AuthIo => io;
 export const realSessionsFit = (sessions: OidcSessions): SessionLookup => sessions;

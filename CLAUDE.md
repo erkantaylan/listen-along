@@ -44,11 +44,12 @@ of a fresh database and of a migrated old one.
 - Frontend: single-page TypeScript, no framework or bundler (`frontend/src`, compiled by `tsc` to `frontend/dist`; see "TypeScript")
 - UI is stock Bootstrap 6 (vendored in `frontend/vendor/`) with light theming; read `DESIGN.md` before changing any page or CSS
 - Column widths: `frontend/src/shared/layout-rules.ts` (pure, tested) decides when the sidebar is a rail (automatically up to 1100px, `RAIL_MAX`, and above that while expanding it would leave the page column under 616px) and from where the chat docks (1010px); keep its numbers in step with `app.css` (DESIGN.md "Columns and breakpoints"). Queue entries' `artistName` is derived from the library on load (`Queue._loadArtists`), not a column; `title` stays "Title - Artist" for the CLI and Android
-- The backend's folders (`backend/src/`; every folder below is ES-module TypeScript behind an `index.ts`, the only
-  file other folders import):
+- The backend's folders (`backend/src/`, ES-module TypeScript; every area folder below is behind an `index.ts`, the
+  only file other folders import):
   ```
-  index.js           composition root (CommonJS until the final step: main.ts)
-  testServer.js  fakeOidcIssuer.js  telemetry.js  telemetryRules.js   (CommonJS until the final step: testing/, the preload)
+  main.ts            composition root (the entry point: node src/main.ts)
+  telemetry.ts       OpenTelemetry preload (--import; telemetryRules.ts; telemetry.js = the old --require path's shim)
+  testing/           test helpers: testServer.ts, fakeOidcIssuer.ts, queueLoadFault.cjs
   app/               the app's own wiring: http.ts (Express app + server), frontendStatic.ts, sockets.ts (Socket.IO,
                      handshake, connection handler), reactions.ts (cross-area functions), appRoutes.ts (health,
                      version, changelog, QR, pages), profileRoutes.ts, adminRoutes.ts (dashboard accounts, settings,
@@ -69,21 +70,21 @@ of a fresh database and of a migrated old one.
   ```
   Imports point inward: `features/*` may import `core/*`, `auth/` and `shared/`; `core/*` may import `auth/`
   (adminAuth, tokens and the Account / ApiUser types its routes check) and `shared/`, and another core area only
-  through its `index.ts`; `auth/` imports `shared/` only; nothing imports `app/` or a feature except `index.js`.
+  through its `index.ts`; `auth/` imports `shared/` only; nothing imports `app/` or a feature except `main.ts`.
   Core areas import each other in two cycles that only call functions, never at load time: library <-> jobs
   (the library routes finish and drop replace jobs, the job store reads the library's id helpers) and requests
   <-> library (the resolver and the library routes); each `index.ts` exports the module the others need first.
   Playlists -> queue and queue -> library are one-way.
-- `index.js` is the composition root (about 460 lines, no routes or handlers of its own): reads the config (sign-in
+- `main.ts` is the composition root (about 480 lines, no routes or handlers of its own): reads the config (sign-in
   is fixed at boot), builds the stores and services, builds each area through its `create…({ deps })` factory, mounts
   the routers and registers the socket handlers, then `start()` (database, OIDC boot check, social / listen-along,
   listen) and the shutdown. Areas never require each other: what one needs from another comes in its deps.
   `app/http.ts`: the Express app and HTTP server with what runs before every route (client IP, CORS, JSON, request
-  log, static files). HTTP route modules (each a `create…Router({ deps })` mounted by index.js; mount order is semantics):
+  log, static files). HTTP route modules (each a `create…Router({ deps })` mounted by main.ts; mount order is semantics):
   `app/appRoutes.ts` (`createInfoRouter`: health, version, changelog, QR, before the library router; `createPageRouter`:
   redirects, SPA views, `/api/app/latest`, `/dashboard`, `/`). Rate limits: `rateLimits.apiLimiter` (3000/min per
   client address) counts each request ONCE where its route is (the route lists it, the library / job router for its
-  own paths, a path-scoped `app.use(paths, apiLimiter)` in index.js right before the router serving them, the guard
+  own paths, a path-scoped `app.use(paths, apiLimiter)` in main.ts right before the router serving them, the guard
   for the playlist API before any credential is checked); never `router.use(apiLimiter)` without paths (it charges
   every request that passes by). Not limited: `/health`, `/api/version`, `/api/qr`, the legacy status checks
   (`app/rateLimits.test.ts`),
@@ -242,7 +243,7 @@ of a fresh database and of a migrated old one.
   - **Skip silence** (on by default): `library_songs.lead_silence_ms` / `trail_silence_ms` (NULL = not measured;
     `core/library/schema.ts`), measured by `backend/src/core/library/silence.ts` (`nice -n 19 ffmpeg -af
     silencedetect=noise=-50dB:d=1`; only silence from 0 or to the end; tests with generated files in
-    `silence.ffmpeg.test.ts`). The scanner: index.js hooks `songAdded` / `songReplaced` only queue (a replace first
+    `silence.ffmpeg.test.ts`). The scanner: main.ts hooks `songAdded` / `songReplaced` only queue (a replace first
     resets the numbers; a result is stored only while the song still has that `file_path`), then a backfill of NULL
     rows newest first, one pass per boot (resumable), strictly one ffmpeg at a time, 120 s limit, 2 s apart, its own
     queue (not songVerify's); off without database / ffmpeg / songs folder, with `SILENCE_SCAN=off`, and in tests
@@ -486,7 +487,7 @@ of a fresh database and of a migrated old one.
   still exists on the server but the web no longer sets or shows it; the playlist
   page's pin button is the personal pin.
 - **Sidebar folders are per user** (like Spotify's; one level, no nesting): `core/playlists/folders.ts` (ESM, store +
-  router, mounted by index.js after `apiLimiter` for its path; tests `folders.test.ts`), tables `playlist_folders` (`id`
+  router, mounted by main.ts after `apiLimiter` for its path; tests `folders.test.ts`), tables `playlist_folders` (`id`
   uuid, `user_id`, `name` <= 50, `position`, `created_at`; unique `(id, user_id)`) and `playlist_folder_items`
   (`user_id`, `lobby_id`, `folder_id`, `position`; primary key `(user_id, lobby_id)` = one folder per playlist per
   user; foreign key `(folder_id, user_id)` -> `playlist_folders(id, user_id)`, so a row can never point at another
@@ -595,7 +596,7 @@ of a fresh database and of a migrated old one.
   (`mode` 'central' | 'dev'); each socket gets `socket.data.userId` (and, with central login,
   `socket.data.sessionId` + the `session:<hash>` room). Never trust a user id or
   name sent by the client. The sign-in area is `backend/src/auth/` (ES-module TypeScript; `index.ts` is what
-  index.js and the other areas use). Its types (`auth/types.ts`): `Who` (a cookie or app session's user),
+  main.ts and the other areas use). Its types (`auth/types.ts`): `Who` (a cookie or app session's user),
   `Identity` (an account or nobody), `Level`, `Policy` (every path gets one; the guard hands `member` / `approved`
   to `requireLevel`, so a new policy that is not a level does not compile), `CentralClaims` (the id_token after
   `finishLogin`'s checks), the `user_sessions` / `api_tokens` rows, `ApiUser` (`req.apiUser`). Admin (`la_admin`)
@@ -679,14 +680,14 @@ of a fresh database and of a migrated old one.
 
 ## TypeScript
 
-The frontend is TypeScript (`frontend/src`). The backend is moving to
-TypeScript one area at a time; until an area is converted its files stay
-`.js`. The CLI stays JavaScript.
+The frontend (`frontend/src`, compiled by `tsc`) and the backend
+(`backend/src`, run by Node directly) are TypeScript. The CLI stays
+JavaScript.
 
 - Configs: `tsconfig.base.json` (shared, `strict`), `backend/tsconfig.json`
-  (typecheck only: Node runs `.ts` itself; `allowJs` without `checkJs`, add
-  `// @ts-check` per file if wanted; `module: preserve` while CommonJS and ESM
-  mix, `nodenext` at the end), `frontend/tsconfig.json` (`frontend/src/**/*.ts`
+  (typecheck only: Node runs `.ts` itself; `module` / `moduleResolution:
+  nodenext`; `allowJs` without `checkJs` for the few `.js` files),
+  `frontend/tsconfig.json` (`frontend/src/**/*.ts`
   compiles to `frontend/dist/`, gitignored, with source maps; `moduleDetection:
   auto` so a file without import / export stays a classic script),
   `frontend/tsconfig.test.json` (typecheck only: the frontend's `*.test.ts`
@@ -724,7 +725,7 @@ TypeScript one area at a time; until an area is converted its files stay
 - Docker: the `frontend` stage of `docker/Dockerfile` runs `npm ci` + `npm run
   build` at the root and only `frontend/dist` is copied into the final image
   (no TypeScript, no root `node_modules`; the backend install stays
-  `--production`). `.dockerignore` keeps a local `frontend/dist` out of the
+  `--production`). The image runs `node src/main.ts` (`CMD`). `.dockerignore` keeps a local `frontend/dist` out of the
   context.
 - Erasable syntax only: no `enum`, `namespace` or constructor parameter
   properties (Node strips types, it does not compile them;
@@ -735,109 +736,74 @@ TypeScript one area at a time; until an area is converted its files stay
   `frontend/src/**/x.test.ts` (ES modules, `.ts` imports, run by Node's type
   stripping from the root `npm test`), so a rule module must stay importable
   in Node: no DOM at import time.
-- **Backend, while CommonJS and ES modules mix** (Node 22.18+ type stripping, no build):
-  - A converted area is a folder of ES-module `.ts` (`backend/src/features/<name>/`), moved with `git mv` so
-    history follows, its tests next to it as `*.test.ts` (plain `node --test` finds them). The folder holding
-    converted areas has a `package.json` that is only `{"type": "module"}` (`backend/src/features/`, `shared/`,
-    `auth/`, `core/`, `app/`). Everything under them is ES modules,
-    so a file moves there only once converted (never a CommonJS `.js`). Without it Node guesses the format of each `.ts`
-    and prints `MODULE_TYPELESS_PACKAGE_JSON` at boot and in tests; with it there is no warning and no flag. It
-    goes away when `backend/package.json` becomes `"type": "module"`.
-  - Still-CommonJS files `require('./features/<name>/index.ts')` / `require('./auth/index.ts')` (extension spelled
-    out, always the folder's `index.ts`, never its internals; `shared/` has no index: `require('./shared/db.ts')`, one
-    file each). While an area moves file by file (as `auth/` did, leaf first), its own files not moved yet may
-    require the moved ones by their path inside the folder (`./auth/devLogin.ts`); once the last one is in, nothing
-    outside requires an internal. A module whose functions are called as `x.f()` and that no test patches is
-    exported as a namespace (`export * as tokens from './tokens.ts'`, so `const { tokens } = require(...)` and
-    `tokens.requireToken` keep working; a namespace is read-only, so a module tests patch needs the `db.ts` pattern
-    below).
-    Node's `require(esm)` and every `import` share one module instance (checked: module state is not
-    duplicated), so a store or singleton may be reached from both. No top-level `await` in
-    anything that is `require`d (`ERR_REQUIRE_ASYNC_MODULE`); test files may use it.
-  - From `.ts`, import a CommonJS file by its real name (`../../library.js`). Use the default import (`import x
-    from '../../library.js'`, the live `module.exports` object) when the code calls `x.f(...)`: tests replace
-    properties on such objects, and named imports of CommonJS are a snapshot. Named imports only work for the
-    `module.exports = { a, b }` shorthand. Packages: `import pg from 'pg'` then `pg.Client`.
-  - An ES module whose functions tests replace (`shared/db.ts`, imported everywhere as `import db from
-    './shared/db.ts'` / `require('./shared/db.ts')`): export ONE object as the default AND as `export { db as
-    'module.exports' }`. Then `require()` returns that same object (not the module namespace, whose properties
-    cannot be assigned), so `db.query = …` in a CommonJS test reaches `.ts` callers that call `db.query(...)`.
-    `delete require.cache[…]` does not give a fresh copy of an ES module (the same instance comes back): reset
-    its state through its own functions (`db.close()`, then `db.init()`).
-  - `import.meta.dirname` for `__dirname`; `createRequire(import.meta.url)` only where a test needs `require.cache`.
-  - ESM-only packages (`openid-client`, `jose`) are imported statically in `.ts` (`import * as client from
-    'openid-client'`); `require(esm)` loads them synchronously (no top-level `await` in them, checked). The
-    `import()` workaround stays only in files still in CommonJS (`fakeOidcIssuer.js`).
+- **Backend** (`backend/src`, ES-module TypeScript run by Node 22.18+'s type stripping, no build step;
+  `backend/package.json` is `"type": "module"`, so every `.ts` and `.js` under `backend/` is an ES module, and
+  `backend/tsconfig.json` uses `module` / `moduleResolution: nodenext`):
+  - Run: `node src/main.ts` (the image's `CMD`, `npm start`); `npm run dev` = `node --watch --import
+    ./src/telemetry.ts src/main.ts`; `npm test` (`node --test` finds every `*.test.ts`); one folder with
+    `node --test 'src/features/<name>/*.test.ts'` (a directory argument is not searched). No flag is needed and
+    nothing is printed: a warning at boot or in the tests (`ExperimentalWarning`, `MODULE_TYPELESS_PACKAGE_JSON`)
+    is a bug. TypeScript itself is never needed at run time and is not in the image.
+  - Layout: `main.ts` (the composition root), `app/`, `core/<area>/`, `auth/`, `features/<name>/`, `shared/`,
+    `testing/` (Architecture above). An area is a folder behind an `index.ts`, the only file other folders import
+    (`shared/` has no index: one file each); tests sit next to the code as `*.test.ts`. Move files with `git mv` so
+    history follows; every importer and every path this file cites changes in the same commit.
+  - Adding an area: its `index.ts` exports a `create…({ deps })` factory with a typed deps interface (what it needs
+    from the composition root) and the types of what it sends to clients; `main.ts` builds it and mounts its
+    router / registers its socket handlers (mount order is semantics). Areas never import each other's
+    internals; what one needs from another comes in its deps, cross-area functions from `app/reactions.ts`. Rows
+    and objects used by more than one area (users, library songs, playlists, jobs, the Socket.IO server) are in
+    `shared/types.ts` (which also re-exports `Db` / `Queryable` from `shared/db.ts`), type-only and written from
+    the SQL in the areas' `schema.ts` files (pg's parsing: BIGINT is a string, TIMESTAMPTZ a Date); change them
+    with the schema.
+  - Imports: relative imports name the real file (`./x.ts`); type-only imports use `import type`. CommonJS
+    packages by their default export (`import pg from 'pg'`, then `pg.Client`); ESM-only packages (`jose`,
+    `openid-client`, `uuid`) statically. JSON with `import … with { type: 'json' }`; `import.meta.dirname` for
+    `__dirname` (paths computed from `src/`, e.g. `path.join(import.meta.dirname, '..', '..')`, so the image's
+    `/app/src` probes the same places; the image also sets `CLI_DIR=/app/cli`). `createRequire` only for a
+    CommonJS package whose typings do not fit an import (`core/requests/spotify.ts`).
+  - Module objects: a module whose functions an area calls as `x.f()` is exported as a namespace from `index.ts`
+    (`export * as tokens from './tokens.ts'`); a namespace is read-only, so a module whose functions tests replace
+    (`shared/db.ts`) exports ONE object as its default (`import db from '../shared/db.ts'`) and every caller calls
+    `db.query(...)` on it, so `db.query = …` in a test reaches them. An ES module is loaded once per process: a
+    test cannot get a fresh copy, so a module with in-memory state has its own reset (`forgetAll()` for the
+    playlists and queues, `db.close()` then `db.init()`). Static imports are hoisted: a test that sets
+    `SONGS_PATH` / `COVERS_DIR` before loading the library uses `await import(...)` at that point.
+  - Cycles between areas are fine as long as nothing is used at load time: export the module the others need
+    first in the area's `index.ts` (`core/library/index.ts` exports `library` before the routes, which import the
+    jobs area, which imports the library back). `main.ts`'s import order is the load order (the logger first, then
+    `dotenv/config`).
   - Typing without changing behaviour: a factory's inner `function` declarations are hoisted, so a check in the
     factory (`if (!cfg.enabled) throw`) does not narrow inside them; type the parameter as the narrowed shape
-    (`createOidcClient(cfg: OidcConfigOn)`, the throw stays for untyped callers). What one sign-in mode alone has
-    (`oidcClient`, `sessionStore` are null with the dev sign-in) stays `| null` and is used with `!` where the mode
-    guarantees it, each with a comment; do not add a runtime check to please the compiler. Untrusted input (JSON,
-    claims, `req.body`) is `unknown` / `Record<string, unknown>` until the existing checks have run, then cast once
-    to the checked shape (`CentralClaims`). A type predicate narrows the false branch too: use `x is T` only where no
-    caller reads the value when it is false (`isSafeNextPath`), else return `boolean` (`isMobileToken`). The
-    `(err as Error).message` of a catch is the one accepted cast for logging. Count escapes when converting.
-  - Converting a big test file: type its helpers (request helpers answer `{ status, body: Payload }`), give a fake
-    server whose fields tests set the type `Payload` once (`const startIssuer: (opts?) => Promise<Idp> =
-    startFakeIssuer`), cast partial fakes once (`store as unknown as SessionStore`), spawn `src/index.js` as
-    `path.join(import.meta.dirname, '..', 'index.js')`, and import `pg` as `pgModule` when a test names its client
-    `pg`. A test that loaded a module lazily keeps doing so (`await import('../mediaRoutes.js')`).
-  - Each area's `index.ts` exports its `create…({ deps })` factory with a typed deps interface (what the area needs
-    from the composition root) and the types of what it sends to clients. Rows and objects used by more than one
-    area (users, library songs, playlists, jobs, the Socket.IO server) are in `backend/src/shared/types.ts`
-    (which also re-exports `Db` / `Queryable` from `shared/db.ts`), type-only and written from the SQL in the
-    areas' `schema.ts` files (pg's parsing: BIGINT is a
-    string, TIMESTAMPTZ a Date); change them with the schema. A dependency still in CommonJS gets a small
-    structural interface of what the area uses, not `any`; a CommonJS helper imported by `.ts` (e.g.
-    `testServer.js`) may get JSDoc `@param` / `@returns` instead. index.js is not typechecked, so a test checks
-    that what it passes fits (`export const realServerFits = (io: Io): ActivityIo => io;`). A JavaScript
-    function whose inferred type is too loose is typed once where it is imported (`classifyInputJs as (input:
-    unknown) => Classified`).
-  - Test files: `node:test` / `node:assert/strict` imports; the optional testcontainers package by
-    `try { ({ PostgreSqlContainer } = await import('@testcontainers/postgresql')); } catch {}`; server, socket
-    and database JSON may be read through one `type Payload = any` per file. Run one folder's tests with
-    `node --test 'src/features/<name>/*.test.ts'` (a directory argument is not searched).
-  - Every importer changes in the same commit, and so does every path this file cites. When a test that cannot
-    be edited yet still requires an old path, a folder with the old name holds a one-line `index.js`
-    re-export, so the move stays a rename in git history; delete it as soon as that test can be edited (none
-    is left). A unit test of a moved module that sits inside a bigger test file moves out next to the module
-    (the secret box and settings tests left `auth/centralLogin.test.ts`, now `auth/centralLogin.test.ts`; the token and
-    admin-cookie tests left `core/library/library.test.ts` for `auth/tokens.test.ts` and `auth/adminAuth.test.ts`).
+    (`createOidcClient(cfg: OidcConfigOn)`, the throw stays). What one sign-in mode alone has (`oidcClient`,
+    `sessionStore` are null with the dev sign-in) stays `| null` and is used with `!` where the mode guarantees it,
+    each with a comment; do not add a runtime check to please the compiler. Untrusted input (JSON, claims,
+    `req.body`, socket payloads, worker messages) is `unknown` / `Record<string, unknown>` until the existing
+    checks have run, then cast once to the checked shape; the id a client sent is passed on exactly as before, so
+    a type never changes what is accepted. A type predicate narrows the false branch too: use `x is T` only where
+    no caller reads the value when it is false (`isSafeNextPath`), else return `boolean` (`isMobileToken`). The
+    `(err as Error).message` of a catch is the one accepted cast for logging.
+  - Test files: `node:test` / `node:assert/strict`; the optional testcontainers package by `try { ({
+    PostgreSqlContainer } = await import('@testcontainers/postgresql')); } catch {}`; server, socket and database
+    JSON through one `type Payload = any` per file; partial fakes cast once (`store as unknown as SessionStore`).
+    Helpers in `src/testing/`: `testServer.ts` (`startServer()` spawns `SERVER_ENTRY`, i.e. `src/main.ts`, on
+    port 0 and reads the port from its "Server running on port N" line; `cookieFor`, `adminCookie`,
+    `centralSessionCookie`, `requester`), `fakeOidcIssuer.ts` (also runnable on its own), and
+    `queueLoadFault.cjs`, a CommonJS `--require` preload that patches pg's `Client.prototype` (shared with `import
+    pg`) so one query fails (`app/queueLoadWrites.test.ts`).
   - Schema: an area's tables and migrations go in its folder's `schema.ts` (`{ tables, migrations }`, typed by
     `AreaSchema` / `Migration` from `shared/db.ts` with `import type`, so there is no import cycle at run time),
-    listed once in `SCHEMA` in `shared/db.ts`; rules in "Database Migrations" above. An area that has not moved
-    yet still owns its `schema.ts` in its target folder (`core/library/`, `auth/`, …), and the code joins it later.
-    Moving schema is proven by a byte-identical `pg_dump --schema-only --no-owner` of a fresh database before and
-    after, and of an old database migrated by the old and the new code.
-  - Preloads stay CommonJS until the final step: `telemetry.js` (+ `telemetryRules.js`) is loaded with `--require`
-    before any module is set up. Its instrumentations patch a CommonJS package when something `require()`s it:
-    an ES module's `import` of the same package is not seen (pg's spans still arrive: it requires its own
-    parts). Express is not required by anything CommonJS any more, so `index.js` does `require('express')` near the
-    top (without it spans lose their route names: `telemetry.test.js` checks). The same goes for any package an
-    instrumentation patches: keep one CommonJS `require` of it before the ES modules use it, until `--import`.
-  - The core moved last (`core/library`, `core/requests`, `core/jobs`, `core/queue`, `core/playlists`, then `app/`),
-    each area in two commits: the sources (`git mv`, then typed in place; tests repointed), then its tests as
-    `.test.ts`. What it taught:
-    - A cycle between areas is fine in ES modules as long as nothing is used at load time: export the module the
-      others need first in the area's `index.ts` (`core/library/index.ts` exports `library` before the routes,
-      which import the jobs area, which imports the library back). While one side is still CommonJS, a
-      `require()` of an ES module that is still evaluating throws (`ERR_REQUIRE_CYCLE_MODULE`): the CommonJS side
-      requires the leaf file it needs (`./core/library/library.ts`) until it moves too.
-    - A module with in-memory state that tests "restart" by deleting `require.cache` gets a `forgetAll()` (the
-      playlists, the queues): an ES module is never loaded afresh.
-    - Static imports are hoisted: a test that sets `SONGS_PATH` / `COVERS_DIR` before loading the library uses
-      `await import(...)` at that point.
-    - A module whose functions the area calls as `x.f()` and no test patches is exported as a namespace from
-      `index.ts` (`export * as library from './library.ts'`); CommonJS gets the same object with
-      `const { library } = require('./core/library/index.ts')`.
-    - Payloads from clients (socket events, worker messages, request bodies) are typed with `unknown` fields; the
-      id a client sent is passed on exactly as before (`playlistId as string` after the existing check), so a
-      type never changes what is accepted. Wire names stay in payload keys (`{ lobbyId: playlistId }`).
-    - `__dirname/..` paths (`cliRelease`, `appRoutes`' CHANGELOG.md / package.json) are computed from the src/
-      folder (`path.join(import.meta.dirname, '..', '..')`), so the probing is the same as before; the image also
-      sets `CLI_DIR=/app/cli`.
-    - Prove it beyond the suite: the registered routes in order and the socket events, a request matrix (several
-      identities × the API) and the boot log, compared with the commit before, and the CLI bundle's sha256.
+    listed once in `SCHEMA` in `shared/db.ts`; rules in "Database Migrations" above.
+  - The OpenTelemetry preload is `telemetry.ts`, loaded with `--import` (section "OpenTelemetry"); nothing in the
+    app imports it. `telemetry.js` is only the old `--require` path's shim.
+  - Prove a refactor beyond the suite: the registered routes in order and the socket events, a request matrix
+    (several identities × the API), the boot log, the CLI bundle's sha256 and a `pg_dump --schema-only --no-owner`
+    of a fresh and of a migrated database, each compared with the commit before; and the built image booted with
+    production-shaped settings.
+  - History: the backend moved from CommonJS one area at a time (features, `shared/`, `auth/`, the core areas,
+    `app/`, then `index.js` became `main.ts` and the package `"type": "module"`). The mixed-period scaffolding
+    (nested `{"type": "module"}` package.json files, `require('./x.ts')`, the `'module.exports'` export of
+    `shared/db.ts`) is gone; git history has the recipe.
 - `frontend/src/globals.d.ts` types the classic-script globals (`io`,
   `window.i18n`, `MediaSessionManager`); `shared/i18n.ts` and
   `shared/media-session.ts` are classic scripts (no import / export).
@@ -869,7 +835,7 @@ nodemon / testcontainers depend on a fixed version.
 
 - Resources: `postgres` (16-alpine, as in production; volume `listen-along-dev-pgdata-<sha256(checkout path)[:10]>`,
   kept across runs) + database `listen`, `pgweb`, `frontend` (`tsc -b frontend -w`), `listen-along` (the server,
-  `node --watch --require ./src/telemetry.js src/index.js`, port 3100, not proxied, health `/health` 200,
+  `node --watch --import ./src/telemetry.ts src/main.ts`, port 3100, not proxied, health `/health` 200,
   `INSECURE_DEV_LOGIN=1`, `ADMIN_PASSWORD=dev-admin`, `SONGS_PATH` / `COVERS_DIR` under `.dev-data/`, OTLP
   http/protobuf to the dashboard), `seed` (after the server is healthy), `worker` (`LISTEN_WORKER=1`), `idp`
   (`LISTEN_AUTH=oidc`: `testing/fakeOidcIssuer.ts --port 9400`, then `OIDC_ISSUER` / `OIDC_CLIENT_ID` instead of the dev
@@ -887,9 +853,10 @@ nodemon / testcontainers depend on a fixed version.
 
 ## OpenTelemetry
 
-`backend/src/telemetry.js` is a preload (`--require`), never required by the app; OFF unless an OTLP endpoint
-variable is set (`telemetryRules.telemetryConfig`): then nothing from `@opentelemetry` is loaded. Production enables
-it with `NODE_OPTIONS=--require=/app/src/telemetry.js` + `OTEL_EXPORTER_OTLP_ENDPOINT` (no image change). OTLP over
+`backend/src/telemetry.ts` is a preload (`--import`), never imported by the app; OFF unless an OTLP endpoint
+variable is set (`telemetryRules.telemetryConfig`): otherwise nothing from `@opentelemetry` is loaded and no loader
+hook is registered. Production enables it with `NODE_OPTIONS=--import=/app/src/telemetry.ts` +
+`OTEL_EXPORTER_OTLP_ENDPOINT` (no image change; not enabled today). OTLP over
 HTTP only (`http/protobuf` default, `http/json`); gRPC is refused. OpenTelemetry JS 3.x (`@opentelemetry/sdk-trace`
 3.x, experimental packages 0.301.x; pinned exactly, moved as a set): the SDK no longer reads `OTEL_BSP_*`,
 `OTEL_TRACES_SAMPLER` or `OTEL_METRIC_EXPORT_INTERVAL` itself, `telemetryRules` does; `BatchSpanProcessor` takes
@@ -905,7 +872,14 @@ HTTP only (`http/protobuf` default, `http/json`); gRPC is refused. OpenTelemetry
 - Log correlation: console methods get ` trace_id=… span_id=…` appended while a sampled span is active
   (`shared/logger.ts` wraps console after the preload, so its prefix stays first).
 - Shutdown: on SIGTERM / SIGINT the flush starts at once and the app's own `process.exit` waits for it (2 s
-  at most); a process without its own handler still ends on the signal. `telemetry.test.js` checks all of it,
-  including that nothing is loaded without an endpoint.
-- ESM switch: `--require` cannot patch ES modules. Then `node --import ./src/telemetry.ts`, which first calls
-  `module.register('@opentelemetry/instrumentation/hook.mjs', import.meta.url)`; `NODE_OPTIONS=--import=…`.
+  at most); a process without its own handler still ends on the signal. `telemetry.test.ts` checks all of it,
+  including that nothing is loaded or hooked without an endpoint.
+- ES modules: a `require` hook does not see `import express`. Once on, the preload first calls
+  `module.register('@opentelemetry/instrumentation/hook.mjs', import.meta.url, { data: { include } })`
+  (import-in-the-middle, only for `HOOKED_PACKAGES`: http, https, express, pg, pg-pool; add a package there when
+  adding an instrumentation that patches one), then loads the SDK (CommonJS) with `createRequire`, synchronously:
+  no top-level `await` in `telemetry.ts` / `telemetryRules.ts`. After the hook is registered a `require()` of an
+  ES module throws (`ERR_METHOD_NOT_IMPLEMENTED`): the app never `require`s one (`spotify.ts`'s `createRequire`
+  loads a CommonJS package).
+- The old opt-in path, `--require=/app/src/telemetry.js`, is a shim that never starts telemetry: silent without an
+  endpoint, one `[telemetry] not started: …` line with one (tested), so a stale `NODE_OPTIONS` cannot stop the boot.

@@ -1,7 +1,7 @@
 // The Android app's sign-in (mobileAuth.ts): the app runs the code + PKCE flow
 // in a Custom Tab, the server exchanges the code, links the account and hands
 // back an opaque `lam_` session token. Against the fake OpenID provider
-// (fakeOidcIssuer.js) and the real server (src/index.js as a child process):
+// (testing/fakeOidcIssuer.ts) and the real server (src/main.ts as a child process):
 //   1. units: the token shapes, the route policy, CLI-token detection
 //   2. the dev sign-in (INSECURE_DEV_LOGIN, no database)
 //   3. central login without a database: the protocol and every refusal,
@@ -31,7 +31,7 @@ import { deriveKey } from '../shared/secretBox.ts';
 
 // The server's, the IdP's and the database's JSON, read as the tests need it.
 type Payload = any;
-/** The fake IdP (fakeOidcIssuer.js): the tests set its fields freely. */
+/** The fake IdP (testing/fakeOidcIssuer.ts): the tests set its fields freely. */
 type Idp = Payload;
 type Server = Awaited<ReturnType<typeof startServer>>;
 const startIssuer: (opts?: { port?: number }) => Promise<Idp> = startFakeIssuer;

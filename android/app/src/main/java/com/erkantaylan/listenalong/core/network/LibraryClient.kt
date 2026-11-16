@@ -126,7 +126,7 @@ class LibraryClient(
         endpoint("api/library").newBuilder().addPathSegment(songId).addPathSegment("report").build()
 
     // --- Playlists -----------------------------------------------------------
-    // Server side: the playlist routes in backend/src/index.js. A playlist the
+    // Server side: the playlist routes in backend/src/core/playlists/playlistRoutes.ts. A playlist the
     // caller cannot see answers 404 (never 403); errors are { error, code }.
 
     /** Every public playlist plus the signed-in user's private ones. */

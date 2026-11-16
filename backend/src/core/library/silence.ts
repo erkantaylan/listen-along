@@ -18,7 +18,7 @@
 //
 // The scanner: strictly one ffmpeg at a time, niced, with a time limit, a pause
 // between songs, and a bounded queue. New uploads and replaced files go first
-// (index.js hooks: songAdded / songReplaced, which only queue and return); in
+// (main.ts hooks: songAdded / songReplaced, which only queue and return); in
 // between it backfills the library, newest songs first, one pass per boot over
 // the songs still NULL, so a restart simply continues. Missing files and
 // failed decodes are skipped for this pass (retried at the next boot); a path

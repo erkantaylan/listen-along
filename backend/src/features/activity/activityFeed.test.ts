@@ -6,7 +6,7 @@ import { createActivityFeed } from './activityFeed.ts';
 import type { ActivityIo, ActivityJobRow, ActivityPlaylist } from './activityFeed.ts';
 import type { Io } from '../../shared/types.ts';
 
-// The real Socket.IO server is what index.js passes (typecheck only).
+// The real Socket.IO server is what main.ts passes (typecheck only).
 export const realServerFits = (io: Io): ActivityIo => io;
 
 const tick = (ms = 5) => new Promise((r) => setTimeout(r, ms));

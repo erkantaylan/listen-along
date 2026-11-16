@@ -22,7 +22,7 @@ export type ReturnFocus = HTMLElement | null | (() => HTMLElement | null);
 export interface PlaylistMenuHooks {
   onPlay?: () => void;
   onTogglePin?: () => void;
-  /** PATCH /api/playlists/:id answer (index.js playlistInfo). */
+  /** PATCH /api/playlists/:id answer (core/playlists/playlistRoutes.ts playlistInfo). */
   onChanged?: (info: PlaylistSummary) => void;
   onDeleted?: () => void;
   returnFocus?: ReturnFocus;

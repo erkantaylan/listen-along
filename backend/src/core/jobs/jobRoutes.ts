@@ -42,7 +42,7 @@ import type { JobWithJoins, LibrarySongRow, Playlist } from '../../shared/types.
 // The live module object: tests replace its functions.
 const db: DbModule = dbModule;
 
-// What the account guards set (index.js withAccount): the caller's account.
+// What the account guards set (main.ts withAccount): the caller's account.
 declare module 'express-serve-static-core' {
   interface Request {
     /** requireUser / requireMember: the signed-in account */
@@ -71,7 +71,7 @@ export interface VideoPreview {
   duration_sec: number | null;
 }
 
-/** What the routes use of the pick dialog's lookups (features/picker, built by index.js). */
+/** What the routes use of the pick dialog's lookups (features/picker, built by main.ts). */
 export interface JobPicker {
   search(query: unknown): Promise<unknown>;
   lookup(input: unknown, opts: { matchLibrary: boolean }): Promise<unknown>;

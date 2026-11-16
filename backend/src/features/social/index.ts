@@ -1,5 +1,5 @@
 // The global chat and the people panel (social.ts), the chat stores (chat.ts)
-// and presence (presence.ts). index.js builds presence at once and social in
+// and presence (presence.ts). main.ts builds presence at once and social in
 // start(), once it knows whether there is a database; app/sockets.ts attaches
 // social per connection; listen-along gets presence and social.nameOf.
 export { createSocial, isEligible } from './social.ts';
