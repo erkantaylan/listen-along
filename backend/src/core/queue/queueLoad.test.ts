@@ -160,11 +160,25 @@ describe('a queue that fails to load', { skip, timeout: 180_000 }, () => {
         const r = await req('GET', '/api/playlists/qload002/songs', { cookie });
         assert.equal(r.status, 503);
         assert.equal(r.body.code, 'LIBRARY_UNAVAILABLE');
+        // The song's own routes too: a 404 there would read as "this song is gone".
+        for (const url of [`/api/library/${SONGS[0]}`, `/api/library/${SONGS[0]}/file`, `/api/library/${SONGS[0]}/replacements`]) {
+          const song = await req('GET', url, { cookie });
+          assert.deepEqual([song.status, song.body.code], [503, 'LIBRARY_UNAVAILABLE'], url);
+        }
       } finally {
         await pg.query('ALTER TABLE library_songs_offline RENAME TO library_songs');
       }
       const ok = await req('GET', '/api/playlists/qload002/songs', { cookie });
       assert.deepEqual(ok.body.songs.map((x: Payload) => x.library_id), SONGS);
+      assert.equal((await req('GET', '/api/library/00000000-0000-4000-8000-00000000dead', { cookie })).status, 404, 'a song that is not there is still a 404');
+    });
+
+    it('library_id null is only for an entry the library does not have', async () => {
+      await pg.query(`INSERT INTO queue_songs (id, lobby_id, url, title, added_at, sort_order) VALUES (gen_random_uuid(), 'qload001', 'https://www.youtube.com/watch?v=zzzzzzzzzzz', 'Not here', 1, 10)`);
+      // The server never loaded qload001 (every load so far failed): this one reads it all.
+      const r = await req('GET', '/api/playlists/qload001/songs', { cookie });
+      assert.equal(r.status, 200);
+      assert.deepEqual(r.body.songs.map((x: Payload) => x.library_id), [...SONGS, null]);
     });
   });
 });

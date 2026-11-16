@@ -522,7 +522,9 @@ of a fresh database and of a migrated old one.
   library lookup fails (`library_id: null` only ever means "not in the library"), `/api/dashboard/stats` 503;
   socket handlers answer `queue:error` / `lobby:error` with that code and change nothing. The playlists themselves
   load at boot: a failure stops the boot instead of serving no playlists. Clients treat a 5xx as "keep what you
-  have". Tested in `core/queue/queueLoad.test.ts`.
+  have". A library song's own routes (`GET /api/library/:id`, `/file`, `/replacements`) answer 503
+  `LIBRARY_UNAVAILABLE` when the lookup fails (an unknown id stays 404). Tested in `core/queue/queueLoad.test.ts`
+  and, for every write path with only the load failing (preload `queueLoadFault.js`), `app/queueLoadWrites.test.ts`.
 - There is no per-playlist chat. There is one global chat plus a people panel
   (web: column from 1200px, full-screen `/social` below; `#social-rail` is the opener from 1024px, DESIGN.md)
   (presence + now playing): `backend/src/features/social/`: `social.ts` (socket events, privacy),

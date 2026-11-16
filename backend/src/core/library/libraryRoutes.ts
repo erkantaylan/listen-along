@@ -557,8 +557,22 @@ export function createLibraryRouter(hooks: LibraryHooks = {}): Router {
     }
   });
 
+  // A song read for a client: a lookup that failed (the database) is a 503,
+  // never "Song not found" (the Android app skips a 404 song for a day and
+  // takes a 5xx as offline). Answers itself and returns undefined on failure.
+  async function songForClient(req: Request, res: Response): Promise<LibrarySongRow | null | undefined> {
+    try {
+      return await library.getById(req.params.id);
+    } catch (err) {
+      console.error('Library song lookup failed:', (err as Error).message);
+      res.status(503).json({ error: 'The music library could not be read, try again', code: 'LIBRARY_UNAVAILABLE' });
+      return undefined;
+    }
+  }
+
   router.get('/api/library/:id/replacements', readAccess, requireDb, async (req, res) => {
-    const song = await library.getById(req.params.id).catch(() => null);
+    const song = await songForClient(req, res);
+    if (song === undefined) return;
     if (!song) return res.status(404).json({ error: 'Song not found' });
     const rows = await library.listReplacements(song.id);
     // Names only: no account or token ids.
@@ -566,7 +580,8 @@ export function createLibraryRouter(hooks: LibraryHooks = {}): Router {
   });
 
   router.get('/api/library/:id', readAccess, requireDb, async (req, res) => {
-    const song = await library.getById(req.params.id).catch(() => null);
+    const song = await songForClient(req, res);
+    if (song === undefined) return;
     if (!song) return res.status(404).json({ error: 'Song not found' });
     const pub = library.toPublic(song);
     await songReports.attachReports([pub], viewerOf(req)).catch(() => {});
@@ -574,7 +589,8 @@ export function createLibraryRouter(hooks: LibraryHooks = {}): Router {
   });
 
   router.get('/api/library/:id/file', readAccess, requireDb, async (req, res) => {
-    const song = await library.getById(req.params.id).catch(() => null);
+    const song = await songForClient(req, res);
+    if (song === undefined) return;
     if (!song) return res.status(404).json({ error: 'Song not found', code: 'NOT_FOUND' });
     sendSongFile(req, res, song, { download: req.query.dl === '1' || req.query.dl === 'true' });
   });
