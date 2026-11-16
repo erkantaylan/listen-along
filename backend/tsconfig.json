@@ -1,7 +1,7 @@
 {
   // The server runs its .ts files directly (Node's type stripping), so this
-  // only typechecks. Existing .js files are part of the program (so .ts files
-  // can import them) but are not checked: add `// @ts-check` per file if wanted.
+  // only typechecks. The few .js files (the old telemetry.js path, the dev
+  // seed) are part of the program but not checked.
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "composite": true,
@@ -9,11 +9,9 @@
     "allowJs": true,
     "checkJs": false,
     "types": ["node"],
-    // Mixed CommonJS / ESM while areas are converted one at a time. Switches to
-    // "module": "nodenext" (and "type": "module" in package.json) in the final
-    // step of the TypeScript migration.
-    "module": "preserve",
-    "moduleResolution": "bundler",
+    // ES modules as Node runs them ("type": "module" in package.json).
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
     "tsBuildInfoFile": "../node_modules/.cache/tsbuildinfo/backend.tsbuildinfo"
   },
   "include": ["src/**/*"]

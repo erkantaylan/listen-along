@@ -9,6 +9,7 @@ import express from 'express';
 import type { Express, Request } from 'express';
 import http from 'node:http';
 import cors from 'cors';
+import proxyAddr from 'proxy-addr';
 import type { CorsOptions } from 'cors';
 import * as clientIpSetup from '../shared/clientIp.ts';
 import { frontendStatic } from './frontendStatic.ts';
@@ -32,6 +33,8 @@ export interface HttpApp {
   server: http.Server;
   /** the visitor's IP of any request (an HTTP upgrade too) */
   clientIpOf: ReturnType<typeof clientIpSetup.install>;
+  /** the visitor's IP of an HTTP upgrade (the downloaders' WebSocket), which skips Express */
+  upgradeIpOf: (req: http.IncomingMessage) => string;
 }
 
 /**
@@ -84,5 +87,13 @@ export function createHttpApp({ corsOptions, frontendPath }: { corsOptions: Cors
   // <frontend>/dist is served first, at the same URLs (frontendStatic.ts).
   app.use(frontendStatic(frontendPath));
 
-  return { app, server, clientIpOf };
+  // The upgrade request skips Express: apply the same trust-proxy rule.
+  const upgradeIpOf = (req: http.IncomingMessage): string => {
+    try {
+      (req as http.IncomingMessage & { ip?: string }).ip = proxyAddr(req, app.get('trust proxy fn'));
+    } catch {}
+    return clientIpOf(req as Request);
+  };
+
+  return { app, server, clientIpOf, upgradeIpOf };
 }

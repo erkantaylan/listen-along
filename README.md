@@ -125,20 +125,23 @@ Environment variables of `make up`:
 ## OpenTelemetry
 
 The server can send traces and metrics over OTLP. **It is off by default**:
-unless an OTLP endpoint is configured, `backend/src/telemetry.js` returns after
+unless an OTLP endpoint is configured, `backend/src/telemetry.ts` returns after
 reading the environment (no OpenTelemetry module is loaded, nothing is patched,
-no timer, no network, no log line). Production sets no such variable, so it
-behaves as before until you opt in.
+no loader hook is registered, no timer, no network, no log line). Production
+sets no such variable, so it behaves as before until you opt in.
 
-It is a preload, so it patches `http`, Express and `pg` before the server loads
-them; `src/index.js` does not know about it:
+It is a preload (`--import`), so it patches `http`, Express and `pg` before the
+server loads them; `src/main.ts` does not know about it. The server is ES
+modules: once on, the preload registers a loader hook
+(`@opentelemetry/instrumentation/hook.mjs`, import-in-the-middle, for those
+packages only) so their `import`s are patched too:
 
 ```bash
 # locally (make up does this, and `npm run dev` in backend/ too)
-node --require ./src/telemetry.js src/index.js
+node --import ./src/telemetry.ts src/main.ts
 
 # in the Docker image: no change to the image or its CMD, only environment
-NODE_OPTIONS=--require=/app/src/telemetry.js
+NODE_OPTIONS=--import=/app/src/telemetry.ts
 OTEL_EXPORTER_OTLP_ENDPOINT=https://otel-collector.example:4318
 OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer%20…   # if the collector wants one
 ```
@@ -168,13 +171,8 @@ literals, emails, chat text. `/health`, static files and Socket.IO's polling
 requests are not traced at all. Socket.IO events are not traced (there is no
 stable instrumentation, and presence traffic would drown the rest), and queries
 made outside an HTTP request (socket handlers, timers, boot) are not either.
-The rules are in `backend/src/telemetryRules.js` and tested in
-`telemetry.test.js`.
-
-When the backend moves to ES modules, `--require` stops patching: the preload
-becomes `node --import ./src/telemetry.ts`, registering
-`@opentelemetry/instrumentation/hook.mjs` with `module.register()` first, and
-`NODE_OPTIONS=--import=…` in the image.
+The rules are in `backend/src/telemetryRules.ts` and tested in
+`telemetry.test.ts`.
 
 ## Project Structure
 
@@ -182,7 +180,7 @@ becomes `node --import ./src/telemetry.ts`, registering
 ├── aspire/           # Local development: the Aspire AppHost (TypeScript)
 ├── backend/          # Node.js + Express + Socket.IO server
 │   ├── scripts/      # dev-seed.js (local development only)
-│   └── src/
+│   └── src/          # TypeScript run by Node directly: main.ts, app/, core/, auth/, features/, shared/, testing/
 ├── frontend/         # Web client: TypeScript in src/, compiled to dist/ (mobile-first)
 ├── docker/           # Docker configuration
 ├── docker-compose.yml

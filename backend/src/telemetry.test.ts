@@ -1,19 +1,26 @@
-// OpenTelemetry (telemetry.js preload + telemetryRules.js): off by default with
-// nothing loaded or patched, and when on, what reaches an OTLP receiver.
-const { describe, it, before, after } = require('node:test');
-const assert = require('node:assert/strict');
-const { spawn, execFileSync, execSync } = require('node:child_process');
-const http = require('node:http');
-const path = require('node:path');
-const os = require('node:os');
-const fs = require('node:fs');
-const { cookieFor, startServer } = require('./testServer');
-const rules = require('./telemetryRules');
+// OpenTelemetry (telemetry.ts preload + telemetryRules.ts): off by default with
+// nothing loaded, patched or hooked, and when on, what reaches an OTLP receiver.
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { execFileSync, execSync, spawnSync } from 'node:child_process';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
+import path from 'node:path';
+import os from 'node:os';
+import fs from 'node:fs';
+import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { cookieFor, startServer } from './testing/testServer.ts';
+import type { TestServer } from './testing/testServer.ts';
+import * as rules from './telemetryRules.ts';
 
-const TELEMETRY = path.join(__dirname, 'telemetry.js');
+// Receiver and span JSON.
+type Payload = any;
+
+const TELEMETRY = path.join(import.meta.dirname, 'telemetry.ts');
+const BACKEND = path.join(import.meta.dirname, '..');
 
 /** The environment minus every OTEL_* variable a developer's shell may carry. */
-function cleanEnv(extra = {}) {
+function cleanEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   const env = { ...process.env };
   for (const k of Object.keys(env)) if (k.startsWith('OTEL_')) delete env[k];
   delete env.NODE_OPTIONS;
@@ -21,13 +28,18 @@ function cleanEnv(extra = {}) {
 }
 
 /** A local OTLP/HTTP (JSON) receiver: collects what the exporters send. */
-async function startReceiver() {
-  const got = { traces: [], metrics: [], other: [] };
+interface Receiver {
+  got: { traces: Payload[]; metrics: Payload[]; other: Payload[] };
+  url: string;
+  close: () => Promise<void>;
+}
+async function startReceiver(): Promise<Receiver> {
+  const got: Receiver['got'] = { traces: [], metrics: [], other: [] };
   const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', (d) => { body += d; });
     req.on('end', () => {
-      const entry = { path: req.url, headers: req.headers, raw: body };
+      const entry: Payload = { path: req.url, headers: req.headers, raw: body };
       try { entry.json = JSON.parse(body); } catch {}
       if (req.url === '/v1/traces') got.traces.push(entry);
       else if (req.url === '/v1/metrics') got.metrics.push(entry);
@@ -36,62 +48,80 @@ async function startReceiver() {
       res.end('{}');
     });
   });
-  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   return {
     got,
-    url: `http://127.0.0.1:${server.address().port}`,
-    close: () => new Promise((r) => { server.closeAllConnections(); server.close(() => r()); }),
+    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    close: () => new Promise<void>((r) => { server.closeAllConnections(); server.close(() => r()); }),
   };
 }
 
-const attrsOf = (span) => Object.fromEntries((span.attributes || []).map((a) => [a.key, Object.values(a.value)[0]]));
-function spansOf(got) {
-  const out = [];
+const attrsOf = (span: Payload): Payload => Object.fromEntries((span.attributes || []).map((a: Payload) => [a.key, Object.values(a.value)[0]]));
+function spansOf(got: Receiver['got']): Payload[] {
+  const out: Payload[] = [];
   for (const e of got.traces) {
     for (const rs of e.json?.resourceSpans || []) {
-      const resource = Object.fromEntries((rs.resource?.attributes || []).map((a) => [a.key, Object.values(a.value)[0]]));
+      const resource = Object.fromEntries((rs.resource?.attributes || []).map((a: Payload) => [a.key, Object.values(a.value)[0]]));
       for (const ss of rs.scopeSpans || []) for (const s of ss.spans || []) out.push({ ...s, attrs: attrsOf(s), scope: ss.scope?.name, resource });
     }
   }
   return out;
 }
-function metricNames(got) {
-  const names = new Set();
+function metricNames(got: Receiver['got']): Set<string> {
+  const names = new Set<string>();
   for (const e of got.metrics) for (const rm of e.json?.resourceMetrics || []) for (const sm of rm.scopeMetrics || []) for (const m of sm.metrics || []) names.add(m.name);
   return names;
 }
 
 describe('telemetry: off by default', () => {
-  // Loads the preload exactly as the AppHost and NODE_OPTIONS do, then reports
-  // what it left behind after the app's own modules are loaded.
-  const PROBE = `
-    const http = require('http');
-    const { Client } = require('pg');
-    const t = require(${JSON.stringify(TELEMETRY)});
+  // Counts module.register() calls (a loader hook registered) in the probe's
+  // process: loaded first, so it sees the preload's.
+  const SPY = `data:text/javascript,${encodeURIComponent(`
+    import m from 'node:module';
+    const real = m.register;
+    globalThis.__registered = 0;
+    m.register = function (...args) { globalThis.__registered++; return real.apply(this, args); };
+    m.syncBuiltinESMExports();
+  `)}`;
+  // Loads the preload exactly as the AppHost and NODE_OPTIONS do (--import),
+  // then imports what the app imports and reports what the preload left behind.
+  // Without the preload (`reference`): what the probe itself leaves (an ES
+  // module importing node:http keeps a PipeWrap handle, preload or not).
+  const probeCode = (preload: boolean) => `
+    import http from 'node:http';
+    import pg from 'pg';
+    import { createRequire } from 'node:module';
+    import { pathToFileURL } from 'node:url';
+    const t = ${preload} ? (await import(pathToFileURL(${JSON.stringify(TELEMETRY)}).href)).default : { started: false };
+    const cache = createRequire(${JSON.stringify(path.join(BACKEND, 'probe.js'))}).cache;
     setImmediate(() => console.log(JSON.stringify({
       started: t.started,
-      otelModules: Object.keys(require.cache).filter((k) => k.includes('@opentelemetry')).length,
+      otelModules: Object.keys(cache).filter((k) => k.includes('@opentelemetry') || k.includes('import-in-the-middle')).length,
+      hooksRegistered: globalThis.__registered,
       httpPatched: !!(http.request.__wrapped || http.Server.prototype.emit.__wrapped),
-      pgPatched: !!Client.prototype.query.__wrapped,
+      pgPatched: !!pg.Client.prototype.query.__wrapped,
       consolePatched: console.log.name === 'withTraceId',
       signalListeners: process.listenerCount('SIGTERM') + process.listenerCount('SIGINT'),
       handles: process.getActiveResourcesInfo().filter((r) => r !== 'TTYWrap'),
     })));
   `;
-  const probe = (env) => {
-    const out = execFileSync(process.execPath, ['--require', TELEMETRY, '-e', PROBE], {
-      cwd: path.join(__dirname, '..'), env: cleanEnv(env), encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+  const ARGS = ['--import', SPY, '--import', TELEMETRY, '--input-type=module', '-e', probeCode(true)];
+  const probe = (env: Record<string, string>, args = ARGS) => {
+    const out = execFileSync(process.execPath, args, {
+      cwd: BACKEND, env: cleanEnv(env), encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
     });
     const lines = out.trim().split('\n');
-    return { report: JSON.parse(lines.at(-1)), extra: lines.slice(0, -1) };
+    return { report: JSON.parse(lines.at(-1)!), extra: lines.slice(0, -1) };
   };
 
-  it('without an endpoint nothing is loaded, patched, scheduled or logged', () => {
+  it('without an endpoint nothing is loaded, patched, hooked, scheduled or logged', () => {
     const { report, extra } = probe({});
+    const reference = probe({}, ['--import', SPY, '--input-type=module', '-e', probeCode(false)]).report;
     assert.deepEqual(report, {
-      started: false, otelModules: 0, httpPatched: false, pgPatched: false,
-      consolePatched: false, signalListeners: 0, handles: report.handles.filter((h) => h === 'Immediate'),
+      started: false, otelModules: 0, hooksRegistered: 0, httpPatched: false, pgPatched: false,
+      consolePatched: false, signalListeners: 0, handles: reference.handles,
     });
+    assert.deepEqual(reference.handles.filter((h: string) => h !== 'Immediate' && h !== 'PipeWrap'), []);
     assert.deepEqual(extra, [], 'no output');
   });
 
@@ -99,33 +129,34 @@ describe('telemetry: off by default', () => {
     const { report, extra } = probe({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:9', OTEL_SDK_DISABLED: 'true' });
     assert.equal(report.started, false);
     assert.equal(report.otelModules, 0);
+    assert.equal(report.hooksRegistered, 0);
     assert.deepEqual(extra, []);
   });
 
   it('a gRPC endpoint is refused with one warning, nothing loaded', () => {
-    const res = spawnSyncProbe({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:9', OTEL_EXPORTER_OTLP_PROTOCOL: 'grpc' });
-    assert.equal(res.report.started, false);
-    assert.equal(res.report.otelModules, 0);
-    assert.match(res.stderr, /\[telemetry\] not started: OTEL_EXPORTER_OTLP_PROTOCOL=grpc/);
+    const r = spawnSync(process.execPath, ARGS, {
+      cwd: BACKEND, env: cleanEnv({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:9', OTEL_EXPORTER_OTLP_PROTOCOL: 'grpc' }), encoding: 'utf8',
+    });
+    const report = JSON.parse(r.stdout.trim().split('\n').at(-1)!);
+    assert.equal(report.started, false);
+    assert.equal(report.otelModules, 0);
+    assert.equal(report.hooksRegistered, 0);
+    assert.match(r.stderr, /\[telemetry\] not started: OTEL_EXPORTER_OTLP_PROTOCOL=grpc/);
   });
 
-  function spawnSyncProbe(env) {
-    const { spawnSync } = require('node:child_process');
-    const r = spawnSync(process.execPath, ['--require', TELEMETRY, '-e', PROBE], {
-      cwd: path.join(__dirname, '..'), env: cleanEnv(env), encoding: 'utf8',
-    });
-    return { report: JSON.parse(r.stdout.trim().split('\n').at(-1)), stderr: r.stderr };
-  }
-
-  it('with an endpoint it starts and patches http and pg (control)', () => {
+  it('with an endpoint it starts, registers the loader hook and patches http and pg (control)', () => {
     const { report } = probe({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:9' });
     assert.equal(report.started, true);
     assert.ok(report.otelModules > 0);
+    assert.equal(report.hooksRegistered, 1);
     assert.equal(report.httpPatched, true);
-    assert.equal(report.pgPatched, true);
+    assert.equal(report.pgPatched, true, 'pg imported as an ES module is patched');
     assert.equal(report.consolePatched, true);
   });
 });
+
+// A configuration's fields, whichever way it decided.
+const onConfig = (env: Record<string, string>): Payload => rules.telemetryConfig(env);
 
 describe('telemetry rules', () => {
   it('starts only with an OTLP endpoint over HTTP', () => {
@@ -138,20 +169,20 @@ describe('telemetry rules', () => {
     assert.equal(on.serviceName, 'listen-along');
     assert.equal(on.endpointOrigin, 'https://otel.example:4318', 'never the credentials or path');
     assert.equal(rules.telemetryConfig({ OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: 'http://c:4318/v1/traces' }).enabled, true);
-    assert.equal(rules.telemetryConfig({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://c', OTEL_SERVICE_NAME: 'la-2' }).serviceName, 'la-2');
-    assert.equal(rules.telemetryConfig({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://c', OTEL_EXPORTER_OTLP_PROTOCOL: 'grpc' }).enabled, false);
-    assert.equal(rules.telemetryConfig({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://c', OTEL_EXPORTER_OTLP_PROTOCOL: 'http/json' }).protocol, 'http/json');
+    assert.equal(onConfig({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://c', OTEL_SERVICE_NAME: 'la-2' }).serviceName, 'la-2');
+    assert.equal(onConfig({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://c', OTEL_EXPORTER_OTLP_PROTOCOL: 'grpc' }).enabled, false);
+    assert.equal(onConfig({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://c', OTEL_EXPORTER_OTLP_PROTOCOL: 'http/json' }).protocol, 'http/json');
   });
 
   it('reads the sampler and the intervals the SDK no longer reads itself', () => {
     const base = { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://c' };
-    assert.equal(rules.telemetryConfig(base).sampleRatio, 1);
-    assert.equal(rules.telemetryConfig({ ...base, OTEL_TRACES_SAMPLER: 'parentbased_traceidratio', OTEL_TRACES_SAMPLER_ARG: '0.1' }).sampleRatio, 0.1);
-    assert.equal(rules.telemetryConfig({ ...base, OTEL_TRACES_SAMPLER: 'always_off' }).sampleRatio, 0);
-    assert.equal(rules.telemetryConfig({ ...base, OTEL_TRACES_SAMPLER: 'traceidratio', OTEL_TRACES_SAMPLER_ARG: 'x' }).sampleRatio, 1);
-    assert.equal(rules.telemetryConfig({ ...base, OTEL_BSP_SCHEDULE_DELAY: '1000' }).traceDelayMs, 1000);
-    assert.equal(rules.telemetryConfig({ ...base, OTEL_BSP_SCHEDULE_DELAY: '-5' }).traceDelayMs, 5000);
-    assert.equal(rules.telemetryConfig({ ...base, OTEL_METRIC_EXPORT_INTERVAL: '10' }).metricIntervalMs, 60000);
+    assert.equal(onConfig(base).sampleRatio, 1);
+    assert.equal(onConfig({ ...base, OTEL_TRACES_SAMPLER: 'parentbased_traceidratio', OTEL_TRACES_SAMPLER_ARG: '0.1' }).sampleRatio, 0.1);
+    assert.equal(onConfig({ ...base, OTEL_TRACES_SAMPLER: 'always_off' }).sampleRatio, 0);
+    assert.equal(onConfig({ ...base, OTEL_TRACES_SAMPLER: 'traceidratio', OTEL_TRACES_SAMPLER_ARG: 'x' }).sampleRatio, 1);
+    assert.equal(onConfig({ ...base, OTEL_BSP_SCHEDULE_DELAY: '1000' }).traceDelayMs, 1000);
+    assert.equal(onConfig({ ...base, OTEL_BSP_SCHEDULE_DELAY: '-5' }).traceDelayMs, 5000);
+    assert.equal(onConfig({ ...base, OTEL_METRIC_EXPORT_INTERVAL: '10' }).metricIntervalMs, 60000);
   });
 
   it('does not trace the health probe, static files or Socket.IO polling', () => {
@@ -209,9 +240,9 @@ describe('telemetry rules', () => {
 // image), exporting to a receiver in this test. The batch delay and the metric
 // interval are a minute, so everything the receiver gets arrives through the
 // shutdown flush on SIGTERM.
-async function runServer(receiver, extraEnv = {}) {
+async function runServer(receiver: Receiver, extraEnv: Record<string, string> = {}) {
   const srv = await startServer({
-    NODE_OPTIONS: `--require=${TELEMETRY}`,
+    NODE_OPTIONS: `--import=${TELEMETRY}`,
     OTEL_EXPORTER_OTLP_ENDPOINT: receiver.url,
     OTEL_EXPORTER_OTLP_PROTOCOL: 'http/json',
     OTEL_BSP_SCHEDULE_DELAY: '60000',
@@ -221,9 +252,9 @@ async function runServer(receiver, extraEnv = {}) {
   });
   const stopGracefully = async () => {
     const t0 = Date.now();
-    const exited = new Promise((r) => srv.proc.once('exit', (code, signal) => r({ code, signal })));
+    const exited = new Promise<{ code: number | null; signal: string | null }>((r) => srv.proc.once('exit', (code, signal) => r({ code, signal })));
     srv.proc.kill('SIGTERM');
-    const result = await Promise.race([exited, new Promise((r) => setTimeout(() => r('timeout'), 8000))]);
+    const result = await Promise.race([exited, new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 8000))]);
     if (result === 'timeout') await srv.stop();
     return { result, ms: Date.now() - t0 };
   };
@@ -231,10 +262,10 @@ async function runServer(receiver, extraEnv = {}) {
 }
 
 describe('telemetry: on, against a local OTLP receiver', { timeout: 60_000 }, () => {
-  let receiver;
-  let run;
-  let exit;
-  let payload;
+  let receiver: Receiver;
+  let run: { srv: TestServer; stopGracefully: () => Promise<{ result: unknown; ms: number }> };
+  let exit: { result: unknown; ms: number };
+  let payload: string;
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'la-otel-'));
 
   before(async () => {
@@ -309,20 +340,20 @@ describe('telemetry: on, against a local OTLP receiver', { timeout: 60_000 }, ()
   });
 });
 
-let PostgreSqlContainer;
-try { PostgreSqlContainer = require('@testcontainers/postgresql').PostgreSqlContainer; } catch {}
-const has = (cmd) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
+let PostgreSqlContainer: typeof import('@testcontainers/postgresql').PostgreSqlContainer | undefined;
+try { ({ PostgreSqlContainer } = await import('@testcontainers/postgresql')); } catch {}
+const has = (cmd: string) => { try { execSync(cmd, { stdio: 'ignore' }); return true; } catch { return false; } };
 const skipDb = !PostgreSqlContainer ? 'testcontainers package not installed'
   : !has('docker info') ? 'Docker not available' : false;
 
 describe('telemetry: database spans', { skip: skipDb, timeout: 180_000 }, () => {
-  let container;
-  let receiver;
+  let container: StartedPostgreSqlContainer;
+  let receiver: Receiver;
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'la-otel-db-'));
   const LOOKED_UP = '6f1d2c3b-aaaa-4bbb-8ccc-0123456789ab'; // not a user: the lookup is the point
 
   before(async () => {
-    container = await new PostgreSqlContainer('postgres:16-alpine')
+    container = await new PostgreSqlContainer!('postgres:16-alpine')
       .withDatabase('listen_otel').withUsername('test').withPassword('pwSECRET').start();
     receiver = await startReceiver();
     const run = await runServer(receiver, {

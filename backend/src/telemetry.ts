@@ -8,20 +8,21 @@
  * environment: no @opentelemetry module is loaded, nothing is patched, no timer,
  * no socket, no log line. OTEL_SDK_DISABLED=true also keeps it off.
  *
- * It is a PRELOAD, never required by the app: instrumentation patches modules
- * (http, express, pg) as they load, so it has to run before index.js requires
- * them, or the dashboard silently stays empty.
+ * It is a PRELOAD (`--import`), never imported by the app: instrumentation
+ * patches modules (http, express, pg) as they load, so it has to run before
+ * main.ts imports them, or the dashboard silently stays empty.
  *
- *   node --require ./src/telemetry.js src/index.js              (AppHost, backend/)
- *   NODE_OPTIONS=--require=/app/src/telemetry.js                (the Docker image)
+ *   node --import ./src/telemetry.ts src/main.ts                (AppHost, backend/)
+ *   NODE_OPTIONS=--import=/app/src/telemetry.ts                 (the Docker image)
  *
- * When the backend moves to ESM (.ts, "type": "module"): `--require` cannot
- * patch ES modules. This becomes `node --import ./src/telemetry.ts src/index.ts`,
- * and the file first calls `module.register('@opentelemetry/instrumentation/hook.mjs',
- * import.meta.url)` (import-in-the-middle) before creating the instrumentations;
- * telemetryRules stays as it is. See README "OpenTelemetry".
+ * The app is ES modules: a `require` hook alone does not see `import express`.
+ * So, once on, this first registers import-in-the-middle's loader hook
+ * (@opentelemetry/instrumentation/hook.mjs) for the packages the
+ * instrumentations patch, then loads the SDK with a plain synchronous require
+ * (no top-level await) and creates the instrumentations, which patch those
+ * packages whether they are imported or required. Off, it registers nothing.
  *
- * What is recorded and what is not: telemetryRules.js. In short, no bodies, no
+ * What is recorded and what is not: telemetryRules.ts. In short, no bodies, no
  * headers (cookies, Authorization, session ids), no query strings (the OIDC
  * callback's ?code=), no client addresses, no SQL parameter values or quoted
  * literals; span names are route templates (`GET /api/playlists/:id`).
@@ -33,26 +34,50 @@
  * OTEL_TRACES_SAMPLER (+ _ARG), OTEL_BSP_SCHEDULE_DELAY, OTEL_METRIC_EXPORT_INTERVAL,
  * OTEL_LOG_LEVEL (the SDK's own messages; default warn).
  */
-'use strict';
+import { createRequire, register } from 'node:module';
+import * as rules from './telemetryRules.ts';
+import type { TelemetryConfig } from './telemetryRules.ts';
+import type * as Api from '@opentelemetry/api';
+import type { ReadableSpan, SpanExporter } from '@opentelemetry/sdk-trace';
 
-const rules = require('./telemetryRules');
+/** What the preload did: tests read it; the app never imports this file. */
+export interface Telemetry {
+  started: boolean;
+  reason?: string;
+  shutdown: () => Promise<void>;
+}
+
+/**
+ * The modules whose ES-module imports the loader hook wraps: what the
+ * instrumentations patch (http and https for the incoming and outgoing
+ * requests, Express for the route, pg). Nothing else goes through it.
+ */
+const HOOKED_PACKAGES = ['http', 'https', 'node:http', 'node:https', 'express', 'pg', 'pg-pool'];
 
 const config = rules.telemetryConfig(process.env);
 
-module.exports = config.enabled ? start(config) : off(config);
+const telemetry: Telemetry = config.enabled ? start(config) : off(config);
+export default telemetry;
 
-function off(cfg) {
+function off(cfg: Extract<TelemetryConfig, { enabled: false }>): Telemetry {
   // The only case that says anything: telemetry was asked for but cannot run.
   if (cfg.warn) console.warn(`[telemetry] not started: ${cfg.reason}`);
   return { started: false, reason: cfg.reason, shutdown: async () => {} };
 }
 
-function start(cfg) {
+function start(cfg: Extract<TelemetryConfig, { enabled: true }>): Telemetry {
   // Stable HTTP / database attribute names (url.path, http.route, db.query.text)
   // unless the operator chose otherwise. Read by the instrumentations below.
   if (!process.env.OTEL_SEMCONV_STABILITY_OPT_IN) process.env.OTEL_SEMCONV_STABILITY_OPT_IN = 'http,database';
 
-  const api = require('@opentelemetry/api');
+  // ES-module imports of the patched packages go through import-in-the-middle,
+  // which hands them to the instrumentations' hooks. Before anything imports
+  // them: this preload runs before the app's first module.
+  register('@opentelemetry/instrumentation/hook.mjs', import.meta.url, { data: { include: HOOKED_PACKAGES } });
+
+  // The SDK is CommonJS: required synchronously, and only here.
+  const require = createRequire(import.meta.url);
+  const api: typeof Api = require('@opentelemetry/api');
   const { AsyncLocalStorageContextManager } = require('@opentelemetry/context-async-hooks');
   const { W3CTraceContextPropagator } = require('@opentelemetry/core');
   const { resourceFromAttributes, envDetector, detectResources } = require('@opentelemetry/resources');
@@ -75,7 +100,7 @@ function start(cfg) {
     : require('@opentelemetry/exporter-metrics-otlp-proto');
 
   const level = String(process.env.OTEL_LOG_LEVEL || 'warn').toUpperCase();
-  api.diag.setLogger(new api.DiagConsoleLogger(), api.DiagLogLevel[level] ?? api.DiagLogLevel.WARN);
+  api.diag.setLogger(new api.DiagConsoleLogger(), api.DiagLogLevel[level as keyof typeof api.DiagLogLevel] ?? api.DiagLogLevel.WARN);
 
   api.context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
   api.propagation.setGlobalPropagator(new W3CTraceContextPropagator());
@@ -92,7 +117,7 @@ function start(cfg) {
     sampler,
     // OpenTelemetry JS 3.x: one options object, the exporter inside it.
     spanProcessors: [new BatchSpanProcessor({
-      exporter: new SanitizingExporter(new OTLPTraceExporter()),
+      exporter: sanitizing(new OTLPTraceExporter()),
       scheduledDelayMillis: cfg.traceDelayMs,
     })],
   });
@@ -113,7 +138,7 @@ function start(cfg) {
     meterProvider,
     instrumentations: [
       new HttpInstrumentation({
-        ignoreIncomingRequestHook: (req) => rules.ignoreIncomingPath(req.url),
+        ignoreIncomingRequestHook: (req: { url?: string }) => rules.ignoreIncomingPath(req.url),
         // Never: headers to attributes (cookies, Authorization). This is the default; said here so it stays so.
         headersToSpanAttributes: { client: {}, server: {} },
       }),
@@ -130,7 +155,7 @@ function start(cfg) {
 
   correlateLogs(api);
 
-  let shuttingDown = null;
+  let shuttingDown: Promise<void> | null = null;
   const shutdown = () => {
     if (!shuttingDown) {
       shuttingDown = Promise.allSettled([tracerProvider.shutdown(), meterProvider.shutdown()]).then(() => {});
@@ -143,19 +168,21 @@ function start(cfg) {
   return { started: true, shutdown };
 
   /** Wraps the OTLP exporter: every span leaves through telemetryRules. */
-  function SanitizingExporter(inner) {
-    this.export = (spans, done) => inner.export(spans.map(cleanSpan), done);
-    this.shutdown = () => inner.shutdown();
-    this.forceFlush = () => (inner.forceFlush ? inner.forceFlush() : Promise.resolve());
+  function sanitizing(inner: SpanExporter): SpanExporter {
+    return {
+      export: (spans, done) => inner.export(spans.map(cleanSpan), done),
+      shutdown: () => inner.shutdown(),
+      forceFlush: () => (inner.forceFlush ? inner.forceFlush() : Promise.resolve()),
+    };
   }
 
-  function cleanSpan(span) {
+  function cleanSpan(span: ReadableSpan): ReadableSpan {
     const server = span.kind === api.SpanKind.SERVER;
     const attributes = rules.sanitizeAttributes(span.attributes, { server });
     let name = rules.sanitizeSpanName(span.name);
     const route = span.attributes['http.route'];
     // `GET /api/playlists/:id,/api/lobbies/:id` -> the one that matched.
-    if (typeof route === 'string' && attributes['http.route'] !== route) name = name.replace(route, attributes['http.route']);
+    if (typeof route === 'string' && attributes['http.route'] !== route) name = name.replace(route, attributes['http.route'] as string);
     return {
       name,
       kind: span.kind,
@@ -164,9 +191,9 @@ function start(cfg) {
       startTime: span.startTime,
       endTime: span.endTime,
       status: span.status,
-      attributes,
+      attributes: attributes as ReadableSpan['attributes'],
       links: span.links,
-      events: span.events.map((e) => ({ ...e, attributes: e.attributes && rules.sanitizeAttributes(e.attributes, { server }) })),
+      events: span.events.map((e) => ({ ...e, attributes: (e.attributes && rules.sanitizeAttributes(e.attributes, { server })) as typeof e.attributes })),
       duration: span.duration,
       ended: span.ended,
       resource: span.resource,
@@ -183,10 +210,10 @@ function start(cfg) {
  * span is active (the request log, errors in a handler). shared/logger.ts wraps
  * console after this preload, so its timestamp prefix still comes first.
  */
-function correlateLogs(api) {
-  for (const method of ['log', 'info', 'warn', 'error', 'debug']) {
+function correlateLogs(api: typeof Api) {
+  for (const method of ['log', 'info', 'warn', 'error', 'debug'] as const) {
     const orig = console[method];
-    console[method] = function withTraceId(...args) {
+    console[method] = function withTraceId(this: Console, ...args: unknown[]) {
       const span = api.trace.getActiveSpan();
       const ctx = span && span.spanContext();
       if (ctx && (ctx.traceFlags & api.TraceFlags.SAMPLED)) args.push(`trace_id=${ctx.traceId} span_id=${ctx.spanId}`);
@@ -197,15 +224,15 @@ function correlateLogs(api) {
 
 /**
  * Flush what is buffered when the process ends, without changing how it ends.
- * index.js owns SIGTERM / SIGINT (close the server, the sockets, the pool, then
+ * main.ts owns SIGTERM / SIGINT (close the server, the sockets, the pool, then
  * process.exit(0)). On those signals the flush starts at once, and the exit that
  * follows waits for it, 2 seconds at most. Other exits are not delayed.
  * A process with no handler of its own for the signal still ends on it.
  */
-function flushOnExit(shutdown) {
+function flushOnExit(shutdown: () => Promise<void>) {
   const FLUSH_TIMEOUT_MS = 2000;
   const realExit = process.exit;
-  let flushing = null;
+  let flushing: Promise<unknown> | null = null;
 
   const startFlush = () => {
     if (!flushing) {
@@ -219,7 +246,7 @@ function flushOnExit(shutdown) {
       startFlush();
       if (process.listenerCount(signal) === 1) {
         // Nobody else handles it: end as the default handler would have.
-        flushing.then(() => {
+        flushing!.then(() => {
           process.removeListener(signal, onSignal);
           process.kill(process.pid, signal);
         });
@@ -227,12 +254,12 @@ function flushOnExit(shutdown) {
     });
   }
 
-  process.exit = function exit(code) {
+  process.exit = function exit(code?: number | string | null) {
     if (!flushing) return realExit.call(process, code);
     const finalCode = code === undefined ? process.exitCode : code;
     flushing.then(() => realExit.call(process, finalCode));
-    return undefined;
-  };
+    return undefined as never;
+  } as typeof process.exit;
 
   process.once('beforeExit', () => { startFlush(); });
 }

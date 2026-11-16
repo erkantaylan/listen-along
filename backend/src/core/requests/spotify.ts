@@ -1,7 +1,7 @@
 // Spotify track links: the page's preview (title, artist) through
 // spotify-url-info's page scrape. No API credentials.
 import { createRequire } from 'node:module';
-import type SpotifyUrlInfoModule from 'spotify-url-info';
+import type { SpotifyUrlInfoModule } from 'spotify-url-info';
 
 // A CommonJS package whose typings declare its default export as a type only:
 // loaded with require, as before. Node 18+ has a global fetch; spotify-url-info

@@ -63,7 +63,7 @@ export interface SocketHandlersDeps {
   userAuth: Pick<UserAuth, 'resolve' | 'getAccount'>;
   oidc: { enabled: boolean; recheckMs?: number };
   /** central login only */
-  oidcSessions: { check(idHash: string): Promise<boolean> } | null;
+  oidcSessions: { check(idHash: string): Promise<unknown> } | null; // truthy = the session is live
   /** made in start() */
   getSocial: () => { attach(socket: AppSocket): void } | null;
   /** made in start() */

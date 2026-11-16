@@ -92,12 +92,13 @@ await builder.addExecutable('frontend', 'node', repo, [
 
 // ---------------------------------------------------------------------------
 // The server. `node --watch` restarts it on any backend edit; the telemetry
-// preload goes first so http / express / pg are patched before index.js loads
-// them (and stays off when the OTLP variables are absent, as in production).
+// preload (--import) goes first so http / express / pg are patched before
+// main.ts loads them (and stays off when the OTLP variables are absent, as in
+// production).
 // ---------------------------------------------------------------------------
 let backend = builder
   .addExecutable('listen-along', 'node', path.join(repo, 'backend'), [
-    '--watch', '--require', './src/telemetry.js', 'src/index.js',
+    '--watch', '--import', './src/telemetry.ts', 'src/main.ts',
   ])
   // Not proxied: the process binds the port itself, so BASE_URL is the real one.
   .withHttpEndpoint({ port, env: 'PORT', isProxied: false })
@@ -110,7 +111,7 @@ let backend = builder
   .withEnvironment('ADMIN_PASSWORD', ADMIN_PASSWORD)
   .withEnvironment('SONGS_PATH', path.join(devData, 'songs'))
   .withEnvironment('COVERS_DIR', path.join(devData, 'covers'))
-  // OTLP/HTTP (protobuf) to the dashboard: telemetry.js does not ship a gRPC exporter.
+  // OTLP/HTTP (protobuf) to the dashboard: telemetry.ts does not ship a gRPC exporter.
   .withOtlpExporter({ protocol: OtlpProtocol.HttpProtobuf })
   // /health answers 200 (cheap: no database round trip).
   .withHttpHealthCheck({ path: '/health', statusCode: 200 })

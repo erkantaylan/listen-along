@@ -61,7 +61,7 @@ export type PickError = Error & { status: number; code: 'BAD_INPUT' | 'LOOKUP_FA
 /** The library row fields the picker reads. */
 export type PickerSong = Pick<LibrarySongRow, 'id' | 'title'> & { youtube_id?: string | null; artist: string | null };
 
-/** What the picker uses of core/library/library.ts (CommonJS until core/ moves). */
+/** What the picker uses of core/library/library.ts. */
 export interface PickerLibrary {
   getByYoutubeId(youtubeId: string): Promise<PickerSong | null>;
   getByYoutubeIds(youtubeIds: string[]): Promise<Map<string, PickerSong>>;

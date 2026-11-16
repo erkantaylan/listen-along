@@ -6,53 +6,49 @@
 // counts each request ONCE, where its route is: a route or router lists it
 // itself, or a path-scoped app.use(paths, apiLimiter) sits right before the
 // router that serves those paths. Nothing counts requests that only pass by.
-require('./shared/logger.ts'); // timestamp + level on all console output — must be first
-require('dotenv').config();
-// The OpenTelemetry preload (telemetry.js, --require) patches a package when
-// it is require()d, not when an ES module imports it: every module that uses
-// Express is an ES module now, so require it here once, before any of them,
-// or route names would be missing from the spans. Goes with the switch to
-// --import (the final step of the TypeScript migration).
-require('express');
+//
+// The order of the imports is the order the modules load in: the logger
+// first (timestamp + level on all console output), then .env, then the areas.
+import './shared/logger.ts';
+import 'dotenv/config';
 
-const path = require('path');
-const crypto = require('crypto');
-const { requests: songRequests, createResolver, ytdlp, spotify } = require('./core/requests/index.ts');
-const {
+import path from 'node:path';
+import crypto from 'node:crypto';
+import type { AddressInfo } from 'node:net';
+import type { RequestHandler } from 'express';
+import { requests as songRequests, createResolver, ytdlp, spotify } from './core/requests/index.ts';
+import {
   playlist, access, playlistPins, createPlaylistRoutes, createPlaylistFolderRouter, createPlaylistSockets,
-} = require('./core/playlists/index.ts');
-const { getQueueAsync, deleteQueue, hasQueue, createQueueSockets } = require('./core/queue/index.ts');
-const db = require('./shared/db.ts');
-const { library, covers, createLibraryRouter, sendSongFile, createMediaRouter, createSilenceScanner, createSilenceRouter } = require('./core/library/index.ts');
+} from './core/playlists/index.ts';
+import { getQueueAsync, deleteQueue, hasQueue, createQueueSockets } from './core/queue/index.ts';
+import db from './shared/db.ts';
+import { library, covers, createLibraryRouter, sendSongFile, createMediaRouter, createSilenceScanner, createSilenceRouter } from './core/library/index.ts';
 
-const { apiLimiter, make: makeLimiter } = require('./shared/rateLimits.ts');
-const { createSettings, parseRegistrationsDefault } = require('./shared/settings.ts');
+import { apiLimiter, make as makeLimiter } from './shared/rateLimits.ts';
+import { createSettings, parseRegistrationsDefault } from './shared/settings.ts';
 
-const { createPicker } = require('./features/picker/index.ts');
+import { createPicker } from './features/picker/index.ts';
 
-
-const { createAppRelease } = require('./features/app-release/index.ts');
-const { downloadJobs, createWorkerHub, createJobRouter, createCliRelease, createCliRouter } = require('./core/jobs/index.ts');
-const {
+import { createAppRelease } from './features/app-release/index.ts';
+import { downloadJobs, createWorkerHub, createJobRouter, createCliRelease, createCliRouter } from './core/jobs/index.ts';
+import {
   readOidcConfig, readDevLogin, adminAuth, tokens, createTokenRouter, createUserAuth, createOidcClient, createSessionStore, createOidcSessions,
-} = require('./auth/index.ts');
-const { chat, createPresence, createSocial } = require('./features/social/index.ts');
-const { createListenAlong, createSourceResolver } = require('./features/listen-along/index.ts');
+  createAuthRoutes,
+} from './auth/index.ts';
+import type { OidcConfig, Account } from './auth/index.ts';
+import { chat, createPresence, createSocial } from './features/social/index.ts';
+import type { Social } from './features/social/index.ts';
+import { createListenAlong, createSourceResolver } from './features/listen-along/index.ts';
+import type { ListenAlong } from './features/listen-along/index.ts';
 
-const { createActivityFeed } = require('./features/activity/index.ts');
-const { createStationRouter } = require('./features/radio/index.ts');
-const { createArtistRouter } = require('./features/artists/index.ts');
-const {
+import { createActivityFeed } from './features/activity/index.ts';
+import { createStationRouter } from './features/radio/index.ts';
+import { createArtistRouter } from './features/artists/index.ts';
+import {
   createInfoRouter, createPageRouter, createProfileRouter, createAdminRouter,
   APP_ROOM, userRoom, sessionRoom, createSocketServer, attachSocketHandlers, createReactions, createHttpApp,
-} = require('./app/index.ts');
-const { createAuthRoutes } = require('./auth/index.ts');
-
-
-
-
-const { createMemoryRateLimit } = require('./shared/memoryRateLimit.ts');
-
+} from './app/index.ts';
+import { createMemoryRateLimit } from './shared/memoryRateLimit.ts';
 
 // The web's "pick the video" dialog (features/picker): lookups for it, and what they
 // said about each video, for the title of a chosen one.
@@ -72,13 +68,13 @@ const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toSt
 // use the dev sign-in instead (INSECURE_DEV_LOGIN=1, auth/devLogin.ts), which is
 // refused unless NODE_ENV is development or test. A missing, half or broken
 // configuration, or no sign-in at all, stops the server here, on purpose.
-let OIDC;
-let DEV_LOGIN;
-let REGISTRATIONS_DEFAULT_OPEN;
+let OIDC: OidcConfig;
+let DEV_LOGIN: boolean;
+let REGISTRATIONS_DEFAULT_OPEN: boolean;
 try {
   DEV_LOGIN = readDevLogin(process.env);
 } catch (err) {
-  console.error(`[auth] ${err.message}`);
+  console.error(`[auth] ${(err as Error).message}`);
   process.exit(1);
 }
 try {
@@ -86,7 +82,7 @@ try {
   // Registrations before an admin has saved the switch (shared/settings.ts).
   REGISTRATIONS_DEFAULT_OPEN = parseRegistrationsDefault(process.env);
 } catch (err) {
-  console.error(`[oidc] ${err.message}`);
+  console.error(`[oidc] ${(err as Error).message}`);
   process.exit(1);
 }
 if (!OIDC.enabled && !DEV_LOGIN) {
@@ -101,9 +97,10 @@ const DB_EXPECTED = !!(process.env.DATABASE_URL && process.env.DATABASE_URL.trim
 const settings = createSettings({ db, dbExpected: DB_EXPECTED, defaults: { registrations_open: REGISTRATIONS_DEFAULT_OPEN } });
 const oidcClient = OIDC.enabled ? createOidcClient(OIDC, { secret: SESSION_SECRET }) : null;
 const sessionStore = OIDC.enabled ? createSessionStore({ db, secret: SESSION_SECRET, dbExpected: DB_EXPECTED }) : null;
+// The store and the client exist whenever OIDC.enabled (just above).
 const oidcSessions = OIDC.enabled ? createOidcSessions({
-  store: sessionStore,
-  client: oidcClient,
+  store: sessionStore!,
+  client: oidcClient!,
   cfg: OIDC,
   cookieName: OIDC.sessionCookie,
   // A session ended by a re-check (the IdP refused, expired, unverified too
@@ -117,9 +114,9 @@ const oidcSessions = OIDC.enabled ? createOidcSessions({
 const userAuth = createUserAuth({ secret: SESSION_SECRET, db, sessions: oidcSessions, devLogin: DEV_LOGIN });
 
 // Serve static frontend files
-// In Docker: /app/src/index.js -> /app/frontend (../frontend)
-// Local dev: backend/src/index.js -> frontend (../../frontend)
-const frontendPath = path.resolve(process.env.FRONTEND_PATH || path.join(__dirname, '../frontend'));
+// In Docker: /app/src/main.ts -> /app/frontend (../frontend)
+// Local dev: FRONTEND_PATH (npm run dev, the AppHost: the checkout's frontend/)
+const frontendPath = path.resolve(process.env.FRONTEND_PATH || path.join(import.meta.dirname, '../frontend'));
 
 // CORS configuration (the HTTP API and Socket.IO)
 const corsOptions = {
@@ -130,7 +127,7 @@ const corsOptions = {
 
 // The Express app and its HTTP server, with what runs before every route:
 // client IP, CORS, JSON bodies, the request log, the static files (app/http.ts).
-const { app, server, clientIpOf } = createHttpApp({ corsOptions, frontendPath });
+const { app, server, upgradeIpOf } = createHttpApp({ corsOptions, frontendPath });
 
 if (!process.env.SESSION_SECRET) {
   console.log('Warning: SESSION_SECRET not set, using random secret (logins will not survive a restart)');
@@ -180,13 +177,6 @@ const {
 // (HTTP API). Live job status goes to the requester's sockets (jobs:update),
 // worker counts to every approved socket (workers:update), and a reduced
 // view of every job to every approved socket (features/activity).
-function upgradeIp(req) {
-  try {
-    // The upgrade request skips Express: apply the same trust-proxy rule.
-    req.ip = require('proxy-addr')(req, app.get('trust proxy fn'));
-  } catch {}
-  return clientIpOf(req);
-}
 // The la CLI this image ships (cli/): offered to workers in the welcome and
 // through /api/cli/latest|bundle so they update themselves (core/jobs/cliRelease.ts).
 const cliRelease = createCliRelease();
@@ -195,13 +185,13 @@ app.use(createCliRouter({ release: cliRelease, requireToken: tokens.requireToken
 const workerHub = createWorkerHub({
   cliLatest: () => cliRelease.latest(),
   verifyToken: (token) => tokens.verifyToken(token),
-  ipOf: upgradeIp,
+  ipOf: upgradeIpOf,
   dbAvailable: () => db.isAvailable(),
   onJobUpdated: emitJob,
   onJobFinished: (job, songIds) => {
     Promise.all(songIds.map((id) => library.getById(id).catch(() => null)))
       .then((songs) => addJobSongsToPlaylist(job, songs))
-      .catch((err) => console.error('[jobs] playlist add failed:', err.message));
+      .catch((err) => console.error('[jobs] playlist add failed:', (err as Error).message));
   },
   onWorkersChanged: workersChanged,
 });
@@ -210,7 +200,7 @@ workerHub.attach(server);
 // Silence at the start / end of each song (core/library/silence.ts): measured
 // after uploads and replaces, and in the background for the rest of the library.
 // Off in tests unless asked for (SILENCE_SCAN=on), and anywhere with SILENCE_SCAN=off.
-const envMs = (name) => (process.env[name] !== undefined && process.env[name] !== '' && Number.isFinite(Number(process.env[name])) ? Number(process.env[name]) : undefined);
+const envMs = (name: string) => (process.env[name] !== undefined && process.env[name] !== '' && Number.isFinite(Number(process.env[name])) ? Number(process.env[name]) : undefined);
 const silenceScanner = createSilenceScanner({
   db, songsPath: library.SONGS_PATH, songsFile: (p) => library.songsFile(p),
   enabled: process.env.SILENCE_SCAN ? process.env.SILENCE_SCAN !== 'off' : process.env.NODE_ENV !== 'test',
@@ -250,14 +240,14 @@ app.use(createArtistRouter());
 // The caller's own CLI tokens (profile page). Approved accounts only.
 app.use(createTokenRouter({
   requireUser: (req, res, next) => userAuth.requireLevel('approved')(req, res, () => {
-    req.account = req._listenAuth.account;
+    req.account = req._listenAuth!.account as Account; // set by requireLevel, which let it through
     next();
   }),
 }));
 
 // Download jobs, workers, profile activity (core/jobs/jobRoutes.ts).
-const withAccount = (level) => (req, res, next) => userAuth.requireLevel(level)(req, res, () => {
-  req.account = req._listenAuth.account;
+const withAccount = (level: 'approved' | 'member'): RequestHandler => (req, res, next) => userAuth.requireLevel(level)(req, res, () => {
+  req.account = req._listenAuth!.account as Account; // set by requireLevel, which let it through
   next();
 });
 app.use(createJobRouter({
@@ -267,7 +257,7 @@ app.use(createJobRouter({
   cliLatest: () => cliRelease.latest(),
   editablePlaylist: async (playlistId, userId) => {
     const l = await playlist.getPlaylistAsync(playlistId);
-    return access.canEdit(l, userId) ? l : null;
+    return access.canEdit(l, userId) ? l! : null;
   },
   spotifyTrack: (url) => spotify.getTrack(url),
   addSongToPlaylist: async (playlistId, song, addedBy, { allowDuplicates = false } = {}) => {
@@ -279,7 +269,7 @@ app.use(createJobRouter({
   },
   visiblePlaylist: async (playlistId, userId) => {
     const l = await playlist.getPlaylistAsync(playlistId);
-    return access.canView(l, userId) ? l : null;
+    return access.canView(l, userId) ? l! : null;
   },
   onJobUpdated: emitJob,
   picker,
@@ -352,10 +342,10 @@ attachSocketHandlers({
 
 // Global chat + presence. Created in start() once we know whether there is a
 // database (chat history in Postgres, else in memory like the other modules).
-const graceEnv = Number.parseInt(process.env.PRESENCE_GRACE_MS, 10);
+const graceEnv = Number.parseInt(process.env.PRESENCE_GRACE_MS as string, 10);
 const presence = createPresence({ graceMs: Number.isFinite(graceEnv) ? graceEnv : 5000 });
-let social = null;
-let listenAlong = null;
+let social: Social | null = null;
+let listenAlong: ListenAlong | null = null;
 
 // Initialize database and start server
 async function start() {
@@ -366,12 +356,13 @@ async function start() {
   // cannot be reached right now does not (sign-in retries discovery).
   if (OIDC.enabled) {
     try {
-      await oidcClient.bootCheck();
+      await oidcClient!.bootCheck();
     } catch (err) {
-      console.error(`[oidc] ${err.message}`);
+      console.error(`[oidc] ${(err as Error).message}`);
       process.exit(1);
     }
-    const purge = () => sessionStore.purgeExpired()
+    // Both exist with central login (OIDC.enabled), above.
+    const purge = () => sessionStore!.purgeExpired()
       .then((n) => { if (n) console.log(`[oidc] ${n} expired session(s) removed`); })
       .catch((err) => console.error('[oidc] session purge failed:', err.message));
     purge();
@@ -391,7 +382,7 @@ async function start() {
   listenAlong = createListenAlong({
     io,
     presence,
-    nameOf: (id) => social.nameOf(id),
+    nameOf: (id) => social!.nameOf(id), // created just above
     isApproved: (id) => userAuth.getAccount(id).then(a => !!a && a.status === 'approved').catch(() => false),
     resolveSource: createSourceResolver(dbAvailable
       ? async (url) => { const song = await library.resolveQueueUrl(url); return song ? song.id : null; }
@@ -411,7 +402,7 @@ async function start() {
     // Register the legacy yt-dlp cache into the library (idempotent). Runs in
     // the background: hashing a large cache can take a while. Library songs
     // are permanent — there is no age-based cleanup any more.
-    try { library.ensureDirs(); } catch (err) { console.error('Could not create songs dir:', err.message); }
+    try { library.ensureDirs(); } catch (err) { console.error('Could not create songs dir:', (err as Error).message); }
     library.migrateLegacyCache().catch(err => {
       console.error('Legacy cache migration failed:', err.message);
     }).then(() => library.backfillMetaKeys()).catch(err => {
@@ -427,7 +418,7 @@ async function start() {
 
   server.listen(PORT, () => {
     // The bound port: PORT=0 (tests) lets the system pick one, and this line says which.
-    const { port } = server.address();
+    const { port } = server.address() as AddressInfo;
     console.log(`Server running on port ${port}`);
     console.log(`Health check: http://localhost:${port}/health`);
     ytdlp.availableCached().catch(() => {}); // warm the /health cache
@@ -443,7 +434,7 @@ start().catch(err => {
 });
 
 // Graceful shutdown handling
-const shutdown = (signal) => {
+const shutdown = (signal: string) => {
   console.log(`\n${signal} received. Shutting down gracefully...`);
 
   const lastSeenDone = social ? social.flushLastSeen().catch(() => {}) : Promise.resolve();
@@ -463,7 +454,7 @@ const shutdown = (signal) => {
           await db.close();
           console.log('Database connection closed');
         } catch (err) {
-          console.error('Error closing database:', err.message);
+          console.error('Error closing database:', (err as Error).message);
         }
       }
 

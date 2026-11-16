@@ -2,10 +2,11 @@
   "name": "listen-along-backend",
   "version": "2.31.0",
   "description": "Backend server for listen-along - synced music listening",
-  "main": "src/index.js",
+  "type": "module",
+  "main": "src/main.ts",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node --watch --require ./src/telemetry.js src/index.js",
+    "start": "node src/main.ts",
+    "dev": "node --watch --import ./src/telemetry.ts src/main.ts",
     "test": "NODE_ENV=test node --test"
   },
   "dependencies": {

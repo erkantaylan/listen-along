@@ -28,11 +28,13 @@
  */
 'use strict';
 
-const crypto = require('node:crypto');
-const fs = require('node:fs');
-const path = require('node:path');
-const { execFileSync } = require('node:child_process');
-const { Client } = require('pg');
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import pg from 'pg';
+
+const { Client } = pg;
 
 const need = (name) => {
   const v = (process.env[name] || '').trim();

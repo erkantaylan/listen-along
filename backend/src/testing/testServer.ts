@@ -1,4 +1,4 @@
-// Helpers for tests that spawn the real server (src/index.js) as a child
+// Helpers for tests that spawn the real server (src/main.ts) as a child
 // process. Not a test file itself (the name matches none of node --test's
 // patterns).
 import { spawn } from 'node:child_process';
@@ -15,7 +15,7 @@ export const ADMIN_PASSWORD = 'test-admin-pw';
 const FRONTEND = path.join(import.meta.dirname, '..', '..', '..', 'frontend');
 
 /** The server's entry point, for tests that spawn it themselves. */
-export const SERVER_ENTRY = path.join(import.meta.dirname, '..', 'index.js');
+export const SERVER_ENTRY = path.join(import.meta.dirname, '..', 'main.ts');
 
 /**
  * A dev sign-in cookie (`la_dev_login`, auth/devLogin.ts) for users.id `userId`.
@@ -53,9 +53,9 @@ export function freePort(): Promise<number> {
 type StartError = Error & { log?: string; exitCode?: number | null };
 
 /**
- * Resolves with the port once a spawned src/index.js says it listens
+ * Resolves with the port once a spawned src/main.ts says it listens
  * ("Server running on port N", the port it actually bound); rejects with its
- * output when it exits first, cannot bind (EADDRINUSE: index.js logs an
+ * output when it exits first, cannot bind (EADDRINUSE: main.ts logs an
  * uncaught exception and stays up, not listening) or takes longer than
  * `timeoutMs`.
  */
@@ -120,7 +120,7 @@ export interface TestServer {
 type ExtraEnv = Record<string, string>;
 
 /**
- * Start src/index.js; resolves once it listens. DATABASE_URL only if given.
+ * Start src/main.ts; resolves once it listens. DATABASE_URL only if given.
  * `extraEnv` may be a function of the port (for BASE_URL in central-login tests).
  * The dev sign-in (INSECURE_DEV_LOGIN, cookieFor) is on unless `extraEnv` sets
  * OIDC_ISSUER or OIDC_CLIENT_ID: the server allows one or the other.

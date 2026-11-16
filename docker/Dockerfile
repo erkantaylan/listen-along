@@ -65,4 +65,4 @@ ENV UV_THREADPOOL_SIZE=16
 
 EXPOSE 3000
 
-CMD ["node", "src/index.js"]
+CMD ["node", "src/main.ts"]

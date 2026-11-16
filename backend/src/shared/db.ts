@@ -20,8 +20,8 @@
  * - Never rewrite users' statuses here (this runs on every boot), and never
  *   name a table chat_messages (features/social drops that one every boot).
  *
- * The module object (the default export, and what require() returns) is the
- * live one: tests replace its functions, so call them as `db.query(...)`.
+ * The module object (the default export) is the live one: tests replace its
+ * functions, so call them as `db.query(...)`.
  */
 
 import pg from 'pg';
@@ -233,6 +233,3 @@ const db: DbModule = {
 };
 
 export default db;
-// require('./shared/db.ts') from CommonJS returns this same object, not a
-// module namespace (whose properties tests could not replace).
-export { db as 'module.exports' };

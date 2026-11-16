@@ -1,5 +1,5 @@
 /**
- * The decisions behind OpenTelemetry (telemetry.js), kept pure and free of any
+ * The decisions behind OpenTelemetry (telemetry.ts), kept pure and free of any
  * @opentelemetry import so they can be tested, and so that reading them never
  * loads the SDK: when should it start, which requests are not traced at all,
  * and what may leave the process on a span.
@@ -9,31 +9,36 @@
  */
 
 /** Any one of these turns telemetry on (the per-signal ones are standard too). */
-const ENDPOINT_VARS = [
+export const ENDPOINT_VARS = [
   'OTEL_EXPORTER_OTLP_ENDPOINT',
   'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT',
   'OTEL_EXPORTER_OTLP_METRICS_ENDPOINT',
 ];
 
-const DEFAULT_SERVICE_NAME = 'listen-along';
+export const DEFAULT_SERVICE_NAME = 'listen-along';
 
 /** OTLP over HTTP only: the gRPC exporter would add @grpc/grpc-js to the image. */
 const PROTOCOLS = new Set(['http/protobuf', 'http/json']);
 
-const trimmed = (v) => (typeof v === 'string' ? v.trim() : '');
+const trimmed = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 
-function positiveInt(raw, fallback, { min = 1, max = 3_600_000 } = {}) {
+function positiveInt(raw: unknown, fallback: number, { min = 1, max = 3_600_000 }: { min?: number; max?: number } = {}): number {
   const n = Number(trimmed(raw));
   return Number.isInteger(n) && n >= min && n <= max ? n : fallback;
 }
 
-/**
- * Decide from the environment whether and how telemetry runs.
- * @returns {{ enabled: false, reason: string } | { enabled: true, protocol: string,
- *   serviceName: string, endpointOrigin: string, sampleRatio: number,
- *   traceDelayMs: number, metricIntervalMs: number }}
- */
-function telemetryConfig(env = process.env) {
+type Env = Record<string, string | undefined>;
+
+/** What telemetryConfig() decided. */
+export type TelemetryConfig =
+  | { enabled: false; reason: string; warn?: boolean }
+  | {
+    enabled: true; protocol: string; serviceName: string; endpointOrigin: string; sampleRatio: number;
+    traceDelayMs: number; metricIntervalMs: number;
+  };
+
+/** Decide from the environment whether and how telemetry runs. */
+export function telemetryConfig(env: Env = process.env): TelemetryConfig {
   const endpointVar = ENDPOINT_VARS.find((k) => trimmed(env[k]));
   if (!endpointVar) return { enabled: false, reason: 'no OTLP endpoint configured' };
   if (trimmed(env.OTEL_SDK_DISABLED).toLowerCase() === 'true') {
@@ -71,7 +76,7 @@ function telemetryConfig(env = process.env) {
  * traceidratio | parentbased_always_on | parentbased_always_off |
  * parentbased_traceidratio, OTEL_TRACES_SAMPLER_ARG = the ratio.
  */
-function sampleRatio(env = process.env) {
+export function sampleRatio(env: Env = process.env): number {
   const sampler = trimmed(env.OTEL_TRACES_SAMPLER).toLowerCase();
   if (sampler === 'always_off' || sampler === 'parentbased_always_off') return 0;
   if (sampler === 'traceidratio' || sampler === 'parentbased_traceidratio') {
@@ -81,7 +86,7 @@ function sampleRatio(env = process.env) {
   return 1;
 }
 
-// Same list as the request log in index.js: static assets are not traced.
+// Same list as the request log in app/http.ts: static assets are not traced.
 const STATIC_ASSET_RE = /\.(?:js|mjs|css|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|map|json|webmanifest|txt|html)$/i;
 
 /**
@@ -89,7 +94,7 @@ const STATIC_ASSET_RE = /\.(?:js|mjs|css|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|m
  * (Docker and the AppHost poll it), static files, and Socket.IO's own
  * long-polling transport (a request every few seconds per open page).
  */
-function ignoreIncomingPath(rawUrl) {
+export function ignoreIncomingPath(rawUrl: unknown): boolean {
   const path = String(rawUrl || '').split(/[?#]/, 1)[0];
   if (path === '/health') return true;
   if (path.startsWith('/socket.io/')) return true;
@@ -97,7 +102,7 @@ function ignoreIncomingPath(rawUrl) {
 }
 
 /** "https://u:p@host/a/b?code=x#f" -> "https://host/a/b"; anything else -> its path. */
-function stripUrl(value) {
+export function stripUrl(value: unknown): string {
   const s = String(value);
   try {
     const u = new URL(s);
@@ -108,7 +113,7 @@ function stripUrl(value) {
 }
 
 /** SQL with quoted literals blanked: parameters ($1) are kept, inlined values are not. */
-function stripSqlLiterals(sql) {
+export function stripSqlLiterals(sql: unknown): string {
   return String(sql).replace(/'(?:[^']|'')*'/g, "'?'");
 }
 
@@ -135,20 +140,21 @@ const PATH_KEYS = new Set(['http.target', 'url.path']);
 const SQL_KEYS = new Set(['db.statement', 'db.query.text']);
 
 /**
- * The attributes a span may carry out of the process.
- * @param {Record<string, unknown>} attributes
- * @param {{ server?: boolean }} [opts] server: an incoming request's span
- * @returns {Record<string, unknown>} a new object
+ * The attributes a span may carry out of the process, as a new object.
+ * `server`: an incoming request's span.
  */
-function sanitizeAttributes(attributes, { server = false } = {}) {
-  const out = {};
+export function sanitizeAttributes(
+  attributes: Record<string, unknown> | null | undefined,
+  { server = false }: { server?: boolean } = {},
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(attributes || {})) {
     if (DROP_EXACT.has(key) || DROP_PREFIXES.some((p) => key.startsWith(p))) continue;
     if (server && DROP_ON_SERVER.has(key)) continue;
     if (typeof value === 'string' && URL_KEYS.has(key)) out[key] = stripUrl(value);
     else if (typeof value === 'string' && PATH_KEYS.has(key)) out[key] = value.split(/[?#]/, 1)[0];
     else if (typeof value === 'string' && SQL_KEYS.has(key)) out[key] = stripSqlLiterals(value);
-    else if (key === 'http.route') out[key] = pickRoute(value, attributes['url.path'] ?? attributes['http.target']);
+    else if (key === 'http.route') out[key] = pickRoute(value, attributes!['url.path'] ?? attributes!['http.target']);
     else out[key] = value;
   }
   return out;
@@ -159,11 +165,11 @@ function sanitizeAttributes(attributes, { server = false } = {}) {
  * '/api/lobbies/:id'])`) reaches the span as the joined list. Keep the one the
  * request matched; a template still, never the raw path.
  */
-function pickRoute(route, path) {
+export function pickRoute(route: unknown, path: unknown): unknown {
   if (typeof route !== 'string' || !route.includes(',')) return route;
   const candidates = route.split(',').map((r) => r.trim()).filter(Boolean);
   const p = typeof path === 'string' ? path.split(/[?#]/, 1)[0] : '';
-  const matches = (template) => {
+  const matches = (template: string) => {
     const re = new RegExp(`^${template.split('/').map((seg) => (seg.startsWith(':') ? '[^/]+' : seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))).join('/')}/?$`, 'i');
     return re.test(p);
   };
@@ -171,20 +177,7 @@ function pickRoute(route, path) {
 }
 
 /** A span name never carries a query string (a client span may be named by its URL). */
-function sanitizeSpanName(name) {
+export function sanitizeSpanName(name: unknown): string {
   const s = String(name);
   return /[?#]/.test(s) ? s.split(/[?#]/, 1)[0] : s;
 }
-
-module.exports = {
-  DEFAULT_SERVICE_NAME,
-  ENDPOINT_VARS,
-  telemetryConfig,
-  sampleRatio,
-  ignoreIncomingPath,
-  sanitizeAttributes,
-  sanitizeSpanName,
-  pickRoute,
-  stripUrl,
-  stripSqlLiterals,
-};
