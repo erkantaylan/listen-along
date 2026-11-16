@@ -527,7 +527,7 @@ All requests send `Authorization: Bearer <token>`.
   input, title, request_id, requested_by, no_playlist}}`. Close codes 4001
   bad token, 4003 replaced, 4005 no database, 4010 outdated (reconnects). Full spec:
   `backend/src/core/jobs/workerHub.ts`.
-- Playlists (also at `/api/lobbies/...`; errors are `{error, code}` with code
+- Playlists (errors are `{error, code}` with code
   `NOT_FOUND`, `FORBIDDEN`, `CONFLICT`, `BAD_REQUEST`, `SONG_NOT_FOUND`):
   - `GET /api/playlists` → `{ playlists: [{id, name, visibility, ownerId, ownerName, isOwner, canManage, songCount, ...}] }`
   - `POST /api/playlists {name, visibility}` → `201` playlist
