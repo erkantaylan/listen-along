@@ -143,7 +143,14 @@ export function createAdminRouter({ db, playlist, getQueueAsync, library, settin
       stats.totalUsers += userCount;
       if (access.isPrivate(data)) { stats.privateLobbies++; continue; }
 
-      const queue = await getQueueAsync(playlistId);
+      let queue;
+      try {
+        queue = await getQueueAsync(playlistId);
+      } catch (err) {
+        // A playlist's songs could not be loaded: say so, never count them as 0.
+        console.error('Dashboard stats: a playlist could not be loaded:', (err as Error).message);
+        return res.status(503).json({ error: 'A playlist could not be loaded, try again', code: 'QUEUE_UNAVAILABLE' });
+      }
 
       stats.lobbies.push({
         id: playlistId,

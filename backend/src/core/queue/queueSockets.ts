@@ -20,6 +20,7 @@ import { cleanPicks } from '../requests/index.ts';
 import type { Resolver, SongRequest, NewRequest } from '../requests/index.ts';
 import { createSocketRateLimit } from '../../shared/memoryRateLimit.ts';
 import type { AppSocket, LibrarySongRow, Playlist } from '../../shared/types.ts';
+import { QueueUnavailableError } from './queue.ts';
 import type { Queue, QueueSong } from './queue.ts';
 
 // Songs removed from a queue in the last minute, so the remover can undo
@@ -97,6 +98,20 @@ export function createQueueSockets({ io, db, getQueueAsync, resolver, songReques
     // Per-socket rate limiting for expensive operations
     const checkSocketRateLimit = createSocketRateLimit();
 
+    // A playlist whose songs could not be loaded (the database failed) is an
+    // error, never an empty playlist: nothing is changed, the client is told.
+    // Each handler takes the client's one payload, untyped on the wire.
+    const onQueue = (event: string, handler: (payload: never) => Promise<void>) => {
+      socket.on(event, async (payload: unknown) => {
+        try {
+          await handler(payload as never);
+        } catch (err) {
+          if (!(err instanceof QueueUnavailableError)) throw err;
+          socket.emit('queue:error', { message: 'This playlist could not be loaded, try again', code: err.code });
+        }
+      });
+    };
+
     // Add song to queue. Only songs in the library can be queued; anything else
     // becomes a song request (the server never downloads) that is auto-added to
     // this playlist's queue once someone uploads it with the CLI.
@@ -105,7 +120,7 @@ export function createQueueSockets({ io, db, getQueueAsync, resolver, songReques
     // picks: YouTube video ids chosen in the web's pick dialog (POST
     // /api/jobs/picks). Those exact videos are added or requested, with no
     // search; without it everything works as before (query / url / libraryId).
-    socket.on('queue:add', async ({ lobbyId: rawId, query, url, title, libraryId, picks: rawPicks, addedBy: clientAddedBy }: QueueAddPayload = {}) => {
+    onQueue('queue:add', async ({ lobbyId: rawId, query, url, title, libraryId, picks: rawPicks, addedBy: clientAddedBy }: QueueAddPayload = {}) => {
       if (!checkSocketRateLimit()) {
         socket.emit('queue:error', { message: 'Too many requests, please slow down' });
         return;
@@ -215,7 +230,7 @@ export function createQueueSockets({ io, db, getQueueAsync, resolver, songReques
     });
 
     // Remove song from queue
-    socket.on('queue:remove', async ({ lobbyId: playlistId, songId }: QueueEditPayload = {}) => {
+    onQueue('queue:remove', async ({ lobbyId: playlistId, songId }: QueueEditPayload = {}) => {
       if (!(await editablePlaylist(playlistId))) return;
       // Found by this id: a string.
       const id = playlistId as string;
@@ -231,7 +246,7 @@ export function createQueueSockets({ io, db, getQueueAsync, resolver, songReques
     });
 
     // Undo a remove: put a song removed in the last minute back where it was.
-    socket.on('queue:restore', async ({ lobbyId: playlistId, songId }: QueueEditPayload = {}) => {
+    onQueue('queue:restore', async ({ lobbyId: playlistId, songId }: QueueEditPayload = {}) => {
       if (!(await editablePlaylist(playlistId))) return;
       const id = playlistId as string;
       const key = `${id}:${songId}`;
@@ -245,7 +260,7 @@ export function createQueueSockets({ io, db, getQueueAsync, resolver, songReques
     });
 
     // Reorder song in queue
-    socket.on('queue:reorder', async ({ lobbyId: playlistId, songId, newIndex }: QueueEditPayload = {}) => {
+    onQueue('queue:reorder', async ({ lobbyId: playlistId, songId, newIndex }: QueueEditPayload = {}) => {
       if (!(await editablePlaylist(playlistId))) return;
       const id = playlistId as string;
       const queue = await getQueueAsync(id);
@@ -257,7 +272,7 @@ export function createQueueSockets({ io, db, getQueueAsync, resolver, songReques
     });
 
     // Clear all songs from queue
-    socket.on('queue:clear', async ({ lobbyId: playlistId }: QueueEditPayload = {}) => {
+    onQueue('queue:clear', async ({ lobbyId: playlistId }: QueueEditPayload = {}) => {
       if (!(await editablePlaylist(playlistId))) return;
       const id = playlistId as string;
       const queue = await getQueueAsync(id);
@@ -266,7 +281,7 @@ export function createQueueSockets({ io, db, getQueueAsync, resolver, songReques
     });
 
     // Get current queue state
-    socket.on('queue:get', async (playlistId: unknown) => {
+    onQueue('queue:get', async (playlistId: unknown) => {
       if (!(await visiblePlaylist(playlistId))) return;
       const id = playlistId as string;
       const queue = await getQueueAsync(id);

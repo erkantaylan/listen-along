@@ -228,10 +228,20 @@ export function createPlaylistRoutes({
   }
 
   // Wrap an async route: unexpected errors become a JSON 500.
+  // A playlist's songs or the library that could not be read (the database
+  // failed) is a 503 with its code, never a list that looks complete: clients
+  // (the Android app's synced playlists) keep what they have on a 5xx.
+  const UNAVAILABLE: Record<string, string> = {
+    QUEUE_UNAVAILABLE: 'This playlist could not be loaded, try again',
+    LIBRARY_UNAVAILABLE: 'The music library could not be read, try again',
+  };
   const playlistRoute = (label: string, fn: (req: Request, res: Response) => unknown) => (req: Request, res: Response) => {
     Promise.resolve(fn(req, res)).catch((err) => {
       console.error(`Playlist ${label} error:`, err.message);
-      if (!res.headersSent) res.status(500).json({ error: `Failed to ${label}` });
+      if (res.headersSent) return;
+      const code = (err as { code?: string }).code;
+      if (code && UNAVAILABLE[code]) res.status(503).json({ error: UNAVAILABLE[code], code });
+      else res.status(500).json({ error: `Failed to ${label}` });
     });
   };
 
@@ -423,7 +433,9 @@ export function createPlaylistRoutes({
           if (row.youtube_id) byYt.set(row.youtube_id, row);
         }
       } catch (err) {
+        // Not "none of these are in the library": library_id null must mean only that.
         console.error('Playlist song lookup failed:', (err as Error).message);
+        throw Object.assign(new Error('The library lookup failed'), { code: 'LIBRARY_UNAVAILABLE', cause: err });
       }
     }
     return songs.map((s, i) => {

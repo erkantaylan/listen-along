@@ -245,32 +245,50 @@ export class Queue {
   }
 
   /**
-   * Load queue from database
+   * Load queue from database. A failed load THROWS: an empty list here would
+   * look like an empty playlist to every client, and a write on it (an add, a
+   * clear) would be written over the real one. (The artists are only shown
+   * names: their lookup failing leaves them null, as before.)
    */
   async loadFromDB(): Promise<void> {
     if (!db.isAvailable()) return;
 
+    let result;
     try {
-      const result = await db.query<QueueSongRow>(
+      result = await db.query<QueueSongRow>(
         'SELECT id, url, title, duration, added_by, thumbnail, added_at FROM queue_songs WHERE lobby_id = $1 ORDER BY sort_order',
         [this.playlistId]
       );
-
-      this.songs = result.rows.map(row => ({
-        id: row.id,
-        url: row.url,
-        title: row.title,
-        duration: parseFloat(String(row.duration)) || 0,
-        addedBy: row.added_by,
-        thumbnail: row.thumbnail,
-        addedAt: parseInt(row.added_at)
-      }));
-      await this._loadArtists();
     } catch (err) {
       console.error('Failed to load queue from DB:', (err as Error).message);
+      throw new QueueUnavailableError(this.playlistId, err);
     }
+
+    this.songs = result.rows.map(row => ({
+      id: row.id,
+      url: row.url,
+      title: row.title,
+      duration: parseFloat(String(row.duration)) || 0,
+      addedBy: row.added_by,
+      thumbnail: row.thumbnail,
+      addedAt: parseInt(row.added_at)
+    }));
+    await this._loadArtists();
   }
 }
+
+/** A playlist's songs could not be loaded (the database failed): never treat it as an empty playlist. */
+export class QueueUnavailableError extends Error {
+  code = 'QUEUE_UNAVAILABLE';
+  constructor(playlistId: string, cause: unknown) {
+    super(`Could not load the songs of playlist ${playlistId}`);
+    this.cause = cause;
+  }
+}
+
+// Loads in flight, so that concurrent first requests share one load and none
+// of them sees a queue before it is loaded.
+const loading = new Map<string, Promise<Queue>>();
 
 export function getQueue(playlistId: string): Queue {
   if (!queues.has(playlistId)) {
@@ -280,17 +298,26 @@ export function getQueue(playlistId: string): Queue {
 }
 
 /**
- * Get queue and load from database if available
+ * Get queue and load from database if available. The queue is kept only once
+ * it loaded; a failed load rejects (QueueUnavailableError) and the next call
+ * tries again. Concurrent calls share the load in flight.
  */
 export async function getQueueAsync(playlistId: string): Promise<Queue> {
-  if (!queues.has(playlistId)) {
+  const have = queues.get(playlistId);
+  if (have) return have;
+  let pending = loading.get(playlistId);
+  if (!pending) {
     const queue = new Queue(playlistId);
-    queues.set(playlistId, queue);
-
-    // Try to load from database
-    await queue.loadFromDB();
+    pending = queue.loadFromDB()
+      .then(() => {
+        // Kept only now, loaded. (A queue made meanwhile by getQueue() stays.)
+        if (!queues.has(playlistId)) queues.set(playlistId, queue);
+        return queues.get(playlistId)!;
+      })
+      .finally(() => { loading.delete(playlistId); });
+    loading.set(playlistId, pending);
   }
-  return queues.get(playlistId)!;
+  return pending;
 }
 
 export function deleteQueue(playlistId: string): boolean {
@@ -325,4 +352,5 @@ export function cleanupOrphanedQueues(validPlaylistIds: Set<string>): void {
  */
 export function forgetAll(): void {
   queues.clear();
+  loading.clear();
 }

@@ -457,7 +457,10 @@ export async function loadPlaylistsFromDB(): Promise<void> {
 
     console.log(`Loaded ${result.rows.length} lobbies from database`);
   } catch (err) {
+    // Without them the server would answer every list with no playlists: the
+    // boot stops instead (and is retried by whatever restarts it).
     console.error('Failed to load lobbies from DB:', (err as Error).message);
+    throw err;
   }
 }
 

@@ -158,7 +158,15 @@ export function createPlaylistSockets({ io, playlist, getQueueAsync, adminAuth, 
         user,
         users: playlist.getPlaylistUsers(playlistId)
       });
-      const queue = await getQueueAsync(playlistId);
+      let queue;
+      try {
+        queue = await getQueueAsync(playlistId);
+      } catch (err) {
+        // Its songs could not be loaded: an error, never an empty playlist.
+        socket.emit('lobby:error', { message: 'This playlist could not be loaded, try again', code: 'QUEUE_UNAVAILABLE' });
+        console.error(`Playlist ${playlistId}: songs not loaded:`, (err as Error).message);
+        return;
+      }
       socket.emit('queue:update', { lobbyId: playlistId, songs: queue.getSongs() });
       emitUnavailableSongs(socket, queue.getSongs());
     };

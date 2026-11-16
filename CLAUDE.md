@@ -513,6 +513,16 @@ of a fresh database and of a migrated old one.
   `frontend/src/shared/virtual-list.ts` (generic, reuse it for any long list), used by `queue.ts`; `queue-edit.ts` drags
   by arithmetic over it. Anything reading rows from the DOM sees only the window: use `shown` / `state.queue`.
   Stats are client-side over the full queue (`playlist-stats.ts`). `/:id/songs` still returns everything.
+- **A playlist that cannot be read is an error, never an empty playlist** (the Android app deletes the files of
+  songs that left a synced playlist): `core/queue/queue.ts` keeps a queue only once it loaded (`getQueueAsync`
+  shares a load in flight; a failed one throws `QueueUnavailableError`, code `QUEUE_UNAVAILABLE`, and the next call
+  loads again), so no write ever lands on a list that did not load (it used to: a clear wiped the stored songs, an
+  add took sort_order 0 next to them). The playlist routes answer 503 `{ error, code: 'QUEUE_UNAVAILABLE' }` (also
+  `GET /api/playlists`, whose song counts need every queue), the songs view 503 `LIBRARY_UNAVAILABLE` when the
+  library lookup fails (`library_id: null` only ever means "not in the library"), `/api/dashboard/stats` 503;
+  socket handlers answer `queue:error` / `lobby:error` with that code and change nothing. The playlists themselves
+  load at boot: a failure stops the boot instead of serving no playlists. Clients treat a 5xx as "keep what you
+  have". Tested in `core/queue/queueLoad.test.ts`.
 - There is no per-playlist chat. There is one global chat plus a people panel
   (web: column from 1200px, full-screen `/social` below; `#social-rail` is the opener from 1024px, DESIGN.md)
   (presence + now playing): `backend/src/features/social/`: `social.ts` (socket events, privacy),
