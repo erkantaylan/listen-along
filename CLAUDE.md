@@ -6,13 +6,17 @@
 
 The schema lives with the area that owns each table, in a `schema.ts` exporting `{ tables, migrations }`:
 `backend/src/shared/schema.ts` (`app_settings`), `auth/schema.ts` (`users`, `user_providers`, `api_tokens`,
-`user_sessions`), `core/playlists/schema.ts` (`lobbies`, `playlist_pins`, `playlist_folders`, `playlist_folder_items`), `core/queue/schema.ts` (`queue_songs`),
+`user_sessions`), `core/playlists/schema.ts` (`playlists`, `playlist_pins`, `playlist_folders`, `playlist_folder_items`), `core/queue/schema.ts` (`queue_songs`),
 `core/library/schema.ts` (`songs`, `library_songs`, `library_song_replacements`, `library_song_reports`),
 `core/requests/schema.ts` (`song_requests`), `core/jobs/schema.ts` (`download_workers`, `download_jobs`),
 `features/social/schema.ts` (`global_chat_messages`). `backend/src/shared/db.ts` runs them from ONE ordered list
 (`SCHEMA`, foreign-key order): every area's `tables`, then every area's `migrations`. A new area's file goes into
 that list after the areas whose tables it references.
 
+- `before` (rare; run before any table): renames in place, which must happen before a `CREATE TABLE IF NOT
+  EXISTS` of the new name would make an empty table. One idempotent statement each (a `DO` block: atomic, so a
+  boot that dies inside it changes nothing); each must succeed. `core/playlists` has two: the legacy-table cleanup
+  with its rollback guard, and the lobby -> playlist rename (below).
 - `tables`: `CREATE TABLE IF NOT EXISTS` only, each must succeed. Nothing else.
 - `migrations`: everything else, in the order it must run (indexes, backfills, drops, column changes). A plain
   string's error is ignored (`.catch(() => {})` as before); `{ sql, mustSucceed: true }` stops the database
@@ -28,9 +32,52 @@ decides where the column lands on existing databases):
 
 Without this, the column will exist for fresh installs but NOT for existing deployments,
 causing silent failures like "column X of relation Y does not exist". This caused #63
-where lobby persistence broke entirely on deployed instances. `backend/src/shared/db.test.ts` checks the list
-(foreign-key order, no `chat_messages`, no status rewrites); a schema change is proven by `pg_dump --schema-only`
-of a fresh database and of a migrated old one.
+where playlist persistence broke entirely on deployed instances. `backend/src/shared/db.test.ts` checks the list
+(foreign-key order, no `chat_messages`, no status rewrites, nothing drops a table named `playlists`); a schema
+change is proven by `pg_dump --schema-only` of a fresh database and of a migrated old one.
+
+### The lobby -> playlist rename (and rolling it back)
+
+The table `lobbies` became `playlists` and every `lobby_id` column (`queue_songs`, `playlist_pins`,
+`playlist_folder_items`, `song_requests`) `playlist_id`, with `lobbies_pkey`, `idx_lobbies_last_activity`, the
+`*_lobby_id_fkey` constraints and the `idx_*_lobby` indexes, renamed in place by the second `before` step of
+`core/playlists/schema.ts` (tested in `renameToPlaylists.test.ts`; a fresh database is created with the new names).
+Images from before it ran `DROP TABLE IF EXISTS playlist_songs, playlists CASCADE` on every boot (the removed
+personal-playlist feature's cleanup). That DROP is gone: the first `before` step drops only the legacy tables (a
+`playlists` without `host_id`), and leaves a VIEW named `playlist_songs` (the rollback guard): an older image's
+DROP then fails as a whole and that error is ignored, so it can never drop the renamed table. Keep the view while
+an image from before the rename may still be started against the database.
+
+**What an older image does on the renamed database**: it creates an empty `lobbies`, its DROP fails (guard), then
+its playlist index migration fails on the missing `lobby_id` column and it runs WITHOUT a database: memory only,
+and since `DATABASE_URL` is set nobody can sign in (sign-in fails closed). Nothing is deleted or changed in the
+renamed tables. **Rolling forward** again is enough: the next boot of the new image drops that empty `lobbies` (one
+with rows stops the boot instead, to be sorted out by hand). **Running the older image for real** needs the rename
+undone first, in one transaction (stop the app; then):
+
+```sql
+BEGIN;
+DROP TABLE IF EXISTS lobbies;  -- the empty one an older image made
+ALTER TABLE playlists RENAME TO lobbies;
+ALTER TABLE lobbies RENAME CONSTRAINT playlists_pkey TO lobbies_pkey;
+ALTER INDEX idx_playlists_last_activity RENAME TO idx_lobbies_last_activity;
+ALTER TABLE queue_songs RENAME COLUMN playlist_id TO lobby_id;
+ALTER TABLE queue_songs RENAME CONSTRAINT queue_songs_playlist_id_fkey TO queue_songs_lobby_id_fkey;
+ALTER INDEX idx_queue_songs_playlist RENAME TO idx_queue_songs_lobby;
+ALTER TABLE playlist_pins RENAME COLUMN playlist_id TO lobby_id;
+ALTER TABLE playlist_pins RENAME CONSTRAINT playlist_pins_playlist_id_fkey TO playlist_pins_lobby_id_fkey;
+ALTER INDEX idx_playlist_pins_playlist RENAME TO idx_playlist_pins_lobby;
+ALTER TABLE playlist_folder_items RENAME COLUMN playlist_id TO lobby_id;
+ALTER TABLE playlist_folder_items RENAME CONSTRAINT playlist_folder_items_playlist_id_fkey TO playlist_folder_items_lobby_id_fkey;
+ALTER INDEX idx_playlist_folder_items_playlist RENAME TO idx_playlist_folder_items_lobby;
+ALTER TABLE song_requests RENAME COLUMN playlist_id TO lobby_id;
+COMMIT;
+```
+
+Then the older image runs normally (the guard view stays: its DROP keeps failing harmlessly), and a later deploy of
+the new image renames again. Tested: a database filled by the release before, migrated (rows and checksums
+identical, schema equal to a fresh one), booted again (no change), started with the older image, rolled forward,
+and un-renamed with the SQL above and run by the older image.
 
 ## Deployment
 
@@ -62,7 +109,7 @@ of a fresh database and of a migrated old one.
                      cliRelease.ts (la self-update bundle), schema.ts
   core/queue/        queue.ts (a playlist's songs), queueSockets.ts (queue:*), schema.ts
   core/playlists/    playlist.ts (was lobby.js), playlistAccess.ts, playlistPins.ts, folders.ts, playlistRoutes.ts,
-                     playlistSockets.ts (lobby:*), schema.ts
+                     playlistSockets.ts (playlist:*), schema.ts
   auth/              sign-in, sessions, tokens, the guard (see "User Identity")
   features/<name>/   activity, app-release, artists, listen-along, picker, radio, social
   shared/            db.ts, types.ts, ids.ts (isUuid), logger, rateLimits, memoryRateLimit, clientIp, secretBox,
@@ -93,20 +140,20 @@ of a fresh database and of a migrated old one.
   `auth/authRoutes.ts` (the auth guard right after the static files; legacy `/api/auth/register|status`; the
   central-login / dev sign-in round trips, `/api/auth/me`, logout, `/login`, `/api/auth/providers`; it mounts
   the Android app's sign-in, `auth/mobileAuth.ts`, on its `router`),
-  `core/playlists/playlistRoutes.ts` (`/api/playlists` + `/api/lobbies`, songs included; `requireViewer`, `findVisiblePlaylist`;
+  `core/playlists/playlistRoutes.ts` (`/api/playlists`, songs included; `requireViewer`, `findVisiblePlaylist`;
   returns `ownerNames`, whose cache the socket handlers share), `core/playlists/folders.ts` (`/api/playlist-folders`, the
   user's own sidebar folders; below).
   `app/sockets.ts`: the Socket.IO server, the room names (`APP_ROOM`, `userRoom`, `sessionRoom`), the handshake
   (origin check, account, rooms), the central-login re-check of open sockets, and the connection handler: the
   connection's account helpers, then `social` / `listenAlong` `attach`, then each area's `register`, then `disconnect`.
   Socket handler modules (`create…Sockets({ deps })`, whose `register(socket, ctx)` runs per connection):
-  `core/playlists/playlistSockets.ts` (`lobby:*`, `user:update`, `listener:now-playing`; owns `visiblePlaylist` /
+  `core/playlists/playlistSockets.ts` (`playlist:*`, `user:update`, `listener:now-playing`; owns `visiblePlaylist` /
   `editablePlaylist` and hands them to the queue handlers), `core/queue/queueSockets.ts` (`queue:*`).
   `shared/memoryRateLimit.ts`: the 20/min in-memory limits (admin login, `queue:add`).
   `app/reactions.ts`: the cross-area functions (`emitJob`, `queueRequestJob`, `notifyPlaylistsChanged`, `destroyPlaylist`,
   `accountStatusChanged`, `addLibrarySongToPlaylist`, `handleLibrarySong{Added,Replaced,DetailsChanged}`,
   `rewriteQueueEntries`, …). Areas get them through their deps and never require each other
-- Domain modules: `core/playlists/playlist.ts` (the playlists in memory + table `lobbies`), `playlistAccess.ts`,
+- Domain modules: `core/playlists/playlist.ts` (the playlists in memory + table `playlists`), `playlistAccess.ts`,
   `core/queue/queue.ts`, `core/library/covers.ts`, `shared/db.ts` (pool + schema runner),
   `core/jobs/workerHub.ts` / `downloadJobs.ts` / `jobRoutes.ts` (downloaders + jobs, see below),
   `core/library/library.ts` (music library + upload validation (m4a / Ogg Opus) + legacy cache migration +
@@ -451,15 +498,20 @@ of a fresh database and of a migrated old one.
   `MOBILE_CUSTOM_SCHEME=off` here; then debug builds cannot sign in against the
   production IdP). `core/auth/AuthFlow.redirectFor` picks one; CENTRAL-LOGIN.md "The redirect".
 
-## Playlists (internally "lobbies")
+## Playlists
 
-- Users see **playlists**, and so does the code (`core/playlists/playlist.ts`, `getPlaylistAsync`,
-  `visiblePlaylist`, ...; the web's `features/playlists/playlist.ts`). The DB table (`lobbies`) and its
-  `lobby_id` columns, socket events (`lobby:*`), `lobbyId` fields, `/api/lobbies`, DOM ids (`#lobby-view`), storage
-  keys and some log lines keep the old name until they are renamed together. URLs are `/playlist/<id>`
-  and `/playlist/<id>/library`; old `/lobby/...` URLs 301 to them (and the SPA
+- Users see **playlists**, and so does everything else: the code, the table `playlists` and its `playlist_id`
+  columns, socket events (`playlist:*`), `playlistId` fields, DOM ids and storage keys (the old name "lobby" was
+  renamed everywhere; storage: "Database Migrations"). **Compatibility for one release**
+  (`backend/src/shared/legacyWire.ts`, remove it after): a tab opened before the deploy speaks `lobby:*` /
+  `lobbyId`, so the server accepts both names from clients and emits every `playlist:*` event under its old name
+  too, each payload with both `playlistId` and `lobbyId` (`queue:update` and `users:updated` too); the people
+  panel's now-playing context is the new shape only (an old tab shows no playlist link until it reloads). Tested
+  by `legacyWire.test.ts` and `core/playlists/legacyClients.test.ts`. The Android app, the CLI and the worker
+  protocol never used the old names. URLs are `/playlist/<id>`
+  and `/playlist/<id>/library`; old `/lobby/...` URLs (bookmarks) 301 to them (and the SPA
   rewrites them, `legacyRedirect` in `frontend/src/router.ts`). HTTP API:
-  `/api/playlists` (`/api/lobbies` is an alias). It also takes a CLI Bearer
+  `/api/playlists` (the `/api/lobbies` alias is gone). It also takes a CLI Bearer
   token (auth guard in auth/authRoutes.ts → `requireViewer`): the token acts as its
   owner; a legacy ownerless token sees/edits public playlists only, creates
   only ownerless (public) ones and manages nothing (`viewerCan*` in
@@ -469,7 +521,7 @@ of a fresh database and of a migrated old one.
 - Each playlist has an owner (`host_id` = `users.id`, JS `ownerId`) and
   `visibility` 'public' | 'private'. Rules live in `backend/src/core/playlists/playlistAccess.ts`:
   public = every logged-in user can see and edit (songs, pin); private =
-  owner only, and to everyone else it does not exist (404 / `lobby:not-found`,
+  owner only, and to everyone else it does not exist (404 / `playlist:not-found`,
   never 403). Only the owner renames (others get 403 on a public playlist),
   switches visibility or deletes. Ownerless (legacy) playlists are always
   public; only admins rename them (admin cookie, `canRename`) or delete them
@@ -483,13 +535,13 @@ of a fresh database and of a migrated old one.
   `pinnedAt` in playlist responses. Same 404 rule as everything else: only
   visible playlists are annotated, so a pin never reveals one that went private
   (it comes back if it goes public). A legacy token has no user: 403 on a visible
-  playlist. The older shared `lobbies.pinned` (socket `lobby:pin`, field `pinned`)
+  playlist. The older shared `playlists.pinned` (socket `playlist:pin`, field `pinned`)
   still exists on the server but the web no longer sets or shows it; the playlist
   page's pin button is the personal pin.
 - **Sidebar folders are per user** (like Spotify's; one level, no nesting): `core/playlists/folders.ts` (ESM, store +
   router, mounted by main.ts after `apiLimiter` for its path; tests `folders.test.ts`), tables `playlist_folders` (`id`
   uuid, `user_id`, `name` <= 50, `position`, `created_at`; unique `(id, user_id)`) and `playlist_folder_items`
-  (`user_id`, `lobby_id`, `folder_id`, `position`; primary key `(user_id, lobby_id)` = one folder per playlist per
+  (`user_id`, `playlist_id`, `folder_id`, `position`; primary key `(user_id, playlist_id)` = one folder per playlist per
   user; foreign key `(folder_id, user_id)` -> `playlist_folders(id, user_id)`, so a row can never point at another
   user's folder). Everything cascades from the user; items from the playlist (deleted) and the folder (deleted: the
   playlist is back at the top level, never deleted). In memory without a database (a deleted playlist's rows are
@@ -866,7 +918,7 @@ HTTP only (`http/protobuf` default, `http/json`); gRPC is refused. OpenTelemetry
   + runtime-node. No Socket.IO instrumentation.
 - Every span leaves through `SanitizingExporter` -> `telemetryRules.sanitizeAttributes` / `sanitizeSpanName`:
   drops query strings, headers, bodies, client addresses, SQL parameter values and quoted literals; a route
-  registered for several paths (`['/api/playlists/:id', '/api/lobbies/:id']`) is reduced to the one that matched
+  registered for several paths (`['/lobby/:id', '/lobby/:id/library']`, the old page URLs' redirect) is reduced to the one that matched
   (`pickRoute`; the HTTP metric keeps the joined template). Add a rule there, with a test, before recording
   anything new. `ignoreIncomingPath`: `/health`, static files, `/socket.io/`.
 - Log correlation: console methods get ` trace_id=… span_id=…` appended while a sampled span is active

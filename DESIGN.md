@@ -313,7 +313,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   chose: the chat button opens the full-screen `/social` and closes it again, and a remembered open or closed
   choice applies again from 1010px. From 1010px the right rail is on screen whenever the column is not, so chat
   and people are never hidden behind one icon.
-- Rules about what fits in the page column use `@container page (…)`: `#landing-view`, `#lobby-view`,
+- Rules about what fits in the page column use `@container page (…)`: `#landing-view`, `#playlist-view`,
   `#profile-view`, `#search-view` and `.library-page` are size containers, so a rule such as `width < 576px` fires
   in a column of 504px at 768px. `@media (width …)` is for what follows the viewport (the two columns, the
   player bar's slim form).
@@ -375,7 +375,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
     shelf of **cards** (`.playlist-card`, 10.5rem columns, 8.75rem in a column under 400px, one row that scrolls
     sideways, snap to cards, ghost ‹ › for a mouse while the row overflows): a square cover of initials, the
     name, a muted "by <owner> / shared · songs · listeners".
-  Tiles and cards are `.lobby-card` (`role="link"`, click / Enter / Space opens `/playlist/<id>`, a double-click
+  Tiles and cards are `.playlist-entry` (`role="link"`, click / Enter / Space opens `/playlist/<id>`, a double-click
   plays). Each has a ghost **quick play** button (tile: at the end; card: round, on the cover's corner) when the
   playlist has songs, shown on hover / focus and always on touch: it opens the playlist and starts it from the
   first song in the app-wide player, or resumes it; on the playlist that is playing it is **Pause**. And a ⋮
@@ -391,7 +391,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   primary "Create playlist" ("Creating…" while busy). Empty name or a server refusal about
   the name ("A playlist with that name already exists") shows in red under the field. On
   success it closes and the new playlist opens.
-- **Playlist** (`/playlist/<id>`; internally the "lobby" view): full-height column, and above the table only two rows (the
+- **Playlist** (`/playlist/<id>`; the "playlist" view): full-height column, and above the table only two rows (the
   shell's top bar with the search sits above the panel) —
   navbar (back, the playlist's cover of initials (hidden in a page column under 30rem), name, a muted `fs-xs` line with the "Private" badge (lock + text, same as the
   landing rows; nothing for public), then one truncated line of plain text (`#playlist-meta-text`): owner · the stats (see "Stats" under
@@ -404,7 +404,7 @@ Automatic widths, with nobody having touched the sidebar's toggle or dragged a c
   is one global chat (see "Chat and people panel"). Playback is the app-wide player bar, like
   every other page. The back button only navigates; it never leaves the playlist or stops
   audio. Users who may edit the playlist (public: every signed-in user; private: its owner —
-  the server sends `canEdit` with `lobby:joined`) get a grey "Edit" text button in the navbar
+  the server sends `canEdit` with `playlist:joined`) get a grey "Edit" text button in the navbar
   (solid primary "Done" while editing). Under the navbar **one toolbar** (`.queue-toolbar`): the "Filter songs…" box takes
   the width, then the sort select (at most 11rem) and the ghost download-playlist icon, and in edit mode the "Clear queue"
   danger icon button, all on one line (at 360px too). There is no add-song box, "Add songs" button or library button: songs
@@ -545,7 +545,7 @@ Two rounded panels, a gap apart (see "App shell"):
   pressed one, or All, resets. Mine is the server's `isOwner` and Public / Private its `visibility`, never a client guess.
 - **Sort** (`#plnav-sort`): the current choice + icon, `context-menu.ts` with `menuitemradio` rows (208px wide, 40px rows): **Name (A–Z)**,
   `localeCompare('tr', { numeric: true })`, and **Date created**, newest first, the default. Only what the data supports: there is
-  no "recently played", and `lobbies.last_activity` means someone joined or left, is not in the API, so no Recents.
+  no "recently played", and `playlists.last_activity` means someone joined or left, is not in the API, so no Recents.
   Filter and sort are in localStorage (`listen-sidebarFilter`, `listen-sidebarSort`), per browser.
 - **Search**: `input[type=search]`, filters as you type by name and owner, every word must match.
   i/ı/I/İ are one letter and ş/ğ/ü/ö/ç match s/g/u/o/c (`foldText`). × or Escape clears (Escape in an
@@ -596,7 +596,7 @@ Two rounded panels, a gap apart (see "App shell"):
     an insertion line. The list does not re-render under a drag.
   - **Rail**: each folder is one 2.5rem icon after Pinned (its playlists are not listed); clicking it expands the sidebar
     with that folder open and focused. **Drawer** (phones): as the expanded sidebar; the menus are bottom sheets.
-- **Double-click** (`row-double-click.ts`, mouse only): a sidebar row, a rail avatar, a landing row, Radio's row or an artist card plays, as Play does (`quickPlayLobby`,
+- **Double-click** (`row-double-click.ts`, mouse only): a sidebar row, a rail avatar, a landing row, Radio's row or an artist card plays, as Play does (`quickPlayPlaylist`,
   `playRadioFromTop`, `playArtistFromTop`): from the top, shuffle taking over after the first song; the one already playing is left alone, or resumed if paused; empty gives the usual toast. The first click opens without any delay
   and the second press is taken whole, whatever is under it by then. Row controls keep their clicks. No hint, no keyboard equivalent (Enter opens; Play is in ⋮ and on landing rows), no double tap. Rows are `user-select: none`.
 - **Live**: refetches on socket `playlists:changed`, on `queue:update`, on reconnect and every 30s.
@@ -775,7 +775,7 @@ Song lists behave like Spotify's. **Normal mode** (always the default):
   keyboard focus a play button, pause on the song sounding, whose number is an equaliser), Title with artist
   under it (+ 2.5rem thumb, status badges, per-row progress), Added by, Added (date, full time in its `title`),
   Duration, ⋮ at the far right (on hover / focus, always on touch; it keeps its place). The label row
-  `#queue-head` shares the grid and sticks to the top of `.lobby-body`; it is `aria-hidden`, the cells carry their own
+  `#queue-head` shares the grid and sticks to the top of `.playlist-body`; it is `aria-hidden`, the cells carry their own
   visually hidden labels. Columns go by **page column** width, `@container page`, never the viewport:
 
   | Page column | Columns |
@@ -815,7 +815,7 @@ A tie goes to the first in playlist order. Only `addedBy` display names, never a
 (`stats.songOne` and `stats.songMany` read the same there); numbers use the page language's grouping (2.500).
 
 **Long lists** (`virtual-list.ts`, styles `.vlist`). The playlist page holds the whole queue, because `queue:update` delivers it and
-the player, stats, Add to playlist and filter need it; only the **rows** are windowed, inside the existing `.lobby-body`
+the player, stats, Add to playlist and filter need it; only the **rows** are windowed, inside the existing `.playlist-body`
 scroller. No "load more", no pager, and the sticky head and scrollbar act as if every row were there.
 
 - Rows are exactly `--vl-row-height` (3.5rem = 56px) at every width, one fact per line and clipped, so never let a row grow.

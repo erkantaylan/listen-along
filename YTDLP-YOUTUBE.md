@@ -51,13 +51,13 @@ search, and anything not found becomes a **song request**.
    `library:<id>`, or a legacy cache URL) it is queued and played from
    `/api/stream` → the library file.
 2. If it is **not** in the library, the server records a **song request**
-   (`song_requests`: youtube_id/url/title/artist, requested_by, lobby, status)
+   (`song_requests`: youtube_id/url/title/artist, requested_by, playlist, status)
    and tells the user. Requests are listed for everyone on the Library page.
 3. The CLI polls `GET /api/requests`, downloads, and uploads with
    `POST /api/library/upload` (optionally `request_id`).
 4. The upload fulfils every pending request with that `youtube_id` (plus the
    explicit `request_id`), and the song is **automatically added to the queue of
-   each requesting lobby** (socket `request:fulfilled`, `queue:update`).
+   each requesting playlist** (socket `request:fulfilled`, `queue:update`).
 5. Requests the CLI cannot find are dismissed (`POST /api/requests/:id/dismiss`,
    also possible from `/dashboard`).
 
