@@ -78,7 +78,7 @@ export interface JobPicker {
   titles(ids: string[]): Promise<Map<string, string>>;
 }
 
-/** The playlist the routes add to or name (lobby's in-memory playlist). */
+/** The playlist the routes add to or name (the in-memory playlist). */
 export type JobPlaylist = Pick<Playlist, 'id' | 'name'>;
 
 export interface JobRouterHooks {

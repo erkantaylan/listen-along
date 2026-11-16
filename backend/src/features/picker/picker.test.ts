@@ -392,13 +392,13 @@ if (!m) {
     return new Promise((resolve, reject) => { s.on('connect', () => resolve(s)); s.on('connect_error', reject); });
   }
   const nextEvent = (s: Watched, names: string[], from = 0) => until(() => s.seen.slice(from).find(([e]) => names.includes(e)), names.join('/'));
-  async function joined(who: string, lobbyId: string) {
+  async function joined(who: string, playlistId: string) {
     const s = await socketFor(who);
-    s.emit('lobby:join', { lobbyId, username: who });
-    assert.equal((await nextEvent(s, ['lobby:joined', 'lobby:not-found', 'lobby:error']))[0], 'lobby:joined');
+    s.emit('playlist:join', { playlistId, username: who });
+    assert.equal((await nextEvent(s, ['playlist:joined', 'playlist:not-found', 'playlist:error']))[0], 'playlist:joined');
     return s;
   }
-  const requestsFor = async (lobbyId: string): Promise<Payload[]> => (await db!.query('SELECT * FROM song_requests WHERE playlist_id = $1 ORDER BY created_at', [lobbyId])).rows;
+  const requestsFor = async (playlistId: string): Promise<Payload[]> => (await db!.query('SELECT * FROM song_requests WHERE playlist_id = $1 ORDER BY created_at', [playlistId])).rows;
   const jobRows = async (where: string, params: unknown[]): Promise<Payload[]> => (await db!.query(`SELECT * FROM download_jobs WHERE ${where} ORDER BY created_at, id`, params)).rows;
   const queueOf = async (who: string, id: string): Promise<Payload[]> => (await req('GET', `/api/playlists/${id}/songs`, { cookie: cookies[who] })).body.songs;
 
@@ -683,7 +683,7 @@ globalThis.fetch = async (url, opts) => {
     it('picks: a request (and its job) for exactly the chosen video', async () => {
       const s = await joined('alice', playlists.pub);
       const from = s.seen.length;
-      s.emit('queue:add', { lobbyId: playlists.pub, picks: ['resultalph4'], title: 'Client title', query: 'ignored', addedBy: 'Mallory' });
+      s.emit('queue:add', { playlistId: playlists.pub, picks: ['resultalph4'], title: 'Client title', query: 'ignored', addedBy: 'Mallory' });
       const [, data] = await nextEvent(s, ['queue:requested', 'queue:error'], from);
       assert.equal(data.created, true, JSON.stringify(data));
       assert.equal(data.request.youtube_id, 'resultalph4');
@@ -701,7 +701,7 @@ globalThis.fetch = async (url, opts) => {
     it('picks: a video the library has is added right away', async () => {
       const s = await joined('alice', playlists.pub);
       const from = s.seen.length;
-      s.emit('queue:add', { lobbyId: playlists.pub, picks: ['inlibrary01'] });
+      s.emit('queue:add', { playlistId: playlists.pub, picks: ['inlibrary01'] });
       const [, data] = await nextEvent(s, ['queue:update', 'queue:error', 'queue:requested'], from);
       assert.equal(data.songs.length, 1, JSON.stringify(data));
       assert.equal(data.songs[0].title.startsWith('Quokka Anthem'), true);
@@ -711,7 +711,7 @@ globalThis.fetch = async (url, opts) => {
     it('picks: several are answered like a playlist link', async () => {
       const s = await joined('alice', playlists.pub);
       const from = s.seen.length;
-      s.emit('queue:add', { lobbyId: playlists.pub, picks: ['listvideo01', 'inlibrary01', 'listvideo03'] });
+      s.emit('queue:add', { playlistId: playlists.pub, picks: ['listvideo01', 'inlibrary01', 'listvideo03'] });
       const [, data] = await nextEvent(s, ['queue:adding', 'queue:error'], from);
       assert.match(data.status, /added 1 song, 2 not in the library yet \(requested\)/);
       const rows = await requestsFor(playlists.pub);
@@ -723,7 +723,7 @@ globalThis.fetch = async (url, opts) => {
     it('picks: a video with an open request in this playlist is not requested twice; another playlist gets its own', async () => {
       const s = await joined('alice', playlists.pub);
       const from = s.seen.length;
-      s.emit('queue:add', { lobbyId: playlists.pub, picks: ['resultalph4'] });
+      s.emit('queue:add', { playlistId: playlists.pub, picks: ['resultalph4'] });
       const [, data] = await nextEvent(s, ['queue:requested', 'queue:error'], from);
       assert.equal(data.created, false, JSON.stringify(data));
       assert.match(data.message, /already requested/);
@@ -735,7 +735,7 @@ globalThis.fetch = async (url, opts) => {
       assert.equal(made.status, 201, made.text);
       const p = await joined('alice', made.body.id);
       const fromP = p.seen.length;
-      p.emit('queue:add', { lobbyId: made.body.id, picks: ['resultalph4'] });
+      p.emit('queue:add', { playlistId: made.body.id, picks: ['resultalph4'] });
       const [, other] = await nextEvent(p, ['queue:requested', 'queue:error'], fromP);
       assert.equal(other.created, true);
       const theirs = (await requestsFor(made.body.id)).filter((r) => r.youtube_id === 'resultalph4');
@@ -749,7 +749,7 @@ globalThis.fetch = async (url, opts) => {
       const before = (await requestsFor(playlists.pub)).length;
       for (const bad of [[], ['short'], 'resultalph1', [watch('resultalph1')], Array.from({ length: MAX_PICKS + 1 }, (_, i) => vid(i))]) {
         const from = s.seen.length;
-        s.emit('queue:add', { lobbyId: playlists.pub, picks: bad, query: 'delta song' });
+        s.emit('queue:add', { playlistId: playlists.pub, picks: bad, query: 'delta song' });
         const [event, data] = await nextEvent(s, ['queue:error', 'queue:requested', 'queue:update'], from);
         assert.equal(event, 'queue:error', JSON.stringify(bad).slice(0, 40));
         assert.match(data.message, /selection/);
@@ -758,7 +758,7 @@ globalThis.fetch = async (url, opts) => {
 
       const bob = await socketFor('bob');
       const from = bob.seen.length;
-      bob.emit('queue:add', { lobbyId: playlists.priv, picks: ['resultalph5'] });
+      bob.emit('queue:add', { playlistId: playlists.priv, picks: ['resultalph5'] });
       const [event, data] = await nextEvent(bob, ['queue:error', 'queue:requested', 'queue:update'], from);
       assert.equal(event, 'queue:error');
       assert.equal(data.message, 'Playlist not found');
@@ -768,7 +768,7 @@ globalThis.fetch = async (url, opts) => {
     it('a Spotify album link says only track links work (not "Unsupported link")', async () => {
       const s = await joined('alice', playlists.pub);
       const from = s.seen.length;
-      s.emit('queue:add', { lobbyId: playlists.pub, query: 'https://open.spotify.com/album/4aawyAB9vmqN3uQ7FjRGTy?si=abc' });
+      s.emit('queue:add', { playlistId: playlists.pub, query: 'https://open.spotify.com/album/4aawyAB9vmqN3uQ7FjRGTy?si=abc' });
       const [event, data] = await nextEvent(s, ['queue:error', 'queue:requested', 'queue:update'], from);
       assert.equal(event, 'queue:error');
       assert.match(data.message, /^Only Spotify track links are supported/);
@@ -780,7 +780,7 @@ globalThis.fetch = async (url, opts) => {
     it('without picks: as before, the server takes the first result', async () => {
       const s = await joined('alice', playlists.pub);
       const from = s.seen.length;
-      s.emit('queue:add', { lobbyId: playlists.pub, query: 'epsilon song' });
+      s.emit('queue:add', { playlistId: playlists.pub, query: 'epsilon song' });
       const [, data] = await nextEvent(s, ['queue:requested', 'queue:error'], from);
       assert.equal(data.request.youtube_id, 'resultepsi1');
       assert.equal(data.request.title, 'Result 1 for epsilon song');
@@ -800,7 +800,7 @@ globalThis.fetch = async (url, opts) => {
       ]);
       const s = await joined('alice', playlists.pub);
       const from = s.seen.length;
-      s.emit('queue:add', { lobbyId: playlists.pub, picks: ['knownvid103', 'knownvid104'] });
+      s.emit('queue:add', { playlistId: playlists.pub, picks: ['knownvid103', 'knownvid104'] });
       const [, data] = await nextEvent(s, ['queue:adding', 'queue:error'], from);
       assert.match(data.status, /2 not in the library yet \(requested\)/);
       const rows = (await requestsFor(playlists.pub)).filter((x) => /^knownvid10[34]$/.test(x.youtube_id));

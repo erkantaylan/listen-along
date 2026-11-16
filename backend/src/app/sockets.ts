@@ -16,6 +16,7 @@ import { Server } from 'socket.io';
 import type { Server as HttpServer, IncomingHttpHeaders } from 'node:http';
 import type { CorsOptions } from 'cors';
 import { isBlocked } from '../auth/index.ts';
+import { emitPlaylistEvent } from '../shared/legacyWire.ts';
 import type { UserAuth } from '../auth/index.ts';
 import type { PlaylistSockets } from '../core/playlists/index.ts';
 import type { QueueSockets } from '../core/queue/index.ts';
@@ -166,11 +167,13 @@ export function attachSocketHandlers({ io, env, db, userAuth, oidc: OIDC, oidcSe
       const account = await currentAccount();
       return account ? cleanEmoji(account.emoji) : null;
     };
-    const refusePending = (event = 'lobby:error') => {
-      socket.emit(event, { message: 'Your account is pending approval', code: 'ACCOUNT_PENDING' });
+    const refusePending = (event?: string) => {
+      const refusal = { message: 'Your account is pending approval', code: 'ACCOUNT_PENDING' };
+      if (event) socket.emit(event, refusal);
+      else emitPlaylistEvent(socket, 'playlist:error', refusal);
     };
 
-    // lobby:create / join / view / unview / leave / pin / rename, user:update,
+    // playlist:create / join / view / unview / leave / pin / rename, user:update,
     // listener:now-playing (core/playlists). The playlist this socket is in.
     const playlist = playlistSockets.register(socket, { userId, isApproved, displayName, displayEmoji, refusePending });
 

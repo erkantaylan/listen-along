@@ -10,7 +10,7 @@
  *   GET|PUT /api/admin/settings                { registrations_open } (shared/settings.ts)
  *   PUT    /api/dashboard/users/:id/approve
  *   PUT    /api/dashboard/users/:id/reject
- *   DELETE /api/dashboard/lobbies/:id          an ownerless / public playlist
+ *   DELETE /api/dashboard/playlists/:id        an ownerless / public playlist
  *   DELETE /api/chat/messages/:id              a global chat message
  */
 
@@ -128,20 +128,20 @@ export function createAdminRouter({ db, playlist, getQueueAsync, library, settin
     // Private playlists are visible to their owner only — admins included: the
     // dashboard counts them but never lists them.
     const stats = {
-      totalLobbies: playlist.playlists.size,
-      privateLobbies: 0,
+      totalPlaylists: playlist.playlists.size,
+      privatePlaylists: 0,
       totalUsers: 0,
       uptime: process.uptime(),
       memoryUsage: process.memoryUsage(),
       diskUsage: { bytes: diskUsageBytes, fileCount: diskFileCount, unregisteredFiles: unregisteredFileCount, unregisteredBytes },
-      lobbies: [] as StatsPlaylist[]
+      playlists: [] as StatsPlaylist[]
     };
 
     for (const [playlistId, data] of playlist.playlists) {
       const users = playlist.getPlaylistUsers(playlistId);
       const userCount = users ? users.length : 0;
       stats.totalUsers += userCount;
-      if (access.isPrivate(data)) { stats.privateLobbies++; continue; }
+      if (access.isPrivate(data)) { stats.privatePlaylists++; continue; }
 
       let queue;
       try {
@@ -152,7 +152,7 @@ export function createAdminRouter({ db, playlist, getQueueAsync, library, settin
         return res.status(503).json({ error: 'A playlist could not be loaded, try again', code: 'QUEUE_UNAVAILABLE' });
       }
 
-      stats.lobbies.push({
+      stats.playlists.push({
         id: playlistId,
         name: data.name || null,
         userCount,
@@ -248,7 +248,7 @@ export function createAdminRouter({ db, playlist, getQueueAsync, library, settin
   });
 
   // Delete a playlist (dashboard only)
-  router.delete('/api/dashboard/lobbies/:id', adminAuth.requireAdmin, async (req, res) => {
+  router.delete('/api/dashboard/playlists/:id', adminAuth.requireAdmin, async (req, res) => {
     const playlistId = req.params.id;
     const data = playlist.getPlaylist(playlistId);
 
@@ -263,7 +263,7 @@ export function createAdminRouter({ db, playlist, getQueueAsync, library, settin
       return res.status(500).json({ error: 'Failed to delete playlist' });
     }
 
-    console.log(`Lobby ${playlistId} deleted via dashboard`);
+    console.log(`Playlist ${playlistId} deleted via dashboard`);
     res.json({ success: true });
   });
 

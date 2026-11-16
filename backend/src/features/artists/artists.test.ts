@@ -95,7 +95,7 @@ describe('artists: policy and presence', () => {
   });
 
   it('an artist context keeps a checked key and the name, and nothing else', () => {
-    const report = { track: { title: 'Şımarık' }, context: { type: 'artist', key: 'tarkan', name: ' Tarkan ', lobbyId: 'abc' }, playing: true };
+    const report = { track: { title: 'Şımarık' }, context: { type: 'artist', key: 'tarkan', name: ' Tarkan ', playlistId: 'abc' }, playing: true };
     assert.deepEqual(normalizeReport(report)!.context, { type: 'artist', key: 'tarkan', name: 'Tarkan' });
     assert.deepEqual(viewNowPlaying(normalizeReport(report) as NowPlayingEntry, () => null)!.context, { type: 'artist', key: 'tarkan', name: 'Tarkan' });
     for (const key of ['', 'a b', '../x', 'x'.repeat(201), 42, null]) {

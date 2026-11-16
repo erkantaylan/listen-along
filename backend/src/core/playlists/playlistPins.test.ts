@@ -190,7 +190,11 @@ describe('playlist pins on Postgres', { skip, timeout: 180_000 }, () => {
     const asAlice = { headers: { Authorization: `Bearer ${aliceToken}` } };
     assert.equal((await req('PUT', `/api/playlists/${pl.pub}/pin`, asAlice)).status, 200);
     assert.equal((await rowOf('alice', pl.pub)).pinnedByMe, true);
-    assert.equal((await req('DELETE', `/api/lobbies/${pl.pub}/pin`, asAlice)).status, 200, 'old alias');
+    // The old /api/lobbies alias is gone: not found for Alice, and not a path a CLI token works on.
+    assert.equal((await req('DELETE', `/api/lobbies/${pl.pub}/pin`, { cookie: cookies.alice })).status, 404);
+    assert.equal((await req('DELETE', `/api/lobbies/${pl.pub}/pin`, asAlice)).status, 401);
+    assert.equal((await rowOf('alice', pl.pub)).pinnedByMe, true);
+    assert.equal((await req('DELETE', `/api/playlists/${pl.pub}/pin`, asAlice)).status, 200);
     assert.equal((await rowOf('alice', pl.pub)).pinnedByMe, false);
 
     const legacy = { headers: { Authorization: `Bearer ${legacyToken}` } };

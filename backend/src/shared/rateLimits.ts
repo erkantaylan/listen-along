@@ -1,7 +1,7 @@
 /**
  * Request rate limits for the library / requests / admin HTTP API and audio
  * streaming. Deliberately generous: they exist to stop runaway clients and
- * brute force, not normal use (a lobby streams a few Range requests per song;
+ * brute force, not normal use (a playlist streams a few Range requests per song;
  * a bulk `la upload` sends one request per file).
  *
  * Keyed by client IP: req.clientIp (see clientIp.ts: the visitor behind

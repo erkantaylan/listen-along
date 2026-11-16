@@ -3,23 +3,26 @@
  * at most one playlist (listed as a listener, its now-playing shown) and may
  * *view* one other (in its room for queue updates, not listed):
  *
- *   lobby:create   { name?, visibility?, asViewer? }  -> lobby:created
- *   lobby:join     { lobbyId }                        -> lobby:joined + queue:update | lobby:not-found
- *   lobby:view     { lobbyId }                        -> lobby:joined { viewing } + queue:update | lobby:not-found
- *   lobby:unview, lobby:leave { lobbyId }
- *   user:update    (name / emoji from the account)    -> users:updated
- *   listener:now-playing { track }                    -> users:updated
- *   lobby:pin      { lobbyId, pinned }                -> lobby:pinned (the old shared flag)
- *   lobby:rename   { lobbyId, name }                  -> lobby:renamed
+ *   playlist:create   { name?, visibility?, asViewer? }  -> playlist:created
+ *   playlist:join     { playlistId }                     -> playlist:joined + queue:update | playlist:not-found
+ *   playlist:view     { playlistId }                     -> playlist:joined { viewing } + queue:update | playlist:not-found
+ *   playlist:unview, playlist:leave { playlistId }
+ *   user:update       (name / emoji from the account)    -> users:updated
+ *   listener:now-playing { track }                       -> users:updated
+ *   playlist:pin      { playlistId, pinned }             -> playlist:pinned (the old shared flag)
+ *   playlist:rename   { playlistId, name }               -> playlist:renamed
  *
- * (The events and `lobbyId`, the playlist's id, keep their old names on the wire.)
- * Private playlists are lobby:not-found to everyone but their owner
+ * For one release the names from before the rename are accepted and emitted as
+ * well: shared/legacyWire.ts.
+ * Private playlists are playlist:not-found to everyone but their owner
  * (visiblePlaylist / editablePlaylist, playlistAccess.ts); never trust an id the
  * client sends. register() returns visiblePlaylist / editablePlaylist for the
  * queue handlers and what to do on disconnect.
  */
 
 import * as access from './playlistAccess.ts';
+import { emitPlaylistEvent, onPlaylistEvent, playlistIdOf, withLegacyId } from '../../shared/legacyWire.ts';
+import type { PlaylistIdPayload } from '../../shared/legacyWire.ts';
 import type * as playlistStore from './playlist.ts';
 import type { Listener, PlaylistWithUsers } from './playlist.ts';
 import type { OwnerNames } from './playlistRoutes.ts';
@@ -39,7 +42,7 @@ export interface PlaylistSocketsDeps {
   /** queue.ts */
   getQueueAsync: (playlistId: string) => Promise<Queue>;
   adminAuth: { isAdmin(req: { headers: IncomingHttpHeaders }): boolean };
-  getSocial: () => { lobbyChanged(playlistId: string): void } | null;
+  getSocial: () => { playlistChanged(playlistId: string): void } | null;
   /** playlistRoutes' (one cache) */
   ownerNames: OwnerNames;
   notifyPlaylistsChanged: (playlist: Playlist, opts?: { everyone?: boolean }) => void;
@@ -69,8 +72,7 @@ export interface PlaylistSockets {
 }
 
 /** A client's playlist event (every field as sent). */
-interface PlaylistPayload {
-  lobbyId?: unknown;
+interface PlaylistPayload extends PlaylistIdPayload {
   username?: unknown;
   emoji?: unknown;
   name?: unknown;
@@ -88,12 +90,12 @@ export function createPlaylistSockets({ io, playlist, getQueueAsync, adminAuth, 
     Promise.resolve(playlist.leavePlaylist(playlistId, socket.id)).catch(() => {});
     socket.leave(playlistId);
     if (user) {
-      socket.to(playlistId).emit('lobby:user-left', {
-        lobbyId: playlistId,
+      emitPlaylistEvent(socket.to(playlistId), 'playlist:user-left', {
+        playlistId,
         user,
         users: playlist.getPlaylistUsers(playlistId)
       });
-      console.log(`User ${user.username} left lobby ${playlistId}`);
+      console.log(`User ${user.username} left playlist ${playlistId}`);
     }
   }
 
@@ -141,12 +143,12 @@ export function createPlaylistSockets({ io, playlist, getQueueAsync, adminAuth, 
       socket.leave(playlistId);
     };
 
-    // lobby:joined + the queue for a playlist this socket is already in.
+    // playlist:joined + the queue for a playlist this socket is already in.
     const sendPlaylistState = async (playlistId: string, { viewing = false, user = null }: { viewing?: boolean; user?: Listener | null } = {}) => {
       const data = await playlist.getPlaylistAsync(playlistId);
       const names = data ? await ownerNames([data.ownerId]) : new Map<string, string | null>();
-      socket.emit('lobby:joined', {
-        lobbyId: playlistId,
+      emitPlaylistEvent(socket, 'playlist:joined', {
+        playlistId,
         viewing,
         name: data ? data.name : null,
         pinned: data ? (data.pinned || false) : false,
@@ -163,11 +165,11 @@ export function createPlaylistSockets({ io, playlist, getQueueAsync, adminAuth, 
         queue = await getQueueAsync(playlistId);
       } catch (err) {
         // Its songs could not be loaded: an error, never an empty playlist.
-        socket.emit('lobby:error', { message: 'This playlist could not be loaded, try again', code: 'QUEUE_UNAVAILABLE' });
+        emitPlaylistEvent(socket, 'playlist:error', { message: 'This playlist could not be loaded, try again', code: 'QUEUE_UNAVAILABLE' });
         console.error(`Playlist ${playlistId}: songs not loaded:`, (err as Error).message);
         return;
       }
-      socket.emit('queue:update', { lobbyId: playlistId, songs: queue.getSongs() });
+      socket.emit('queue:update', withLegacyId({ playlistId, songs: queue.getSongs() }));
       emitUnavailableSongs(socket, queue.getSongs());
     };
 
@@ -180,23 +182,23 @@ export function createPlaylistSockets({ io, playlist, getQueueAsync, adminAuth, 
     // Create a playlist owned by this (logged-in) socket. visibility:
     // 'public' (default) or 'private'. asViewer: keep the current member playlist
     // (the one being played from) and only view the new one.
-    socket.on('lobby:create', async ({ username, emoji, name, visibility, asViewer }: PlaylistPayload = {}) => {
+    onPlaylistEvent(socket, 'playlist:create', async ({ username, emoji, name, visibility, asViewer }: PlaylistPayload = {}) => {
       if (!(await isApproved())) return refusePending();
       const shownName = await displayName(username);
       const shownEmoji = await displayEmoji(emoji);
       const vis = visibility === undefined ? 'public' : visibility;
       if (!playlist.VISIBILITIES.includes(vis as string)) {
-        socket.emit('lobby:error', { message: "Visibility must be 'public' or 'private'" });
+        emitPlaylistEvent(socket, 'playlist:error', { message: "Visibility must be 'public' or 'private'" });
         return;
       }
 
       const trimmedName = typeof name === 'string' ? name.trim() : '';
       if (trimmedName.length > 50) {
-        socket.emit('lobby:error', { message: 'Name must be 50 characters or less' });
+        emitPlaylistEvent(socket, 'playlist:error', { message: 'Name must be 50 characters or less' });
         return;
       }
       if (trimmedName && playlist.isNameTaken(trimmedName, null, visibleTo)) {
-        socket.emit('lobby:error', { message: 'A playlist with that name already exists' });
+        emitPlaylistEvent(socket, 'playlist:error', { message: 'A playlist with that name already exists' });
         return;
       }
 
@@ -216,8 +218,8 @@ export function createPlaylistSockets({ io, playlist, getQueueAsync, adminAuth, 
       socket.join(created.id);
 
       notifyPlaylistsChanged(created);
-      socket.emit('lobby:created', {
-        lobbyId: created.id,
+      emitPlaylistEvent(socket, 'playlist:created', {
+        playlistId: created.id,
         viewing: viewOnly,
         name: created.name,
         visibility: created.visibility,
@@ -233,13 +235,15 @@ export function createPlaylistSockets({ io, playlist, getQueueAsync, adminAuth, 
     });
 
     // Handle joining a playlist's room
-    socket.on('lobby:join', async ({ lobbyId: playlistId, username, emoji }: PlaylistPayload = {}) => {
+    onPlaylistEvent(socket, 'playlist:join', async (payload: PlaylistPayload = {}) => {
+      const { username, emoji } = payload;
+      const playlistId = playlistIdOf(payload);
       if (!(await isApproved())) return refusePending();
 
       // Missing and hidden (someone else's private) playlists look the same.
       const data = await visiblePlaylist(playlistId);
       if (!data) {
-        socket.emit('lobby:not-found', { lobbyId: playlistId });
+        emitPlaylistEvent(socket, 'playlist:not-found', { playlistId });
         return;
       }
       // visiblePlaylist accepts strings only.
@@ -258,15 +262,15 @@ export function createPlaylistSockets({ io, playlist, getQueueAsync, adminAuth, 
       const shownName = await displayName(username);
       const result = await playlist.joinPlaylistAsync(id, socket.id, shownName, await displayEmoji(emoji));
       if (!result) {
-        socket.emit('lobby:error', { message: 'Failed to join lobby' });
+        emitPlaylistEvent(socket, 'playlist:error', { message: 'Failed to join playlist' });
         return;
       }
       currentPlaylist = id;
 
       // Notify existing members BEFORE joining the room
       // This ensures the joining user cannot receive their own join notification
-      socket.to(id).emit('lobby:user-joined', {
-        lobbyId: id,
+      emitPlaylistEvent(socket.to(id), 'playlist:user-joined', {
+        playlistId: id,
         user: result.user,
         users: playlist.getPlaylistUsers(id)
       });
@@ -275,19 +279,20 @@ export function createPlaylistSockets({ io, playlist, getQueueAsync, adminAuth, 
       socket.join(id);
 
       // Send joined confirmation + the current queue to the user
-      console.log(`User ${shownName} joined lobby ${id}`);
+      console.log(`User ${shownName} joined playlist ${id}`);
       await sendPlaylistState(id, { user: result.user });
     });
 
     // Look at a playlist without becoming a member of it: join its room (queue,
     // listener updates; adding songs works) but stay listed in, and keep
     // now-playing in, the member playlist. Replaces any previous view.
-    socket.on('lobby:view', async ({ lobbyId: playlistId }: PlaylistPayload = {}) => {
+    onPlaylistEvent(socket, 'playlist:view', async (payload: PlaylistPayload = {}) => {
+      const playlistId = playlistIdOf(payload);
       if (!playlistId) return;
       if (!(await isApproved())) return refusePending();
       const data = await visiblePlaylist(playlistId);
       if (!data) {
-        socket.emit('lobby:not-found', { lobbyId: playlistId });
+        emitPlaylistEvent(socket, 'playlist:not-found', { playlistId });
         return;
       }
       const id = playlistId as string;
@@ -304,11 +309,12 @@ export function createPlaylistSockets({ io, playlist, getQueueAsync, adminAuth, 
       await sendPlaylistState(id, { viewing: true });
     });
 
-    socket.on('lobby:unview', () => {
+    onPlaylistEvent(socket, 'playlist:unview', () => {
       stopViewing();
     });
 
-    socket.on('lobby:leave', ({ lobbyId: playlistId }: PlaylistPayload = {}) => {
+    onPlaylistEvent(socket, 'playlist:leave', (payload: PlaylistPayload = {}) => {
+      const playlistId = playlistIdOf(payload);
       if (playlistId && playlistId === viewingPlaylist) {
         stopViewing();
         return;
@@ -324,7 +330,9 @@ export function createPlaylistSockets({ io, playlist, getQueueAsync, adminAuth, 
     // The name/emoji come from the account (the profile page saves them with
     // PUT /api/profile, then the client sends this); only without a database
     // is the client's own name taken.
-    socket.on('user:update', async ({ lobbyId: sent, username, emoji }: PlaylistPayload = {}) => {
+    socket.on('user:update', async (payload: PlaylistPayload = {}) => {
+      const { username, emoji } = payload;
+      const sent = playlistIdOf(payload);
       if (sent && sent !== currentPlaylist) return;
       const playlistId = currentPlaylist;
       if (!playlistId) return;
@@ -333,16 +341,18 @@ export function createPlaylistSockets({ io, playlist, getQueueAsync, adminAuth, 
       const user = playlist.updateUser(playlistId, socket.id, { username: await displayName(username), emoji: await displayEmoji(emoji) });
       if (user) {
         // Broadcast updated user list to all in the playlist
-        io.to(playlistId).emit('users:updated', {
-          lobbyId: playlistId,
+        io.to(playlistId).emit('users:updated', withLegacyId({
+          playlistId,
           users: playlist.getPlaylistUsers(playlistId)
-        });
+        }));
       }
     });
 
     // Report what this listener is playing (shown next to queue items). Listening
     // along with a user is features/listen-along (presence:now-playing).
-    socket.on('listener:now-playing', async ({ lobbyId: sent, track: sentTrack }: PlaylistPayload = {}) => {
+    socket.on('listener:now-playing', async (payload: PlaylistPayload = {}) => {
+      const sentTrack = payload.track;
+      const sent = playlistIdOf(payload);
       if (sent && sent !== currentPlaylist) return;
       const playlistId = currentPlaylist;
       if (!playlistId) return;
@@ -356,65 +366,69 @@ export function createPlaylistSockets({ io, playlist, getQueueAsync, adminAuth, 
       } : null;
       const user = playlist.setUserCurrentTrack(playlistId, socket.id, track);
       if (user) {
-        io.to(playlistId).emit('users:updated', {
-          lobbyId: playlistId,
+        io.to(playlistId).emit('users:updated', withLegacyId({
+          playlistId,
           users: playlist.getPlaylistUsers(playlistId)
-        });
+        }));
       }
     });
 
     // Pin/unpin a playlist (the old shared flag)
-    socket.on('lobby:pin', async ({ lobbyId: sent, pinned }: PlaylistPayload = {}) => {
+    onPlaylistEvent(socket, 'playlist:pin', async (payload: PlaylistPayload = {}) => {
+      const { pinned } = payload;
+      const sent = playlistIdOf(payload);
       const playlistId = sent || currentPlaylist;
       if (!playlistId) return;
 
       // editablePlaylist accepts only a room this socket is in (a string).
       const result = (await editablePlaylist(playlistId)) ? await playlist.pinPlaylist(playlistId as string, !!pinned) : null;
       if (!result) {
-        socket.emit('lobby:error', { message: 'Playlist not found' });
+        emitPlaylistEvent(socket, 'playlist:error', { message: 'Playlist not found' });
         return;
       }
 
       // Broadcast pin state to all users in the playlist
-      io.to(playlistId as string).emit('lobby:pinned', {
-        lobbyId: playlistId,
+      emitPlaylistEvent(io.to(playlistId as string), 'playlist:pinned', {
+        playlistId,
         pinned: !!pinned
       });
 
-      console.log(`Lobby ${playlistId} ${pinned ? 'pinned' : 'unpinned'}`)
+      console.log(`Playlist ${playlistId} ${pinned ? 'pinned' : 'unpinned'}`)
     });
 
     // Rename a playlist
-    socket.on('lobby:rename', async ({ lobbyId: sent, name }: PlaylistPayload = {}) => {
+    onPlaylistEvent(socket, 'playlist:rename', async (payload: PlaylistPayload = {}) => {
+      const { name } = payload;
+      const sent = playlistIdOf(payload);
       const playlistId = sent || currentPlaylist;
       if (!playlistId) return;
 
       const l = await editablePlaylist(playlistId);
       if (l && !access.canRename(l, userId, { admin: adminAuth.isAdmin({ headers: socket.handshake.headers }) })) {
-        socket.emit('lobby:error', { message: 'Only the owner can rename' });
+        emitPlaylistEvent(socket, 'playlist:error', { message: 'Only the owner can rename' });
         return;
       }
       // editablePlaylist found it: the id is a string.
       const result = l ? await playlist.renamePlaylist(playlistId as string, name, visibleTo) : null;
       if (!result) {
-        socket.emit('lobby:error', { message: 'Playlist not found' });
+        emitPlaylistEvent(socket, 'playlist:error', { message: 'Playlist not found' });
         return;
       }
       if (result.error !== undefined) {
-        socket.emit('lobby:error', { message: result.error });
+        emitPlaylistEvent(socket, 'playlist:error', { message: result.error });
         return;
       }
 
       // Broadcast rename to all users in the playlist
-      io.to(playlistId as string).emit('lobby:renamed', {
-        lobbyId: playlistId,
+      emitPlaylistEvent(io.to(playlistId as string), 'playlist:renamed', {
+        playlistId,
         name: result.playlist.name
       });
       const social = getSocial();
-      if (social) social.lobbyChanged(playlistId as string);
+      if (social) social.playlistChanged(playlistId as string);
       notifyPlaylistsChanged(result.playlist);
 
-      console.log(`Lobby ${playlistId} renamed to "${result.playlist.name}"`);
+      console.log(`Playlist ${playlistId} renamed to "${result.playlist.name}"`);
     });
 
     return {

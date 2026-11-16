@@ -1,7 +1,7 @@
 /**
  * Playlists over HTTP, for the web app, the CLI (`la playlist`,
  * `la download/upload --playlist`) and the Android app.
- * Mounted at /api/playlists; /api/lobbies stays as an alias for old clients.
+ * Mounted at /api/playlists.
  *
  *   GET    /api/playlists                       the playlists the caller can see
  *   POST   /api/playlists                       create { name?, visibility? }
@@ -26,6 +26,7 @@
 import express from 'express';
 import type { Request, Response, Router } from 'express';
 import * as access from './playlistAccess.ts';
+import { emitPlaylistEvent, withLegacyId } from '../../shared/legacyWire.ts';
 import type { Viewer } from './playlistAccess.ts';
 import type * as playlistStore from './playlist.ts';
 import type { PlaylistSummary, PlaylistWithUsers } from './playlist.ts';
@@ -50,7 +51,7 @@ export interface PlaylistRoutesDeps {
   playlistPins: typeof pinStore;
   userAuth: Pick<UserAuth, 'userIdFor' | 'getAccount'>;
   adminAuth: { isAdmin(req: Request): boolean };
-  getSocial: () => { lobbyChanged(playlistId: string): void } | null;
+  getSocial: () => { playlistChanged(playlistId: string): void } | null;
   /** the Socket.IO room of one account */
   userRoom: (userId: string) => string;
   notifyPlaylistsChanged: (playlist: Playlist, opts?: { everyone?: boolean }) => void;
@@ -68,7 +69,7 @@ export interface PlaylistInfo {
   isOwner: boolean;
   canManage: boolean;
   canEdit: boolean;
-  /** the old shared flag (lobby:pin) */
+  /** the old shared flag (playlist:pin) */
   pinned: boolean;
   /** the viewer's own pin */
   pinnedByMe: boolean;
@@ -105,8 +106,7 @@ export function createPlaylistRoutes({
 }: PlaylistRoutesDeps): { router: Router; ownerNames: OwnerNames } {
   const router = express.Router();
 
-  const PLAYLIST_BASES = ['/api/playlists', '/api/lobbies'];
-  const playlistPaths = (suffix = '') => PLAYLIST_BASES.map(b => b + suffix);
+  const playlistPaths = (suffix = '') => '/api/playlists' + suffix;
 
   // Owner display names (users.display_name / name), cached briefly.
   const ownerNameCache = new Map<string, { name: string | null; at: number }>(); // userId -> { name, at }
@@ -138,7 +138,7 @@ export function createPlaylistRoutes({
   };
 
   // What a user sees about a playlist they are allowed to see.
-  // `pinned` is the old shared flag (lobby:pin); `pinnedByMe` the viewer's own pin.
+  // `pinned` is the old shared flag (playlist:pin); `pinnedByMe` the viewer's own pin.
   async function playlistInfo(
     l: Playlist & { users?: Map<string, unknown>; userCount?: number }, userId: string | null,
     names: Map<string, string | null> | null = null, pins: Map<string, number> | null = null,
@@ -169,8 +169,8 @@ export function createPlaylistRoutes({
     const l = await playlist.getPlaylistAsync(playlistId);
     if (!l) return;
     const names = await ownerNames([l.ownerId]);
-    io.to(playlistId).emit('lobby:updated', {
-      lobbyId: playlistId,
+    emitPlaylistEvent(io.to(playlistId), 'playlist:updated', {
+      playlistId,
       name: l.name || null,
       visibility: l.visibility,
       ownerId: l.ownerId || null,
@@ -186,7 +186,7 @@ export function createPlaylistRoutes({
     for (const socketId of [...room]) {
       const s = io.sockets.sockets.get(socketId);
       if (!s || (ownerId && s.data.userId === ownerId)) continue;
-      s.emit('lobby:closed', { lobbyId: playlistId, message: 'This playlist is no longer available.' });
+      emitPlaylistEvent(s, 'playlist:closed', { playlistId, message: 'This playlist is no longer available.' });
       if (s.data.evict) s.data.evict(playlistId);
       else s.leave(playlistId);
     }
@@ -253,8 +253,7 @@ export function createPlaylistRoutes({
     const names = await ownerNames(visible.map(l => l.ownerId));
     const pins = await playlistPins.pinsForUser(viewer.userId);
     const playlists = await Promise.all(visible.map(l => playlistInfo(l, viewer.userId, names, pins)));
-    // `lobbies` is the old key, kept for older clients.
-    res.json({ playlists, lobbies: playlists });
+    res.json({ playlists });
   }));
 
   // Create a playlist owned by the caller. Body: { name?, visibility? }.
@@ -328,11 +327,11 @@ export function createPlaylistRoutes({
     }
     await broadcastPlaylistUpdated(l.id);
     const social = getSocial();
-    if (social) social.lobbyChanged(l.id);
+    if (social) social.playlistChanged(l.id);
     if (name !== undefined) {
       // It was just found and renamed.
       const fresh = (await playlist.getPlaylistAsync(l.id))!;
-      io.to(l.id).emit('lobby:renamed', { lobbyId: l.id, name: fresh.name });
+      emitPlaylistEvent(io.to(l.id), 'playlist:renamed', { playlistId: l.id, name: fresh.name });
     }
     // It was just found.
     const fresh = (await playlist.getPlaylistAsync(l.id))!;
@@ -387,7 +386,7 @@ export function createPlaylistRoutes({
   router.delete(playlistPaths('/:id/pin'), playlistRoute('unpin playlist', (req, res) => setPlaylistPin(req, res, false)));
 
   // Delete as the owner. Ownerless playlists can only be deleted by an admin
-  // (DELETE /api/dashboard/lobbies/:id).
+  // (DELETE /api/dashboard/playlists/:id).
   router.delete(playlistPaths('/:id'), playlistRoute('delete playlist', async (req, res) => {
     const viewer = await requireViewer(req, res);
     if (!viewer) return;
@@ -525,7 +524,7 @@ export function createPlaylistRoutes({
     const queue = await getQueueAsync(l.id);
     const added = results.filter(r => r.status === 'added').length;
     if (added) {
-      io.to(l.id).emit('queue:update', { lobbyId: l.id, songs: queue.getSongs() });
+      io.to(l.id).emit('queue:update', withLegacyId({ playlistId: l.id, songs: queue.getSongs() }));
       console.log(`${added} song(s) added to playlist ${l.id} over the API by ${addedBy}`);
     }
     await queue.flush(); // persisted before we answer
@@ -562,7 +561,7 @@ export function createPlaylistRoutes({
       const r = queue.removeSong(t.id);
       if (r) removed.push({ entry_id: r.id, title: r.title, url: r.url });
     }
-    io.to(l.id).emit('queue:update', { lobbyId: l.id, songs: queue.getSongs() });
+    io.to(l.id).emit('queue:update', withLegacyId({ playlistId: l.id, songs: queue.getSongs() }));
     await queue.flush();
     res.json({ playlist_id: l.id, removed, song_count: queue.getSongs().length });
   }));
@@ -583,7 +582,7 @@ export function createPlaylistRoutes({
       return res.status(400).json({ error: `position must be between 1 and ${queue.getSongs().length}`, code: 'BAD_REQUEST' });
     }
     queue.reorderSong(req.params.entryId, index);
-    io.to(l.id).emit('queue:update', { lobbyId: l.id, songs: queue.getSongs() });
+    io.to(l.id).emit('queue:update', withLegacyId({ playlistId: l.id, songs: queue.getSongs() }));
     await queue.flush();
     res.json({ playlist_id: l.id, songs: await playlistSongViews(queue.getSongs()) });
   }));

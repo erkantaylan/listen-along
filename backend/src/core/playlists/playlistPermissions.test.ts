@@ -202,16 +202,15 @@ describe('playlist permissions against a running server', { timeout: 60_000 }, (
     const alice = await api('GET', '/api/playlists', { user: ALICE });
     assert.ok(alice.body.playlists.map((p: Payload) => p.id).includes(privId));
 
-    // The old /api/lobbies path is an alias with the same filtering.
-    const legacy = await api('GET', '/api/lobbies', { user: BOB });
-    assert.ok(!legacy.body.lobbies.map((p: Payload) => p.id).includes(privId));
+    // The old /api/lobbies alias is gone.
+    assert.equal((await api('GET', '/api/lobbies', { user: BOB })).status, 404);
   });
 
   it("treats someone else's private playlist as not found on every route", async () => {
     assert.equal((await api('GET', `/api/playlists/${privId}`, { user: BOB })).status, 404);
     assert.equal((await api('PATCH', `/api/playlists/${privId}`, { user: BOB, body: { name: 'Hijack' } })).status, 404);
     assert.equal((await api('PATCH', `/api/playlists/${privId}`, { user: BOB, body: { visibility: 'public' } })).status, 404);
-    assert.equal((await api('PATCH', `/api/lobbies/${privId}/visibility`, { user: BOB, body: { is_public: true } })).status, 404);
+    assert.equal((await api('PATCH', `/api/playlists/${privId}/visibility`, { user: BOB, body: { is_public: true } })).status, 404);
     assert.equal((await api('DELETE', `/api/playlists/${privId}`, { user: BOB })).status, 404);
     // Same answer as for an id that does not exist at all.
     assert.equal((await api('GET', '/api/playlists/nope0000', { user: BOB })).status, 404);
@@ -235,17 +234,17 @@ describe('playlist permissions against a running server', { timeout: 60_000 }, (
 
   it('socket: a private playlist cannot be joined, viewed, read or edited by others', async () => {
     const bob = await connect(BOB);
-    bob.emit('lobby:join', { lobbyId: privId, username: 'Bob' });
-    assert.equal((await waitFor(bob, ['lobby:not-found', 'lobby:joined']))[0], 'lobby:not-found');
-    bob.emit('lobby:view', { lobbyId: privId });
-    assert.equal((await waitFor(bob, ['lobby:not-found', 'lobby:joined']))[0], 'lobby:not-found');
+    bob.emit('playlist:join', { playlistId: privId, username: 'Bob' });
+    assert.equal((await waitFor(bob, ['playlist:not-found', 'playlist:joined']))[0], 'playlist:not-found');
+    bob.emit('playlist:view', { playlistId: privId });
+    assert.equal((await waitFor(bob, ['playlist:not-found', 'playlist:joined']))[0], 'playlist:not-found');
     bob.emit('queue:get', privId);
     assert.equal((await waitFor(bob, ['queue:update'], 500))[0], 'timeout');
-    bob.emit('lobby:rename', { lobbyId: privId, name: 'Hijack' });
-    assert.equal((await waitFor(bob, ['lobby:error', 'lobby:renamed']))[0], 'lobby:error');
-    bob.emit('queue:clear', { lobbyId: privId });
-    bob.emit('lobby:pin', { lobbyId: privId, pinned: true });
-    assert.equal((await waitFor(bob, ['lobby:error', 'lobby:pinned']))[0], 'lobby:error');
+    bob.emit('playlist:rename', { playlistId: privId, name: 'Hijack' });
+    assert.equal((await waitFor(bob, ['playlist:error', 'playlist:renamed']))[0], 'playlist:error');
+    bob.emit('queue:clear', { playlistId: privId });
+    bob.emit('playlist:pin', { playlistId: privId, pinned: true });
+    assert.equal((await waitFor(bob, ['playlist:error', 'playlist:pinned']))[0], 'playlist:error');
     const alice = await api('GET', `/api/playlists/${privId}`, { user: ALICE });
     assert.equal(alice.body.name, 'Alice Secret');
     assert.equal(alice.body.pinned, false);
@@ -253,9 +252,9 @@ describe('playlist permissions against a running server', { timeout: 60_000 }, (
 
   it('socket: the owner joins their private playlist and learns it is theirs', async () => {
     const alice = await connect(ALICE);
-    alice.emit('lobby:join', { lobbyId: privId, username: 'Alice' });
-    const [event, data] = await waitFor(alice, ['lobby:joined', 'lobby:not-found']);
-    assert.equal(event, 'lobby:joined');
+    alice.emit('playlist:join', { playlistId: privId, username: 'Alice' });
+    const [event, data] = await waitFor(alice, ['playlist:joined', 'playlist:not-found']);
+    assert.equal(event, 'playlist:joined');
     assert.equal(data.visibility, 'private');
     assert.equal(data.isOwner, true);
     alice.disconnect();
@@ -267,40 +266,40 @@ describe('playlist permissions against a running server', { timeout: 60_000 }, (
 
   it('socket: creating a private playlist makes the creator its owner', async () => {
     const alice = await connect(ALICE);
-    alice.emit('lobby:create', { name: 'Made over socket', visibility: 'private', username: 'Alice' });
-    const [event, data] = await waitFor(alice, ['lobby:created', 'lobby:error']);
-    assert.equal(event, 'lobby:created');
+    alice.emit('playlist:create', { name: 'Made over socket', visibility: 'private', username: 'Alice' });
+    const [event, data] = await waitFor(alice, ['playlist:created', 'playlist:error']);
+    assert.equal(event, 'playlist:created');
     assert.equal(data.visibility, 'private');
     assert.equal(data.ownerId, ALICE);
     const bobList = await api('GET', '/api/playlists', { user: BOB });
-    assert.ok(!bobList.body.playlists.some((p: Payload) => p.id === data.lobbyId));
+    assert.ok(!bobList.body.playlists.some((p: Payload) => p.id === data.playlistId));
     alice.disconnect();
   });
 
   it('socket: going private evicts other users who had the playlist open', async () => {
     const bob = await connect(BOB);
-    bob.emit('lobby:join', { lobbyId: pubId, username: 'Bob' });
-    assert.equal((await waitFor(bob, ['lobby:joined']))[0], 'lobby:joined');
-    bob.emit('lobby:rename', { lobbyId: pubId, name: 'Bob was here' });
-    const [ev, data] = await waitFor(bob, ['lobby:renamed', 'lobby:error']);
-    assert.equal(ev, 'lobby:error');
+    bob.emit('playlist:join', { playlistId: pubId, username: 'Bob' });
+    assert.equal((await waitFor(bob, ['playlist:joined']))[0], 'playlist:joined');
+    bob.emit('playlist:rename', { playlistId: pubId, name: 'Bob was here' });
+    const [ev, data] = await waitFor(bob, ['playlist:renamed', 'playlist:error']);
+    assert.equal(ev, 'playlist:error');
     assert.equal(data.message, 'Only the owner can rename');
     const alice = await connect(ALICE);
-    alice.emit('lobby:join', { lobbyId: pubId, username: 'Alice' });
-    assert.equal((await waitFor(alice, ['lobby:joined']))[0], 'lobby:joined');
-    alice.emit('lobby:rename', { lobbyId: pubId, name: 'Alice socket name' });
-    assert.equal((await waitFor(alice, ['lobby:renamed', 'lobby:error']))[0], 'lobby:renamed');
+    alice.emit('playlist:join', { playlistId: pubId, username: 'Alice' });
+    assert.equal((await waitFor(alice, ['playlist:joined']))[0], 'playlist:joined');
+    alice.emit('playlist:rename', { playlistId: pubId, name: 'Alice socket name' });
+    assert.equal((await waitFor(alice, ['playlist:renamed', 'playlist:error']))[0], 'playlist:renamed');
     alice.disconnect();
 
-    const closed = waitFor(bob, ['lobby:closed']);
+    const closed = waitFor(bob, ['playlist:closed']);
     const res = await api('PATCH', `/api/playlists/${pubId}`, { user: ALICE, body: { visibility: 'private' } });
     assert.equal(res.status, 200);
     assert.equal(res.body.visibility, 'private');
-    assert.equal((await closed)[0], 'lobby:closed');
+    assert.equal((await closed)[0], 'playlist:closed');
 
     // Bob is out of the room: no more edits, no more updates.
-    bob.emit('lobby:rename', { lobbyId: pubId, name: 'Still here?' });
-    assert.equal((await waitFor(bob, ['lobby:error', 'lobby:renamed']))[0], 'lobby:error');
+    bob.emit('playlist:rename', { playlistId: pubId, name: 'Still here?' });
+    assert.equal((await waitFor(bob, ['playlist:error', 'playlist:renamed']))[0], 'playlist:error');
     assert.equal((await api('GET', `/api/playlists/${pubId}`, { user: BOB })).status, 404);
 
     // And back to public: visible again.

@@ -368,12 +368,12 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
 
   describe('requests lifecycle', () => {
     it('creates, dedupes per playlist, lists and validates status', async () => {
-      const a = await requests.createRequest({ youtubeId: 'CCCCCCCCCCC', url: 'https://www.youtube.com/watch?v=CCCCCCCCCCC', title: 'Wanted', requestedBy: 'Bob', requestedById: 'user_bob', playlistId: 'lobby001' });
+      const a = await requests.createRequest({ youtubeId: 'CCCCCCCCCCC', url: 'https://www.youtube.com/watch?v=CCCCCCCCCCC', title: 'Wanted', requestedBy: 'Bob', requestedById: 'user_bob', playlistId: 'plist001' });
       assert.equal(a.created, true);
-      const again = await requests.createRequest({ youtubeId: 'CCCCCCCCCCC', requestedBy: 'Bob', playlistId: 'lobby001' });
+      const again = await requests.createRequest({ youtubeId: 'CCCCCCCCCCC', requestedBy: 'Bob', playlistId: 'plist001' });
       assert.equal(again.created, false);
       assert.equal(again.request.id, a.request.id);
-      const other = await requests.createRequest({ youtubeId: 'CCCCCCCCCCC', requestedBy: 'Carol', playlistId: 'lobby002' });
+      const other = await requests.createRequest({ youtubeId: 'CCCCCCCCCCC', requestedBy: 'Carol', playlistId: 'plist002' });
       assert.equal(other.created, true);
 
       const list = await getJson('/api/requests');
@@ -391,7 +391,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
       assert.equal(r.status, 201);
       assert.equal(r.body.fulfilled_requests.length, 2);
       assert.equal(hookCalls.length, 1);
-      assert.deepEqual(hookCalls[0].fulfilled.map((x: Payload) => x.lobby_id).sort(), ['lobby001', 'lobby002']);
+      assert.deepEqual(hookCalls[0].fulfilled.map((x: Payload) => x.playlist_id).sort(), ['plist001', 'plist002']);
       const fulfilled = await getJson('/api/requests?status=fulfilled');
       assert.equal(fulfilled.body.requests.length, 2);
       assert.ok(fulfilled.body.requests.every((x: Payload) => x.song_id === r.body.song.id));
@@ -399,7 +399,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
     });
 
     it('request_id fulfils a text-only request', async () => {
-      const { request } = await requests.createRequest({ title: 'Some obscure tune', requestedBy: 'Dan', playlistId: 'lobby003' });
+      const { request } = await requests.createRequest({ title: 'Some obscure tune', requestedBy: 'Dan', playlistId: 'plist003' });
       const r = await upload(fx.d, { title: 'Obscure Tune', artist: 'Nobody', request_id: request.id });
       assert.equal(r.status, 201);
       assert.deepEqual(r.body.fulfilled_requests, [request.id]);
@@ -409,10 +409,10 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
 
     it('a 409 duplicate upload still fulfils request_id and youtube_id matches (CLI fulfil flow)', async () => {
       hookCalls.length = 0;
-      const byId = await requests.createRequest({ title: 'Song A again', requestedBy: 'Eve', playlistId: 'lobby004' });
-      const byYt = await requests.createRequest({ youtubeId: 'AAAAAAAAAAA', requestedBy: 'Fay', playlistId: 'lobby005' });
+      const byId = await requests.createRequest({ title: 'Song A again', requestedBy: 'Eve', playlistId: 'plist004' });
+      const byYt = await requests.createRequest({ youtubeId: 'AAAAAAAAAAA', requestedBy: 'Fay', playlistId: 'plist005' });
       // same bytes as Song A, uploader claims a different (unknown) youtube_id + the request id
-      const byYt2 = await requests.createRequest({ youtubeId: 'ZZZZZZZZZZZ', requestedBy: 'Gus', playlistId: 'lobby006' });
+      const byYt2 = await requests.createRequest({ youtubeId: 'ZZZZZZZZZZZ', requestedBy: 'Gus', playlistId: 'plist006' });
       const r = await upload(fx.a, { title: 'Song A', artist: 'Artist', youtube_id: 'ZZZZZZZZZZZ', request_id: byId.request.id });
       assert.equal(r.status, 409);
       const all = (await getJson('/api/requests?status=all')).body.requests;
@@ -424,7 +424,7 @@ describe('Library API', { skip: skipReason, timeout: 180_000 }, () => {
     });
 
     it('dismiss needs a token, 404s unknown ids, and marks dismissed', async () => {
-      const { request } = await requests.createRequest({ youtubeId: 'DDDDDDDDDDD', requestedBy: 'Bob', playlistId: 'lobby001' });
+      const { request } = await requests.createRequest({ youtubeId: 'DDDDDDDDDDD', requestedBy: 'Bob', playlistId: 'plist001' });
       const noAuth = await fetch(`${base}/api/requests/${request.id}/dismiss`, { method: 'POST' });
       assert.equal(noAuth.status, 401);
       const unknown = await fetch(`${base}/api/requests/00000000-0000-4000-8000-000000000000/dismiss`, { method: 'POST', headers: auth() });

@@ -13,7 +13,7 @@ const ADMIN_APIS = [
   ['GET', '/api/admin/tokens'], ['POST', '/api/admin/tokens/x/revoke'],
   ['POST', '/api/admin/library/reports/1/dismiss'], ['POST', '/api/admin/library/x/reports/dismiss'], ['DELETE', '/api/admin/library/x'],
   ['GET', '/api/dashboard/stats'], ['GET', '/api/dashboard/users'],
-  ['PUT', '/api/dashboard/users/x/approve'], ['PUT', '/api/dashboard/users/x/reject'], ['DELETE', '/api/dashboard/lobbies/x'],
+  ['PUT', '/api/dashboard/users/x/approve'], ['PUT', '/api/dashboard/users/x/reject'], ['DELETE', '/api/dashboard/playlists/x'],
 ];
 
 describe('dashboard with admin enabled', () => {

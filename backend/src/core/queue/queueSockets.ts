@@ -1,15 +1,16 @@
 /**
  * A playlist's queue over Socket.IO (the web app):
  *
- *   queue:add       { lobbyId, query?, url?, title?, libraryId?, picks?, addedBy? }
+ *   queue:add       { playlistId, query?, url?, title?, libraryId?, picks?, addedBy? }
  *                   -> queue:adding / queue:requested / queue:error, queue:update to the room
- *   queue:remove    { lobbyId, songId }      (undo within a minute: queue:restore)
- *   queue:restore   { lobbyId, songId }
- *   queue:reorder   { lobbyId, songId, newIndex }
- *   queue:clear     { lobbyId }
- *   queue:get       lobbyId                   -> queue:update to this socket
+ *   queue:remove    { playlistId, songId }      (undo within a minute: queue:restore)
+ *   queue:restore   { playlistId, songId }
+ *   queue:reorder   { playlistId, songId, newIndex }
+ *   queue:clear     { playlistId }
+ *   queue:get       playlistId                   -> queue:update to this socket
  *
- * (`lobbyId` is the playlist's id: the wire keeps the old name.)
+ * For one release the id is also read from, and queue:update also carries,
+ * its name from before the rename (shared/legacyWire.ts).
  * Changes need editablePlaylist (the socket is in the playlist's room and may
  * edit it); queue:get needs visiblePlaylist. Both come from the playlist socket
  * handlers' per-connection context, so a hidden playlist looks missing.
@@ -17,6 +18,8 @@
  */
 
 import { cleanPicks } from '../requests/index.ts';
+import { playlistIdOf, withLegacyId } from '../../shared/legacyWire.ts';
+import type { PlaylistIdPayload } from '../../shared/legacyWire.ts';
 import type { Resolver, SongRequest, NewRequest } from '../requests/index.ts';
 import { createSocketRateLimit } from '../../shared/memoryRateLimit.ts';
 import type { AppSocket, LibrarySongRow, Playlist } from '../../shared/types.ts';
@@ -62,8 +65,7 @@ export interface QueueSocketContext {
 }
 
 /** queue:add (every field as the client sent it). */
-interface QueueAddPayload {
-  lobbyId?: unknown;
+interface QueueAddPayload extends PlaylistIdPayload {
   query?: unknown;
   url?: unknown;
   title?: unknown;
@@ -73,8 +75,7 @@ interface QueueAddPayload {
 }
 
 /** queue:remove / restore / reorder / clear. */
-interface QueueEditPayload {
-  lobbyId?: unknown;
+interface QueueEditPayload extends PlaylistIdPayload {
   songId?: unknown;
   newIndex?: unknown;
 }
@@ -120,7 +121,9 @@ export function createQueueSockets({ io, db, getQueueAsync, resolver, songReques
     // picks: YouTube video ids chosen in the web's pick dialog (POST
     // /api/jobs/picks). Those exact videos are added or requested, with no
     // search; without it everything works as before (query / url / libraryId).
-    onQueue('queue:add', async ({ lobbyId: rawId, query, url, title, libraryId, picks: rawPicks, addedBy: clientAddedBy }: QueueAddPayload = {}) => {
+    onQueue('queue:add', async (payload: QueueAddPayload = {}) => {
+      const { query, url, title, libraryId, picks: rawPicks, addedBy: clientAddedBy } = payload;
+      const rawId = playlistIdOf(payload);
       if (!checkSocketRateLimit()) {
         socket.emit('queue:error', { message: 'Too many requests, please slow down' });
         return;
@@ -174,9 +177,9 @@ export function createQueueSockets({ io, db, getQueueAsync, resolver, songReques
           socket.emit('queue:error', { message: 'Already in the queue', libraryId });
           return;
         }
-        console.log(`Song added to lobby ${playlistId}: ${song.title}`);
+        console.log(`Song added to playlist ${playlistId}: ${song.title}`);
         const queue = await getQueueAsync(playlistId);
-        io.to(playlistId).emit('queue:update', { lobbyId: playlistId, songs: queue.getSongs() });
+        io.to(playlistId).emit('queue:update', withLegacyId({ playlistId, songs: queue.getSongs() }));
         return;
       }
 
@@ -219,7 +222,7 @@ export function createQueueSockets({ io, db, getQueueAsync, resolver, songReques
         }
       }
       const queue = await getQueueAsync(playlistId);
-      io.to(playlistId).emit('queue:update', { lobbyId: playlistId, songs: queue.getSongs() });
+      io.to(playlistId).emit('queue:update', withLegacyId({ playlistId, songs: queue.getSongs() }));
       if (requested) io.to(APP_ROOM).emit('requests:updated');
       const capped = result.total > result.items.length ? ` (first ${result.items.length} of ${result.total})` : '';
       const notInLibrary = result.items.length - added;
@@ -230,7 +233,9 @@ export function createQueueSockets({ io, db, getQueueAsync, resolver, songReques
     });
 
     // Remove song from queue
-    onQueue('queue:remove', async ({ lobbyId: playlistId, songId }: QueueEditPayload = {}) => {
+    onQueue('queue:remove', async (payload: QueueEditPayload = {}) => {
+      const { songId } = payload;
+      const playlistId = playlistIdOf(payload);
       if (!(await editablePlaylist(playlistId))) return;
       // Found by this id: a string.
       const id = playlistId as string;
@@ -240,13 +245,15 @@ export function createQueueSockets({ io, db, getQueueAsync, resolver, songReques
       const removed = queue.removeSong(songId);
       if (removed) {
         stashRemovedSong(id, removed, index);
-        console.log(`Song removed from lobby ${id}: ${removed.title}`);
-        io.to(id).emit('queue:update', { lobbyId: id, songs: queue.getSongs() });
+        console.log(`Song removed from playlist ${id}: ${removed.title}`);
+        io.to(id).emit('queue:update', withLegacyId({ playlistId: id, songs: queue.getSongs() }));
       }
     });
 
     // Undo a remove: put a song removed in the last minute back where it was.
-    onQueue('queue:restore', async ({ lobbyId: playlistId, songId }: QueueEditPayload = {}) => {
+    onQueue('queue:restore', async (payload: QueueEditPayload = {}) => {
+      const { songId } = payload;
+      const playlistId = playlistIdOf(payload);
       if (!(await editablePlaylist(playlistId))) return;
       const id = playlistId as string;
       const key = `${id}:${songId}`;
@@ -255,29 +262,32 @@ export function createQueueSockets({ io, db, getQueueAsync, resolver, songReques
       removedSongs.delete(key);
       const queue = await getQueueAsync(id);
       if (queue.insertSong(stashed.song, stashed.index)) {
-        io.to(id).emit('queue:update', { lobbyId: id, songs: queue.getSongs() });
+        io.to(id).emit('queue:update', withLegacyId({ playlistId: id, songs: queue.getSongs() }));
       }
     });
 
     // Reorder song in queue
-    onQueue('queue:reorder', async ({ lobbyId: playlistId, songId, newIndex }: QueueEditPayload = {}) => {
+    onQueue('queue:reorder', async (payload: QueueEditPayload = {}) => {
+      const { songId, newIndex } = payload;
+      const playlistId = playlistIdOf(payload);
       if (!(await editablePlaylist(playlistId))) return;
       const id = playlistId as string;
       const queue = await getQueueAsync(id);
       const success = queue.reorderSong(songId, newIndex);
       if (success) {
-        console.log(`Song reordered in lobby ${id}: moved to position ${newIndex}`);
-        io.to(id).emit('queue:update', { lobbyId: id, songs: queue.getSongs() });
+        console.log(`Song reordered in playlist ${id}: moved to position ${newIndex}`);
+        io.to(id).emit('queue:update', withLegacyId({ playlistId: id, songs: queue.getSongs() }));
       }
     });
 
     // Clear all songs from queue
-    onQueue('queue:clear', async ({ lobbyId: playlistId }: QueueEditPayload = {}) => {
+    onQueue('queue:clear', async (payload: QueueEditPayload = {}) => {
+      const playlistId = playlistIdOf(payload);
       if (!(await editablePlaylist(playlistId))) return;
       const id = playlistId as string;
       const queue = await getQueueAsync(id);
       queue.clear();
-      io.to(id).emit('queue:update', { lobbyId: id, songs: queue.getSongs() });
+      io.to(id).emit('queue:update', withLegacyId({ playlistId: id, songs: queue.getSongs() }));
     });
 
     // Get current queue state
@@ -285,7 +295,7 @@ export function createQueueSockets({ io, db, getQueueAsync, resolver, songReques
       if (!(await visiblePlaylist(playlistId))) return;
       const id = playlistId as string;
       const queue = await getQueueAsync(id);
-      socket.emit('queue:update', { lobbyId: id, songs: queue.getSongs() });
+      socket.emit('queue:update', withLegacyId({ playlistId: id, songs: queue.getSongs() }));
     });
   }
 

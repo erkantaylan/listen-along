@@ -127,7 +127,7 @@ export interface SongRequestView {
   id: string;
   title: string | null;
   youtube_id: string | null;
-  lobby_id: string | null;
+  playlist_id: string | null;
 }
 
 /** What the composition root hooks into the library's changes. All optional. */
@@ -606,7 +606,7 @@ export function createLibraryRouter(hooks: LibraryHooks = {}): Router {
       // admins: a web user must not learn the id of someone's private playlist.
       const reveal = !!req.apiUser || adminAuth.isAdmin(req);
       const list: SongRequestView[] = await requests.listRequests({ status });
-      res.json({ requests: reveal ? list : list.map(({ lobby_id, ...rest }) => rest) });
+      res.json({ requests: reveal ? list : list.map(({ playlist_id, ...rest }) => rest) });
     } catch (err) {
       console.error('[requests] list error:', (err as Error).message);
       res.status(500).json({ error: 'Failed to list requests' });

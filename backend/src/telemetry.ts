@@ -182,7 +182,7 @@ function start(cfg: Extract<TelemetryConfig, { enabled: true }>): Telemetry {
     const attributes = rules.sanitizeAttributes(span.attributes, { server });
     let name = rules.sanitizeSpanName(span.name);
     const route = span.attributes['http.route'];
-    // `GET /api/playlists/:id,/api/lobbies/:id` -> the one that matched.
+    // `GET /lobby/:id,/lobby/:id/library` (the old page URLs' redirect) -> the one that matched.
     if (typeof route === 'string' && attributes['http.route'] !== route) name = name.replace(route, attributes['http.route'] as string);
     return {
       name,

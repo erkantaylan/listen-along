@@ -198,12 +198,12 @@ async function getClient(): Promise<PoolClient> {
 }
 
 /**
- * Time-based lobby expiry has been removed (hq-9gvy). Lobbies persist until a
+ * Time-based playlist expiry has been removed (hq-9gvy). Playlists persist until a
  * creator (or admin) explicitly deletes them — idleness alone never deletes a
- * lobby. This no-op remains only so any stale caller does not crash; it never
+ * playlist. This no-op remains only so any stale caller does not crash; it never
  * deletes rows.
  */
-async function cleanupExpiredLobbies(): Promise<number> {
+async function cleanupExpiredPlaylists(): Promise<number> {
   return 0;
 }
 
@@ -229,7 +229,7 @@ export interface DbModule extends Db {
   init(): Promise<boolean>;
   getClient(): Promise<PoolClient>;
   getPool(): Pool | null;
-  cleanupExpiredLobbies(): Promise<number>;
+  cleanupExpiredPlaylists(): Promise<number>;
   close(): Promise<void>;
 }
 
@@ -239,7 +239,7 @@ const db: DbModule = {
   query,
   getClient,
   getPool,
-  cleanupExpiredLobbies,
+  cleanupExpiredPlaylists,
   close
 };
 

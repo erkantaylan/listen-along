@@ -19,7 +19,7 @@ export interface SocketData {
   /** resolves when social's per-connection setup is done: true when the account may use it */
   socialReady?: Promise<boolean>;
   /** core/playlists/playlistSockets.ts: leaves a playlist that went private */
-  evict?: (lobbyId: string) => void;
+  evict?: (playlistId: string) => void;
 }
 
 /** The Socket.IO server (app/sockets.ts createSocketServer). Event names and payloads are not typed (yet). */
@@ -88,8 +88,8 @@ export interface LibrarySongRow {
 export type Visibility = 'public' | 'private';
 
 /**
- * A playlist as core/playlists/playlist.ts keeps it in memory (rowToLobby / createLobby; table
- * `lobbies`, internally still "lobby"). core/playlists/playlistAccess.ts decides who sees it.
+ * A playlist as core/playlists/playlist.ts keeps it in memory (rowToPlaylist / createPlaylist; table
+ * `playlists`). core/playlists/playlistAccess.ts decides who sees it.
  */
 export interface Playlist {
   id: string;

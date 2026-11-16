@@ -130,7 +130,7 @@ describe('global chat and people on Postgres', { skip: skipReason, timeout: 120_
     const noop = { emit() {}, except() { return this; } };
     const io: SocialIo = { to: () => noop, in: () => ({ socketsLeave() {} }) };
     const presence = createPresence({ graceMs: 0 });
-    const social = createSocial({ io, db: db!, presence, store: chat.createPgStore(db!), getLobby: () => null, isAdmin: () => false });
+    const social = createSocial({ io, db: db!, presence, store: chat.createPgStore(db!), getPlaylist: () => null, isAdmin: () => false });
 
     // Pending accounts are promoted on every boot (no approval gating), but a
     // status can still be set to pending afterwards; they must be listed.

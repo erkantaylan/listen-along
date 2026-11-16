@@ -105,7 +105,7 @@ describe('Playlist persistence across server restarts', { skip: skipReason, time
     // Simulate server restart (clears in-memory maps)
     simulateRestart();
 
-    // Rejoin via getPlaylistAsync (simulates lobby:join looking up the playlist from DB)
+    // Rejoin via getPlaylistAsync (simulates playlist:join looking up the playlist from DB)
     const restored = await playlist.getPlaylistAsync('lm-test1');
     assert.ok(restored, 'Playlist should be restored from DB');
     assert.equal(restored.id, 'lm-test1');

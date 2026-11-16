@@ -433,12 +433,12 @@ describe('download workers and jobs on Postgres', { skip, timeout: 240_000 }, ()
 
   it('a song request creates a job; the upload fulfils it and adds it to the requesting playlist', async () => {
     const s = await socketFor('alice');
-    s.emit('lobby:create', { name: 'Alice list' });
-    const created = await new Promise<Payload>((resolve) => s.once('lobby:created', resolve));
+    s.emit('playlist:create', { name: 'Alice list' });
+    const created = await new Promise<Payload>((resolve) => s.once('playlist:created', resolve));
     const updates: Payload[] = [];
     s.on('jobs:update', (p) => updates.push(p.job));
     // A YouTube link with a title: no network lookup on the server.
-    s.emit('queue:add', { lobbyId: created.lobbyId, url: 'https://youtu.be/rrrrrrrrrr1', title: 'Requested Song' });
+    s.emit('queue:add', { playlistId: created.playlistId, url: 'https://youtu.be/rrrrrrrrrr1', title: 'Requested Song' });
     const requested = await new Promise<Payload>((resolve) => s.once('queue:requested', resolve));
     const jq = await until(async () => (await myJobs('alice')).find((x) => x.request_id === requested.request.id), 'request job');
     assert.equal(jq.source, 'request');

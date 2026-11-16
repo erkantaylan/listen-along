@@ -254,8 +254,8 @@ describe('telemetry rules', () => {
     // A client span keeps the address of the server it called.
     assert.equal(rules.sanitizeAttributes({ 'network.peer.address': '10.0.0.2' })['network.peer.address'], '10.0.0.2');
     // A route registered for two paths at once keeps the one that matched.
-    assert.equal(rules.sanitizeAttributes({ 'http.route': '/api/playlists/:id,/api/lobbies/:id', 'url.path': '/api/lobbies/ab12' }, { server: true })['http.route'], '/api/lobbies/:id');
-    assert.equal(rules.pickRoute('/api/playlists,/api/lobbies', '/api/playlists'), '/api/playlists');
+    assert.equal(rules.sanitizeAttributes({ 'http.route': '/lobby/:id,/lobby/:id/library', 'url.path': '/lobby/ab12/library' }, { server: true })['http.route'], '/lobby/:id/library');
+    assert.equal(rules.pickRoute('/lobby/:id,/lobby/:id/library', '/lobby/ab12?x=1'), '/lobby/:id');
     assert.equal(rules.pickRoute('/api/playlists/:id', '/x'), '/api/playlists/:id');
     assert.equal(rules.sanitizeSpanName('GET https://x/y?token=SECRET'), 'GET https://x/y');
     assert.equal(rules.sanitizeSpanName('GET /api/playlists/:id'), 'GET /api/playlists/:id');
@@ -302,7 +302,7 @@ describe('telemetry: on, against a local OTLP receiver', { timeout: 60_000 }, ()
     await fetch(`${base}/health`);
     await fetch(`${base}/app.css`);
     await fetch(`${base}/api/playlists/abcd1234?token=QUERYSECRET`, { headers: { cookie } });
-    await fetch(`${base}/api/lobbies/efgh5678`, { headers: { authorization: 'Bearer la_HEADERSECRET' } });
+    await fetch(`${base}/api/playlists/efgh5678`, { headers: { authorization: 'Bearer la_HEADERSECRET' } });
     await fetch(`${base}/auth/oidc/callback?code=CODESECRET&state=STATESECRET`, { redirect: 'manual' });
     await fetch(`${base}/api/playlists`, { headers: { cookie } });
     exit = await run.stopGracefully();

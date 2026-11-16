@@ -41,9 +41,9 @@ import type { Policy } from './types.ts';
 // logout only delete it from browsers that still carry one.
 export const LEGACY_LOGIN_COOKIE = 'listen_auth';
 
-// The playlist API (/api/playlists, /api/lobbies) also takes a CLI Bearer
+// The playlist API (/api/playlists) also takes a CLI Bearer
 // token instead of the cookie (see the guard below).
-const PLAYLIST_API_RE = /^\/api\/(?:playlists|lobbies)(?:\/|$)/;
+const PLAYLIST_API_RE = /^\/api\/playlists(?:\/|$)/;
 
 // Post-login destination (?next): only same-origin relative paths. (true: a
 // string and safe; false says nothing about the type, and no caller reads it then.)
@@ -131,7 +131,7 @@ export function createAuthRoutes({
   //   page      every other HTML route: a login is needed (the SPA then shows
   //             the pending / denied screen itself); otherwise -> /login?next=
   //
-  // The playlist API (/api/playlists, /api/lobbies) also takes a CLI Bearer
+  // The playlist API (/api/playlists) also takes a CLI Bearer
   // token instead of the cookie: the token must be valid (its owner approved),
   // and the routes then act as the token's owner (requireViewer).
   const playlistApi = (req: Request) => PLAYLIST_API_RE.test(String(req.path).toLowerCase().replace(/\/{2,}/g, '/'));

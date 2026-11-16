@@ -104,7 +104,7 @@ async function createPlaylist(
         [id, ownerId || null, name || null, vis, now, now, false]
       );
     } catch (err) {
-      console.error('Failed to persist lobby:', (err as Error).message);
+      console.error('Failed to persist playlist:', (err as Error).message);
     }
   }
 
@@ -135,7 +135,7 @@ async function getPlaylist(id: unknown): Promise<PlaylistWithUsers | undefined> 
         }
       }
     } catch (err) {
-      console.error('Failed to load lobby from DB:', (err as Error).message);
+      console.error('Failed to load playlist from DB:', (err as Error).message);
     }
   }
 
@@ -161,7 +161,7 @@ async function updateLastActivity(playlistId: string): Promise<void> {
         [playlist.lastActivity, playlistId]
       );
     } catch (err) {
-      console.error('Failed to update lobby activity:', (err as Error).message);
+      console.error('Failed to update playlist activity:', (err as Error).message);
     }
   }
 }
@@ -278,7 +278,7 @@ export async function renamePlaylist(playlistId: string, newName: unknown, visib
     try {
       await db.query('UPDATE playlists SET name = $1 WHERE id = $2', [trimmed, playlistId]);
     } catch (err) {
-      console.error('Failed to update lobby name in DB:', (err as Error).message);
+      console.error('Failed to update playlist name in DB:', (err as Error).message);
     }
   }
 
@@ -295,7 +295,7 @@ export async function pinPlaylist(playlistId: string, pinned: boolean): Promise<
     try {
       await db.query('UPDATE playlists SET pinned = $1 WHERE id = $2', [pinned, playlistId]);
     } catch (err) {
-      console.error('Failed to update lobby pinned state:', (err as Error).message);
+      console.error('Failed to update playlist pinned state:', (err as Error).message);
     }
   }
 
@@ -313,7 +313,7 @@ export async function setVisibility(playlistId: string, visibility: unknown): Pr
     try {
       await db.query('UPDATE playlists SET visibility = $1 WHERE id = $2', [vis, playlistId]);
     } catch (err) {
-      console.error('Failed to update lobby visibility:', (err as Error).message);
+      console.error('Failed to update playlist visibility:', (err as Error).message);
     }
   }
 
@@ -325,7 +325,7 @@ async function deletePlaylistAsync(id: string): Promise<boolean> {
     try {
       await db.query('DELETE FROM playlists WHERE id = $1', [id]);
     } catch (err) {
-      console.error('Failed to delete lobby from DB:', (err as Error).message);
+      console.error('Failed to delete playlist from DB:', (err as Error).message);
     }
   }
 
@@ -454,11 +454,11 @@ export async function loadPlaylistsFromDB(): Promise<void> {
       }
     }
 
-    console.log(`Loaded ${result.rows.length} lobbies from database`);
+    console.log(`Loaded ${result.rows.length} playlists from database`);
   } catch (err) {
     // Without them the server would answer every list with no playlists: the
     // boot stops instead (and is retried by whatever restarts it).
-    console.error('Failed to load lobbies from DB:', (err as Error).message);
+    console.error('Failed to load playlists from DB:', (err as Error).message);
     throw err;
   }
 }

@@ -140,7 +140,7 @@ describe('Playlist ownership, visibility, persistence', { skip: skipReason, time
     await db.query('UPDATE playlists SET last_activity = $1 WHERE id = $2', [ancient, 'idle-1']);
 
     // Both the (now no-op) DB cleanup and the in-memory sweep must keep it.
-    assert.equal(await db.cleanupExpiredLobbies(), 0, 'cleanupExpiredLobbies must delete nothing');
+    assert.equal(await db.cleanupExpiredPlaylists(), 0, 'cleanupExpiredPlaylists must delete nothing');
     await playlist.cleanupEmptyPlaylists();
 
     const row = await db.query('SELECT id FROM playlists WHERE id = $1', ['idle-1']);

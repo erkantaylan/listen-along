@@ -41,7 +41,7 @@ describe('dashboard and profile routes when storage fails', () => {
       getSocial: () => ({ deleteMessage: boom }), accountStatusChanged: async () => {},
     } as unknown as AdminRouterDeps));
     try {
-      const del = await s.req('DELETE', '/api/dashboard/lobbies/p1');
+      const del = await s.req('DELETE', '/api/dashboard/playlists/p1');
       assert.equal(del.status, 500);
       assert.deepEqual(await del.json(), { error: 'Failed to delete playlist' });
       const msg = await s.req('DELETE', '/api/chat/messages/7');

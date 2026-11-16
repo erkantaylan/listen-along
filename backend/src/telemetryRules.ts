@@ -162,7 +162,7 @@ export function sanitizeAttributes(
 
 /**
  * A route registered for several paths at once (`app.get(['/api/playlists/:id',
- * '/api/lobbies/:id'])`) reaches the span as the joined list. Keep the one the
+ * '/lobby/:id/library'])`) reaches the span as the joined list. Keep the one the
  * request matched; a template still, never the raw path.
  */
 export function pickRoute(route: unknown, path: unknown): unknown {

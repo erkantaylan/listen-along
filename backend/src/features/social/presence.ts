@@ -29,12 +29,12 @@
  * sent to clients by viewNowPlaying(). updatedAt = server time of the report,
  * the anchor for `position`.
  * context = { type: 'library' } | { type: 'radio' } | { type: 'artist', key, name }
- *         | { type: 'lobby', lobbyId } | null
+ *         | { type: 'playlist', playlistId } | null
  * An artist context is public to every viewer (features/artists lists them for all
  * approved accounts): the key is checked, the name is the client's text, like
  * the track's own title and artist.
  *
- * A lobby context is the raw playlist id. Never send an entry to a client as
+ * A playlist context is the raw playlist id. Never send an entry to a client as
  * it is: viewNowPlaying() drops the playlist unless the viewer may see it.
  */
 
@@ -50,7 +50,7 @@ export type PlayContext =
   | { type: 'library' }
   | { type: 'radio' }
   | { type: 'artist'; key: string; name: string | null }
-  | { type: 'lobby'; lobbyId: string };
+  | { type: 'playlist'; playlistId: string };
 
 /** A client's report, checked. */
 export interface NowPlayingReport {
@@ -79,7 +79,7 @@ export interface NowPlayingView {
     | { type: 'library' }
     | { type: 'radio' }
     | { type: 'artist'; key: string; name: string | null }
-    | { type: 'lobby'; lobbyId: string; name: string | null; socketId: string }
+    | { type: 'playlist'; playlistId: string; name: string | null; socketId: string }
     | null;
   playing: boolean;
   position: number;
@@ -113,7 +113,7 @@ export interface Presence {
   setNowPlaying(userId: string, socketId: string, report: unknown): NowPlayingEntry | null | undefined;
   getNowPlaying(userId: string): NowPlayingEntry | null;
   /** Users whose now-playing context is this playlist. */
-  usersPlayingFromLobby(lobbyId: string): string[];
+  usersPlayingFromPlaylist(playlistId: string): string[];
   /** Stop all timers (tests, shutdown). */
   close(): void;
 }
@@ -141,7 +141,7 @@ function num(v: unknown): number {
 /** A client's report as it arrives: anything, read field by field. */
 interface RawReport {
   track?: { id?: unknown; title?: unknown; artist?: unknown; thumbnail?: unknown; url?: unknown } | null;
-  context?: { type?: unknown; key?: unknown; name?: unknown; lobbyId?: unknown } | null;
+  context?: { type?: unknown; key?: unknown; name?: unknown; playlistId?: unknown } | null;
   playing?: unknown;
   position?: unknown;
   duration?: unknown;
@@ -161,8 +161,8 @@ export function normalizeReport(input: unknown): NowPlayingReport | null {
   else if (c && c.type === 'radio') context = { type: 'radio' };
   else if (c && c.type === 'artist' && typeof c.key === 'string' && ARTIST_KEY_RE.test(c.key)) {
     context = { type: 'artist', key: c.key, name: str(c.name, 200) };
-  } else if (c && c.type === 'lobby' && typeof c.lobbyId === 'string' && /^[a-zA-Z0-9-]{1,64}$/.test(c.lobbyId)) {
-    context = { type: 'lobby', lobbyId: c.lobbyId };
+  } else if (c && c.type === 'playlist' && typeof c.playlistId === 'string' && /^[a-zA-Z0-9-]{1,64}$/.test(c.playlistId)) {
+    context = { type: 'playlist', playlistId: c.playlistId };
   }
   return {
     track: { id: str(t.id, 64), title, artist: str(t.artist), thumbnail: str(t.thumbnail, 1000) },
@@ -264,9 +264,9 @@ export function createPresence({ graceMs = 5000, now = Date.now }: { graceMs?: n
 
     getNowPlaying(userId) { return playing.get(userId) || null; },
 
-    usersPlayingFromLobby(lobbyId) {
+    usersPlayingFromPlaylist(playlistId) {
       return [...playing.entries()]
-        .filter(([, e]) => e.context && e.context.type === 'lobby' && e.context.lobbyId === lobbyId)
+        .filter(([, e]) => e.context && e.context.type === 'playlist' && e.context.playlistId === playlistId)
         .map(([u]) => u);
     },
 
@@ -279,14 +279,14 @@ export function createPresence({ graceMs = 5000, now = Date.now }: { graceMs?: n
 }
 
 /**
- * What a viewer may see of a now-playing entry. `lobbyFor(lobbyId)` returns
+ * What a viewer may see of a now-playing entry. `playlistFor(playlistId)` returns
  * the playlist when the viewer may see it, else null; a playlist the viewer
  * cannot see (someone else's private one, or deleted) is dropped entirely:
  * no name, no id, just the song.
  */
 export function viewNowPlaying(
   entry: NowPlayingEntry | null | undefined,
-  lobbyFor: (lobbyId: string) => Pick<Playlist, 'id' | 'name'> | null | undefined,
+  playlistFor: (playlistId: string) => Pick<Playlist, 'id' | 'name'> | null | undefined,
 ): NowPlayingView | null {
   if (!entry) return null;
   let context: NowPlayingView['context'] = null;
@@ -296,9 +296,9 @@ export function viewNowPlaying(
     context = { type: 'radio' };
   } else if (entry.context && entry.context.type === 'artist') {
     context = { type: 'artist', key: entry.context.key, name: entry.context.name || null };
-  } else if (entry.context && entry.context.type === 'lobby') {
-    const l = lobbyFor(entry.context.lobbyId);
-    if (l) context = { type: 'lobby', lobbyId: l.id, name: l.name || null, socketId: entry.socketId };
+  } else if (entry.context && entry.context.type === 'playlist') {
+    const l = playlistFor(entry.context.playlistId);
+    if (l) context = { type: 'playlist', playlistId: l.id, name: l.name || null, socketId: entry.socketId };
   }
   return {
     track: { ...entry.track },

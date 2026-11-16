@@ -33,6 +33,7 @@
  */
 
 import { access } from '../../core/playlists/index.ts';
+import { presenceContextOf } from '../../shared/legacyWire.ts';
 import * as chat from './chat.ts';
 import type { ChatStore, RateLimiter } from './chat.ts';
 import { viewNowPlaying } from './presence.ts';
@@ -92,8 +93,8 @@ export interface SocialDeps {
   presence: Presence;
   /** chat store (createPgStore / createMemoryStore) */
   store: ChatStore;
-  /** (lobbyId) -> lobby | undefined (in-memory lookup, sync) */
-  getLobby: (lobbyId: string) => Playlist | null | undefined;
+  /** (playlistId) -> playlist | undefined (in-memory lookup, sync) */
+  getPlaylist: (playlistId: string) => Playlist | null | undefined;
   /** (headers) -> boolean (admin cookie) */
   isAdmin: (headers: Record<string, string | string[] | undefined>) => boolean;
   /** chat rate limiter (createRateLimiter) */
@@ -109,7 +110,7 @@ export interface Social {
   /** Admin moderation: removes a message and tells everyone. */
   deleteMessage(id: unknown): Promise<boolean>;
   /** A playlist was renamed, changed visibility or was deleted. */
-  lobbyChanged(lobbyId: string): void;
+  playlistChanged(playlistId: string): void;
   /** Name/avatar/status changed (profile page, admin approve/reject). */
   profileChanged(userId: string): Promise<void>;
   /** Shutdown: whoever is online was last seen now. */
@@ -135,7 +136,7 @@ function safeAvatar(url: unknown): string | null {
   return /^https:\/\//i.test(url) ? url.slice(0, 1000) : null;
 }
 
-export function createSocial({ io, db, presence, store, getLobby, isAdmin, limiter = chat.createRateLimiter(), listenerCount = () => 0 }: SocialDeps): Social {
+export function createSocial({ io, db, presence, store, getPlaylist, isAdmin, limiter = chat.createRateLimiter(), listenerCount = () => 0 }: SocialDeps): Social {
   // userId -> { id, name, emoji, avatarUrl, status }
   const profiles = new Map<string, Profile>();
 
@@ -176,8 +177,8 @@ export function createSocial({ io, db, presence, store, getLobby, isAdmin, limit
   }
 
   // The playlist if `viewerId` may see it.
-  const lobbyForViewer = (viewerId: string | null) => (lobbyId: string): Playlist | null | undefined => {
-    const l = getLobby(lobbyId);
+  const playlistForViewer = (viewerId: string | null) => (playlistId: string): Playlist | null | undefined => {
+    const l = getPlaylist(playlistId);
     return access.canView(l, viewerId) ? l : null;
   };
 
@@ -190,7 +191,7 @@ export function createSocial({ io, db, presence, store, getLobby, isAdmin, limit
       pending: p.status === 'pending',
       online: presence.isOnline(p.id),
       lastSeen: presence.lastSeen(p.id),
-      nowPlaying: viewNowPlaying(presence.getNowPlaying(p.id), lobbyForViewer(viewerId)),
+      nowPlaying: viewNowPlaying(presence.getNowPlaying(p.id), playlistForViewer(viewerId)),
       listeners: listenerCount(p.id),
     };
   }
@@ -220,15 +221,15 @@ export function createSocial({ io, db, presence, store, getLobby, isAdmin, limit
   // else the redacted one.
   function emitNowPlaying(userId: string): void {
     const entry = presence.getNowPlaying(userId);
-    const lobbyId = entry && entry.context && entry.context.type === 'lobby' ? entry.context.lobbyId : null;
-    const l = lobbyId ? getLobby(lobbyId) : null;
+    const playlistId = entry && entry.context && entry.context.type === 'playlist' ? entry.context.playlistId : null;
+    const l = playlistId ? getPlaylist(playlistId) : null;
     if (l && access.isPrivate(l) && l.ownerId) {
-      io.to(userRoom(l.ownerId)).emit('people:now-playing', { userId, nowPlaying: viewNowPlaying(entry, lobbyForViewer(l.ownerId)) });
+      io.to(userRoom(l.ownerId)).emit('people:now-playing', { userId, nowPlaying: viewNowPlaying(entry, playlistForViewer(l.ownerId)) });
       io.to(ROOM).except(userRoom(l.ownerId)).emit('people:now-playing', { userId, nowPlaying: viewNowPlaying(entry, () => null) });
       return;
     }
     // Public (or no) playlist: every signed-in viewer may see it.
-    io.to(ROOM).emit('people:now-playing', { userId, nowPlaying: viewNowPlaying(entry, (id) => getLobby(id) || null) });
+    io.to(ROOM).emit('people:now-playing', { userId, nowPlaying: viewNowPlaying(entry, (id) => getPlaylist(id) || null) });
   }
 
   function emitPresence(userId: string): void {
@@ -332,11 +333,12 @@ export function createSocial({ io, db, presence, store, getLobby, isAdmin, limit
       reply(ack, removed ? { ok: true } : { error: 'Message not found' });
     });
 
-    socket.on('presence:now-playing', async (report: { context?: { type?: unknown; lobbyId?: unknown } | null } | null | undefined) => {
+    socket.on('presence:now-playing', async (report: { context?: { type?: unknown; playlistId?: unknown } | null } | null | undefined) => {
       if (!(await ok())) return;
+      // A tab from before the rename reports its playlist the old way (shared/legacyWire.ts).
+      let r = report && report.context ? { ...report, context: presenceContextOf(report.context) } : report;
       // A playlist the reporter cannot see is never recorded.
-      let r = report;
-      if (r && r.context && r.context.type === 'lobby' && !access.canView(getLobby(r.context.lobbyId as string), userId)) {
+      if (r && r.context && r.context.type === 'playlist' && !access.canView(getPlaylist(r.context.playlistId as string), userId)) {
         r = { ...r, context: null };
       }
       presence.setNowPlaying(userId, socket.id, r);
@@ -360,8 +362,8 @@ export function createSocial({ io, db, presence, store, getLobby, isAdmin, limit
 
   // A playlist was renamed, changed visibility or was deleted: everyone
   // playing from it gets a fresh (re-redacted) now-playing.
-  function lobbyChanged(lobbyId: string): void {
-    for (const userId of presence.usersPlayingFromLobby(lobbyId)) emitNowPlaying(userId);
+  function playlistChanged(playlistId: string): void {
+    for (const userId of presence.usersPlayingFromPlaylist(playlistId)) emitNowPlaying(userId);
   }
 
   // Name/avatar/status changed (profile page, admin approve/reject).
@@ -387,5 +389,5 @@ export function createSocial({ io, db, presence, store, getLobby, isAdmin, limit
   // Display name of a user taking part (listen-along).
   const nameOf = (userId: string): string | null => (profiles.get(userId) || {} as Partial<Profile>).name || null;
 
-  return { attach, listPeople, deleteMessage, lobbyChanged, profileChanged, flushLastSeen, nameOf, presence, store };
+  return { attach, listPeople, deleteMessage, playlistChanged, profileChanged, flushLastSeen, nameOf, presence, store };
 }

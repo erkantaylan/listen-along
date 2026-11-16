@@ -2,7 +2,7 @@
  * The app's own HTTP routes, two routers because of where main.ts mounts them:
  *
  *   createInfoRouter   GET /health, /api/version, /api/changelog, /changelog,
- *                      /api/qr/:lobbyId. Mounted before the library router;
+ *                      /api/qr/:playlistId. Mounted before the library router;
  *                      only the changelog routes (they read files) count
  *                      against the general limiter (apiLimiter).
  *   createPageRouter   /admin and /lobby/... redirects, the SPA views,
@@ -107,8 +107,8 @@ export function createInfoRouter({ db, ytdlp, frontendPath, apiLimiter }: InfoRo
 
   // Generate QR code for a playlist link. It only encodes the URL (the id comes
   // from the caller), so it reveals nothing about whether the playlist exists.
-  router.get('/api/qr/:lobbyId', async (req, res) => {
-    const playlistId = req.params.lobbyId;
+  router.get('/api/qr/:playlistId', async (req, res) => {
+    const playlistId = req.params.playlistId;
     if (!/^[a-zA-Z0-9-]{1,64}$/.test(playlistId)) return res.status(400).json({ error: 'Invalid id' });
     const baseUrl = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
     const url = `${baseUrl}/playlist/${playlistId}`;

@@ -204,7 +204,7 @@ describe('presence: now playing', () => {
   it('validates and trims reports', () => {
     const p = createPresence({ graceMs: 0 });
     p.connect(ALICE, 's');
-    p.setNowPlaying(ALICE, 's', { track: { title: 'T'.repeat(1000) }, context: { type: 'lobby', lobbyId: '../etc' } });
+    p.setNowPlaying(ALICE, 's', { track: { title: 'T'.repeat(1000) }, context: { type: 'playlist', playlistId: '../etc' } });
     const e = p.getNowPlaying(ALICE)!;
     assert.equal(e.track.title.length, 300);
     assert.equal(e.context, null);
@@ -214,7 +214,7 @@ describe('presence: now playing', () => {
   it('never shows a playlist the viewer cannot see: no name, no id', () => {
     const p = createPresence({ graceMs: 0 });
     p.connect(ALICE, 's');
-    p.setNowPlaying(ALICE, 's', { track: { title: 'Song' }, context: { type: 'lobby', lobbyId: 'secret1' }, playing: true });
+    p.setNowPlaying(ALICE, 's', { track: { title: 'Song' }, context: { type: 'playlist', playlistId: 'secret1' }, playing: true });
     const entry = p.getNowPlaying(ALICE);
     const playlists: Record<string, AccessPlaylist & { id: string; name: string }> = { secret1: { id: 'secret1', name: 'My Secret Mix', ownerId: ALICE, visibility: 'private' } };
     const playlistFor = (viewer: string) => (id: string) => (access.canView(playlists[id], viewer) ? playlists[id] : null);
@@ -227,7 +227,7 @@ describe('presence: now playing', () => {
     assert.ok(!JSON.stringify(forBob).includes('secret1'));
     assert.ok(!JSON.stringify(forBob).includes('Secret Mix'));
     assert.ok(!JSON.stringify(forBob).includes('"s"'), 'no socket id to follow either');
-    assert.deepEqual(p.usersPlayingFromLobby('secret1'), [ALICE]);
+    assert.deepEqual(p.usersPlayingFromPlaylist('secret1'), [ALICE]);
   });
 });
 
@@ -376,7 +376,7 @@ describe('global chat and people panel against a running server', { timeout: 60_
 
     // Public playlist: Bob sees its name.
     let atBob = next(bob, 'people:now-playing', d => d.userId === ALICE);
-    alice.emit('presence:now-playing', { track: { id: 's1', title: 'Song A', artist: 'X' }, context: { type: 'lobby', lobbyId: pub.id }, playing: true });
+    alice.emit('presence:now-playing', { track: { id: 's1', title: 'Song A', artist: 'X' }, context: { type: 'playlist', playlistId: pub.id }, playing: true });
     let np = await atBob;
     assert.equal(np.nowPlaying.track.title, 'Song A');
     assert.equal(np.nowPlaying.context.name, 'Alice Open');
@@ -384,7 +384,7 @@ describe('global chat and people panel against a running server', { timeout: 60_
     // Private playlist: Bob sees the song only; Alice sees her playlist.
     atBob = next(bob, 'people:now-playing', d => d.userId === ALICE);
     const atAlice = next(alice, 'people:now-playing', d => d.userId === ALICE);
-    alice.emit('presence:now-playing', { track: { id: 's2', title: 'Song B' }, context: { type: 'lobby', lobbyId: priv.id }, playing: true });
+    alice.emit('presence:now-playing', { track: { id: 's2', title: 'Song B' }, context: { type: 'playlist', playlistId: priv.id }, playing: true });
     np = await atBob;
     assert.equal(np.nowPlaying.track.title, 'Song B');
     assert.equal(np.nowPlaying.context, null);
@@ -400,11 +400,11 @@ describe('global chat and people panel against a running server', { timeout: 60_
 
     // Bob cannot make Alice's private playlist show up by reporting it himself.
     const bobAtAlice = next(alice, 'people:now-playing', d => d.userId === BOB);
-    bob.emit('presence:now-playing', { track: { title: 'Probe' }, context: { type: 'lobby', lobbyId: priv.id }, playing: true });
+    bob.emit('presence:now-playing', { track: { title: 'Probe' }, context: { type: 'playlist', playlistId: priv.id }, playing: true });
     assert.equal((await bobAtAlice).nowPlaying.context, null);
 
     // The public playlist going private re-redacts what others see.
-    alice.emit('presence:now-playing', { track: { id: 's1', title: 'Song A' }, context: { type: 'lobby', lobbyId: pub.id }, playing: true });
+    alice.emit('presence:now-playing', { track: { id: 's1', title: 'Song A' }, context: { type: 'playlist', playlistId: pub.id }, playing: true });
     await next(bob, 'people:now-playing', d => d.userId === ALICE && d.nowPlaying && d.nowPlaying.context);
     atBob = next(bob, 'people:now-playing', d => d.userId === ALICE);
     const r = await fetch(`${base}/api/playlists/${pub.id}`, {
@@ -439,7 +439,7 @@ describe('global chat and people panel against a running server', { timeout: 60_
 });
 
 describe('presence: Radio as a source', () => {
-  const report = { track: { title: 'Song' }, context: { type: 'radio', stationId: 'secret', lobbyId: 'abc' }, playing: true };
+  const report = { track: { title: 'Song' }, context: { type: 'radio', stationId: 'secret', playlistId: 'abc' }, playing: true };
   it('keeps only the type', () => {
     assert.deepEqual(normalizeReport(report)!.context, { type: 'radio' });
   });

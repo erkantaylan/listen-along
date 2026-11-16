@@ -576,7 +576,7 @@ export async function cancelReplaceJobsForSong(songId: unknown, reason: string):
 }
 
 /** What createForRequest reads of a song request. */
-export type RequestForJob = Pick<SongRequest, 'id' | 'artist' | 'title' | 'youtube_id' | 'url' | 'lobby_id' | 'requested_by'>
+export type RequestForJob = Pick<SongRequest, 'id' | 'artist' | 'title' | 'youtube_id' | 'url' | 'playlist_id' | 'requested_by'>
   & { requested_by_id?: string | null };
 
 /**
@@ -597,7 +597,7 @@ export async function createForRequest(request: RequestForJob, { requestedByUser
     input: what.input,
     title: what.title,
     requestId: request.id,
-    playlistId: request.lobby_id || null,
+    playlistId: request.playlist_id || null,
     requestedByUserId: requestedByUserId || request.requested_by_id || null,
     requestedBy: request.requested_by,
   });

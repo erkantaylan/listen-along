@@ -263,13 +263,13 @@ describe('playlist API with CLI tokens on Postgres', { skip, timeout: 180_000 },
     sockets.push(sock);
     await new Promise<void>((resolve, reject) => { sock.on('connect', resolve); sock.on('connect_error', reject); });
     const joined = new Promise((resolve) => sock.once('queue:update', resolve));
-    sock.emit('lobby:view', { lobbyId: pl.alicePub });
+    sock.emit('playlist:view', { playlistId: pl.alicePub });
     await joined;
 
     const update = new Promise<Payload>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('no queue:update')), 3000);
       sock.on('queue:update', (d: Payload) => {
-        if (d.lobbyId === pl.alicePub && d.songs.some((s: Payload) => s.url === `https://www.youtube.com/watch?v=${songs.two.yt}`)) {
+        if (d.playlistId === pl.alicePub && d.songs.some((s: Payload) => s.url === `https://www.youtube.com/watch?v=${songs.two.yt}`)) {
           clearTimeout(timer);
           resolve(d);
         }

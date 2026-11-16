@@ -49,6 +49,7 @@ import {
   APP_ROOM, userRoom, sessionRoom, createSocketServer, attachSocketHandlers, createReactions, createHttpApp,
 } from './app/index.ts';
 import { createMemoryRateLimit } from './shared/memoryRateLimit.ts';
+import { withLegacyId } from './shared/legacyWire.ts';
 
 // The web's "pick the video" dialog (features/picker): lookups for it, and what they
 // said about each video, for the title of a chosen one.
@@ -264,7 +265,7 @@ app.use(createJobRouter({
     const entry = await addLibrarySongToPlaylist(playlistId, song, addedBy, { skipIfQueued: !allowDuplicates });
     if (!entry) return false;
     const queue = await getQueueAsync(playlistId);
-    io.to(playlistId).emit('queue:update', { lobbyId: playlistId, songs: queue.getSongs() });
+    io.to(playlistId).emit('queue:update', withLegacyId({ playlistId, songs: queue.getSongs() }));
     return true;
   },
   visiblePlaylist: async (playlistId, userId) => {
@@ -374,7 +375,7 @@ async function start() {
     db,
     presence,
     store: dbAvailable ? chat.createPgStore(db) : chat.createMemoryStore(),
-    getLobby: (id) => playlist.getPlaylist(id),
+    getPlaylist: (id) => playlist.getPlaylist(id),
     isAdmin: (headers) => adminAuth.isAdmin({ headers }),
     listenerCount: (id) => (listenAlong ? listenAlong.graph.followersOf(id).length : 0),
   });
@@ -392,7 +393,7 @@ async function start() {
   if (dbAvailable) {
     console.log('Database persistence enabled');
 
-    // Restore lobbies from database into memory so lobby list works after restart
+    // Restore the playlists from the database into memory so the list works after a restart
     await playlist.loadPlaylistsFromDB();
 
     // Download jobs that were running when the server stopped go back in the

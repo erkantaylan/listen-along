@@ -570,12 +570,12 @@ describe('account status and CLI tokens on Postgres', { skip: pgSkip, timeout: 1
     assert.ok(Array.isArray(people.people), 'pending users see the people panel');
     const sent = await ask(s, 'chat:send', { text: 'hello from pending' });
     assert.equal(sent.ok, true, 'pending users can chat');
-    s.emit('lobby:create', { name: 'Nope' });
-    const [ev, data] = await waitFor(s, ['lobby:error', 'lobby:created']);
-    assert.equal(ev, 'lobby:error');
+    s.emit('playlist:create', { name: 'Nope' });
+    const [ev, data] = await waitFor(s, ['playlist:error', 'playlist:created']);
+    assert.equal(ev, 'playlist:error');
     assert.equal(data.code, 'ACCOUNT_PENDING');
-    s.emit('lobby:join', { lobbyId: 'whatever' });
-    assert.equal((await waitFor(s, ['lobby:error', 'lobby:joined', 'lobby:not-found']))[0], 'lobby:error');
+    s.emit('playlist:join', { playlistId: 'whatever' });
+    assert.equal((await waitFor(s, ['playlist:error', 'playlist:joined', 'playlist:not-found']))[0], 'playlist:error');
   });
 
   it('denied / rejected: blocked everywhere but /api/auth/me', async () => {
@@ -663,10 +663,10 @@ describe('account status and CLI tokens on Postgres', { skip: pgSkip, timeout: 1
     const { song }: Payload = await up.json();
 
     const s = await c.connect(cookies.approved);
-    s.emit('lobby:create', { name: 'Spoof test', username: 'Mallory' });
-    const [, created] = await waitFor(s, ['lobby:created']);
+    s.emit('playlist:create', { name: 'Spoof test', username: 'Mallory' });
+    const [, created] = await waitFor(s, ['playlist:created']);
     assert.equal(created.user.username, 'User approved', 'listed under the account name, not the client name');
-    s.emit('queue:add', { lobbyId: created.lobbyId, libraryId: song.id, addedBy: 'Mallory', userId: ids.victim });
+    s.emit('queue:add', { playlistId: created.playlistId, libraryId: song.id, addedBy: 'Mallory', userId: ids.victim });
     const [ev, upd] = await waitFor(s, ['queue:update', 'queue:error'], 3000);
     assert.equal(ev, 'queue:update');
     assert.equal(upd.songs.at(-1).addedBy, 'User approved');

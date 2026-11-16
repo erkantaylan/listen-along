@@ -218,7 +218,7 @@ export function createFolderStore() {
       );
       if (!r.rowCount) throw new NotFound('FOLDER_NOT_FOUND');
     } catch (err) {
-      // Foreign key on lobbies: the playlist was deleted after the check.
+      // Foreign key on playlists: the playlist was deleted after the check.
       if ((err as { code?: string }).code === '23503') throw new NotFound('NOT_FOUND');
       throw err;
     }

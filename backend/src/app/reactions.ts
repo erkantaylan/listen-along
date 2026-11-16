@@ -22,6 +22,7 @@
  */
 
 import { access } from '../core/playlists/index.ts';
+import { emitPlaylistEvent, withLegacyId } from '../shared/legacyWire.ts';
 import type { playlist as playlistModule, playlistPins as pinsModule } from '../core/playlists/index.ts';
 import type { Queue, QueueSong } from '../core/queue/index.ts';
 import type { library as libraryModule, covers as coversModule, SongRequestView } from '../core/library/index.ts';
@@ -51,7 +52,7 @@ export interface ReactionsDeps {
   /** made after these (it calls emitJob) */
   getWorkerHub: () => Pick<WorkerHub, 'stats' | 'dispatch'>;
   /** made in start() */
-  getSocial: () => { profileChanged(userId: string): unknown; lobbyChanged(playlistId: string): void } | null;
+  getSocial: () => { profileChanged(userId: string): unknown; playlistChanged(playlistId: string): void } | null;
   APP_ROOM: string;
   userRoom: (userId: string) => string;
   sessionRoom: (idHash: string) => string;
@@ -85,7 +86,7 @@ export function createReactions({
     }
     if (added) {
       const queue = await getQueueAsync(job.playlist_id);
-      io.to(job.playlist_id).emit('queue:update', { lobbyId: job.playlist_id, songs: queue.getSongs() });
+      io.to(job.playlist_id).emit('queue:update', withLegacyId({ playlistId: job.playlist_id, songs: queue.getSongs() }));
     }
   }
 
@@ -150,8 +151,8 @@ export function createReactions({
   // time-based cleanup to remove stale rows — hq-9gvy).
   async function destroyPlaylist(playlistId: string, { reason }: { reason?: string } = {}): Promise<void> {
     const before = await playlist.getPlaylistAsync(playlistId);
-    io.to(playlistId).emit('lobby:closed', {
-      lobbyId: playlistId,
+    emitPlaylistEvent(io.to(playlistId), 'playlist:closed', {
+      playlistId,
       message: reason || 'This playlist has been deleted.'
     });
     const room = io.sockets.adapter.rooms.get(playlistId);
@@ -166,7 +167,7 @@ export function createReactions({
     await playlist.deletePlaylistAsync(playlistId);
     playlistPins.forgetPlaylist(playlistId);
     const social = getSocial();
-    if (social) social.lobbyChanged(playlistId);
+    if (social) social.playlistChanged(playlistId);
     notifyPlaylistsChanged(before);
   }
 
@@ -264,7 +265,7 @@ export function createReactions({
           if (withCovers && entry.thumbnail) covers.cacheCover(s.id, entry.thumbnail).catch(() => {});
           rewritten++;
         }
-        io.to(playlistId).emit('queue:update', { lobbyId: playlistId, songs: queue.getSongs() });
+        io.to(playlistId).emit('queue:update', withLegacyId({ playlistId, songs: queue.getSongs() }));
       } catch (err) {
         console.error(`[library] could not rewrite queue of ${playlistId} after a change:`, (err as Error).message);
       }
@@ -289,7 +290,7 @@ export function createReactions({
 
     const byPlaylist = new Map();
     for (const r of fulfilled) {
-      if (r.lobby_id && !byPlaylist.has(r.lobby_id)) byPlaylist.set(r.lobby_id, r);
+      if (r.playlist_id && !byPlaylist.has(r.playlist_id)) byPlaylist.set(r.playlist_id, r);
     }
     for (const [playlistId, request] of byPlaylist) {
       try {
@@ -299,7 +300,7 @@ export function createReactions({
         const alreadyQueued = queue.getSongs().some(s => urls.has(s.url));
         if (!alreadyQueued) {
           await addLibrarySongToPlaylist(playlistId, librarySong, request.requested_by);
-          io.to(playlistId).emit('queue:update', { lobbyId: playlistId, songs: queue.getSongs() });
+          io.to(playlistId).emit('queue:update', withLegacyId({ playlistId, songs: queue.getSongs() }));
         }
         io.to(playlistId).emit('request:fulfilled', {
           request,
@@ -308,7 +309,7 @@ export function createReactions({
           message: `"${pub.title}" is now in the library${alreadyQueued ? '' : ' and was added to the queue'} (requested by ${request.requested_by})`
         });
       } catch (err) {
-        console.error(`[library] could not add fulfilled request to lobby ${playlistId}:`, (err as Error).message);
+        console.error(`[library] could not add fulfilled request to playlist ${playlistId}:`, (err as Error).message);
       }
     }
   }

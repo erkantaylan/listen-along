@@ -147,7 +147,7 @@ describe('listen along against a running server', { timeout: 60_000 }, () => {
     privId = ((await r.json()) as { id: string }).id;
     assert.ok(privId);
     const seen = next(s.A, 'people:now-playing', d => d.userId === U.C);
-    play(s.C, { position: 30, context: { type: 'lobby', lobbyId: privId } });
+    play(s.C, { position: 30, context: { type: 'playlist', playlistId: privId } });
     assert.notEqual(await seen, 'timeout');
   });
 
@@ -177,7 +177,7 @@ describe('listen along against a running server', { timeout: 60_000 }, () => {
 
   it('follows the leader live: seek, pause, track change', async () => {
     let sync = next(s.B, 'listen:sync');
-    play(s.C, { position: 95, context: { type: 'lobby', lobbyId: privId } });
+    play(s.C, { position: 95, context: { type: 'playlist', playlistId: privId } });
     let got = await sync;
     assert.equal(got.position, 95);
     assert.ok(!JSON.stringify(got).includes(privId));

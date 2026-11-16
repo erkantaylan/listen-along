@@ -41,7 +41,7 @@ export interface SongRequest {
   title: string | null;
   artist: string | null;
   requested_by: string;
-  lobby_id: string | null;
+  playlist_id: string | null;
   status: RequestStatus;
   song_id: string | null;
   created_at: Date;
@@ -56,7 +56,7 @@ function toPublic(row: SongRequestRow): SongRequest {
     title: row.title || null,
     artist: row.artist || null,
     requested_by: row.requested_by,
-    lobby_id: row.playlist_id || null,
+    playlist_id: row.playlist_id || null,
     status: row.status,
     song_id: row.song_id || null,
     created_at: row.created_at,
