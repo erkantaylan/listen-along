@@ -1,7 +1,7 @@
 'use strict';
 
 // Self-update fixtures shared by update.test.js and worker.test.js: a bundle
-// in the server's format (backend/src/cliRelease.js) and a pretend install.
+// in the server's format (backend/src/core/jobs/cliRelease.ts) and a pretend install.
 // Not a test file itself.
 
 const crypto = require('crypto');
@@ -10,7 +10,7 @@ const path = require('path');
 const zlib = require('zlib');
 const { tmpDir } = require('./helpers');
 
-/** A bundle in the server's format (backend/src/cliRelease.js). */
+/** A bundle in the server's format (backend/src/core/jobs/cliRelease.ts). */
 function makeBundle(version, extra = {}, { omit = [], doc: patchDoc } = {}) {
   const files = {
     'bin/la.js': { data: `#!/usr/bin/env node\n// la ${version}\n`, mode: 0o755 },

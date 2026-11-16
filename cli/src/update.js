@@ -2,7 +2,7 @@
 
 /**
  * Self-update: the server ships the la it was built with (backend
- * cliRelease.js) and offers it as one bundle:
+ * core/jobs/cliRelease.ts) and offers it as one bundle:
  *
  *   GET /api/cli/latest -> { version, sha256, size, url }
  *   GET <url>           -> gzip(JSON { format: 'la-cli-bundle', format_version: 1,

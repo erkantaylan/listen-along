@@ -6,7 +6,7 @@
  *
  * Transport: one WebSocket to <server>/api/workers/connect (Node's built-in
  * WebSocket, Node >= 22; no dependencies). JSON messages; the protocol is
- * documented in backend/src/workerHub.js. The token goes in the first
+ * documented in backend/src/core/jobs/workerHub.ts (types: protocol.ts). The token goes in the first
  * message (hello), not the URL, so it never lands in proxy access logs.
  *
  * Reconnects with exponential backoff (1s .. 60s, jittered) after any drop,
